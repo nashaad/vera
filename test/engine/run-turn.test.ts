@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
+import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("one prompt streams assistant text and finishes the turn", async () => {
@@ -17,7 +18,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     const channel = createInProcessChannel();
     const state: RunTurnState = {
         messages: [],
-        workspace: process.cwd(),
+        toolRuntime: new ToolRuntime(process.cwd()),
         seq: 0,
     };
 
@@ -79,7 +80,7 @@ test("a bash tool call runs and continues the model turn", async () => {
     const channel = createInProcessChannel();
     const state: RunTurnState = {
         messages: [],
-        workspace: process.cwd(),
+        toolRuntime: new ToolRuntime(process.cwd()),
         seq: 0,
     };
 

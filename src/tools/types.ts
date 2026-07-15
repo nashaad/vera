@@ -1,8 +1,5 @@
 import type { ModelTool } from "../model/types.ts";
-
-export interface ToolExecutionContext {
-    readonly workspace: string;
-}
+import type { ToolRuntime } from "./runtime.ts";
 
 export interface ToolExecutionResult {
     readonly output: string;
@@ -13,6 +10,6 @@ export interface RegisteredTool {
     readonly definition: ModelTool;
     execute(
         input: Readonly<Record<string, unknown>>,
-        context: ToolExecutionContext,
+        context: ToolRuntime,
     ): Promise<ToolExecutionResult>;
 }

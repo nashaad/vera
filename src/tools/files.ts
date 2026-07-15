@@ -18,8 +18,11 @@ export const readTool: RegisteredTool = {
     },
     async execute(input, context) {
         const path = requiredString(input, "path", "read");
+        const safePath = await resolveReadPath(context.workspace, path);
+        const content = await Bun.file(safePath).text();
+        context.recordFileSnapshot(safePath, content);
         return {
-            output: await readFileInWorkspace(context.workspace, path),
+            output: content,
             isError: false,
         };
     },
@@ -42,32 +45,19 @@ export const writeTool: RegisteredTool = {
     async execute(input, context) {
         const path = requiredString(input, "path", "write");
         const content = requiredString(input, "content", "write");
-        return {
-            output: await writeFileInWorkspace(context.workspace, path, content),
-            isError: false,
-        };
+        return context.enqueueFileMutation(async () => {
+            const safePath = await safeWritePath(context.workspace, path);
+            const bytesWritten = await Bun.write(safePath, content);
+            context.recordFileSnapshot(safePath, content);
+            return {
+                output: `Wrote ${bytesWritten} bytes to ${path}`,
+                isError: false,
+            };
+        });
     },
 };
 
-export async function readFileInWorkspace(
-    workspace: string,
-    requestedPath: string,
-): Promise<string> {
-    const safePath = await safeReadPath(workspace, requestedPath);
-    return Bun.file(safePath).text();
-}
-
-export async function writeFileInWorkspace(
-    workspace: string,
-    requestedPath: string,
-    content: string,
-): Promise<string> {
-    const safePath = await safeWritePath(workspace, requestedPath);
-    const bytesWritten = await Bun.write(safePath, content);
-    return `Wrote ${bytesWritten} bytes to ${requestedPath}`;
-}
-
-async function safeReadPath(
+export async function resolveReadPath(
     workspace: string,
     requestedPath: string,
 ): Promise<string> {

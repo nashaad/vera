@@ -7,10 +7,11 @@ import type {
 import type { FrameEndpoint } from "../rpc/in-process-channel.ts";
 import type { AgentFrame, ClientFrame } from "../rpc/frames.ts";
 import { availableTools, executeToolCall } from "../tools/execute.ts";
+import { ToolRuntime } from "../tools/runtime.ts";
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
-    readonly workspace: string;
+    readonly toolRuntime: ToolRuntime;
     seq: number;
 }
 
@@ -21,7 +22,7 @@ export async function runHeadlessLoop(
 ): Promise<void> {
     const state: RunTurnState = {
         messages: [],
-        workspace: process.cwd(),
+        toolRuntime: new ToolRuntime(process.cwd()),
         seq: 0,
     };
 
@@ -84,7 +85,7 @@ export async function runTurn(
                     seq: state.seq,
                 });
 
-                const result = await executeToolCall(block, state.workspace);
+                const result = await executeToolCall(block, state.toolRuntime);
                 state.messages.push(result);
 
                 state.seq += 1;
