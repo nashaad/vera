@@ -1,0 +1,49 @@
+import { expect, test } from "bun:test";
+
+import {
+    isTranscriptSelection,
+    type SelectionEntryNode,
+    type SelectionTreeNode,
+    type TranscriptSelection,
+} from "../../src/tui/selection.ts";
+
+const entry: SelectionEntryNode = {
+    parent: null,
+    x: 2,
+    y: 3,
+    width: 20,
+    height: 2,
+};
+
+const markdownChild: SelectionTreeNode = { parent: entry };
+
+test("TUI selection accepts selectable children inside one transcript entry", () => {
+    const selection: TranscriptSelection = {
+        anchor: { x: 3, y: 3 },
+        focus: { x: 12, y: 4 },
+        selectedRenderables: [markdownChild],
+    };
+
+    expect(isTranscriptSelection(selection, [entry])).toBe(true);
+});
+
+test("TUI selection rejects a drag ending outside transcript entries", () => {
+    const selection: TranscriptSelection = {
+        anchor: { x: 3, y: 3 },
+        focus: { x: 12, y: 7 },
+        selectedRenderables: [markdownChild],
+    };
+
+    expect(isTranscriptSelection(selection, [entry])).toBe(false);
+});
+
+test("TUI selection rejects selected text from outside transcript entries", () => {
+    const composerNode: SelectionTreeNode = { parent: null };
+    const selection: TranscriptSelection = {
+        anchor: { x: 3, y: 3 },
+        focus: { x: 12, y: 4 },
+        selectedRenderables: [markdownChild, composerNode],
+    };
+
+    expect(isTranscriptSelection(selection, [entry])).toBe(false);
+});
