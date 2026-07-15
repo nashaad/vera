@@ -10,9 +10,16 @@ import {
     OpenRouterAdapter,
     type SendOpenRouterChat,
 } from "../../src/model/openrouter.ts";
+import { normalizeOpenRouterToolCallId } from "../../src/model/openrouter-wire.ts";
 import type { ModelStreamEvent } from "../../src/model/types.ts";
 
 describe("OpenRouter adapter", () => {
+    test("normalizes tool call characters without truncating IDs", () => {
+        const id = `call:${"a".repeat(80)}`;
+
+        expect(normalizeOpenRouterToolCallId(id)).toBe(`call_${"a".repeat(80)}`);
+    });
+
     test("normalizes a stream and returns the completed assistant message", async () => {
         const sendChat: SendOpenRouterChat = async (request) => {
             expect(request.messages).toEqual([

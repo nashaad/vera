@@ -75,7 +75,7 @@ export function encodeOpenRouterMessages(
 }
 
 export function normalizeOpenRouterToolCallId(id: string): string {
-    return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+    return id.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
 export function openRouterStopReason(reason: string): ModelStopReason {
