@@ -1,0 +1,225 @@
+import {
+    BoxRenderable,
+    MarkdownRenderable,
+    ScrollBoxRenderable,
+    SyntaxStyle,
+    TextareaRenderable,
+    TextRenderable,
+    createCliRenderer,
+} from "@opentui/core";
+
+import { runHeadlessLoop } from "./engine/run-turn.ts";
+import { createOpenRouterAdapter } from "./model/openrouter.ts";
+import { createInProcessChannel } from "./rpc/in-process-channel.ts";
+import {
+    TUI_ACCENT,
+    TUI_MUTED,
+    TUI_TEXT,
+    appendTuiNotice,
+    applyAgentFrame,
+    beginTuiTurn,
+    createTuiState,
+    renderTuiEntry,
+} from "./tui/state.ts";
+
+const apiKey = process.env.OPENROUTER_API_KEY;
+const model = process.env.OPENROUTER_MODEL;
+
+if (!apiKey) {
+    throw new Error("OPENROUTER_API_KEY is required");
+}
+
+if (!model) {
+    throw new Error("OPENROUTER_MODEL is required");
+}
+
+const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
+const WORKING_HINT = "working…";
+
+const renderer = await createCliRenderer({
+    exitOnCtrlC: true,
+    targetFps: 30,
+});
+renderer.setTerminalTitle("Vera");
+
+const channel = createInProcessChannel();
+const adapter = createOpenRouterAdapter({ apiKey });
+let state = createTuiState();
+
+const markdownStyle = SyntaxStyle.fromStyles({
+    default: { fg: TUI_TEXT },
+    "markup.heading": { fg: TUI_ACCENT, bold: true },
+    "markup.strong": { bold: true },
+    "markup.italic": { italic: true },
+    "markup.raw": { fg: "#9ECE6A" },
+    "markup.raw.block": { fg: "#9ECE6A" },
+    "markup.list": { fg: TUI_ACCENT },
+    "markup.quote": { fg: TUI_MUTED, italic: true },
+    "markup.link": { fg: TUI_ACCENT, underline: true },
+    "markup.link.label": { fg: TUI_ACCENT },
+    "markup.link.url": { fg: TUI_MUTED, underline: true },
+    conceal: { fg: TUI_MUTED },
+});
+
+const transcript = new ScrollBoxRenderable(renderer, {
+    id: "transcript",
+    flexGrow: 1,
+    width: "100%",
+    stickyScroll: true,
+    stickyStart: "bottom",
+    scrollY: true,
+    contentOptions: {
+        flexDirection: "column",
+        gap: 1,
+        paddingTop: 1,
+        paddingBottom: 1,
+        paddingLeft: 2,
+        paddingRight: 2,
+    },
+});
+
+const placeholder = new TextRenderable(renderer, {
+    id: "placeholder",
+    content: "Start a conversation with Vera.",
+    fg: TUI_MUTED,
+    width: "100%",
+});
+transcript.add(placeholder);
+
+const entryNodes: (TextRenderable | MarkdownRenderable)[] = [];
+
+const statusText = new TextRenderable(renderer, {
+    id: "status",
+    content: READY_HINT,
+    fg: "#565B66",
+    width: "100%",
+    height: 1,
+    paddingLeft: 2,
+});
+
+const composer = new TextareaRenderable(renderer, {
+    id: "composer",
+    width: "100%",
+    height: 3,
+    placeholder: "Message Vera…",
+    backgroundColor: "#16161E",
+    focusedBackgroundColor: "#16161E",
+    textColor: "#F0F0F0",
+    focusedTextColor: "#FFFFFF",
+    cursorColor: "#7AA2F7",
+    keyBindings: [
+        { name: "return", action: "submit" },
+        { name: "kpenter", action: "submit" },
+        { name: "return", shift: true, action: "newline" },
+        { name: "kpenter", shift: true, action: "newline" },
+    ],
+    onSubmit: () => {
+        void submitPrompt();
+    },
+});
+
+const composerBox = new BoxRenderable(renderer, {
+    id: "composer-box",
+    border: ["left"],
+    borderStyle: "heavy",
+    borderColor: "#7AA2F7",
+    backgroundColor: "#16161E",
+    width: "100%",
+    height: 3,
+    paddingX: 1,
+});
+composerBox.add(composer);
+
+const app = new BoxRenderable(renderer, {
+    id: "app",
+    width: "100%",
+    height: "100%",
+    flexDirection: "column",
+    gap: 1,
+    paddingTop: 1,
+    paddingBottom: 0,
+});
+app.add(transcript);
+app.add(composerBox);
+app.add(statusText);
+renderer.root.add(app);
+composer.focus();
+
+void runHeadlessLoop(channel.engine, adapter, model).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    state = appendTuiNotice(state, `Engine error: ${message}`);
+    renderState();
+});
+
+async function submitPrompt(): Promise<void> {
+    if (state.working) {
+        return;
+    }
+
+    const prompt = composer.plainText.trim();
+    if (prompt.length === 0) {
+        return;
+    }
+
+    composer.setText("");
+    composer.blur();
+    state = beginTuiTurn(state, prompt);
+    renderState();
+    channel.client.send({ type: "prompt", content: prompt });
+
+    while (true) {
+        const frame = await channel.client.receive();
+        state = applyAgentFrame(state, frame);
+        renderState();
+
+        if (frame.type === "turn_finished") {
+            composer.focus();
+            return;
+        }
+    }
+}
+
+function renderState(): void {
+    placeholder.visible = state.entries.length === 0;
+
+    state.entries.forEach((entry, index) => {
+        const existing = entryNodes[index];
+        if (existing) {
+            if (
+                existing instanceof MarkdownRenderable &&
+                existing.content !== entry.text
+            ) {
+                existing.content = entry.text;
+            }
+            return;
+        }
+
+        const node = entry.kind === "assistant"
+            ? new MarkdownRenderable(renderer, {
+                id: `entry-${index}`,
+                content: entry.text,
+                syntaxStyle: markdownStyle,
+                fg: TUI_TEXT,
+                streaming: true,
+                width: "100%",
+            })
+            : new TextRenderable(renderer, {
+                id: `entry-${index}`,
+                content: renderTuiEntry(entry),
+                width: "100%",
+                wrapMode: "word",
+                selectable: true,
+            });
+        entryNodes.push(node);
+        transcript.add(node);
+    });
+
+    if (!state.working) {
+        const lastNode = entryNodes.at(-1);
+        if (lastNode instanceof MarkdownRenderable) {
+            lastNode.streaming = false;
+        }
+    }
+
+    statusText.content = state.working ? WORKING_HINT : READY_HINT;
+}
