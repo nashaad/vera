@@ -1,6 +1,12 @@
 import { OpenRouter } from "@openrouter/sdk";
 
+import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
+import {
+    DEFAULT_PROVIDER_RETRY_POLICY,
+    retryBeforeStreamStart,
+    type WaitForRetry,
+} from "./retry.ts";
 import { ModelEventStream } from "./stream.ts";
 import { transformMessages } from "./transform.ts";
 import {
@@ -21,11 +27,20 @@ export interface OpenRouterAdapterOptions {
     readonly apiKey: string;
 }
 
+export interface OpenRouterAdapterDependencies {
+    readonly waitForRetry?: WaitForRetry;
+}
+
 export class OpenRouterAdapter implements ModelAdapter {
     private readonly sendChat: SendOpenRouterChat;
+    private readonly waitForRetry?: WaitForRetry;
 
-    constructor(sendChat: SendOpenRouterChat) {
+    constructor(
+        sendChat: SendOpenRouterChat,
+        dependencies: OpenRouterAdapterDependencies = {},
+    ) {
         this.sendChat = sendChat;
+        this.waitForRetry = dependencies.waitForRetry;
     }
 
     stream(request: ModelRequest): ModelEventStream {
@@ -49,21 +64,33 @@ export class OpenRouterAdapter implements ModelAdapter {
                 target: source,
                 normalizeToolCallId: normalizeOpenRouterToolCallId,
             });
-            const chunks = await this.sendChat(
-                {
-                    model: request.model,
-                    messages: encodeOpenRouterMessages(request.systemPrompt, messages),
-                    ...(request.tools === undefined
-                        ? {}
-                        : { tools: encodeOpenRouterTools(request.tools) }),
-                },
-                request.signal,
-            );
+            const providerRequest = {
+                model: request.model,
+                messages: encodeOpenRouterMessages(request.systemPrompt, messages),
+                ...(request.tools === undefined
+                    ? {}
+                    : { tools: encodeOpenRouterTools(request.tools) }),
+            };
 
-            for await (const chunk of chunks) {
-                throwIfAborted(request.signal);
-                decoder.accept(chunk);
-            }
+            await retryBeforeStreamStart(
+                async (markStreamStarted) => {
+                    const chunks = await this.sendChat(providerRequest, request.signal);
+
+                    for await (const chunk of chunks) {
+                        throwIfAborted(request.signal);
+                        markStreamStarted();
+                        decoder.accept(chunk);
+                    }
+                },
+                {
+                    policy: DEFAULT_PROVIDER_RETRY_POLICY,
+                    classifyFailure: classifyOpenRouterError,
+                    signal: request.signal,
+                    ...(this.waitForRetry === undefined
+                        ? {}
+                        : { wait: this.waitForRetry }),
+                },
+            );
 
             const message = decoder.finish();
             if (message.stopReason === "error") {
@@ -91,7 +118,10 @@ export class OpenRouterAdapter implements ModelAdapter {
 export function createOpenRouterAdapter(
     options: OpenRouterAdapterOptions,
 ): OpenRouterAdapter {
-    const client = new OpenRouter({ apiKey: options.apiKey });
+    const client = new OpenRouter({
+        apiKey: options.apiKey,
+        retryConfig: { strategy: "none" },
+    });
 
     return new OpenRouterAdapter(async (request, signal) => {
         return client.chat.send(
