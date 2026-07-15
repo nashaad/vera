@@ -169,6 +169,31 @@ describe("OpenRouter adapter", () => {
         });
     });
 
+    test("omits responseModel when the provider returns the requested model", async () => {
+        const sendChat: SendOpenRouterChat = async (request) => {
+            expect(request.tools).toBeUndefined();
+            return chunks([
+                chatChunk({ model: "test/model", delta: {}, finishReason: "stop" }),
+            ]);
+        };
+        const adapter = new OpenRouterAdapter(sendChat);
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+            tools: [],
+        });
+
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+
+        expect((await stream.result()).source).toEqual({
+            provider: "openrouter",
+            api: "openrouter-chat",
+            model: "test/model",
+        });
+    });
+
     test("does not call the provider when already aborted", async () => {
         let called = false;
         const adapter = new OpenRouterAdapter(async () => {

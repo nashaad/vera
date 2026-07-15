@@ -192,7 +192,9 @@ export class OpenRouterStreamDecoder {
         stopReason: ModelStopReason,
         errorMessage?: string,
     ): AssistantMessage {
-        const responseModel = this.responseModel;
+        const responseModel = this.responseModel === this.source.model
+            ? undefined
+            : this.responseModel;
         return {
             role: "assistant",
             content: this.content.filter((block) => block !== undefined),
