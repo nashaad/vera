@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
-import { FauxAdapter } from "../../src/model/faux.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
+import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("one prompt streams assistant text and finishes the turn", async () => {
     const response: AssistantMessage = {

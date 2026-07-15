@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { FauxAdapter } from "../../src/model/faux.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("faux adapter streams scripted blocks in deterministic chunks", async () => {
     const response: AssistantMessage = {

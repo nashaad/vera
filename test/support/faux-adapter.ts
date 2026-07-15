@@ -1,4 +1,4 @@
-import { ModelEventStream } from "./stream.ts";
+import { ModelEventStream } from "../../src/model/stream.ts";
 import {
     emptyUsage,
     type AssistantContent,
@@ -6,7 +6,7 @@ import {
     type ModelAdapter,
     type ModelRequest,
     type ToolCallContent,
-} from "./types.ts";
+} from "../../src/model/types.ts";
 
 export interface FauxAdapterOptions {
     readonly chunkSize?: number;
