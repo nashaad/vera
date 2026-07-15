@@ -1,19 +1,24 @@
 import {
     BoxRenderable,
+    CliRenderEvents,
     MarkdownRenderable,
     ScrollBoxRenderable,
     SyntaxStyle,
     TextareaRenderable,
     TextRenderable,
     createCliRenderer,
+    type Selection,
 } from "@opentui/core";
 
 import { runHeadlessLoop } from "./engine/run-turn.ts";
 import { createOpenRouterAdapter } from "./model/openrouter.ts";
 import { createInProcessChannel } from "./rpc/in-process-channel.ts";
+import { copyTuiText, countTuiCharacters } from "./tui/clipboard.ts";
+import { isTranscriptSelection } from "./tui/selection.ts";
 import {
     TUI_ACCENT,
     TUI_MUTED,
+    TUI_NOTICE,
     TUI_TEXT,
     appendTuiNotice,
     applyAgentFrame,
@@ -35,6 +40,7 @@ if (!model) {
 
 const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
 const WORKING_HINT = "working…";
+const COPY_NOTICE_DURATION_MS = 1_500;
 
 const renderer = await createCliRenderer({
     exitOnCtrlC: true,
@@ -45,6 +51,8 @@ renderer.setTerminalTitle("Vera");
 const channel = createInProcessChannel();
 const adapter = createOpenRouterAdapter({ apiKey });
 let state = createTuiState();
+let statusNotice: string | undefined;
+let statusNoticeVersion = 0;
 
 const markdownStyle = SyntaxStyle.fromStyles({
     default: { fg: TUI_TEXT },
@@ -145,6 +153,12 @@ app.add(statusText);
 renderer.root.add(app);
 composer.focus();
 
+renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
+    if (isTranscriptSelection(selection, entryNodes)) {
+        void copyTranscriptSelection(selection);
+    }
+});
+
 void runHeadlessLoop(channel.engine, adapter, model).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     state = appendTuiNotice(state, `Engine error: ${message}`);
@@ -221,5 +235,45 @@ function renderState(): void {
         }
     }
 
-    statusText.content = state.working ? WORKING_HINT : READY_HINT;
+    renderStatus();
+}
+
+async function copyTranscriptSelection(selection: Selection): Promise<void> {
+    const text = selection.getSelectedText();
+    if (text.length === 0) {
+        return;
+    }
+
+    try {
+        await copyTuiText(text, renderer);
+        if (renderer.getSelection() === selection) {
+            renderer.clearSelection();
+        }
+        const count = countTuiCharacters(text);
+        showStatusNotice(`copied ${count} character${count === 1 ? "" : "s"}`);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        showStatusNotice(`copy failed · ${message}`);
+    }
+}
+
+function showStatusNotice(message: string): void {
+    statusNotice = message;
+    statusNoticeVersion += 1;
+    const version = statusNoticeVersion;
+    renderStatus();
+
+    setTimeout(() => {
+        if (statusNoticeVersion !== version) {
+            return;
+        }
+        statusNotice = undefined;
+        renderStatus();
+    }, COPY_NOTICE_DURATION_MS);
+}
+
+function renderStatus(): void {
+    statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
+    statusText.content = statusNotice
+        ?? (state.working ? WORKING_HINT : READY_HINT);
 }
