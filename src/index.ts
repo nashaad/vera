@@ -1,4 +1,5 @@
 export * from "./engine/run-turn.ts";
+export * from "./instances/directory.ts";
 export * from "./model/openrouter.ts";
 export * from "./model/stream.ts";
 export * from "./model/transform.ts";

@@ -1,6 +1,9 @@
 {
   "name": "vera",
   "module": "src/index.ts",
+  "bin": {
+    "vera": "./src/cli.ts"
+  },
   "type": "module",
   "private": true,
   "scripts": {

@@ -11,6 +11,7 @@ import {
 } from "@opentui/core";
 
 import { runHeadlessLoop } from "./engine/run-turn.ts";
+import { createInstanceDirectory } from "./instances/directory.ts";
 import { createOpenRouterAdapter } from "./model/openrouter.ts";
 import { createInProcessChannel } from "./rpc/in-process-channel.ts";
 import { copyTuiText, countTuiCharacters } from "./tui/clipboard.ts";
@@ -154,8 +155,14 @@ app.add(statusText);
 renderer.root.add(app);
 composer.focus();
 
+const presence = createInstanceDirectory().register({
+    client: "tui",
+    workspacePath: process.cwd(),
+});
+
 renderer.on(CliRenderEvents.DESTROY, () => {
     shuttingDown = true;
+    presence.remove();
 });
 
 renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
