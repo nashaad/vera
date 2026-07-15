@@ -5,11 +5,13 @@ import type {
     ChatStreamDelta,
     ChatUsage,
 } from "@openrouter/sdk/models";
+import { ConnectionError } from "@openrouter/sdk/models/errors";
 
 import {
     OpenRouterAdapter,
     type SendOpenRouterChat,
 } from "../../src/model/openrouter.ts";
+import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 import { normalizeOpenRouterToolCallId } from "../../src/model/openrouter-wire.ts";
 import type { ModelStreamEvent } from "../../src/model/types.ts";
 
@@ -189,6 +191,151 @@ describe("OpenRouter adapter", () => {
         expect((await stream.result()).stopReason).toBe("aborted");
     });
 
+    test("retries a transient failure before the stream starts", async () => {
+        let attempts = 0;
+        const delays: number[] = [];
+        const adapter = new OpenRouterAdapter(
+            async () => {
+                attempts += 1;
+                if (attempts === 1) {
+                    throw new ConnectionError("disconnected");
+                }
+                return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
+            },
+            {
+                waitForRetry: async (delayMs) => {
+                    delays.push(delayMs);
+                },
+            },
+        );
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+        });
+
+        const events: ModelStreamEvent[] = [];
+        for await (const event of stream) {
+            events.push(event);
+        }
+
+        expect(events.map((event) => event.type)).toEqual(["start", "done"]);
+        expect((await stream.result()).stopReason).toBe("stop");
+        expect(attempts).toBe(2);
+        expect(delays).toEqual([500]);
+    });
+
+    test("returns an error after exhausting transient retries", async () => {
+        let attempts = 0;
+        const delays: number[] = [];
+        const adapter = new OpenRouterAdapter(
+            async () => {
+                attempts += 1;
+                throw new ConnectionError(`disconnected ${attempts}`);
+            },
+            {
+                waitForRetry: async (delayMs) => {
+                    delays.push(delayMs);
+                },
+            },
+        );
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+        });
+
+        const events: ModelStreamEvent[] = [];
+        for await (const event of stream) {
+            events.push(event);
+        }
+
+        expect(events.map((event) => event.type)).toEqual(["start", "error"]);
+        const errorEvent = events.at(-1);
+        expect(errorEvent?.type).toBe("error");
+        if (errorEvent?.type === "error") {
+            expect(errorEvent.error).toBeInstanceOf(ProviderFailureError);
+            expect(errorEvent.error).toMatchObject({
+                failure: {
+                    kind: "connection",
+                    resolution: "retry",
+                },
+            });
+        }
+        expect(await stream.result()).toMatchObject({
+            stopReason: "error",
+            errorMessage: "disconnected 3",
+        });
+        expect(attempts).toBe(3);
+        expect(delays).toEqual([500, 1000]);
+    });
+
+    test("does not retry a transient failure after receiving partial content", async () => {
+        let attempts = 0;
+        const adapter = new OpenRouterAdapter(
+            async () => {
+                attempts += 1;
+                return partialThenError();
+            },
+            {
+                waitForRetry: async () => {
+                    throw new Error("wait should not be called");
+                },
+            },
+        );
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+        });
+
+        const events: ModelStreamEvent[] = [];
+        for await (const event of stream) {
+            events.push(event);
+        }
+
+        expect(events.map((event) => event.type)).toEqual([
+            "start",
+            "text_start",
+            "text_delta",
+            "error",
+        ]);
+        expect(await stream.result()).toMatchObject({
+            content: [{ type: "text", text: "partial" }],
+            stopReason: "error",
+            errorMessage: "stream disconnected",
+        });
+        expect(attempts).toBe(1);
+    });
+
+    test("does not retry when aborted during backoff", async () => {
+        let attempts = 0;
+        const controller = new AbortController();
+        const adapter = new OpenRouterAdapter(
+            async () => {
+                attempts += 1;
+                throw new ConnectionError("disconnected");
+            },
+            {
+                waitForRetry: async () => {
+                    controller.abort(new Error("stop now"));
+                },
+            },
+        );
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+            signal: controller.signal,
+        });
+
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+
+        expect(await stream.result()).toMatchObject({
+            stopReason: "aborted",
+            errorMessage: "stop now",
+        });
+        expect(attempts).toBe(1);
+    });
+
     test("returns partial content as an error when the stream ends without a finish reason", async () => {
         const adapter = new OpenRouterAdapter(async () => {
             return chunks([chatChunk({ delta: { content: "partial" } })]);
@@ -353,4 +500,9 @@ function chatChunk(options: ChatChunkOptions): ChatStreamChunk {
         ],
         ...(options.usage === undefined ? {} : { usage: options.usage }),
     };
+}
+
+async function* partialThenError(): AsyncIterable<ChatStreamChunk> {
+    yield chatChunk({ delta: { content: "partial" } });
+    throw new ConnectionError("stream disconnected");
 }
