@@ -6,3 +6,5 @@ export * from "./model/types.ts";
 export * from "./rpc/frames.ts";
 export * from "./rpc/in-process-channel.ts";
 export * from "./tools/bash.ts";
+export * from "./tools/files.ts";
+export * from "./tools/types.ts";

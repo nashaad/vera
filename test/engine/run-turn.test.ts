@@ -15,7 +15,11 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     };
     const adapter = new FauxAdapter([response], { chunkSize: 2 });
     const channel = createInProcessChannel();
-    const state: RunTurnState = { messages: [], seq: 0 };
+    const state: RunTurnState = {
+        messages: [],
+        workspace: process.cwd(),
+        seq: 0,
+    };
 
     channel.client.send({ type: "prompt", content: "say hi" });
     const turn = runTurn(channel.engine, adapter, "test", state);
@@ -73,7 +77,11 @@ test("a bash tool call runs and continues the model turn", async () => {
     };
     const adapter = new FauxAdapter([toolCallResponse, finalResponse]);
     const channel = createInProcessChannel();
-    const state: RunTurnState = { messages: [], seq: 0 };
+    const state: RunTurnState = {
+        messages: [],
+        workspace: process.cwd(),
+        seq: 0,
+    };
 
     channel.client.send({ type: "prompt", content: "run ls" });
     const turn = runTurn(channel.engine, adapter, "test", state);

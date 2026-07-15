@@ -2,16 +2,15 @@ import type {
     AssistantMessage,
     ModelAdapter,
     ModelMessage,
-    ToolCallContent,
-    ToolResultMessage,
     UserMessage,
 } from "../model/types.ts";
 import type { FrameEndpoint } from "../rpc/in-process-channel.ts";
 import type { AgentFrame, ClientFrame } from "../rpc/frames.ts";
-import { bashTool, runBash } from "../tools/bash.ts";
+import { availableTools, executeToolCall } from "../tools/execute.ts";
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
+    readonly workspace: string;
     seq: number;
 }
 
@@ -20,7 +19,11 @@ export async function runHeadlessLoop(
     adapter: ModelAdapter,
     model: string,
 ): Promise<void> {
-    const state: RunTurnState = { messages: [], seq: 0 };
+    const state: RunTurnState = {
+        messages: [],
+        workspace: process.cwd(),
+        seq: 0,
+    };
 
     while (true) {
         await runTurn(endpoint, adapter, model, state);
@@ -50,7 +53,7 @@ export async function runTurn(
         const stream = adapter.stream({
             model,
             messages: state.messages,
-            tools: [bashTool],
+            tools: availableTools,
         });
 
         for await (const event of stream) {
@@ -73,8 +76,23 @@ export async function runTurn(
 
         for (const block of assistantMessage.content) {
             if (block.type === "tool_call") {
-                const result = await executeTool(endpoint, state, block);
+                state.seq += 1;
+                endpoint.send({
+                    type: "tool_started",
+                    tool: block.name,
+                    args: block.input,
+                    seq: state.seq,
+                });
+
+                const result = await executeToolCall(block, state.workspace);
                 state.messages.push(result);
+
+                state.seq += 1;
+                endpoint.send({
+                    type: "tool_finished",
+                    tool: block.name,
+                    seq: state.seq,
+                });
             }
         }
     }
@@ -82,48 +100,4 @@ export async function runTurn(
     state.seq += 1;
     endpoint.send({ type: "turn_finished", seq: state.seq });
     return assistantMessage;
-}
-
-async function executeTool(
-    endpoint: FrameEndpoint<AgentFrame, ClientFrame>,
-    state: RunTurnState,
-    toolCall: ToolCallContent,
-): Promise<ToolResultMessage> {
-    state.seq += 1;
-    endpoint.send({
-        type: "tool_started",
-        tool: toolCall.name,
-        args: toolCall.input,
-        seq: state.seq,
-    });
-
-    let output: string;
-    let isError: boolean;
-
-    if (toolCall.name !== "bash") {
-        output = `Unknown tool: ${toolCall.name}`;
-        isError = true;
-    } else if (typeof toolCall.input.command !== "string") {
-        output = "Bash tool requires a string command";
-        isError = true;
-    } else {
-        const result = await runBash(toolCall.input.command);
-        output = result.output;
-        isError = result.isError;
-    }
-
-    state.seq += 1;
-    endpoint.send({
-        type: "tool_finished",
-        tool: toolCall.name,
-        seq: state.seq,
-    });
-
-    return {
-        role: "tool_result",
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        content: [{ type: "text", text: output }],
-        isError,
-    };
 }
