@@ -1,15 +1,22 @@
 import type {
     ChatMessages,
+    ChatFunctionTool,
     ChatStreamChunk,
     ChatUsage,
     ReasoningDetailUnion,
 } from "@openrouter/sdk/models";
 
-import type { ModelMessage, ModelStopReason, ModelUsage } from "./types.ts";
+import type {
+    ModelMessage,
+    ModelStopReason,
+    ModelTool,
+    ModelUsage,
+} from "./types.ts";
 
 export interface OpenRouterChatRequest {
     readonly model: string;
     readonly messages: ChatMessages[];
+    readonly tools?: ChatFunctionTool[];
 }
 
 export type SendOpenRouterChat = (
@@ -72,6 +79,19 @@ export function encodeOpenRouterMessages(
     }
 
     return encoded;
+}
+
+export function encodeOpenRouterTools(
+    tools: readonly ModelTool[],
+): ChatFunctionTool[] {
+    return tools.map((tool) => ({
+        type: "function",
+        function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputSchema,
+        },
+    }));
 }
 
 export function normalizeOpenRouterToolCallId(id: string): string {

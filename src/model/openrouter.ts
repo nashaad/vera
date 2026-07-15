@@ -5,6 +5,7 @@ import { ModelEventStream } from "./stream.ts";
 import { transformMessages } from "./transform.ts";
 import {
     encodeOpenRouterMessages,
+    encodeOpenRouterTools,
     normalizeOpenRouterToolCallId,
     type SendOpenRouterChat,
 } from "./openrouter-wire.ts";
@@ -52,6 +53,9 @@ export class OpenRouterAdapter implements ModelAdapter {
                 {
                     model: request.model,
                     messages: encodeOpenRouterMessages(request.systemPrompt, messages),
+                    ...(request.tools === undefined
+                        ? {}
+                        : { tools: encodeOpenRouterTools(request.tools) }),
                 },
                 request.signal,
             );
@@ -95,6 +99,9 @@ export function createOpenRouterAdapter(
                 chatRequest: {
                     model: request.model,
                     messages: request.messages,
+                    ...(request.tools === undefined
+                        ? {}
+                        : { tools: request.tools }),
                     stream: true,
                 },
             },
