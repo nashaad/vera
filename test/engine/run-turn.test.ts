@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { runTurn } from "../../src/engine/run-turn.ts";
+import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { FauxAdapter } from "../../src/model/faux.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
@@ -15,9 +15,10 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     };
     const adapter = new FauxAdapter([response], { chunkSize: 2 });
     const channel = createInProcessChannel();
+    const state: RunTurnState = { messages: [], seq: 0 };
 
     channel.client.send({ type: "prompt", content: "say hi" });
-    const turn = runTurn(channel.engine, adapter, "test");
+    const turn = runTurn(channel.engine, adapter, "test", state);
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
@@ -39,4 +40,11 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         seq: 4,
     });
     expect(await turn).toEqual(response);
+    expect(state.messages).toEqual([
+        {
+            role: "user",
+            content: [{ type: "text", text: "say hi" }],
+        },
+        response,
+    ]);
 });

@@ -1,0 +1,60 @@
+import { createInterface } from "node:readline";
+import { stdin, stdout } from "node:process";
+
+import { runHeadlessLoop } from "./engine/run-turn.ts";
+import { createOpenRouterAdapter } from "./model/openrouter.ts";
+import { createInProcessChannel } from "./rpc/in-process-channel.ts";
+
+const apiKey = process.env.OPENROUTER_API_KEY;
+const model = process.env.OPENROUTER_MODEL;
+
+if (!apiKey) {
+    throw new Error("OPENROUTER_API_KEY is required");
+}
+
+if (!model) {
+    throw new Error("OPENROUTER_MODEL is required");
+}
+
+const adapter = createOpenRouterAdapter({ apiKey });
+const channel = createInProcessChannel();
+const lines = createInterface({
+    input: stdin,
+    output: stdout,
+    prompt: "vera> ",
+});
+
+void runHeadlessLoop(channel.engine, adapter, model);
+lines.prompt();
+
+for await (const line of lines) {
+    const command = line.trim().toLowerCase();
+
+    if (command === "q" || command === "exit") {
+        break;
+    }
+
+    if (command === "") {
+        lines.prompt();
+        continue;
+    }
+
+    channel.client.send({ type: "prompt", content: line });
+
+    while (true) {
+        const frame = await channel.client.receive();
+
+        if (frame.type === "assistant_delta") {
+            stdout.write(frame.text);
+        }
+
+        if (frame.type === "turn_finished") {
+            break;
+        }
+    }
+
+    stdout.write("\n");
+    lines.prompt();
+}
+
+lines.close();
