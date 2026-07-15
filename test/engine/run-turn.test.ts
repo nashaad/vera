@@ -48,3 +48,66 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         response,
     ]);
 });
+
+test("a bash tool call runs and continues the model turn", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: { command: "ls" },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const adapter = new FauxAdapter([toolCallResponse, finalResponse]);
+    const channel = createInProcessChannel();
+    const state: RunTurnState = { messages: [], seq: 0 };
+
+    channel.client.send({ type: "prompt", content: "run ls" });
+    const turn = runTurn(channel.engine, adapter, "test", state);
+
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "ls" },
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_finished",
+        tool: "bash",
+        seq: 2,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "done",
+        seq: 3,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 4,
+    });
+    expect(await turn).toEqual(finalResponse);
+    const toolResult = state.messages[2];
+    expect(toolResult).toMatchObject({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        isError: false,
+    });
+    if (toolResult?.role !== "tool_result") {
+        throw new Error("Expected a tool result message");
+    }
+    expect(toolResult.content[0]?.text).toContain("package.json");
+});

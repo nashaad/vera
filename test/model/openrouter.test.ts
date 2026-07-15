@@ -26,6 +26,19 @@ describe("OpenRouter adapter", () => {
                 { role: "system", content: "Be concise." },
                 { role: "user", content: "hello" },
             ]);
+            expect(request.tools).toEqual([
+                {
+                    type: "function",
+                    function: {
+                        name: "bash",
+                        description: "Run a command.",
+                        parameters: {
+                            type: "object",
+                            properties: { command: { type: "string" } },
+                        },
+                    },
+                },
+            ]);
 
             return chunks([
                 chatChunk({
@@ -82,6 +95,16 @@ describe("OpenRouter adapter", () => {
                 {
                     role: "user",
                     content: [{ type: "text", text: "hello" }],
+                },
+            ],
+            tools: [
+                {
+                    name: "bash",
+                    description: "Run a command.",
+                    inputSchema: {
+                        type: "object",
+                        properties: { command: { type: "string" } },
+                    },
                 },
             ],
         });

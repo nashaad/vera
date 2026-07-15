@@ -67,10 +67,17 @@ export type ModelStopReason =
     | "aborted"
     | "error";
 
+export interface ModelTool {
+    readonly name: string;
+    readonly description: string;
+    readonly inputSchema: Readonly<Record<string, unknown>>;
+}
+
 export interface ModelRequest {
     readonly model: string;
     readonly systemPrompt?: string;
     readonly messages: readonly ModelMessage[];
+    readonly tools?: readonly ModelTool[];
     readonly signal?: AbortSignal;
 }
 
