@@ -99,14 +99,18 @@ export function normalizeOpenRouterToolCallId(id: string): string {
 }
 
 export function openRouterStopReason(reason: string): ModelStopReason {
-    const reasons: Readonly<Record<string, ModelStopReason>> = {
+    const reasons: Readonly<Partial<Record<string, ModelStopReason>>> = {
         stop: "stop",
         length: "length",
         tool_calls: "tool_use",
         content_filter: "content_filter",
         error: "error",
     };
-    return reasons[reason] ?? "stop";
+    const stopReason = reasons[reason];
+    if (stopReason === undefined) {
+        throw new Error(`OpenRouter returned unknown finish_reason: ${reason}`);
+    }
+    return stopReason;
 }
 
 export function openRouterUsage(usage: ChatUsage): ModelUsage {
