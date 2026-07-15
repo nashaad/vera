@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "start": "bun run src/stdio.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
