@@ -36,7 +36,7 @@ export class OpenRouterStreamDecoder {
     private nextContentIndex = 0;
     private textIndex?: number;
     private thinkingIndex?: number;
-    private finishReason: ModelStopReason = "stop";
+    private finishReason?: ModelStopReason;
     private responseModel?: string;
     private usage: ModelUsage = emptyUsage();
 
@@ -76,6 +76,9 @@ export class OpenRouterStreamDecoder {
     }
 
     finish(): AssistantMessage {
+        if (this.finishReason === undefined) {
+            throw new Error("OpenRouter stream ended without finish_reason");
+        }
         if (this.textIndex !== undefined) {
             this.output.push({ type: "text_end", contentIndex: this.textIndex });
         }
