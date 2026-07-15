@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "start": "bun run src/stdio.ts",
+    "tui": "bun run src/tui.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
@@ -14,6 +15,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@openrouter/sdk": "^0.13.55"
+    "@openrouter/sdk": "^0.13.55",
+    "@opentui/core": "^0.2.6"
   }
 }
