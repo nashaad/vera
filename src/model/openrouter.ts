@@ -67,7 +67,7 @@ export class OpenRouterAdapter implements ModelAdapter {
             const providerRequest = {
                 model: request.model,
                 messages: encodeOpenRouterMessages(request.systemPrompt, messages),
-                ...(request.tools === undefined
+                ...(request.tools === undefined || request.tools.length === 0
                     ? {}
                     : { tools: encodeOpenRouterTools(request.tools) }),
             };
@@ -129,7 +129,7 @@ export function createOpenRouterAdapter(
                 chatRequest: {
                     model: request.model,
                     messages: request.messages,
-                    ...(request.tools === undefined
+                    ...(request.tools === undefined || request.tools.length === 0
                         ? {}
                         : { tools: request.tools }),
                     stream: true,
