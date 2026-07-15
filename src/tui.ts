@@ -26,6 +26,7 @@ import {
     beginTuiTurn,
     createTuiState,
     renderTuiEntry,
+    tuiEntryMarginTop,
 } from "./tui/state.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
@@ -80,7 +81,7 @@ const transcript = new ScrollBoxRenderable(renderer, {
     scrollY: true,
     contentOptions: {
         flexDirection: "column",
-        gap: 1,
+        gap: 0,
         paddingTop: 1,
         paddingBottom: 1,
         paddingLeft: 2,
@@ -230,6 +231,7 @@ function renderState(): void {
             return;
         }
 
+        const marginTop = tuiEntryMarginTop(state.entries, index);
         const node = entry.kind === "assistant"
             ? new MarkdownRenderable(renderer, {
                 id: `entry-${index}`,
@@ -238,6 +240,7 @@ function renderState(): void {
                 fg: TUI_TEXT,
                 streaming: true,
                 width: "100%",
+                marginTop,
             })
             : new TextRenderable(renderer, {
                 id: `entry-${index}`,
@@ -245,6 +248,7 @@ function renderState(): void {
                 width: "100%",
                 wrapMode: "word",
                 selectable: true,
+                marginTop,
             });
         entryNodes.push(node);
         transcript.add(node);

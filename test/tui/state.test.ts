@@ -6,6 +6,7 @@ import {
     beginTuiTurn,
     createTuiState,
     renderTuiEntry,
+    tuiEntryMarginTop,
 } from "../../src/tui/state.ts";
 
 function plainText(styled: StyledText): string {
@@ -69,4 +70,16 @@ test("TUI tool entries truncate long arguments", () => {
     });
 
     expect(state.entries.at(-1)?.text).toBe(`∗ bash ${"x".repeat(63)}…`);
+});
+
+test("TUI spacing compacts consecutive tools but preserves message boundaries", () => {
+    const entries = [
+        { kind: "user", text: "inspect" },
+        { kind: "tool", text: "∗ bash pwd" },
+        { kind: "tool", text: "∗ read src/tui.ts" },
+        { kind: "assistant", text: "Done." },
+    ] as const;
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 1, 0, 1]);
 });

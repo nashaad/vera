@@ -80,6 +80,23 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
 
+export function tuiEntryMarginTop(
+    entries: readonly TuiTranscriptEntry[],
+    index: number,
+): number {
+    if (index === 0) {
+        return 0;
+    }
+
+    const entry = entries[index];
+    const previous = entries[index - 1];
+    if (entry?.kind === "tool" && previous?.kind === "tool") {
+        return 0;
+    }
+
+    return 1;
+}
+
 function formatToolCall(
     tool: string,
     args: Readonly<Record<string, unknown>>,
