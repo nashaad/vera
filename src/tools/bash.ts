@@ -1,4 +1,5 @@
 import type { RegisteredTool, ToolExecutionResult } from "./types.ts";
+import { containsRecursiveForceRm } from "./bash-danger.ts";
 
 export const bashTool: RegisteredTool = {
     definition: {
@@ -26,6 +27,13 @@ export async function runBash(
     command: string,
     workspace: string,
 ): Promise<ToolExecutionResult> {
+    if (containsRecursiveForceRm(command)) {
+        return {
+            output: "Blocked dangerous command: recursive-force rm is not allowed",
+            isError: true,
+        };
+    }
+
     const subprocess = Bun.spawn(["bash", "-lc", command], {
         cwd: workspace,
         stdout: "pipe",
