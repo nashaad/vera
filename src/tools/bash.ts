@@ -1,26 +1,33 @@
-import type { ModelTool } from "../model/types.ts";
+import type { RegisteredTool, ToolExecutionResult } from "./types.ts";
 
-export interface BashResult {
-    readonly output: string;
-    readonly isError: boolean;
-}
-
-export const bashTool: ModelTool = {
-    name: "bash",
-    description: "Run a shell command in the current working directory.",
-    inputSchema: {
-        type: "object",
-        properties: {
-            command: { type: "string" },
+export const bashTool: RegisteredTool = {
+    definition: {
+        name: "bash",
+        description: "Run a shell command in the current working directory.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                command: { type: "string" },
+            },
+            required: ["command"],
+            additionalProperties: false,
         },
-        required: ["command"],
-        additionalProperties: false,
+    },
+    execute(input, context): Promise<ToolExecutionResult> {
+        const command = input.command;
+        if (typeof command !== "string") {
+            throw new Error("bash tool requires a string command");
+        }
+        return runBash(command, context.workspace);
     },
 };
 
-export async function runBash(command: string): Promise<BashResult> {
+export async function runBash(
+    command: string,
+    workspace: string,
+): Promise<ToolExecutionResult> {
     const subprocess = Bun.spawn(["bash", "-lc", command], {
-        cwd: process.cwd(),
+        cwd: workspace,
         stdout: "pipe",
         stderr: "pipe",
     });
