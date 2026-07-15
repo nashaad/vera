@@ -53,6 +53,7 @@ const adapter = createOpenRouterAdapter({ apiKey });
 let state = createTuiState();
 let statusNotice: string | undefined;
 let statusNoticeVersion = 0;
+let shuttingDown = false;
 
 const markdownStyle = SyntaxStyle.fromStyles({
     default: { fg: TUI_TEXT },
@@ -153,6 +154,10 @@ app.add(statusText);
 renderer.root.add(app);
 composer.focus();
 
+renderer.on(CliRenderEvents.DESTROY, () => {
+    shuttingDown = true;
+});
+
 renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
     if (isTranscriptSelection(selection, entryNodes)) {
         void copyTranscriptSelection(selection);
@@ -160,6 +165,9 @@ renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
 });
 
 void runHeadlessLoop(channel.engine, adapter, model).catch((error: unknown) => {
+    if (shuttingDown) {
+        return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     state = appendTuiNotice(state, `Engine error: ${message}`);
     renderState();
@@ -183,6 +191,9 @@ async function submitPrompt(): Promise<void> {
 
     while (true) {
         const frame = await channel.client.receive();
+        if (shuttingDown) {
+            return;
+        }
         state = applyAgentFrame(state, frame);
         renderState();
 
@@ -194,6 +205,10 @@ async function submitPrompt(): Promise<void> {
 }
 
 function renderState(): void {
+    if (shuttingDown) {
+        return;
+    }
+
     placeholder.visible = state.entries.length === 0;
 
     state.entries.forEach((entry, index) => {
@@ -246,6 +261,9 @@ async function copyTranscriptSelection(selection: Selection): Promise<void> {
 
     try {
         await copyTuiText(text, renderer);
+        if (shuttingDown) {
+            return;
+        }
         if (renderer.getSelection() === selection) {
             renderer.clearSelection();
         }
@@ -273,6 +291,10 @@ function showStatusNotice(message: string): void {
 }
 
 function renderStatus(): void {
+    if (shuttingDown) {
+        return;
+    }
+
     statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
     statusText.content = statusNotice
         ?? (state.working ? WORKING_HINT : READY_HINT);
