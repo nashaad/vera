@@ -4,13 +4,16 @@ import type {
     ToolResultMessage,
 } from "../model/types.ts";
 import { bashTool } from "./bash.ts";
+import { editTool } from "./edit.ts";
 import { readTool, writeTool } from "./files.ts";
+import type { ToolRuntime } from "./runtime.ts";
 import type { RegisteredTool } from "./types.ts";
 
 const registeredTools: readonly RegisteredTool[] = [
     bashTool,
     readTool,
     writeTool,
+    editTool,
 ];
 const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
@@ -22,7 +25,7 @@ export const availableTools: readonly ModelTool[] = registeredTools.map(
 
 export async function executeToolCall(
     toolCall: ToolCallContent,
-    workspace: string,
+    runtime: ToolRuntime,
 ): Promise<ToolResultMessage> {
     const tool = toolRegistry.get(toolCall.name);
     let output = `Unknown tool: ${toolCall.name}`;
@@ -30,7 +33,7 @@ export async function executeToolCall(
 
     if (tool !== undefined) {
         try {
-            const result = await tool.execute(toolCall.input, { workspace });
+            const result = await tool.execute(toolCall.input, runtime);
             output = result.output;
             isError = result.isError;
         } catch (error) {

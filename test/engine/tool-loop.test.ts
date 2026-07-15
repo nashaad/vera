@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
+import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("multiple tool calls execute sequentially in content order", async () => {
@@ -46,7 +47,11 @@ test("multiple tool calls execute sequentially in content order", async () => {
     };
     const adapter = new FauxAdapter([toolCallResponse, finalResponse]);
     const channel = createInProcessChannel();
-    const state: RunTurnState = { messages: [], workspace, seq: 0 };
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(workspace),
+        seq: 0,
+    };
 
     try {
         channel.client.send({ type: "prompt", content: "check the workspace" });
