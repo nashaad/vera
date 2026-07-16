@@ -5,12 +5,22 @@ import {
     providerReasoningEffort,
 } from "../../src/model/reasoning-effort.ts";
 
-test("normalized max maps to each supported model's provider value", () => {
+test("normalized efforts map to each supported model's provider values", () => {
+    expect(providerReasoningEffort(
+        "openai-codex",
+        "gpt-5.6-sol",
+        "off",
+    )).toBe("none");
     expect(providerReasoningEffort(
         "openai-codex",
         "gpt-5.6-sol",
         "max",
     )).toBe("xhigh");
+    expect(providerReasoningEffort(
+        "openrouter",
+        "anthropic/claude-sonnet-5",
+        "off",
+    )).toBe("none");
     expect(providerReasoningEffort(
         "openrouter",
         "anthropic/claude-sonnet-5",

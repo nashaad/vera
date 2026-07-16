@@ -73,7 +73,7 @@ export interface ModelTool {
     readonly inputSchema: Readonly<Record<string, unknown>>;
 }
 
-export type ModelReasoningEffort = "low" | "medium" | "high" | "max";
+export type ModelReasoningEffort = "off" | "low" | "medium" | "high" | "max";
 
 export interface ModelRequest {
     readonly model: string;

@@ -3,6 +3,7 @@ import type { ModelReasoningEffort } from "./types.ts";
 export type ReasoningProvider = "openrouter" | "openai-codex";
 
 export type ProviderReasoningEffort =
+    | "none"
     | "low"
     | "medium"
     | "high"
@@ -23,6 +24,7 @@ export const MODEL_REASONING_PROFILES: readonly ModelReasoningProfile[] = [
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         efforts: {
+            off: "none",
             low: "low",
             medium: "medium",
             high: "high",
@@ -33,6 +35,7 @@ export const MODEL_REASONING_PROFILES: readonly ModelReasoningProfile[] = [
         provider: "openrouter",
         model: "anthropic/claude-sonnet-5",
         efforts: {
+            off: "none",
             low: "low",
             medium: "medium",
             high: "high",
