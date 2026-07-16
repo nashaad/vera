@@ -25,9 +25,12 @@ import {
     TUI_TEXT,
     appendTuiNotice,
     applyAgentFrame,
+    beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
+    queueTuiPrompt,
     renderTuiEntry,
+    renderTuiQueuedPrompt,
     tuiEntryMarginTop,
 } from "./state.ts";
 
@@ -108,6 +111,16 @@ const statusText = new TextRenderable(renderer, {
     paddingLeft: 2,
 });
 
+const queuedPromptText = new TextRenderable(renderer, {
+    id: "queued-prompt",
+    content: "",
+    fg: TUI_MUTED,
+    width: "100%",
+    height: 1,
+    paddingLeft: 2,
+    visible: false,
+});
+
 const composer = new TextareaRenderable(renderer, {
     id: "composer",
     width: "100%",
@@ -125,7 +138,7 @@ const composer = new TextareaRenderable(renderer, {
         { name: "kpenter", shift: true, action: "newline" },
     ],
     onSubmit: () => {
-        void submitPrompt();
+        submitPrompt();
     },
 });
 
@@ -151,6 +164,7 @@ const app = new BoxRenderable(renderer, {
     paddingBottom: 0,
 });
 app.add(transcript);
+app.add(queuedPromptText);
 app.add(composerBox);
 app.add(statusText);
 renderer.root.add(app);
@@ -200,24 +214,24 @@ void runHeadlessLoop(channel.engine, adapter, model).catch((error: unknown) => {
     state = appendTuiNotice(state, `Engine error: ${message}`);
     renderState();
 });
+void receiveAgentFrames();
 
-async function submitPrompt(): Promise<void> {
-    if (state.working) {
-        return;
-    }
-
+function submitPrompt(): void {
     const prompt = composer.plainText.trim();
     if (prompt.length === 0) {
         return;
     }
 
     composer.setText("");
-    composer.blur();
-    state = beginTuiTurn(state, prompt);
+    state = state.working
+        ? queueTuiPrompt(state, prompt)
+        : beginTuiTurn(state, prompt);
     renderState();
     channel.client.send({ type: "prompt", content: prompt });
+}
 
-    while (true) {
+async function receiveAgentFrames(): Promise<void> {
+    while (!shuttingDown) {
         const frame = await channel.client.receive();
         if (shuttingDown) {
             return;
@@ -225,12 +239,13 @@ async function submitPrompt(): Promise<void> {
         state = applyAgentFrame(state, frame);
         if (frame.type === "turn_finished") {
             abortRequested = false;
+            finishStreamingAssistant();
+            state = beginNextQueuedTuiTurn(state);
         }
         renderState();
 
-        if (frame.type === "turn_finished") {
+        if (!state.working) {
             composer.focus();
-            return;
         }
     }
 }
@@ -241,6 +256,8 @@ function renderState(): void {
     }
 
     placeholder.visible = state.entries.length === 0;
+    queuedPromptText.content = renderTuiQueuedPrompt(state);
+    queuedPromptText.visible = state.queuedPrompts.length > 0;
 
     state.entries.forEach((entry, index) => {
         const existing = entryNodes[index];
@@ -277,14 +294,17 @@ function renderState(): void {
         transcript.add(node);
     });
 
-    if (!state.working) {
-        const lastNode = entryNodes.at(-1);
-        if (lastNode instanceof MarkdownRenderable) {
-            lastNode.streaming = false;
+    renderStatus();
+}
+
+function finishStreamingAssistant(): void {
+    for (let index = entryNodes.length - 1; index >= 0; index -= 1) {
+        const node = entryNodes[index];
+        if (node instanceof MarkdownRenderable) {
+            node.streaming = false;
+            return;
         }
     }
-
-    renderStatus();
 }
 
 async function copyTranscriptSelection(selection: Selection): Promise<void> {
