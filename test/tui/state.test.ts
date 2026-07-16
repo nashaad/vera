@@ -3,9 +3,12 @@ import type { StyledText } from "@opentui/core";
 
 import {
     applyAgentFrame,
+    beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
+    queueTuiPrompt,
     renderTuiEntry,
+    renderTuiQueuedPrompt,
     tuiEntryMarginTop,
 } from "../../clients/tui/state.ts";
 
@@ -82,4 +85,43 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
         .toEqual([0, 1, 0, 1]);
+});
+
+test("TUI queues a follow-up without interrupting the active transcript", () => {
+    let state = beginTuiTurn(createTuiState(), "first");
+    state = applyAgentFrame(state, {
+        type: "assistant_delta",
+        text: "current ",
+        seq: 1,
+    });
+    state = queueTuiPrompt(state, "steer next");
+    state = applyAgentFrame(state, {
+        type: "assistant_delta",
+        text: "answer",
+        seq: 2,
+    });
+
+    expect(state.entries).toEqual([
+        { kind: "user", text: "first" },
+        { kind: "assistant", text: "current answer" },
+    ]);
+    expect(renderTuiQueuedPrompt(state)).toBe("queued · steer next");
+
+    state = applyAgentFrame(state, { type: "turn_finished", seq: 3 });
+    state = beginNextQueuedTuiTurn(state);
+
+    expect(state.working).toBe(true);
+    expect(state.queuedPrompts).toEqual([]);
+    expect(state.entries.at(-1)).toEqual({ kind: "user", text: "steer next" });
+});
+
+test("TUI queue preview compacts prompts and counts the remainder", () => {
+    let state = queueTuiPrompt(
+        createTuiState(),
+        `explain   ${"x".repeat(60)}`,
+    );
+    state = queueTuiPrompt(state, "then test it");
+
+    expect(renderTuiQueuedPrompt(state))
+        .toBe(`queued · explain ${"x".repeat(39)}… · +1`);
 });

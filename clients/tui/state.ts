@@ -13,6 +13,7 @@ export interface TuiTranscriptEntry {
 export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
     readonly working: boolean;
+    readonly queuedPrompts: readonly string[];
 }
 
 export const TUI_ACCENT = "#7AA2F7";
@@ -24,6 +25,7 @@ export function createTuiState(): TuiState {
     return {
         entries: [],
         working: false,
+        queuedPrompts: [],
     };
 }
 
@@ -31,7 +33,42 @@ export function beginTuiTurn(state: TuiState, prompt: string): TuiState {
     return {
         entries: [...state.entries, { kind: "user", text: prompt }],
         working: true,
+        queuedPrompts: state.queuedPrompts,
     };
+}
+
+export function queueTuiPrompt(state: TuiState, prompt: string): TuiState {
+    return {
+        ...state,
+        queuedPrompts: [...state.queuedPrompts, prompt],
+    };
+}
+
+export function beginNextQueuedTuiTurn(state: TuiState): TuiState {
+    const [prompt, ...queuedPrompts] = state.queuedPrompts;
+    if (prompt === undefined) {
+        return state;
+    }
+
+    return {
+        entries: [...state.entries, { kind: "user", text: prompt }],
+        working: true,
+        queuedPrompts,
+    };
+}
+
+export function renderTuiQueuedPrompt(state: TuiState): string {
+    const prompt = state.queuedPrompts[0];
+    if (prompt === undefined) {
+        return "";
+    }
+
+    const summary = prompt.replace(/\s+/g, " ").trim();
+    const compact = summary.length > 48
+        ? `${summary.slice(0, 47)}…`
+        : summary;
+    const remaining = state.queuedPrompts.length - 1;
+    return `queued · ${compact}${remaining === 0 ? "" : ` · +${remaining}`}`;
 }
 
 export function applyAgentFrame(state: TuiState, frame: AgentFrame): TuiState {
