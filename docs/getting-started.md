@@ -37,6 +37,10 @@ Create `~/.vera/config.json`:
 `reasoning_effort` may be `off`, `low`, `medium`, `high`, or `max`. If omitted,
 the model uses its default. Use `off` to disable reasoning.
 
+For other OpenRouter models, Vera reads the model's supported levels. If the
+mapped level differs, the status line shows both values, such as
+`thinking max → xhigh (inferred)`. Vera does not infer `off`.
+
 ## OpenRouter
 
 Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:
