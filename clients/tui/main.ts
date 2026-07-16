@@ -16,6 +16,7 @@ import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import { createOpenRouterAdapter } from "../../src/model/openrouter.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
+import { tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import {
     TUI_ACCENT,
@@ -38,11 +39,12 @@ if (!apiKey) {
 }
 
 const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
-const WORKING_HINT = "working…";
+const WORKING_HINT = "working… · ctrl+c stop";
+const STOPPING_HINT = "stopping…";
 const COPY_NOTICE_DURATION_MS = 1_500;
 
 const renderer = await createCliRenderer({
-    exitOnCtrlC: true,
+    exitOnCtrlC: false,
     targetFps: 30,
 });
 renderer.setTerminalTitle("Vera");
@@ -53,6 +55,7 @@ let state = createTuiState();
 let statusNotice: string | undefined;
 let statusNoticeVersion = 0;
 let shuttingDown = false;
+let abortRequested = false;
 
 const markdownStyle = SyntaxStyle.fromStyles({
     default: { fg: TUI_TEXT },
@@ -169,6 +172,26 @@ renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
     }
 });
 
+renderer.keyInput.on("keypress", (key) => {
+    const action = tuiInterruptAction(key, state.working, abortRequested);
+    if (action === "pass") {
+        return;
+    }
+
+    key.preventDefault();
+    key.stopPropagation();
+
+    if (action === "quit") {
+        renderer.destroy();
+        return;
+    }
+    if (action === "abort") {
+        abortRequested = true;
+        channel.client.send({ type: "abort" });
+        renderStatus();
+    }
+});
+
 void runHeadlessLoop(channel.engine, adapter, model).catch((error: unknown) => {
     if (shuttingDown) {
         return;
@@ -200,6 +223,9 @@ async function submitPrompt(): Promise<void> {
             return;
         }
         state = applyAgentFrame(state, frame);
+        if (frame.type === "turn_finished") {
+            abortRequested = false;
+        }
         renderState();
 
         if (frame.type === "turn_finished") {
@@ -303,7 +329,13 @@ function renderStatus(): void {
         return;
     }
 
+    let lifecycleHint = READY_HINT;
+    if (abortRequested) {
+        lifecycleHint = STOPPING_HINT;
+    } else if (state.working) {
+        lifecycleHint = WORKING_HINT;
+    }
+
     statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
-    statusText.content = statusNotice
-        ?? (state.working ? WORKING_HINT : READY_HINT);
+    statusText.content = statusNotice ?? lifecycleHint;
 }
