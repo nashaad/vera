@@ -6,7 +6,7 @@ import type {
     InstanceRecord,
 } from "../src/instances/directory.ts";
 
-test("vera ls renders two concurrent live instances", () => {
+test("vera ls renders two concurrent live instances", async () => {
     const records: InstanceRecord[] = [
         {
             schema_version: 1,
@@ -33,7 +33,7 @@ test("vera ls renders two concurrent live instances", () => {
     };
     let output = "";
 
-    const exitCode = runCli(["ls"], {
+    const exitCode = await runCli(["ls"], {
         instances,
         stdout: { write: (text) => output += text },
     });
@@ -46,4 +46,17 @@ test("vera ls renders two concurrent live instances", () => {
     expect(output).toContain("202  tui");
     expect(output).toContain("/work/beta");
     expect(output).toContain("instance-b");
+});
+
+test("vera rpc starts the NDJSON bridge", async () => {
+    let started = false;
+
+    const exitCode = await runCli(["rpc"], {
+        runRpc: async () => {
+            started = true;
+        },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(started).toBe(true);
 });
