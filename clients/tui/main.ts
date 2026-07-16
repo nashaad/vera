@@ -10,6 +10,7 @@ import {
     type Selection,
 } from "@opentui/core";
 
+import { loadVeraConfig } from "../../src/config.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import { createOpenRouterAdapter } from "../../src/model/openrouter.ts";
@@ -30,14 +31,10 @@ import {
 } from "./state.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
-const model = process.env.OPENROUTER_MODEL;
+const { model } = loadVeraConfig();
 
 if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is required");
-}
-
-if (!model) {
-    throw new Error("OPENROUTER_MODEL is required");
 }
 
 const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
