@@ -10,12 +10,12 @@ import {
     type Selection,
 } from "@opentui/core";
 
-import { runHeadlessLoop } from "./engine/run-turn.ts";
-import { createInstanceDirectory } from "./instances/directory.ts";
-import { createOpenRouterAdapter } from "./model/openrouter.ts";
-import { createInProcessChannel } from "./rpc/in-process-channel.ts";
-import { copyTuiText, countTuiCharacters } from "./tui/clipboard.ts";
-import { isTranscriptSelection } from "./tui/selection.ts";
+import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
+import { createInstanceDirectory } from "../../src/instances/directory.ts";
+import { createOpenRouterAdapter } from "../../src/model/openrouter.ts";
+import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
+import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
+import { isTranscriptSelection } from "./selection.ts";
 import {
     TUI_ACCENT,
     TUI_MUTED,
@@ -27,7 +27,7 @@ import {
     createTuiState,
     renderTuiEntry,
     tuiEntryMarginTop,
-} from "./tui/state.ts";
+} from "./state.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 const model = process.env.OPENROUTER_MODEL;
