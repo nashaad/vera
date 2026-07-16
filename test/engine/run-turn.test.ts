@@ -122,3 +122,60 @@ test("a bash tool call runs and continues the model turn", async () => {
     }
     expect(toolResult.content[0]?.text).toContain("package.json");
 });
+
+test("aborting a turn stops its foreground bash tool", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: { command: "sleep 5" },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const adapter = new FauxAdapter([toolCallResponse]);
+    const channel = createInProcessChannel();
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(process.cwd()),
+        queuedPrompts: [],
+        seq: 0,
+    };
+
+    channel.client.send({ type: "prompt", content: "run slowly" });
+    const turn = runTurn(channel.engine, adapter, "test", state);
+
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "sleep 5" },
+        seq: 1,
+    });
+    const abortedAt = performance.now();
+    channel.client.send({ type: "abort" });
+
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_finished",
+        tool: "bash",
+        seq: 2,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 3,
+    });
+    expect(performance.now() - abortedAt).toBeLessThan(1_000);
+
+    const result = await turn;
+    expect(result.stopReason).toBe("aborted");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        isError: true,
+    });
+});

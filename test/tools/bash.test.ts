@@ -68,3 +68,49 @@ test("bash still runs ordinary commands", async () => {
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("bash stops promptly when its turn is aborted", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
+    const controller = new AbortController();
+
+    try {
+        const startedAt = performance.now();
+        const resultPromise = runBash(
+            "sleep 5; printf 'too late'",
+            workspace,
+            controller.signal,
+        );
+        await Bun.sleep(25);
+        controller.abort(new Error("Turn aborted"));
+        const result = await resultPromise;
+
+        expect(performance.now() - startedAt).toBeLessThan(1_000);
+        expect(result.isError).toBe(true);
+        expect(result.output).not.toContain("too late");
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("bash force-kills a command tree that ignores termination", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
+    const controller = new AbortController();
+
+    try {
+        const startedAt = performance.now();
+        const resultPromise = runBash(
+            "trap '' TERM; sleep 5; printf 'too late'",
+            workspace,
+            controller.signal,
+        );
+        await Bun.sleep(25);
+        controller.abort(new Error("Turn aborted"));
+        const result = await resultPromise;
+
+        expect(performance.now() - startedAt).toBeLessThan(1_000);
+        expect(result.isError).toBe(true);
+        expect(result.output).not.toContain("too late");
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
