@@ -4,7 +4,6 @@ import {
     MarkdownRenderable,
     ScrollBoxRenderable,
     SyntaxStyle,
-    TextareaRenderable,
     TextRenderable,
     createCliRenderer,
     type Selection,
@@ -16,6 +15,7 @@ import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import { createOpenRouterAdapter } from "../../src/model/openrouter.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
+import { createTuiComposer } from "./composer.ts";
 import { tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import {
@@ -121,26 +121,7 @@ const queuedPromptText = new TextRenderable(renderer, {
     visible: false,
 });
 
-const composer = new TextareaRenderable(renderer, {
-    id: "composer",
-    width: "100%",
-    height: 3,
-    placeholder: "Message Vera…",
-    backgroundColor: "#16161E",
-    focusedBackgroundColor: "#16161E",
-    textColor: "#F0F0F0",
-    focusedTextColor: "#FFFFFF",
-    cursorColor: "#7AA2F7",
-    keyBindings: [
-        { name: "return", action: "submit" },
-        { name: "kpenter", action: "submit" },
-        { name: "return", shift: true, action: "newline" },
-        { name: "kpenter", shift: true, action: "newline" },
-    ],
-    onSubmit: () => {
-        submitPrompt();
-    },
-});
+const composer = createTuiComposer(renderer, submitPrompt);
 
 const composerBox = new BoxRenderable(renderer, {
     id: "composer-box",
