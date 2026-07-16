@@ -2,6 +2,7 @@ import type {
     AssistantMessage,
     ModelAdapter,
     ModelMessage,
+    ModelReasoningEffort,
     UserMessage,
 } from "../model/types.ts";
 import type { FrameEndpoint } from "../rpc/in-process-channel.ts";
@@ -24,6 +25,7 @@ export async function runHeadlessLoop(
     endpoint: FrameEndpoint<AgentFrame, ClientFrame>,
     adapter: ModelAdapter,
     model: string,
+    reasoningEffort?: ModelReasoningEffort,
 ): Promise<void> {
     const state: RunTurnState = {
         messages: [],
@@ -33,7 +35,7 @@ export async function runHeadlessLoop(
     };
 
     while (true) {
-        await runTurn(endpoint, adapter, model, state);
+        await runTurn(endpoint, adapter, model, state, reasoningEffort);
     }
 }
 
@@ -42,6 +44,7 @@ export async function runTurn(
     adapter: ModelAdapter,
     model: string,
     state: RunTurnState,
+    reasoningEffort?: ModelReasoningEffort,
 ): Promise<AssistantMessage> {
     const frame = state.queuedPrompts.shift() ?? await endpoint.receive();
 
@@ -68,6 +71,7 @@ export async function runTurn(
         while (true) {
             const stream = adapter.stream({
                 model,
+                ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
                 messages: state.messages,
                 tools: availableTools,
                 signal: turnController.signal,

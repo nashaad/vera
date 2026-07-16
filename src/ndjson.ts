@@ -19,6 +19,7 @@ export async function runNdjsonProcess(): Promise<void> {
             stdout,
             adapter,
             config.model,
+            config.reasoning_effort,
         );
     } finally {
         presence.remove();

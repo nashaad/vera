@@ -2,7 +2,7 @@ import { loadVeraConfig } from "../src/config.ts";
 import { createOpenRouterAdapter } from "../src/model/openrouter.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
-const { model } = loadVeraConfig();
+const config = loadVeraConfig();
 
 if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is required");
@@ -10,7 +10,10 @@ if (!apiKey) {
 
 const adapter = createOpenRouterAdapter({ apiKey });
 const stream = adapter.stream({
-    model,
+    model: config.model,
+    ...(config.reasoning_effort === undefined
+        ? {}
+        : { reasoningEffort: config.reasoning_effort }),
     messages: [
         {
             role: "user",

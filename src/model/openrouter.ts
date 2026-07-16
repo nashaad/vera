@@ -2,6 +2,7 @@ import { OpenRouter } from "@openrouter/sdk";
 
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
+import { providerReasoningEffort } from "./reasoning-effort.ts";
 import {
     DEFAULT_PROVIDER_RETRY_POLICY,
     retryBeforeStreamStart,
@@ -67,6 +68,17 @@ export class OpenRouterAdapter implements ModelAdapter {
             const providerRequest = {
                 model: request.model,
                 messages: encodeOpenRouterMessages(request.systemPrompt, messages),
+                ...(request.reasoningEffort === undefined
+                    ? {}
+                    : {
+                        reasoning: {
+                            effort: providerReasoningEffort(
+                                "openrouter",
+                                request.model,
+                                request.reasoningEffort,
+                            ),
+                        },
+                    }),
                 ...(request.tools === undefined || request.tools.length === 0
                     ? {}
                     : { tools: encodeOpenRouterTools(request.tools) }),
@@ -129,6 +141,9 @@ export function createOpenRouterAdapter(
                 chatRequest: {
                     model: request.model,
                     messages: request.messages,
+                    ...(request.reasoning === undefined
+                        ? {}
+                        : { reasoning: request.reasoning }),
                     ...(request.tools === undefined || request.tools.length === 0
                         ? {}
                         : { tools: request.tools }),

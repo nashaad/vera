@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import type { ModelReasoningEffort } from "./model/types.ts";
+
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
 export type VeraProviderId = "openrouter" | "openai-codex";
@@ -10,6 +12,7 @@ export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
     readonly provider: VeraProviderId;
     readonly model: string;
+    readonly reasoning_effort?: ModelReasoningEffort;
 }
 
 export interface LoadVeraConfigOptions {
@@ -31,7 +34,7 @@ export function loadVeraConfig(
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             throw new Error(
-                `Vera config not found at ${path}. Create it with schema_version 1, an optional provider, and a model string.`,
+                `Vera config not found at ${path}. Create it with schema_version 1, an optional provider, a model string, and an optional reasoning_effort.`,
             );
         }
         throw error;
@@ -48,7 +51,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, and a non-empty model string.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, a non-empty model string, and optional reasoning_effort low, medium, high, or max.`,
         );
     }
     return config;
@@ -67,6 +70,11 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && config.provider !== "openai-codex")
         || typeof config.model !== "string"
         || config.model.trim().length === 0
+        || (config.reasoning_effort !== undefined
+            && config.reasoning_effort !== "low"
+            && config.reasoning_effort !== "medium"
+            && config.reasoning_effort !== "high"
+            && config.reasoning_effort !== "max")
     ) {
         return undefined;
     }
@@ -75,5 +83,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
         provider: config.provider ?? "openrouter",
         model: config.model.trim(),
+        ...(config.reasoning_effort === undefined
+            ? {}
+            : { reasoning_effort: config.reasoning_effort }),
     };
 }

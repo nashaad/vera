@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
@@ -14,7 +19,14 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         usage: emptyUsage(),
         stopReason: "stop",
     };
-    const adapter = new FauxAdapter([response], { chunkSize: 2 });
+    const faux = new FauxAdapter([response], { chunkSize: 2 });
+    let capturedRequest: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            capturedRequest = request;
+            return faux.stream(request);
+        },
+    };
     const channel = createInProcessChannel();
     const state: RunTurnState = {
         messages: [],
@@ -24,7 +36,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     };
 
     channel.client.send({ type: "prompt", content: "say hi" });
-    const turn = runTurn(channel.engine, adapter, "test", state);
+    const turn = runTurn(channel.engine, adapter, "test", state, "high");
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
@@ -46,6 +58,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         seq: 4,
     });
     expect(await turn).toEqual(response);
+    expect(capturedRequest?.reasoningEffort).toBe("high");
     expect(state.messages).toEqual([
         {
             role: "user",

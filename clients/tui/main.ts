@@ -12,13 +12,17 @@ import {
 import { loadVeraConfig } from "../../src/config.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
-import type { ModelAdapter } from "../../src/model/types.ts";
+import type {
+    ModelAdapter,
+    ModelReasoningEffort,
+} from "../../src/model/types.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import { createTuiComposer } from "./composer.ts";
 import { tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
+import { renderTuiStatusLine } from "./status.ts";
 import {
     TUI_ACCENT,
     TUI_MUTED,
@@ -43,6 +47,7 @@ const COPY_NOTICE_DURATION_MS = 1_500;
 export interface TuiDependencies {
     readonly adapter: ModelAdapter;
     readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 if (import.meta.main) {
@@ -51,13 +56,16 @@ if (import.meta.main) {
     await startTui({
         adapter: createConfiguredModelAdapter(config),
         model: config.model,
+        ...(config.reasoning_effort === undefined
+            ? {}
+            : { reasoningEffort: config.reasoning_effort }),
     });
 }
 
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<void> {
-    const { adapter, model } = dependencies;
+    const { adapter, model, reasoningEffort } = dependencies;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
@@ -161,6 +169,7 @@ export async function startTui(
     app.add(statusText);
     renderer.root.add(app);
     composer.focus();
+    renderStatus();
 
     const presence = createInstanceDirectory().register({
         client: "tui",
@@ -198,7 +207,12 @@ export async function startTui(
         }
     });
 
-    void runHeadlessLoop(channel.engine, adapter, model).catch((error: unknown) => {
+    void runHeadlessLoop(
+        channel.engine,
+        adapter,
+        model,
+        reasoningEffort,
+    ).catch((error: unknown) => {
         if (shuttingDown) {
             return;
         }
@@ -349,6 +363,10 @@ export async function startTui(
         }
 
         statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
-        statusText.content = statusNotice ?? lifecycleHint;
+        statusText.content = renderTuiStatusLine(
+            model,
+            reasoningEffort,
+            statusNotice ?? lifecycleHint,
+        );
     }
 }

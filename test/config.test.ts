@@ -25,9 +25,15 @@ test("Vera config selects OpenAI Codex", () => {
         schema_version: 1,
         provider: "openai-codex",
         model: "gpt-5.6-sol",
+        reasoning_effort: "max",
     }));
 
-    expect(loadVeraConfig({ path }).provider).toBe("openai-codex");
+    expect(loadVeraConfig({ path })).toEqual({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "max",
+    });
 });
 
 test("Vera config rejects a missing model", () => {
@@ -35,7 +41,20 @@ test("Vera config rejects a missing model", () => {
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "expected schema_version 1, provider openrouter or openai-codex, and a non-empty model string",
+        "expected schema_version 1, provider openrouter or openai-codex, a non-empty model string",
+    );
+});
+
+test("Vera config rejects an unknown reasoning effort", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reasoning_effort: "maximum",
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow(
+        "optional reasoning_effort low, medium, high, or max",
     );
 });
 

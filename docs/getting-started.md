@@ -29,9 +29,13 @@ Create `~/.vera/config.json`:
 {
   "schema_version": 1,
   "provider": "openai-codex",
-  "model": "gpt-5.6-sol"
+  "model": "gpt-5.6-sol",
+  "reasoning_effort": "medium"
 }
 ```
+
+`reasoning_effort` may be `low`, `medium`, `high`, or `max`. If omitted, the
+model uses its default.
 
 ## OpenRouter
 
@@ -41,7 +45,8 @@ Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:
 {
   "schema_version": 1,
   "provider": "openrouter",
-  "model": "anthropic/claude-sonnet-4"
+  "model": "anthropic/claude-sonnet-5",
+  "reasoning_effort": "medium"
 }
 ```
 

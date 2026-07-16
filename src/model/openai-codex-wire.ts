@@ -3,6 +3,7 @@ import type {
     ModelTool,
     ModelUsage,
 } from "./types.ts";
+import type { ProviderReasoningEffort } from "./reasoning-effort.ts";
 
 export interface OpenAICodexInputText {
     readonly type: "input_text";
@@ -66,6 +67,7 @@ export interface OpenAICodexRequest {
     readonly tool_choice: "auto";
     readonly parallel_tool_calls: false;
     readonly reasoning: {
+        readonly effort?: ProviderReasoningEffort;
         readonly summary: "auto";
     };
     readonly store: false;

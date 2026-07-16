@@ -32,6 +32,7 @@ test.skipIf(!tmuxAvailable)(
             ]);
 
             pane = await waitForPane(socket, session, "Start a conversation");
+            expect(pane).toContain("test · thinking high");
             sendText(socket, session, "start streaming");
             sendKey(socket, session, "Enter");
 

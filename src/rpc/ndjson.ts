@@ -1,6 +1,9 @@
 import { createInterface } from "node:readline";
 
-import type { ModelAdapter } from "../model/types.ts";
+import type {
+    ModelAdapter,
+    ModelReasoningEffort,
+} from "../model/types.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { AsyncQueue } from "./async-queue.ts";
 import type { AgentFrame, ClientFrame } from "./frames.ts";
@@ -53,11 +56,12 @@ export async function runNdjsonBridge(
     output: FrameOutput,
     adapter: ModelAdapter,
     model: string,
+    reasoningEffort?: ModelReasoningEffort,
 ): Promise<void> {
     const endpoint = createNdjsonEngineEndpoint(input, output);
 
     try {
-        await runHeadlessLoop(endpoint, adapter, model);
+        await runHeadlessLoop(endpoint, adapter, model, reasoningEffort);
     } catch (error) {
         if (!(error instanceof NdjsonInputEndedError)) {
             throw error;
