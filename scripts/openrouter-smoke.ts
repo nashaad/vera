@@ -1,14 +1,11 @@
+import { loadVeraConfig } from "../src/config.ts";
 import { createOpenRouterAdapter } from "../src/model/openrouter.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
-const model = process.env.OPENROUTER_MODEL;
+const { model } = loadVeraConfig();
 
 if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is required");
-}
-
-if (!model) {
-    throw new Error("OPENROUTER_MODEL is required");
 }
 
 const adapter = createOpenRouterAdapter({ apiKey });

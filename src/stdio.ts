@@ -1,20 +1,17 @@
 import { createInterface } from "node:readline";
 import { stdin, stdout } from "node:process";
 
+import { loadVeraConfig } from "./config.ts";
 import { runHeadlessLoop } from "./engine/run-turn.ts";
 import { createInstanceDirectory } from "./instances/directory.ts";
 import { createOpenRouterAdapter } from "./model/openrouter.ts";
 import { createInProcessChannel } from "./rpc/in-process-channel.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
-const model = process.env.OPENROUTER_MODEL;
+const { model } = loadVeraConfig();
 
 if (!apiKey) {
     throw new Error("OPENROUTER_API_KEY is required");
-}
-
-if (!model) {
-    throw new Error("OPENROUTER_MODEL is required");
 }
 
 const adapter = createOpenRouterAdapter({ apiKey });
