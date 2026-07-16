@@ -10,17 +10,53 @@ export interface TranscriptEntry {
 export interface PageState {
     readonly entries: readonly TranscriptEntry[];
     readonly working: boolean;
+    readonly queuedPrompts: readonly string[];
 }
 
 export function createPageState(): PageState {
-    return { entries: [], working: false };
+    return { entries: [], working: false, queuedPrompts: [] };
 }
 
 export function beginPageTurn(state: PageState, prompt: string): PageState {
     return {
         entries: [...state.entries, { kind: "user", text: prompt }],
         working: true,
+        queuedPrompts: state.queuedPrompts,
     };
+}
+
+export function queuePagePrompt(state: PageState, prompt: string): PageState {
+    return {
+        ...state,
+        queuedPrompts: [...state.queuedPrompts, prompt],
+    };
+}
+
+export function beginNextQueuedPageTurn(state: PageState): PageState {
+    const [prompt, ...queuedPrompts] = state.queuedPrompts;
+    if (prompt === undefined) {
+        return state;
+    }
+
+    return {
+        entries: [...state.entries, { kind: "user", text: prompt }],
+        working: true,
+        queuedPrompts,
+    };
+}
+
+export function renderQueuedPrompts(queuedPrompts: readonly string[]): string {
+    const prompt = queuedPrompts[0];
+    if (prompt === undefined) {
+        return "";
+    }
+
+    const summary = prompt.replace(/\s+/g, " ").trim();
+    const compact = summary.length > 48
+        ? `${summary.slice(0, 47)}…`
+        : summary;
+    const remaining = queuedPrompts.length - 1;
+    return `queued · ${compact}${remaining === 0 ? "" : ` · +${remaining}`}`;
 }
 
 export function applyPageFrame(state: PageState, frame: AgentFrame): PageState {

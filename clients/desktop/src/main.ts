@@ -9,8 +9,11 @@ import { renderAssistantMarkdown } from "./markdown.ts";
 import {
     appendPageNotice,
     applyPageFrame,
+    beginNextQueuedPageTurn,
     beginPageTurn,
     createPageState,
+    queuePagePrompt,
+    renderQueuedPrompts,
     type PageState,
 } from "./state.ts";
 
@@ -41,6 +44,7 @@ const prompt = element<HTMLTextAreaElement>("prompt");
 const send = element<HTMLButtonElement>("send");
 const stop = element<HTMLButtonElement>("stop");
 const status = element<HTMLElement>("status");
+const queued = element<HTMLElement>("queued");
 
 let state = createPageState();
 let connected = false;
@@ -72,7 +76,12 @@ relay.onmessage = (event) => {
         state = applyPageFrame(state, event.frame);
         if (event.frame.type === "turn_finished") {
             stopRequested = false;
-            shouldFocusPrompt = true;
+            state = beginNextQueuedPageTurn(state);
+            if (state.working) {
+                shouldFocusPrompt = false;
+            } else {
+                shouldFocusPrompt = true;
+            }
         }
     } else if (event.type === "error") {
         relayEnded = true;
@@ -100,18 +109,24 @@ void invoke("connect", { onEvent: relay })
 
 async function sendPrompt(): Promise<void> {
     const content = prompt.value.trim();
-    if (!connected || state.working || content.length === 0) {
+    if (!connected || content.length === 0) {
         return;
     }
 
-    state = beginPageTurn(state, content);
-    prompt.value = "";
-    render();
+    if (state.working) {
+        state = queuePagePrompt(state, content);
+        prompt.value = "";
+        render();
+    } else {
+        state = beginPageTurn(state, content);
+        prompt.value = "";
+        render();
+    }
 
     try {
         await sendFrame({ type: "prompt", content });
     } catch (error) {
-        state = { ...state, working: false };
+        state = { ...state, working: false, queuedPrompts: [] };
         showError(error);
     }
 }
@@ -131,10 +146,13 @@ function render(options: RenderOptions = {}): void {
     transcript.replaceChildren(...state.entries.map(renderEntry));
     transcript.scrollTop = transcript.scrollHeight;
 
+    queued.textContent = renderQueuedPrompts(state.queuedPrompts);
+    queued.hidden = state.queuedPrompts.length === 0;
+
     status.textContent = connected
         ? state.working ? "Working" : "Ready"
         : "Disconnected";
-    prompt.disabled = !connected || state.working;
+    prompt.disabled = !connected;
     send.disabled = prompt.disabled;
     stop.disabled = !connected || !state.working || stopRequested;
 

@@ -161,6 +161,13 @@ h1 {
     border: 1px solid #363b46;
 }
 
+#queued {
+    margin: 0;
+    color: #e0af68;
+    font-size: 12px;
+    text-align: center;
+}
+
 form {
     display: grid;
     gap: 8px;
