@@ -14,8 +14,20 @@ test("Vera config loads the shared model choice", () => {
 
     expect(loadVeraConfig({ path })).toEqual({
         schema_version: 1,
+        provider: "openrouter",
         model: "anthropic/example-model",
     });
+});
+
+test("Vera config selects OpenAI Codex", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+    }));
+
+    expect(loadVeraConfig({ path }).provider).toBe("openai-codex");
 });
 
 test("Vera config rejects a missing model", () => {
@@ -23,7 +35,7 @@ test("Vera config rejects a missing model", () => {
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "expected schema_version 1 and a non-empty model string",
+        "expected schema_version 1, provider openrouter or openai-codex, and a non-empty model string",
     );
 });
 

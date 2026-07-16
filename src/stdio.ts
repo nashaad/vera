@@ -4,17 +4,11 @@ import { stdin, stdout } from "node:process";
 import { loadVeraConfig } from "./config.ts";
 import { runHeadlessLoop } from "./engine/run-turn.ts";
 import { createInstanceDirectory } from "./instances/directory.ts";
-import { createOpenRouterAdapter } from "./model/openrouter.ts";
+import { createConfiguredModelAdapter } from "./providers/configured.ts";
 import { createInProcessChannel } from "./rpc/in-process-channel.ts";
 
-const apiKey = process.env.OPENROUTER_API_KEY;
-const { model } = loadVeraConfig();
-
-if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY is required");
-}
-
-const adapter = createOpenRouterAdapter({ apiKey });
+const config = loadVeraConfig();
+const adapter = createConfiguredModelAdapter(config);
 const channel = createInProcessChannel();
 const lines = createInterface({
     input: stdin,
@@ -27,7 +21,7 @@ const presence = createInstanceDirectory().register({
 });
 
 try {
-    void runHeadlessLoop(channel.engine, adapter, model);
+    void runHeadlessLoop(channel.engine, adapter, config.model);
     lines.prompt();
 
     for await (const line of lines) {

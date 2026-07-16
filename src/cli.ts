@@ -8,6 +8,7 @@ import {
     type InstanceRecord,
 } from "./instances/directory.ts";
 import { runNdjsonProcess } from "./ndjson.ts";
+import { loginOpenAICodex } from "./providers/openai-codex-oauth.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -18,6 +19,9 @@ export interface CliDependencies {
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
+    readonly runOpenAICodexLogin?: (
+        onAuthorizationUrl: (url: string) => void,
+    ) => Promise<void>;
 }
 
 export async function runCli(
@@ -38,7 +42,24 @@ export async function runCli(
         return 0;
     }
 
-    errorOutput.write("Usage: vera <ls|rpc>\n");
+    if (
+        (args.length === 1 && args[0] === "login")
+        || (args.length === 2
+            && args[0] === "login"
+            && args[1] === "openai-codex")
+    ) {
+        const runLogin = dependencies.runOpenAICodexLogin
+            ?? (async (onAuthorizationUrl: (url: string) => void) => {
+                await loginOpenAICodex({ onAuthorizationUrl });
+            });
+        await runLogin((url) => {
+            output.write(`Open this URL to sign in:\n${url}\n`);
+        });
+        output.write("Logged in to OpenAI Codex.\n");
+        return 0;
+    }
+
+    errorOutput.write("Usage: vera <ls|rpc|login [openai-codex]>\n");
     return 1;
 }
 
