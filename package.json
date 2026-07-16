@@ -9,16 +9,22 @@
   "scripts": {
     "start": "bun run src/stdio.ts",
     "tui": "bun run clients/tui/main.ts",
+    "desktop:assets": "bun run scripts/build-desktop.ts",
+    "desktop:dev": "bun run desktop:assets && cd clients/desktop && tauri dev",
+    "desktop:release": "bun run desktop:assets && cd clients/desktop && tauri build --bundles app",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p clients/desktop/tsconfig.json"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "@types/bun": "latest",
     "typescript": "^5"
   },
   "dependencies": {
     "@openrouter/sdk": "^0.13.55",
-    "@opentui/core": "^0.2.6"
+    "@opentui/core": "^0.2.6",
+    "@tauri-apps/api": "^2.11.1",
+    "marked": "^17.0.1"
   }
 }
