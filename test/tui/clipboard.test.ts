@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
     copyTuiText,
     countTuiCharacters,
-} from "../../src/tui/clipboard.ts";
+} from "../../clients/tui/clipboard.ts";
 
 test("TUI clipboard uses terminal OSC52 support when available", async () => {
     const copied: string[] = [];

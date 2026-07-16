@@ -7,7 +7,7 @@ import {
     createTuiState,
     renderTuiEntry,
     tuiEntryMarginTop,
-} from "../../src/tui/state.ts";
+} from "../../clients/tui/state.ts";
 
 function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
@@ -76,7 +76,7 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
     const entries = [
         { kind: "user", text: "inspect" },
         { kind: "tool", text: "∗ bash pwd" },
-        { kind: "tool", text: "∗ read src/tui.ts" },
+        { kind: "tool", text: "∗ read clients/tui/main.ts" },
         { kind: "assistant", text: "Done." },
     ] as const;
 

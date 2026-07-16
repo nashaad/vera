@@ -5,7 +5,7 @@ import {
     type SelectionEntryNode,
     type SelectionTreeNode,
     type TranscriptSelection,
-} from "../../src/tui/selection.ts";
+} from "../../clients/tui/selection.ts";
 
 const entry: SelectionEntryNode = {
     parent: null,

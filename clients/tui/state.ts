@@ -1,7 +1,7 @@
 import { fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
-import type { AgentFrame } from "../rpc/frames.ts";
+import type { AgentFrame } from "../../src/rpc/frames.ts";
 
 export type TuiTranscriptEntryKind = "user" | "assistant" | "tool" | "notice";
 
