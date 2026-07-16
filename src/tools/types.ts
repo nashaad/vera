@@ -11,5 +11,6 @@ export interface RegisteredTool {
     execute(
         input: Readonly<Record<string, unknown>>,
         context: ToolRuntime,
+        signal: AbortSignal,
     ): Promise<ToolExecutionResult>;
 }

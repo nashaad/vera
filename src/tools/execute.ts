@@ -26,6 +26,7 @@ export const availableTools: readonly ModelTool[] = registeredTools.map(
 export async function executeToolCall(
     toolCall: ToolCallContent,
     runtime: ToolRuntime,
+    signal: AbortSignal = new AbortController().signal,
 ): Promise<ToolResultMessage> {
     const tool = toolRegistry.get(toolCall.name);
     let output = `Unknown tool: ${toolCall.name}`;
@@ -33,7 +34,8 @@ export async function executeToolCall(
 
     if (tool !== undefined) {
         try {
-            const result = await tool.execute(toolCall.input, runtime);
+            signal.throwIfAborted();
+            const result = await tool.execute(toolCall.input, runtime, signal);
             output = result.output;
             isError = result.isError;
         } catch (error) {

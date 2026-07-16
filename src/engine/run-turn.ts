@@ -101,7 +101,11 @@ export async function runTurn(
                         seq: state.seq,
                     });
 
-                    const result = await executeToolCall(block, state.toolRuntime);
+                    const result = await executeToolCall(
+                        block,
+                        state.toolRuntime,
+                        turnController.signal,
+                    );
                     state.messages.push(result);
 
                     state.seq += 1;
