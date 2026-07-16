@@ -19,6 +19,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
+        queuedPrompts: [],
         seq: 0,
     };
 
@@ -81,6 +82,7 @@ test("a bash tool call runs and continues the model turn", async () => {
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
+        queuedPrompts: [],
         seq: 0,
     };
 

@@ -7,6 +7,7 @@ import {
     type InstanceDirectory,
     type InstanceRecord,
 } from "./instances/directory.ts";
+import { runNdjsonProcess } from "./ndjson.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -16,12 +17,13 @@ export interface CliDependencies {
     readonly instances?: InstanceDirectory;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
+    readonly runRpc?: () => Promise<void>;
 }
 
-export function runCli(
+export async function runCli(
     args: readonly string[],
     dependencies: CliDependencies = {},
-): number {
+): Promise<number> {
     const output = dependencies.stdout ?? stdout;
     const errorOutput = dependencies.stderr ?? stderr;
 
@@ -31,7 +33,12 @@ export function runCli(
         return 0;
     }
 
-    errorOutput.write("Usage: vera ls\n");
+    if (args.length === 1 && args[0] === "rpc") {
+        await (dependencies.runRpc ?? runNdjsonProcess)();
+        return 0;
+    }
+
+    errorOutput.write("Usage: vera <ls|rpc>\n");
     return 1;
 }
 
@@ -61,5 +68,5 @@ export function renderInstanceList(records: readonly InstanceRecord[]): string {
 }
 
 if (import.meta.main) {
-    process.exitCode = runCli(process.argv.slice(2));
+    process.exitCode = await runCli(process.argv.slice(2));
 }

@@ -50,6 +50,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(workspace),
+        queuedPrompts: [],
         seq: 0,
     };
 
