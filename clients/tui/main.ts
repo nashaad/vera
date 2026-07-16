@@ -12,10 +12,11 @@ import {
 import { loadVeraConfig } from "../../src/config.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
-import type {
-    ModelAdapter,
-    ModelReasoningEffort,
-} from "../../src/model/types.ts";
+import {
+    resolveReasoningSelection,
+    type ReasoningSelection,
+} from "../../src/model/reasoning-effort.ts";
+import type { ModelAdapter } from "../../src/model/types.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
@@ -47,25 +48,30 @@ const COPY_NOTICE_DURATION_MS = 1_500;
 export interface TuiDependencies {
     readonly adapter: ModelAdapter;
     readonly model: string;
-    readonly reasoningEffort?: ModelReasoningEffort;
+    readonly reasoning?: ReasoningSelection;
 }
 
 if (import.meta.main) {
     const config = loadVeraConfig();
+    const reasoning = config.reasoning_effort === undefined
+        ? undefined
+        : await resolveReasoningSelection(
+            config.provider,
+            config.model,
+            config.reasoning_effort,
+        );
 
     await startTui({
         adapter: createConfiguredModelAdapter(config),
         model: config.model,
-        ...(config.reasoning_effort === undefined
-            ? {}
-            : { reasoningEffort: config.reasoning_effort }),
+        ...(reasoning === undefined ? {} : { reasoning }),
     });
 }
 
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<void> {
-    const { adapter, model, reasoningEffort } = dependencies;
+    const { adapter, model, reasoning } = dependencies;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
@@ -211,7 +217,7 @@ export async function startTui(
         channel.engine,
         adapter,
         model,
-        reasoningEffort,
+        reasoning?.requested,
     ).catch((error: unknown) => {
         if (shuttingDown) {
             return;
@@ -365,7 +371,7 @@ export async function startTui(
         statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
         statusText.content = renderTuiStatusLine(
             model,
-            reasoningEffort,
+            reasoning,
             statusNotice ?? lifecycleHint,
         );
     }

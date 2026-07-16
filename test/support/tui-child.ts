@@ -13,7 +13,11 @@ const responses: AssistantMessage[] = [
 await startTui({
     adapter: new FauxAdapter(responses, { chunkSize: 1, delayMs: 40 }),
     model: "test",
-    reasoningEffort: "high",
+    reasoning: {
+        requested: "high",
+        providerEffort: "high",
+        inferred: false,
+    },
 });
 
 function response(text: string): AssistantMessage {

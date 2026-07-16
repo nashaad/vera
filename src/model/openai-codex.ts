@@ -1,7 +1,7 @@
 import { platform, release, arch } from "node:os";
 
 import { OpenAICodexStreamDecoder } from "./openai-codex-stream.ts";
-import { providerReasoningEffort } from "./reasoning-effort.ts";
+import { resolveReasoningSelection } from "./reasoning-effort.ts";
 import {
     encodeOpenAICodexInput,
     encodeOpenAICodexTools,
@@ -75,6 +75,13 @@ export class OpenAICodexAdapter implements ModelAdapter {
         try {
             throwIfAborted(request.signal);
             const messages = transformMessages(request.messages, { target: source });
+            const reasoning = request.reasoningEffort === undefined
+                ? undefined
+                : await resolveReasoningSelection(
+                    "openai-codex",
+                    request.model,
+                    request.reasoningEffort,
+                );
             const providerRequest: OpenAICodexRequest = {
                 model: request.model,
                 instructions: request.systemPrompt ?? "",
@@ -83,15 +90,9 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 tool_choice: "auto",
                 parallel_tool_calls: false,
                 reasoning: {
-                    ...(request.reasoningEffort === undefined
+                    ...(reasoning === undefined
                         ? {}
-                        : {
-                            effort: providerReasoningEffort(
-                                "openai-codex",
-                                request.model,
-                                request.reasoningEffort,
-                            ),
-                        }),
+                        : { effort: reasoning.providerEffort }),
                     summary: "auto",
                 },
                 store: false,
