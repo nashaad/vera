@@ -60,3 +60,21 @@ test("vera rpc starts the NDJSON bridge", async () => {
     expect(exitCode).toBe(0);
     expect(started).toBe(true);
 });
+
+test("vera login runs OpenAI Codex OAuth and prints the authorization URL", async () => {
+    let output = "";
+    let loggedIn = false;
+
+    const exitCode = await runCli(["login", "openai-codex"], {
+        stdout: { write: (text) => output += text },
+        runOpenAICodexLogin: async (onAuthorizationUrl) => {
+            onAuthorizationUrl("https://auth.openai.test/authorize");
+            loggedIn = true;
+        },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(loggedIn).toBe(true);
+    expect(output).toContain("https://auth.openai.test/authorize");
+    expect(output).toContain("Logged in to OpenAI Codex");
+});

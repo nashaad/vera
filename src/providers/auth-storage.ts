@@ -67,10 +67,21 @@ function readStoredAuth(path: string): StoredAuth {
     }
 
     const value: unknown = JSON.parse(contents);
-    if (!isStoredAuth(value)) {
-        throw new Error(`Invalid Vera auth storage at ${path}`);
+    if (isStoredAuth(value)) {
+        return value;
     }
-    return value;
+    if (isLegacyAuth(value)) {
+        return {
+            schema_version: AUTH_STORAGE_SCHEMA_VERSION,
+            tokens: Object.fromEntries(
+                Object.entries(value).map(([provider, credentials]) => [
+                    provider,
+                    JSON.stringify(credentials),
+                ]),
+            ),
+        };
+    }
+    throw new Error(`Invalid Vera auth storage at ${path}`);
 }
 
 function emptyStoredAuth(): StoredAuth {
@@ -98,6 +109,46 @@ function isStoredAuth(value: unknown): value is StoredAuth {
     return Object.values(auth.tokens).every((token) =>
         typeof token === "string"
     );
+}
+
+function isLegacyAuth(
+    value: unknown,
+): value is Readonly<Record<string, LegacyCredentials>> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    return Object.values(value).every(isLegacyCredentials);
+}
+
+interface LegacyApiKeyCredentials {
+    readonly type: "api_key";
+    readonly key: string;
+}
+
+interface LegacyOAuthCredentials {
+    readonly type: "oauth";
+    readonly access: string;
+    readonly refresh: string;
+    readonly expires: number;
+    readonly accountId?: string;
+}
+
+type LegacyCredentials = LegacyApiKeyCredentials | LegacyOAuthCredentials;
+
+function isLegacyCredentials(value: unknown): value is LegacyCredentials {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const credentials = value as Record<string, unknown>;
+    if (credentials.type === "api_key") {
+        return typeof credentials.key === "string";
+    }
+    return credentials.type === "oauth"
+        && typeof credentials.access === "string"
+        && typeof credentials.refresh === "string"
+        && typeof credentials.expires === "number"
+        && (credentials.accountId === undefined
+            || typeof credentials.accountId === "string");
 }
 
 function writeStoredAuth(path: string, auth: StoredAuth): void {

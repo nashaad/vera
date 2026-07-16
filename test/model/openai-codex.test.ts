@@ -1,0 +1,366 @@
+import { describe, expect, test } from "bun:test";
+
+import {
+    OpenAICodexAdapter,
+    type SendOpenAICodexResponse,
+} from "../../src/model/openai-codex.ts";
+import type {
+    OpenAICodexRequest,
+    OpenAICodexStreamEvent,
+} from "../../src/model/openai-codex-wire.ts";
+import { readOpenAICodexEvents } from "../../src/model/openai-codex-wire.ts";
+import type { ModelMessage, ModelStreamEvent } from "../../src/model/types.ts";
+
+describe("OpenAI Codex adapter", () => {
+    test("streams and replays one tool-using conversation on Responses", async () => {
+        const requests: OpenAICodexRequest[] = [];
+        const responses: OpenAICodexStreamEvent[][] = [
+            [
+                {
+                    type: "response.output_item.added",
+                    output_index: 0,
+                    item: { type: "reasoning" },
+                },
+                {
+                    type: "response.reasoning_summary_text.delta",
+                    output_index: 0,
+                    delta: "Check the directory.",
+                },
+                {
+                    type: "response.output_item.done",
+                    output_index: 0,
+                    item: {
+                        type: "reasoning",
+                        id: "reasoning-1",
+                        encrypted_content: "encrypted-1",
+                    },
+                },
+                {
+                    type: "response.output_item.added",
+                    output_index: 1,
+                    item: { type: "message" },
+                },
+                {
+                    type: "response.output_text.delta",
+                    output_index: 1,
+                    delta: "I will check.",
+                },
+                {
+                    type: "response.output_item.done",
+                    output_index: 1,
+                    item: {
+                        type: "message",
+                        content: [{ type: "output_text", text: "I will check." }],
+                    },
+                },
+                {
+                    type: "response.output_item.added",
+                    output_index: 2,
+                    item: {
+                        type: "function_call",
+                        call_id: "call-1",
+                        name: "bash",
+                    },
+                },
+                {
+                    type: "response.function_call_arguments.delta",
+                    output_index: 2,
+                    delta: '{"command":',
+                },
+                {
+                    type: "response.function_call_arguments.delta",
+                    output_index: 2,
+                    delta: '"pwd"}',
+                },
+                {
+                    type: "response.output_item.done",
+                    output_index: 2,
+                    item: {
+                        type: "function_call",
+                        call_id: "call-1",
+                        name: "bash",
+                        arguments: '{"command":"pwd"}',
+                    },
+                },
+                {
+                    type: "response.completed",
+                    response: {
+                        model: "gpt-5.6-sol",
+                        usage: {
+                            input_tokens: 10,
+                            output_tokens: 8,
+                            total_tokens: 18,
+                            input_tokens_details: { cached_tokens: 4 },
+                            output_tokens_details: { reasoning_tokens: 3 },
+                        },
+                    },
+                },
+            ],
+            [
+                {
+                    type: "response.output_item.added",
+                    output_index: 0,
+                    item: { type: "message" },
+                },
+                {
+                    type: "response.output_text.delta",
+                    output_index: 0,
+                    delta: "Done.",
+                },
+                {
+                    type: "response.output_item.done",
+                    output_index: 0,
+                    item: {
+                        type: "message",
+                        content: [{ type: "output_text", text: "Done." }],
+                    },
+                },
+                {
+                    type: "response.completed",
+                    response: {
+                        model: "gpt-5.6-sol",
+                        usage: { input_tokens: 20, output_tokens: 2 },
+                    },
+                },
+            ],
+        ];
+        const sendResponse: SendOpenAICodexResponse = async (request) => {
+            requests.push(request);
+            return events(responses.shift() ?? []);
+        };
+        const adapter = new OpenAICodexAdapter(sendResponse);
+        const initialMessages: ModelMessage[] = [
+            { role: "user", content: [{ type: "text", text: "Where am I?" }] },
+        ];
+
+        const firstStream = adapter.stream({
+            model: "gpt-5.6-sol",
+            systemPrompt: "Be concise.",
+            messages: initialMessages,
+            tools: [{
+                name: "bash",
+                description: "Run a command.",
+                inputSchema: {
+                    type: "object",
+                    properties: { command: { type: "string" } },
+                },
+            }],
+        });
+        const firstEvents: ModelStreamEvent[] = [];
+        for await (const event of firstStream) {
+            firstEvents.push(event);
+        }
+        const first = await firstStream.result();
+
+        expect(firstEvents.map((event) => event.type)).toEqual([
+            "start",
+            "thinking_start",
+            "thinking_delta",
+            "thinking_end",
+            "text_start",
+            "text_delta",
+            "text_end",
+            "tool_call_start",
+            "tool_call_delta",
+            "tool_call_delta",
+            "tool_call_end",
+            "done",
+        ]);
+        expect(first.stopReason).toBe("tool_use");
+        expect(first.usage).toEqual({
+            inputTokens: 10,
+            outputTokens: 8,
+            cachedInputTokens: 4,
+            reasoningTokens: 3,
+            totalTokens: 18,
+        });
+        expect(first.content[2]).toEqual({
+            type: "tool_call",
+            id: "call-1",
+            name: "bash",
+            input: { command: "pwd" },
+        });
+
+        const secondStream = adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [
+                ...initialMessages,
+                first,
+                {
+                    role: "tool_result",
+                    toolCallId: "call-1",
+                    toolName: "bash",
+                    content: [{ type: "text", text: "/workspace" }],
+                    isError: false,
+                },
+            ],
+        });
+        for await (const _event of secondStream) {
+            // Drain the stream.
+        }
+
+        expect((await secondStream.result()).content).toEqual([
+            { type: "text", text: "Done." },
+        ]);
+        expect(requests[0]).toMatchObject({
+            model: "gpt-5.6-sol",
+            instructions: "Be concise.",
+            input: [{
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text: "Where am I?" }],
+            }],
+            tools: [{
+                type: "function",
+                name: "bash",
+                description: "Run a command.",
+            }],
+        });
+        expect(requests[1]?.input).toEqual([
+            {
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text: "Where am I?" }],
+            },
+            {
+                type: "reasoning",
+                id: "reasoning-1",
+                encrypted_content: "encrypted-1",
+            },
+            {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: "I will check." }],
+            },
+            {
+                type: "function_call",
+                call_id: "call-1",
+                name: "bash",
+                arguments: '{"command":"pwd"}',
+            },
+            {
+                type: "function_call_output",
+                call_id: "call-1",
+                output: "/workspace",
+            },
+        ]);
+    });
+
+    test("keeps separate text items in provider output order", async () => {
+        const adapter = new OpenAICodexAdapter(async () => events([
+            {
+                type: "response.output_item.added",
+                output_index: 0,
+                item: { type: "message" },
+            },
+            {
+                type: "response.output_text.delta",
+                output_index: 0,
+                delta: "before",
+            },
+            {
+                type: "response.output_item.done",
+                output_index: 0,
+                item: { type: "message" },
+            },
+            {
+                type: "response.output_item.added",
+                output_index: 1,
+                item: {
+                    type: "function_call",
+                    call_id: "call-1",
+                    name: "bash",
+                },
+            },
+            {
+                type: "response.output_item.done",
+                output_index: 1,
+                item: {
+                    type: "function_call",
+                    call_id: "call-1",
+                    name: "bash",
+                    arguments: '{}',
+                },
+            },
+            {
+                type: "response.output_item.added",
+                output_index: 2,
+                item: { type: "message" },
+            },
+            {
+                type: "response.output_text.delta",
+                output_index: 2,
+                delta: "after",
+            },
+            {
+                type: "response.output_item.done",
+                output_index: 2,
+                item: { type: "message" },
+            },
+            { type: "response.completed", response: {} },
+        ]));
+        const stream = adapter.stream({ model: "test", messages: [] });
+
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+
+        expect((await stream.result()).content).toEqual([
+            { type: "text", text: "before" },
+            {
+                type: "tool_call",
+                id: "call-1",
+                name: "bash",
+                input: {},
+            },
+            { type: "text", text: "after" },
+        ]);
+    });
+
+    test("reads SSE events separated by bare carriage returns", async () => {
+        const source = 'data: {"type":"response.created"}\r\rdata: [DONE]\r\r';
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode(source));
+                controller.close();
+            },
+        });
+        const values: OpenAICodexStreamEvent[] = [];
+
+        for await (const event of readOpenAICodexEvents(body)) {
+            values.push(event);
+        }
+
+        expect(values).toEqual([{ type: "response.created" }]);
+    });
+
+    test("does not call Codex when already aborted", async () => {
+        let called = false;
+        const adapter = new OpenAICodexAdapter(async () => {
+            called = true;
+            return events([]);
+        });
+        const controller = new AbortController();
+        controller.abort(new Error("stop"));
+        const stream = adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [],
+            signal: controller.signal,
+        });
+
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+
+        expect(called).toBe(false);
+        expect((await stream.result()).stopReason).toBe("aborted");
+    });
+});
+
+async function* events(
+    values: readonly OpenAICodexStreamEvent[],
+): AsyncIterable<OpenAICodexStreamEvent> {
+    for (const value of values) {
+        yield value;
+    }
+}

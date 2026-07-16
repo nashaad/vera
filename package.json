@@ -13,6 +13,7 @@
     "desktop:dev": "bun run desktop:assets && cd clients/desktop && tauri dev",
     "desktop:release": "bun run desktop:assets && cd clients/desktop && tauri build --bundles app",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
+    "smoke:codex": "bun run scripts/codex-smoke.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p clients/desktop/tsconfig.json"
   },

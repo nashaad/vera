@@ -12,8 +12,8 @@ import {
 import { loadVeraConfig } from "../../src/config.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
-import { createOpenRouterAdapter } from "../../src/model/openrouter.ts";
 import type { ModelAdapter } from "../../src/model/types.ts";
+import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import { createTuiComposer } from "./composer.ts";
@@ -46,16 +46,11 @@ export interface TuiDependencies {
 }
 
 if (import.meta.main) {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    const { model } = loadVeraConfig();
-
-    if (!apiKey) {
-        throw new Error("OPENROUTER_API_KEY is required");
-    }
+    const config = loadVeraConfig();
 
     await startTui({
-        adapter: createOpenRouterAdapter({ apiKey }),
-        model,
+        adapter: createConfiguredModelAdapter(config),
+        model: config.model,
     });
 }
 

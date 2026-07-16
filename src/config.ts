@@ -4,8 +4,11 @@ import { join } from "node:path";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
+export type VeraProviderId = "openrouter" | "openai-codex";
+
 export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
+    readonly provider: VeraProviderId;
     readonly model: string;
 }
 
@@ -28,7 +31,7 @@ export function loadVeraConfig(
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             throw new Error(
-                `Vera config not found at ${path}. Create it with schema_version 1 and a model string.`,
+                `Vera config not found at ${path}. Create it with schema_version 1, an optional provider, and a model string.`,
             );
         }
         throw error;
@@ -45,7 +48,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1 and a non-empty model string.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, and a non-empty model string.`,
         );
     }
     return config;
@@ -59,6 +62,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const config = value as Record<string, unknown>;
     if (
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
+        || (config.provider !== undefined
+            && config.provider !== "openrouter"
+            && config.provider !== "openai-codex")
         || typeof config.model !== "string"
         || config.model.trim().length === 0
     ) {
@@ -67,6 +73,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
 
     return {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
+        provider: config.provider ?? "openrouter",
         model: config.model.trim(),
     };
 }
