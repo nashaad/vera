@@ -42,7 +42,7 @@ if (!apiKey) {
 }
 
 const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
-const WORKING_HINT = "working… · ctrl+c stop";
+const WORKING_HINT = "working… · enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
 const COPY_NOTICE_DURATION_MS = 1_500;
 
