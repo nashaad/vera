@@ -12,6 +12,10 @@ if (model === undefined) {
 
 const stream = createOpenAICodexAdapter().stream({
     model,
+    ...(config.provider !== "openai-codex"
+        || config.reasoning_effort === undefined
+        ? {}
+        : { reasoningEffort: config.reasoning_effort }),
     messages: [
         {
             role: "user",

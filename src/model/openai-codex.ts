@@ -1,6 +1,7 @@
 import { platform, release, arch } from "node:os";
 
 import { OpenAICodexStreamDecoder } from "./openai-codex-stream.ts";
+import { providerReasoningEffort } from "./reasoning-effort.ts";
 import {
     encodeOpenAICodexInput,
     encodeOpenAICodexTools,
@@ -81,7 +82,18 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 tools: encodeOpenAICodexTools(request.tools ?? []),
                 tool_choice: "auto",
                 parallel_tool_calls: false,
-                reasoning: { summary: "auto" },
+                reasoning: {
+                    ...(request.reasoningEffort === undefined
+                        ? {}
+                        : {
+                            effort: providerReasoningEffort(
+                                "openai-codex",
+                                request.model,
+                                request.reasoningEffort,
+                            ),
+                        }),
+                    summary: "auto",
+                },
                 store: false,
                 stream: true,
                 include: ["reasoning.encrypted_content"],

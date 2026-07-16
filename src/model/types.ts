@@ -73,8 +73,11 @@ export interface ModelTool {
     readonly inputSchema: Readonly<Record<string, unknown>>;
 }
 
+export type ModelReasoningEffort = "low" | "medium" | "high" | "max";
+
 export interface ModelRequest {
     readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
     readonly systemPrompt?: string;
     readonly messages: readonly ModelMessage[];
     readonly tools?: readonly ModelTool[];

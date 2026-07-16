@@ -12,10 +12,14 @@ import type {
     ModelTool,
     ModelUsage,
 } from "./types.ts";
+import type { ProviderReasoningEffort } from "./reasoning-effort.ts";
 
 export interface OpenRouterChatRequest {
     readonly model: string;
     readonly messages: ChatMessages[];
+    readonly reasoning?: {
+        readonly effort: ProviderReasoningEffort;
+    };
     readonly tools?: ChatFunctionTool[];
 }
 

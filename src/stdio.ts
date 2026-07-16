@@ -21,7 +21,12 @@ const presence = createInstanceDirectory().register({
 });
 
 try {
-    void runHeadlessLoop(channel.engine, adapter, config.model);
+    void runHeadlessLoop(
+        channel.engine,
+        adapter,
+        config.model,
+        config.reasoning_effort,
+    );
     lines.prompt();
 
     for await (const line of lines) {
