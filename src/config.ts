@@ -51,7 +51,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, a non-empty model string, and optional reasoning_effort low, medium, high, or max.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, a non-empty model string, and optional reasoning_effort off, low, medium, high, or max.`,
         );
     }
     return config;
@@ -71,6 +71,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || typeof config.model !== "string"
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined
+            && config.reasoning_effort !== "off"
             && config.reasoning_effort !== "low"
             && config.reasoning_effort !== "medium"
             && config.reasoning_effort !== "high"

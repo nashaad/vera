@@ -34,8 +34,8 @@ Create `~/.vera/config.json`:
 }
 ```
 
-`reasoning_effort` may be `low`, `medium`, `high`, or `max`. If omitted, the
-model uses its default.
+`reasoning_effort` may be `off`, `low`, `medium`, `high`, or `max`. If omitted,
+the model uses its default. Use `off` to disable reasoning.
 
 ## OpenRouter
 

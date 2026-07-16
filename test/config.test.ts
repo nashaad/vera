@@ -25,14 +25,14 @@ test("Vera config selects OpenAI Codex", () => {
         schema_version: 1,
         provider: "openai-codex",
         model: "gpt-5.6-sol",
-        reasoning_effort: "max",
+        reasoning_effort: "off",
     }));
 
     expect(loadVeraConfig({ path })).toEqual({
         schema_version: 1,
         provider: "openai-codex",
         model: "gpt-5.6-sol",
-        reasoning_effort: "max",
+        reasoning_effort: "off",
     });
 });
 
@@ -54,7 +54,7 @@ test("Vera config rejects an unknown reasoning effort", () => {
     }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "optional reasoning_effort low, medium, high, or max",
+        "optional reasoning_effort off, low, medium, high, or max",
     );
 });
 
