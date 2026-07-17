@@ -17,8 +17,20 @@ test("bash danger detector recognizes recursive-force rm forms", () => {
         "pwd && /bin/rm -Rfv target",
         "MODE=cleanup rm -rf target",
         "command rm -rf target",
+        "command -p rm -rf target",
+        "env MODE=cleanup rm -rf target",
+        "env -u HOME rm -rf target",
+        "command env rm -rf target",
+        "bash -c 'rm -rf target'",
+        "bash -lc 'rm -rf target'",
+        "echo \"$(rm -rf target)\"",
         "echo `rm -rf target`",
         "echo \"result: `rm -rf target`\"",
+        "if true; then rm -rf target; fi",
+        "while true; do rm -rf target; done",
+        "! rm -rf target",
+        "{ rm -rf target; }",
+        "time rm -rf target",
     ];
 
     for (const command of blockedCommands) {
@@ -32,6 +44,7 @@ test("bash danger detector requires both active rm flags", () => {
         "rm -f target",
         "rm -r -- -f",
         "printf 'rm -rf target'",
+        "printf '$(rm -rf target)'",
     ];
 
     for (const command of allowedCommands) {
