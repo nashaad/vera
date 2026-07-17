@@ -1,0 +1,248 @@
+import { randomUUID } from "node:crypto";
+import { createConnection, type Socket } from "node:net";
+import {
+    chmod,
+    mkdir,
+    open,
+    readFile,
+    rename,
+    unlink,
+} from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
+
+export const HOST_LOCK_SCHEMA_VERSION = 1;
+
+export interface HostLockRecord {
+    readonly schema_version: typeof HOST_LOCK_SCHEMA_VERSION;
+    readonly pid: number;
+    readonly started_at: string;
+    readonly socket_path: string;
+}
+
+export interface HostIdentity {
+    readonly pid: number;
+    readonly started_at: string;
+}
+
+export interface HostLockfile {
+    publish(): Promise<HostLockRecord>;
+    read(): Promise<HostLockRecord | undefined>;
+}
+
+export interface HostLockfileOptions {
+    readonly path?: string;
+    readonly socketPath?: string;
+    readonly pid?: number;
+    readonly startedAt?: string;
+    readonly inspectSocket?: (
+        socketPath: string,
+    ) => Promise<HostIdentity | undefined>;
+}
+
+export function defaultHostLockPath(): string {
+    return join(homedir(), ".vera", "host.json");
+}
+
+export function defaultHostSocketPath(): string {
+    return join(homedir(), ".vera", "host.sock");
+}
+
+export function createHostLockfile(
+    options: HostLockfileOptions = {},
+): HostLockfile {
+    const path = options.path ?? defaultHostLockPath();
+    const socketPath = options.socketPath ?? defaultHostSocketPath();
+    const pid = options.pid ?? process.pid;
+    const startedAt = options.startedAt ?? currentProcessStartedAt();
+    const inspectSocket = options.inspectSocket ?? requestHostIdentity;
+
+    return {
+        async publish(): Promise<HostLockRecord> {
+            if (!Number.isInteger(pid) || pid <= 0) {
+                throw new Error("Host PID must be a positive integer");
+            }
+            if (Number.isNaN(Date.parse(startedAt))) {
+                throw new Error("Host start time must be a timestamp");
+            }
+            const record: HostLockRecord = {
+                schema_version: HOST_LOCK_SCHEMA_VERSION,
+                pid,
+                started_at: startedAt,
+                socket_path: nonEmpty(socketPath, "host socket path"),
+            };
+            const serialized = `${JSON.stringify(record, null, 2)}\n`;
+
+            const directory = dirname(path);
+            const temporaryPath = join(
+                directory,
+                `.${basename(path)}.${randomUUID()}.tmp`,
+            );
+            await mkdir(directory, { recursive: true, mode: 0o700 });
+            await chmod(directory, 0o700);
+            try {
+                const file = await open(temporaryPath, "wx", 0o600);
+                try {
+                    await file.chmod(0o600);
+                    await file.writeFile(serialized, "utf8");
+                    await file.sync();
+                } finally {
+                    await file.close();
+                }
+                await rename(temporaryPath, path);
+            } catch (error) {
+                await removeFile(temporaryPath);
+                throw error;
+            }
+
+            return record;
+        },
+
+        async read(): Promise<HostLockRecord | undefined> {
+            const serialized = await readLockSource(path);
+            if (serialized === undefined) {
+                return undefined;
+            }
+            const record = parseHostLock(serialized);
+            if (record === undefined || record.socket_path !== socketPath) {
+                return undefined;
+            }
+            const identity = await inspectSocket(socketPath);
+            if (
+                identity?.pid !== record.pid
+                || identity.started_at !== record.started_at
+            ) {
+                return undefined;
+            }
+            return record;
+        },
+    };
+}
+
+function currentProcessStartedAt(): string {
+    return new Date(Date.now() - process.uptime() * 1_000).toISOString();
+}
+
+function requestHostIdentity(
+    socketPath: string,
+): Promise<HostIdentity | undefined> {
+    return new Promise((resolve) => {
+        let socket: Socket;
+        try {
+            socket = createConnection(socketPath);
+        } catch {
+            resolve(undefined);
+            return;
+        }
+        let finished = false;
+        let buffered = "";
+        const finish = (identity: HostIdentity | undefined): void => {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            socket.destroy();
+            resolve(identity);
+        };
+        socket.setEncoding("utf8");
+        socket.once("connect", () => {
+            socket.write(`${JSON.stringify({ type: "host_identity" })}\n`);
+        });
+        socket.on("data", (chunk: string) => {
+            buffered += chunk;
+            if (buffered.length > 4_096) {
+                finish(undefined);
+                return;
+            }
+            const newline = buffered.indexOf("\n");
+            if (newline !== -1) {
+                finish(parseHostIdentity(buffered.slice(0, newline)));
+            }
+        });
+        socket.once("error", () => finish(undefined));
+        socket.setTimeout(250, () => finish(undefined));
+    });
+}
+
+function parseHostIdentity(source: string): HostIdentity | undefined {
+    let value: unknown;
+    try {
+        value = JSON.parse(source);
+    } catch {
+        return undefined;
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const response = value as Record<string, unknown>;
+    if (
+        response.type !== "host_identity"
+        || !Number.isInteger(response.pid)
+        || (response.pid as number) <= 0
+        || typeof response.started_at !== "string"
+        || Number.isNaN(Date.parse(response.started_at))
+    ) {
+        return undefined;
+    }
+    return {
+        pid: response.pid as number,
+        started_at: response.started_at,
+    };
+}
+
+async function readLockSource(path: string): Promise<string | undefined> {
+    try {
+        return await readFile(path, "utf8");
+    } catch (error) {
+        if (isMissingFileError(error)) {
+            return undefined;
+        }
+        throw error;
+    }
+}
+
+async function removeFile(path: string): Promise<void> {
+    try {
+        await unlink(path);
+    } catch (error) {
+        if (!isMissingFileError(error)) {
+            throw error;
+        }
+    }
+}
+
+function parseHostLock(source: string): HostLockRecord | undefined {
+    let value: unknown;
+    try {
+        value = JSON.parse(source);
+    } catch {
+        return undefined;
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    if (
+        record.schema_version !== HOST_LOCK_SCHEMA_VERSION
+        || !Number.isInteger(record.pid)
+        || (record.pid as number) <= 0
+        || typeof record.started_at !== "string"
+        || Number.isNaN(Date.parse(record.started_at))
+        || typeof record.socket_path !== "string"
+        || record.socket_path.length === 0
+    ) {
+        return undefined;
+    }
+    return record as unknown as HostLockRecord;
+}
+
+function nonEmpty(value: string, name: string): string {
+    if (value.length === 0) {
+        throw new Error(`${name} must not be empty`);
+    }
+    return value;
+}
+
+function isMissingFileError(error: unknown): boolean {
+    return (error as NodeJS.ErrnoException).code === "ENOENT";
+}
