@@ -2,8 +2,8 @@ import type {
     ModelMessage,
     ModelTool,
     ModelUsage,
-} from "./types.ts";
-import type { ProviderReasoningEffort } from "./reasoning-effort.ts";
+} from "../model/types.ts";
+import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
 
 export interface OpenAICodexInputText {
     readonly type: "input_text";

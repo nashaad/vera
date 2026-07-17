@@ -1,4 +1,4 @@
-import { runNdjsonBridge } from "../../src/rpc/ndjson.ts";
+import { runNdjsonBridge } from "../../clients/stdio/ndjson-bridge.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
 

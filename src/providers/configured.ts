@@ -1,6 +1,6 @@
 import type { VeraConfig } from "../config.ts";
-import { createOpenAICodexAdapter } from "../model/openai-codex.ts";
-import { createOpenRouterAdapter } from "../model/openrouter.ts";
+import { createOpenAICodexAdapter } from "./openai-codex.ts";
+import { createOpenRouterAdapter } from "./openrouter.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 

@@ -1,5 +1,5 @@
 import { loadVeraConfig } from "../src/config.ts";
-import { createOpenRouterAdapter } from "../src/model/openrouter.ts";
+import { createOpenRouterAdapter } from "../src/providers/openrouter.ts";
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 const config = loadVeraConfig();

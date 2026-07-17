@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { runCli } from "../src/cli.ts";
+import { runCli } from "../clients/cli/main.ts";
 import type {
     InstanceDirectory,
     InstanceRecord,

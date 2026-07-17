@@ -1,5 +1,5 @@
 import { loadVeraConfig } from "../src/config.ts";
-import { createOpenAICodexAdapter } from "../src/model/openai-codex.ts";
+import { createOpenAICodexAdapter } from "../src/providers/openai-codex.ts";
 
 const config = loadVeraConfig();
 const model = process.env.OPENAI_CODEX_MODEL

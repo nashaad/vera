@@ -11,8 +11,8 @@ import type {
     ModelStopReason,
     ModelTool,
     ModelUsage,
-} from "./types.ts";
-import type { ProviderReasoningEffort } from "./reasoning-effort.ts";
+} from "../model/types.ts";
+import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
 
 export interface OpenRouterChatRequest {
     readonly model: string;

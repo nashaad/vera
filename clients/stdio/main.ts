@@ -1,11 +1,11 @@
 import { createInterface } from "node:readline";
 import { stdin, stdout } from "node:process";
 
-import { loadVeraConfig } from "./config.ts";
-import { runHeadlessLoop } from "./engine/run-turn.ts";
-import { createInstanceDirectory } from "./instances/directory.ts";
-import { createConfiguredModelAdapter } from "./providers/configured.ts";
-import { createInProcessChannel } from "./rpc/in-process-channel.ts";
+import { loadVeraConfig } from "../../src/config.ts";
+import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
+import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
+import { createInstanceDirectory } from "../../src/instances/directory.ts";
+import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 
 const config = loadVeraConfig();
 const adapter = createConfiguredModelAdapter(config);

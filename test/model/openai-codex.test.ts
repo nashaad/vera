@@ -3,12 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
     OpenAICodexAdapter,
     type SendOpenAICodexResponse,
-} from "../../src/model/openai-codex.ts";
+} from "../../src/providers/openai-codex.ts";
 import type {
     OpenAICodexRequest,
     OpenAICodexStreamEvent,
-} from "../../src/model/openai-codex-wire.ts";
-import { readOpenAICodexEvents } from "../../src/model/openai-codex-wire.ts";
+} from "../../src/providers/openai-codex-wire.ts";
+import { readOpenAICodexEvents } from "../../src/providers/openai-codex-wire.ts";
 import type { ModelMessage, ModelStreamEvent } from "../../src/model/types.ts";
 
 describe("OpenAI Codex adapter", () => {

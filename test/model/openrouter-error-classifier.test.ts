@@ -5,7 +5,7 @@ import {
     RequestTimeoutError,
 } from "@openrouter/sdk/models/errors";
 
-import { classifyOpenRouterError } from "../../src/model/openrouter-error-classifier.ts";
+import { classifyOpenRouterError } from "../../src/providers/openrouter-error-classifier.ts";
 import type {
     ProviderFailureKind,
     ProviderFailureResolution,

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
-import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
+import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 

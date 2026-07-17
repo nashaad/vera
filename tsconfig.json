@@ -27,6 +27,7 @@
     "noPropertyAccessFromIndexSignature": false
   },
   "include": [
+    "index.ts",
     "src/**/*.ts",
     "clients/tui/**/*.ts",
     "test/**/*.ts",

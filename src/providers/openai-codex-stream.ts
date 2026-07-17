@@ -1,4 +1,4 @@
-import { ModelEventStream } from "./stream.ts";
+import { ModelEventStream } from "../model/stream.ts";
 import {
     encodeOpenAICodexReasoningItem,
     openAICodexUsage,
@@ -13,7 +13,7 @@ import {
     type ModelSource,
     type ModelStopReason,
     type ModelUsage,
-} from "./types.ts";
+} from "../model/types.ts";
 
 interface PendingToolCall {
     readonly contentIndex: number;

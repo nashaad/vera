@@ -7,7 +7,7 @@ import {
     type ModelAdapter,
     type ModelRequest,
 } from "../../src/model/types.ts";
-import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
+import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 

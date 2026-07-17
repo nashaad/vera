@@ -4,7 +4,7 @@ import type {
     ReasoningDetailUnion,
 } from "@openrouter/sdk/models";
 
-import { ModelEventStream } from "./stream.ts";
+import { ModelEventStream } from "../model/stream.ts";
 import {
     encodeReasoningDetails,
     openRouterStopReason,
@@ -18,7 +18,7 @@ import {
     type ModelSource,
     type ModelStopReason,
     type ModelUsage,
-} from "./types.ts";
+} from "../model/types.ts";
 
 interface PendingToolCall {
     readonly contentIndex: number;

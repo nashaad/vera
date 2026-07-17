@@ -4,7 +4,7 @@ import {
     RequestTimeoutError,
 } from "@openrouter/sdk/models/errors";
 
-import type { ProviderFailure } from "./provider-failure.ts";
+import type { ProviderFailure } from "../model/provider-failure.ts";
 
 interface HttpFailureMapping {
     readonly kind: ProviderFailure["kind"];

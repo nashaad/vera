@@ -1,7 +1,7 @@
 import { platform, release, arch } from "node:os";
 
 import { OpenAICodexStreamDecoder } from "./openai-codex-stream.ts";
-import { resolveReasoningSelection } from "./reasoning-effort.ts";
+import { resolveReasoningSelection } from "../model/reasoning-effort.ts";
 import {
     encodeOpenAICodexInput,
     encodeOpenAICodexTools,
@@ -13,22 +13,22 @@ import {
     DEFAULT_PROVIDER_RETRY_POLICY,
     retryBeforeStreamStart,
     type WaitForRetry,
-} from "./retry.ts";
-import { ModelEventStream } from "./stream.ts";
-import { transformMessages } from "./transform.ts";
+} from "../model/retry.ts";
+import { ModelEventStream } from "../model/stream.ts";
+import { transformMessages } from "../model/transform.ts";
 import type {
     ModelAdapter,
     ModelRequest,
     ModelSource,
-} from "./types.ts";
-import type { ProviderFailure } from "./provider-failure.ts";
+} from "../model/types.ts";
+import type { ProviderFailure } from "../model/provider-failure.ts";
 import {
     createAuthStorage,
-} from "../providers/auth-storage.ts";
+} from "./auth-storage.ts";
 import {
     resolveOpenAICodexAuthorization,
     type OpenAICodexAuthorizationOptions,
-} from "../providers/openai-codex-oauth.ts";
+} from "./openai-codex-oauth.ts";
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 

@@ -5,12 +5,12 @@ import type {
     ModelReasoningEffort,
     UserMessage,
 } from "../model/types.ts";
-import type { FrameEndpoint } from "../rpc/in-process-channel.ts";
+import type { FrameEndpoint } from "./in-process-channel.ts";
 import type {
     AgentFrame,
     ClientFrame,
     PromptFrame,
-} from "../rpc/frames.ts";
+} from "./frames.ts";
 import { availableTools, executeToolCall } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 
