@@ -1,4 +1,5 @@
 export * from "./src/engine/run-turn.ts";
+export * from "./src/engine/events.ts";
 export * from "./src/instances/directory.ts";
 export * from "./src/providers/openrouter.ts";
 export * from "./src/providers/openai-codex.ts";

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
     AssistantMessage,
     ModelAdapter,
@@ -11,6 +13,12 @@ import type {
     ClientFrame,
     PromptFrame,
 } from "./frames.ts";
+import { createFrameProjector } from "./frames.ts";
+import {
+    EngineEventBus,
+    createJsonlEventLogger,
+    defaultEventLogPath,
+} from "./events.ts";
 import { availableTools, executeToolCall } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 
@@ -18,7 +26,12 @@ export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly toolRuntime: ToolRuntime;
     readonly queuedPrompts: PromptFrame[];
-    seq: number;
+    readonly events: EngineEventBus;
+}
+
+export interface RunHeadlessLoopOptions {
+    readonly sessionId?: string;
+    readonly eventLogPath?: string;
 }
 
 export async function runHeadlessLoop(
@@ -26,12 +39,20 @@ export async function runHeadlessLoop(
     adapter: ModelAdapter,
     model: string,
     reasoningEffort?: ModelReasoningEffort,
+    options: RunHeadlessLoopOptions = {},
 ): Promise<void> {
+    const sessionId = options.sessionId ?? randomUUID();
+    const events = new EngineEventBus();
+    events.subscribe(createFrameProjector(endpoint));
+    events.subscribe(createJsonlEventLogger({
+        path: options.eventLogPath ?? defaultEventLogPath(sessionId),
+        sessionId,
+    }));
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
         queuedPrompts: [],
-        seq: 0,
+        events,
     };
 
     while (true) {
@@ -57,6 +78,7 @@ export async function runTurn(
         content: [{ type: "text", text: frame.content }],
     };
     state.messages.push(userMessage);
+    state.events.emit({ type: "turn_started", message: userMessage });
     let assistantMessage: AssistantMessage;
     const turnController = new AbortController();
     const receiveController = new AbortController();
@@ -65,27 +87,39 @@ export async function runTurn(
         turnController,
         receiveController.signal,
         state.queuedPrompts,
+        state.events,
     );
 
     try {
         while (true) {
-            const stream = adapter.stream({
+            const request = {
                 model,
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-                messages: state.messages,
+                messages: state.messages.slice(),
                 tools: availableTools,
                 signal: turnController.signal,
+            };
+            state.events.emit({
+                type: "model_request",
+                model: request.model,
+                ...(request.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: request.reasoningEffort }),
+                messages: request.messages,
+                tools: request.tools,
             });
+            const stream = adapter.stream(request);
 
             for await (const event of stream) {
-                if (event.type === "text_delta") {
-                    state.seq += 1;
-                    endpoint.send({
-                        type: "assistant_delta",
-                        text: event.text,
-                        seq: state.seq,
+                if (event.type === "error") {
+                    state.events.emit({
+                        type: "model_stream_error",
+                        error: event.error.message,
+                        message: event.message,
                     });
+                    continue;
                 }
+                state.events.emit({ type: "model_stream", event });
             }
 
             assistantMessage = await stream.result();
@@ -97,13 +131,11 @@ export async function runTurn(
 
             for (const block of assistantMessage.content) {
                 if (block.type === "tool_call") {
-                    state.seq += 1;
-                    endpoint.send({
-                        type: "tool_started",
-                        tool: block.name,
-                        args: block.input,
-                        seq: state.seq,
+                    state.events.emit({
+                        type: "tool_execution_started",
+                        toolCall: block,
                     });
+                    const startedAt = performance.now();
 
                     const result = await executeToolCall(
                         block,
@@ -112,11 +144,11 @@ export async function runTurn(
                     );
                     state.messages.push(result);
 
-                    state.seq += 1;
-                    endpoint.send({
-                        type: "tool_finished",
-                        tool: block.name,
-                        seq: state.seq,
+                    state.events.emit({
+                        type: "tool_execution_finished",
+                        toolCall: block,
+                        result,
+                        durationMs: performance.now() - startedAt,
                     });
                 }
             }
@@ -126,8 +158,7 @@ export async function runTurn(
         await abortFrame;
     }
 
-    state.seq += 1;
-    endpoint.send({ type: "turn_finished", seq: state.seq });
+    state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
 }
 
@@ -136,15 +167,18 @@ async function receiveAbort(
     turnController: AbortController,
     signal: AbortSignal,
     queuedPrompts: PromptFrame[],
+    events: EngineEventBus,
 ): Promise<void> {
     while (!signal.aborted) {
         try {
             const frame = await endpoint.receive(signal);
             if (frame.type === "abort") {
+                events.emit({ type: "abort_requested" });
                 turnController.abort(new Error("Turn aborted"));
                 return;
             }
             queuedPrompts.push(frame);
+            events.emit({ type: "prompt_queued", content: frame.content });
         } catch {
             return;
         }
