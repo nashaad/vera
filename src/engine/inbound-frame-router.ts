@@ -201,6 +201,7 @@ export class InboundFrameRouter {
         if (pending.signal !== undefined && pending.onAbort !== undefined) {
             pending.signal.removeEventListener("abort", pending.onAbort);
         }
+        this.events.emit({ type: "ui_request_closed", requestId });
         pending.resolve(result);
     }
 }

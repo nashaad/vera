@@ -23,9 +23,14 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundFrameRouter } from "./inbound-frame-router.ts";
+import {
+    decideToolPermission,
+    type ApprovalMode,
+} from "./permissions.ts";
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
+const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
@@ -33,11 +38,13 @@ export interface RunTurnState {
     readonly inbound: InboundFrameRouter;
     readonly events: EngineEventBus;
     readonly hooks: ToolHooks;
+    readonly approvalMode: ApprovalMode;
 }
 
 export interface RunHeadlessLoopOptions {
     readonly sessionId?: string;
     readonly eventLogPath?: string;
+    readonly approvalMode?: ApprovalMode;
 }
 
 export async function runHeadlessLoop(
@@ -61,6 +68,7 @@ export async function runHeadlessLoop(
         inbound,
         events,
         hooks: new ToolHooks(),
+        approvalMode: options.approvalMode ?? "approve_for_me",
     };
 
     while (true) {
@@ -137,6 +145,36 @@ export async function runTurn(
                         name: block.name,
                         input: block.input as JsonObject,
                     };
+                    const permission = decideToolPermission(
+                        state.approvalMode,
+                        hookToolCall,
+                        state.toolRuntime.workspace,
+                    );
+                    if (permission.behavior === "deny") {
+                        state.messages.push(deniedToolResult(
+                            block,
+                            permission.reason,
+                        ));
+                        continue;
+                    }
+                    if (permission.behavior === "ask") {
+                        const approval = await state.inbound.requestToolApproval(
+                            hookToolCall,
+                            permission.reason,
+                            {
+                                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                                signal: turn.signal,
+                            },
+                        );
+                        if (approval.behavior === "deny") {
+                            state.messages.push(deniedToolResult(
+                                block,
+                                approval.reason,
+                            ));
+                            continue;
+                        }
+                    }
+
                     const decision = await state.hooks.runPreToolUse({
                         type: "pre_tool_use",
                         toolCall: hookToolCall,

@@ -71,6 +71,12 @@ export interface UiRequestFrame {
     readonly seq: number;
 }
 
+export interface UiRequestClosedFrame {
+    readonly type: "ui_request_closed";
+    readonly requestId: string;
+    readonly seq: number;
+}
+
 export type AgentFrame =
     | HistoryFrame
     | AssistantDeltaFrame
@@ -78,7 +84,8 @@ export type AgentFrame =
     | ToolFinishedFrame
     | TurnFinishedFrame
     | StatusFrame
-    | UiRequestFrame;
+    | UiRequestFrame
+    | UiRequestClosedFrame;
 
 export interface AgentFrameSender {
     send(frame: AgentFrame): void;
@@ -130,6 +137,16 @@ export function createFrameProjector(
                 type: "ui_request",
                 requestId: event.requestId,
                 request: event.request,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "ui_request_closed") {
+            seq += 1;
+            sender.send({
+                type: "ui_request_closed",
+                requestId: event.requestId,
                 seq,
             });
             return;

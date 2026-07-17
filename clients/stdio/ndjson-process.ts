@@ -20,6 +20,7 @@ export async function runNdjsonProcess(): Promise<void> {
             adapter,
             config.model,
             config.reasoning_effort,
+            { approvalMode: config.approval_mode },
         );
     } finally {
         presence.remove();
