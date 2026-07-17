@@ -27,6 +27,10 @@ import {
     decideToolPermission,
     type ApprovalMode,
 } from "./permissions.ts";
+import {
+    requestModelWithRecovery,
+    type WaitForModelRetry,
+} from "./recovery.ts";
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
@@ -39,6 +43,7 @@ export interface RunTurnState {
     readonly events: EngineEventBus;
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
+    readonly waitForModelRetry?: WaitForModelRetry;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -117,21 +122,32 @@ export async function runTurn(
                 messages: request.messages,
                 tools: request.tools,
             });
-            const stream = adapter.stream(request);
-
-            for await (const event of stream) {
-                if (event.type === "error") {
-                    state.events.emit({
-                        type: "model_stream_error",
-                        error: event.error.message,
-                        message: event.message,
-                    });
-                    continue;
-                }
-                state.events.emit({ type: "model_stream", event });
-            }
-
-            assistantMessage = await stream.result();
+            assistantMessage = await requestModelWithRecovery(
+                adapter,
+                request,
+                {
+                    onEvent(event): void {
+                        if (event.type === "error") {
+                            state.events.emit({
+                                type: "model_stream_error",
+                                error: event.error.message,
+                                message: event.message,
+                            });
+                            return;
+                        }
+                        state.events.emit({ type: "model_stream", event });
+                    },
+                    onRetry(retry): void {
+                        state.events.emit({
+                            type: "model_retry_scheduled",
+                            ...retry,
+                        });
+                    },
+                    ...(state.waitForModelRetry === undefined
+                        ? {}
+                        : { wait: state.waitForModelRetry }),
+                },
+            );
             state.messages.push(assistantMessage);
 
             if (assistantMessage.stopReason !== "tool_use") {

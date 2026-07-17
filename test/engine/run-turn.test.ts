@@ -1,10 +1,19 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
-import { EngineEventBus } from "../../src/engine/events.ts";
+import {
+    EngineEventBus,
+    createJsonlEventLogger,
+} from "../../src/engine/events.ts";
 import {
     createFrameProjector,
     type AgentFrameSender,
@@ -18,6 +27,11 @@ import {
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../../src/model/provider-failure.ts";
+import { ModelEventStream } from "../../src/model/stream.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -99,6 +113,100 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         },
         response,
     ]);
+});
+
+test("a transient model failure retries only in the engine event log", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-recovery-"));
+    temporaryWorkspaces.push(workspace);
+    const logPath = join(workspace, "events.jsonl");
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "recovered" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const success = new FauxAdapter([response]);
+    let attempts = 0;
+    const adapter: ModelAdapter = {
+        stream(request): ModelEventStream {
+            attempts += 1;
+            if (attempts > 1) {
+                return success.stream(request);
+            }
+            const stream = new ModelEventStream();
+            const failure: ProviderFailure = {
+                kind: "connection",
+                resolution: "retry",
+                message: "temporary disconnect",
+            };
+            const error = new ProviderFailureError(
+                failure,
+                new Error(failure.message),
+            );
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...response,
+                    content: [],
+                    stopReason: "error",
+                    errorMessage: error.message,
+                },
+            });
+            return stream;
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    events.subscribe(createJsonlEventLogger({
+        path: logPath,
+        sessionId: "recovery-test",
+    }));
+    const delays: number[] = [];
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        waitForModelRetry: async (delayMs) => {
+            delays.push(delayMs);
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "recover" });
+    const turn = runTurn(adapter, "test", state);
+
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "recovered",
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 2,
+    });
+    expect(await turn).toEqual(response);
+    expect(attempts).toBe(2);
+    expect(delays).toEqual([500]);
+
+    const logged = readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(logged).toContainEqual(expect.objectContaining({
+        type: "model_retry_scheduled",
+        model: "test",
+        nextAttempt: 2,
+        delayMs: 500,
+        failure: expect.objectContaining({
+            kind: "connection",
+            resolution: "retry",
+        }),
+    }));
 });
 
 test("a bash tool call runs and continues the model turn", async () => {

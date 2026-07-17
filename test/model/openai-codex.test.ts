@@ -9,6 +9,7 @@ import type {
     OpenAICodexStreamEvent,
 } from "../../src/providers/openai-codex-wire.ts";
 import { readOpenAICodexEvents } from "../../src/providers/openai-codex-wire.ts";
+import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 import type { ModelMessage, ModelStreamEvent } from "../../src/model/types.ts";
 
 describe("OpenAI Codex adapter", () => {
@@ -356,6 +357,36 @@ describe("OpenAI Codex adapter", () => {
 
         expect(called).toBe(false);
         expect((await stream.result()).stopReason).toBe("aborted");
+    });
+
+    test("classifies a transport failure without choosing retry policy", async () => {
+        let attempts = 0;
+        const adapter = new OpenAICodexAdapter(async () => {
+            attempts += 1;
+            throw new TypeError("disconnected");
+        });
+        const stream = adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [],
+        });
+        const observed: ModelStreamEvent[] = [];
+
+        for await (const event of stream) {
+            observed.push(event);
+        }
+
+        const error = observed.at(-1);
+        expect(error?.type).toBe("error");
+        if (error?.type === "error") {
+            expect(error.error).toBeInstanceOf(ProviderFailureError);
+            expect(error.error).toMatchObject({
+                failure: {
+                    kind: "connection",
+                    resolution: "retry",
+                },
+            });
+        }
+        expect(attempts).toBe(1);
     });
 });
 

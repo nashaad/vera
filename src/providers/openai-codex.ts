@@ -10,10 +10,9 @@ import {
     type SendOpenAICodexResponse,
 } from "./openai-codex-wire.ts";
 import {
-    DEFAULT_PROVIDER_RETRY_POLICY,
-    retryBeforeStreamStart,
-    type WaitForRetry,
-} from "../model/retry.ts";
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../model/provider-failure.ts";
 import { ModelEventStream } from "../model/stream.ts";
 import { transformMessages } from "../model/transform.ts";
 import type {
@@ -21,7 +20,6 @@ import type {
     ModelRequest,
     ModelSource,
 } from "../model/types.ts";
-import type { ProviderFailure } from "../model/provider-failure.ts";
 import {
     createAuthStorage,
 } from "./auth-storage.ts";
@@ -38,20 +36,11 @@ export interface OpenAICodexAdapterOptions extends OpenAICodexAuthorizationOptio
     readonly baseUrl?: string;
 }
 
-export interface OpenAICodexAdapterDependencies {
-    readonly waitForRetry?: WaitForRetry;
-}
-
 export class OpenAICodexAdapter implements ModelAdapter {
     private readonly sendResponse: SendOpenAICodexResponse;
-    private readonly waitForRetry?: WaitForRetry;
 
-    constructor(
-        sendResponse: SendOpenAICodexResponse,
-        dependencies: OpenAICodexAdapterDependencies = {},
-    ) {
+    constructor(sendResponse: SendOpenAICodexResponse) {
         this.sendResponse = sendResponse;
-        this.waitForRetry = dependencies.waitForRetry;
     }
 
     stream(request: ModelRequest): ModelEventStream {
@@ -100,31 +89,23 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 include: ["reasoning.encrypted_content"],
             };
 
-            await retryBeforeStreamStart(
-                async (markStreamStarted) => {
-                    const events = await this.sendResponse(
-                        providerRequest,
-                        request.signal,
-                    );
-                    for await (const event of events) {
-                        throwIfAborted(request.signal);
-                        markStreamStarted();
-                        decoder.accept(event);
-                    }
-                },
-                {
-                    policy: DEFAULT_PROVIDER_RETRY_POLICY,
-                    classifyFailure: classifyOpenAICodexError,
-                    signal: request.signal,
-                    ...(this.waitForRetry === undefined
-                        ? {}
-                        : { wait: this.waitForRetry }),
-                },
+            const events = await this.sendResponse(
+                providerRequest,
+                request.signal,
             );
+            for await (const event of events) {
+                throwIfAborted(request.signal);
+                decoder.accept(event);
+            }
 
             stream.push({ type: "done", message: decoder.finish() });
         } catch (value) {
-            const error = toError(value);
+            const error = request.signal?.aborted
+                ? toError(value)
+                : new ProviderFailureError(
+                    classifyOpenAICodexError(value),
+                    value,
+                );
             const stopReason = request.signal?.aborted ? "aborted" : "error";
             stream.push({
                 type: "error",

@@ -20,6 +20,7 @@ import type {
     ToolResultMessage,
     UserMessage,
 } from "../model/types.ts";
+import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 
 export interface TurnStartedEvent {
@@ -74,6 +75,14 @@ export interface ModelRequestEvent {
     readonly tools: readonly ModelTool[];
 }
 
+export interface ModelRetryScheduledEvent {
+    readonly type: "model_retry_scheduled";
+    readonly model: string;
+    readonly nextAttempt: number;
+    readonly delayMs: number;
+    readonly failure: ProviderFailure;
+}
+
 export type ObservableModelStreamEvent = Exclude<
     ModelStreamEvent,
     StreamErrorEvent
@@ -115,6 +124,7 @@ export type EngineEvent =
     | UiResponseEvent
     | UiRequestClosedEvent
     | ModelRequestEvent
+    | ModelRetryScheduledEvent
     | ModelStreamObservedEvent
     | ModelStreamErrorEvent
     | ToolExecutionStartedEvent

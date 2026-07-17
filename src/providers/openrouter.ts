@@ -3,12 +3,8 @@ import type { ChatRequestEffort } from "@openrouter/sdk/models";
 
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
+import { ProviderFailureError } from "../model/provider-failure.ts";
 import { resolveReasoningSelection } from "../model/reasoning-effort.ts";
-import {
-    DEFAULT_PROVIDER_RETRY_POLICY,
-    retryBeforeStreamStart,
-    type WaitForRetry,
-} from "../model/retry.ts";
 import { ModelEventStream } from "../model/stream.ts";
 import { transformMessages } from "../model/transform.ts";
 import {
@@ -29,20 +25,11 @@ export interface OpenRouterAdapterOptions {
     readonly apiKey: string;
 }
 
-export interface OpenRouterAdapterDependencies {
-    readonly waitForRetry?: WaitForRetry;
-}
-
 export class OpenRouterAdapter implements ModelAdapter {
     private readonly sendChat: SendOpenRouterChat;
-    private readonly waitForRetry?: WaitForRetry;
 
-    constructor(
-        sendChat: SendOpenRouterChat,
-        dependencies: OpenRouterAdapterDependencies = {},
-    ) {
+    constructor(sendChat: SendOpenRouterChat) {
         this.sendChat = sendChat;
-        this.waitForRetry = dependencies.waitForRetry;
     }
 
     stream(request: ModelRequest): ModelEventStream {
@@ -84,25 +71,11 @@ export class OpenRouterAdapter implements ModelAdapter {
                     : { tools: encodeOpenRouterTools(request.tools) }),
             };
 
-            await retryBeforeStreamStart(
-                async (markStreamStarted) => {
-                    const chunks = await this.sendChat(providerRequest, request.signal);
-
-                    for await (const chunk of chunks) {
-                        throwIfAborted(request.signal);
-                        markStreamStarted();
-                        decoder.accept(chunk);
-                    }
-                },
-                {
-                    policy: DEFAULT_PROVIDER_RETRY_POLICY,
-                    classifyFailure: classifyOpenRouterError,
-                    signal: request.signal,
-                    ...(this.waitForRetry === undefined
-                        ? {}
-                        : { wait: this.waitForRetry }),
-                },
-            );
+            const chunks = await this.sendChat(providerRequest, request.signal);
+            for await (const chunk of chunks) {
+                throwIfAborted(request.signal);
+                decoder.accept(chunk);
+            }
 
             const message = decoder.finish();
             if (message.stopReason === "error") {
@@ -116,7 +89,12 @@ export class OpenRouterAdapter implements ModelAdapter {
                 stream.push({ type: "done", message });
             }
         } catch (value) {
-            const error = toError(value);
+            const error = request.signal?.aborted
+                ? toError(value)
+                : new ProviderFailureError(
+                    classifyOpenRouterError(value),
+                    value,
+                );
             const stopReason = request.signal?.aborted ? "aborted" : "error";
             stream.push({
                 type: "error",
