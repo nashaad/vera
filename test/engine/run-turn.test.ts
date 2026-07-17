@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
+import { EngineEventBus } from "../../src/engine/events.ts";
+import {
+    createFrameProjector,
+    type AgentFrameSender,
+} from "../../src/engine/frames.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -32,7 +37,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
         queuedPrompts: [],
-        seq: 0,
+        events: createTestEvents(channel.engine),
     };
 
     channel.client.send({ type: "prompt", content: "say hi" });
@@ -96,7 +101,7 @@ test("a bash tool call runs and continues the model turn", async () => {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
         queuedPrompts: [],
-        seq: 0,
+        events: createTestEvents(channel.engine),
     };
 
     channel.client.send({ type: "prompt", content: "run ls" });
@@ -157,7 +162,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
         queuedPrompts: [],
-        seq: 0,
+        events: createTestEvents(channel.engine),
     };
 
     channel.client.send({ type: "prompt", content: "run slowly" });
@@ -192,3 +197,9 @@ test("aborting a turn stops its foreground bash tool", async () => {
         isError: true,
     });
 });
+
+function createTestEvents(sender: AgentFrameSender): EngineEventBus {
+    const events = new EngineEventBus();
+    events.subscribe(createFrameProjector(sender));
+    return events;
+}

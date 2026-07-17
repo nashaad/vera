@@ -1,3 +1,5 @@
+import type { EngineEventSubscriber } from "./events.ts";
+
 export type AgentStatus = "idle" | "working" | "waiting";
 
 export interface TranscriptEntry {
@@ -59,3 +61,54 @@ export type AgentFrame =
     | ToolFinishedFrame
     | TurnFinishedFrame
     | StatusFrame;
+
+export interface AgentFrameSender {
+    send(frame: AgentFrame): void;
+}
+
+export function createFrameProjector(
+    sender: AgentFrameSender,
+): EngineEventSubscriber {
+    let seq = 0;
+
+    return (event): void => {
+        if (
+            event.type === "model_stream"
+            && event.event.type === "text_delta"
+        ) {
+            seq += 1;
+            sender.send({
+                type: "assistant_delta",
+                text: event.event.text,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "tool_execution_started") {
+            seq += 1;
+            sender.send({
+                type: "tool_started",
+                tool: event.toolCall.name,
+                args: event.toolCall.input,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "tool_execution_finished") {
+            seq += 1;
+            sender.send({
+                type: "tool_finished",
+                tool: event.toolCall.name,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "turn_finished") {
+            seq += 1;
+            sender.send({ type: "turn_finished", seq });
+        }
+    };
+}

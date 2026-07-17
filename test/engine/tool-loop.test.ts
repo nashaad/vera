@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
+import { EngineEventBus } from "../../src/engine/events.ts";
+import { createFrameProjector } from "../../src/engine/frames.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
@@ -51,8 +53,9 @@ test("multiple tool calls execute sequentially in content order", async () => {
         messages: [],
         toolRuntime: new ToolRuntime(workspace),
         queuedPrompts: [],
-        seq: 0,
+        events: new EngineEventBus(),
     };
+    state.events.subscribe(createFrameProjector(channel.engine));
 
     try {
         channel.client.send({ type: "prompt", content: "check the workspace" });
