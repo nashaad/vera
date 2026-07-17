@@ -24,6 +24,7 @@ describe("OpenRouter adapter", () => {
 
     test("normalizes a stream and returns the completed assistant message", async () => {
         const sendChat: SendOpenRouterChat = async (request) => {
+            expect(request.maxTokens).toBe(64_000);
             expect(request.reasoning).toEqual({ effort: "none" });
             expect(request.messages).toEqual([
                 { role: "system", content: "Be concise." },
@@ -93,6 +94,7 @@ describe("OpenRouter adapter", () => {
         const adapter = new OpenRouterAdapter(sendChat);
         const stream = adapter.stream({
             model: "anthropic/claude-sonnet-5",
+            maxTokens: 64_000,
             reasoningEffort: "off",
             systemPrompt: "Be concise.",
             messages: [

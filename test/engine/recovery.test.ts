@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 
 import {
+    DEFAULT_MODEL_MAX_TOKENS,
+    ESCALATED_MODEL_MAX_TOKENS,
+    LENGTH_CONTINUATION_PROMPT,
+    MAX_LENGTH_CONTINUATIONS,
+    nextLengthContinuation,
     requestModelWithRecovery,
     type ModelFallbackSelected,
     type ModelRetryScheduled,
@@ -29,6 +34,27 @@ const overloadFailure: ProviderFailure = {
     resolution: "retry",
     message: "provider overloaded",
 };
+
+test("length recovery raises the cap once and bounds continuations", () => {
+    expect(nextLengthContinuation(DEFAULT_MODEL_MAX_TOKENS, 0)).toEqual({
+        previousMaxTokens: DEFAULT_MODEL_MAX_TOKENS,
+        nextMaxTokens: ESCALATED_MODEL_MAX_TOKENS,
+        continuation: 1,
+        maxContinuations: MAX_LENGTH_CONTINUATIONS,
+        prompt: LENGTH_CONTINUATION_PROMPT,
+    });
+    expect(nextLengthContinuation(ESCALATED_MODEL_MAX_TOKENS, 2)).toEqual({
+        previousMaxTokens: ESCALATED_MODEL_MAX_TOKENS,
+        nextMaxTokens: ESCALATED_MODEL_MAX_TOKENS,
+        continuation: 3,
+        maxContinuations: MAX_LENGTH_CONTINUATIONS,
+        prompt: LENGTH_CONTINUATION_PROMPT,
+    });
+    expect(nextLengthContinuation(
+        ESCALATED_MODEL_MAX_TOKENS,
+        MAX_LENGTH_CONTINUATIONS,
+    )).toBeUndefined();
+});
 
 test("engine recovery retries a transient pre-content failure", async () => {
     const adapter = scriptedAdapter([

@@ -61,6 +61,7 @@ export interface OpenAICodexTool {
 
 export interface OpenAICodexRequest {
     readonly model: string;
+    readonly max_output_tokens?: number;
     readonly instructions: string;
     readonly input: readonly OpenAICodexInputItem[];
     readonly tools: readonly OpenAICodexTool[];

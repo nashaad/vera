@@ -13,6 +13,7 @@ import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import {
     EngineEventBus,
     createJsonlEventLogger,
+    type EngineEvent,
 } from "../../src/engine/events.ts";
 import {
     createFrameProjector,
@@ -32,6 +33,11 @@ import {
     type ProviderFailure,
 } from "../../src/model/provider-failure.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
+import {
+    DEFAULT_MODEL_MAX_TOKENS,
+    ESCALATED_MODEL_MAX_TOKENS,
+    LENGTH_CONTINUATION_PROMPT,
+} from "../../src/engine/recovery.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -113,6 +119,89 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         },
         response,
     ]);
+});
+
+test("a length stop preserves streamed text and continues with a larger cap", async () => {
+    const partialResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "first half" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "length",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "second half" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([partialResponse, finalResponse]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+    };
+
+    channel.client.send({ type: "prompt", content: "write a long answer" });
+    const turn = runTurn(adapter, "test", state);
+
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "first half",
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "second half",
+        seq: 2,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 3,
+    });
+    expect(await turn).toEqual(finalResponse);
+    expect(requests.map((request) => request.maxTokens)).toEqual([
+        DEFAULT_MODEL_MAX_TOKENS,
+        ESCALATED_MODEL_MAX_TOKENS,
+    ]);
+    expect(requests[1]?.messages).toEqual([
+        {
+            role: "user",
+            content: [{ type: "text", text: "write a long answer" }],
+        },
+        partialResponse,
+        {
+            role: "user",
+            content: [{ type: "text", text: LENGTH_CONTINUATION_PROMPT }],
+        },
+    ]);
+    expect(state.messages).toEqual([
+        ...requests[1]!.messages,
+        finalResponse,
+    ]);
+    expect(observed).toContainEqual({
+        type: "model_length_continuation",
+        model: "test",
+        previousMaxTokens: DEFAULT_MODEL_MAX_TOKENS,
+        nextMaxTokens: ESCALATED_MODEL_MAX_TOKENS,
+        continuation: 1,
+        maxContinuations: 3,
+    });
 });
 
 test("a transient model failure retries only in the engine event log", async () => {

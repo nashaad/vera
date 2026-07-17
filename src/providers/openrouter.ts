@@ -62,6 +62,9 @@ export class OpenRouterAdapter implements ModelAdapter {
                 );
             const providerRequest = {
                 model: request.model,
+                ...(request.maxTokens === undefined
+                    ? {}
+                    : { maxTokens: request.maxTokens }),
                 messages: encodeOpenRouterMessages(request.systemPrompt, messages),
                 ...(reasoning === undefined
                     ? {}
@@ -118,6 +121,9 @@ export function createOpenRouterAdapter(
             {
                 chatRequest: {
                     model: request.model,
+                    ...(request.maxTokens === undefined
+                        ? {}
+                        : { maxTokens: request.maxTokens }),
                     messages: request.messages,
                     ...(request.reasoning === undefined
                         ? {}

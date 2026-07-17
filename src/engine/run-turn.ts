@@ -28,6 +28,8 @@ import {
     type ApprovalMode,
 } from "./permissions.ts";
 import {
+    DEFAULT_MODEL_MAX_TOKENS,
+    nextLengthContinuation,
     requestModelWithRecovery,
     type ModelFallbackPolicy,
     type WaitForModelRetry,
@@ -103,6 +105,8 @@ export async function runTurn(
     state.events.emit({ type: "turn_started", message: userMessage });
     let assistantMessage: AssistantMessage;
     let activeModel = model;
+    let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
+    let lengthContinuations = 0;
 
     try {
         while (true) {
@@ -113,6 +117,7 @@ export async function runTurn(
             });
             const request = {
                 model: activeModel,
+                maxTokens,
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
                 systemPrompt,
                 messages: state.messages.slice(),
@@ -122,6 +127,7 @@ export async function runTurn(
             state.events.emit({
                 type: "model_request",
                 model: request.model,
+                maxTokens: request.maxTokens,
                 ...(request.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: request.reasoningEffort }),
@@ -166,6 +172,32 @@ export async function runTurn(
                 },
             );
             state.messages.push(assistantMessage);
+
+            if (assistantMessage.stopReason === "length") {
+                const continuation = nextLengthContinuation(
+                    maxTokens,
+                    lengthContinuations,
+                );
+                if (continuation === undefined) {
+                    break;
+                }
+                state.events.emit({
+                    type: "model_length_continuation",
+                    model: activeModel,
+                    previousMaxTokens: continuation.previousMaxTokens,
+                    nextMaxTokens: continuation.nextMaxTokens,
+                    continuation: continuation.continuation,
+                    maxContinuations: continuation.maxContinuations,
+                });
+                const continuationMessage: UserMessage = {
+                    role: "user",
+                    content: [{ type: "text", text: continuation.prompt }],
+                };
+                state.messages.push(continuationMessage);
+                maxTokens = continuation.nextMaxTokens;
+                lengthContinuations = continuation.continuation;
+                continue;
+            }
 
             if (assistantMessage.stopReason !== "tool_use") {
                 break;
