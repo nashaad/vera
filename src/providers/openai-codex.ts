@@ -204,7 +204,15 @@ function classifyOpenAICodexError(value: unknown): ProviderFailure {
 
 function httpFailure(error: OpenAICodexHttpError): ProviderFailure {
     const statusCode = error.statusCode;
-    if (statusCode === 408 || statusCode === 429 || statusCode >= 500) {
+    if (statusCode === 408) {
+        return {
+            kind: "timeout",
+            resolution: "retry",
+            message: error.message,
+            statusCode,
+        };
+    }
+    if (statusCode === 429 || statusCode >= 500) {
         return {
             kind: statusCode === 429 ? "rate_limit" : "server",
             resolution: "retry",

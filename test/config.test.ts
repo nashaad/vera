@@ -3,7 +3,10 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadVeraConfig } from "../src/config.ts";
+import {
+    configuredModelFallback,
+    loadVeraConfig,
+} from "../src/config.ts";
 
 test("Vera config loads the shared model choice", () => {
     const path = temporaryConfigPath();
@@ -49,6 +52,65 @@ test("Vera config loads each approval mode", () => {
 
         expect(loadVeraConfig({ path }).approval_mode).toBe(approval_mode);
     }
+});
+
+test("Vera config loads an engine model fallback", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "primary/model",
+        fallback: {
+            model: "  backup/model  ",
+            after_failures: 2,
+        },
+    }));
+
+    const config = loadVeraConfig({ path });
+    expect(config.fallback).toEqual({
+        model: "backup/model",
+        after_failures: 2,
+    });
+    expect(configuredModelFallback(config)).toEqual({
+        model: "backup/model",
+        afterFailures: 2,
+    });
+});
+
+test("Vera config rejects an unreachable or circular fallback", () => {
+    for (const fallback of [
+        { model: "primary/model", after_failures: 2 },
+        { model: "backup/model", after_failures: 4 },
+        { model: "backup/model", after_failures: 1.5 },
+    ]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "primary/model",
+            fallback,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow(
+            "optional fallback with a different model and after_failures from 1 to 3",
+        );
+    }
+});
+
+test("OpenAI Codex fallback rejects an unmappable reasoning effort", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "medium",
+        fallback: {
+            model: "different-backup",
+            after_failures: 2,
+        },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow(
+        "OpenAI Codex fallback requires reasoning_effort to be omitted",
+    );
 });
 
 test("Vera config rejects a missing model", () => {

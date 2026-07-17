@@ -209,6 +209,155 @@ test("a transient model failure retries only in the engine event log", async () 
     }));
 });
 
+test("model fallback stays selected through the tool loop", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-fallback-"));
+    temporaryWorkspaces.push(workspace);
+    const logPath = join(workspace, "events.jsonl");
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "fallback_call",
+            name: "write",
+            input: { path: "fallback.txt", content: "used backup" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "backup" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "finished on backup" }],
+        source: { provider: "faux", api: "scripted", model: "backup" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const nextTurnResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "primary again" }],
+        source: { provider: "faux", api: "scripted", model: "primary" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const success = new FauxAdapter([
+        toolCallResponse,
+        finalResponse,
+        nextTurnResponse,
+    ]);
+    const models: string[] = [];
+    const adapter: ModelAdapter = {
+        stream(request): ModelEventStream {
+            models.push(request.model);
+            if (models.length > 1) {
+                return success.stream(request);
+            }
+            const stream = new ModelEventStream();
+            const failure: ProviderFailure = {
+                kind: "server",
+                resolution: "retry",
+                message: "primary overloaded",
+            };
+            const error = new ProviderFailureError(
+                failure,
+                new Error(failure.message),
+            );
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...toolCallResponse,
+                    content: [],
+                    source: {
+                        provider: "faux",
+                        api: "scripted",
+                        model: "primary",
+                    },
+                    stopReason: "error",
+                    errorMessage: error.message,
+                },
+            });
+            return stream;
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    events.subscribe(createJsonlEventLogger({
+        path: logPath,
+        sessionId: "fallback-test",
+    }));
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        modelFallback: { model: "backup", afterFailures: 1 },
+    };
+
+    channel.client.send({ type: "prompt", content: "use fallback" });
+    const turn = runTurn(adapter, "primary", state);
+
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_started",
+        tool: "write",
+        args: { path: "fallback.txt", content: "used backup" },
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_finished",
+        tool: "write",
+        seq: 2,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "finished on backup",
+        seq: 3,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 4,
+    });
+    expect(await turn).toEqual(finalResponse);
+    expect(models).toEqual(["primary", "backup", "backup"]);
+    expect(readFileSync(join(workspace, "fallback.txt"), "utf8"))
+        .toBe("used backup");
+
+    channel.client.send({ type: "prompt", content: "new turn" });
+    const nextTurn = runTurn(adapter, "primary", state);
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "primary again",
+        seq: 5,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 6,
+    });
+    expect(await nextTurn).toEqual(nextTurnResponse);
+    expect(models).toEqual(["primary", "backup", "backup", "primary"]);
+
+    const logged = readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(logged).toContainEqual(expect.objectContaining({
+        type: "model_fallback_selected",
+        fromModel: "primary",
+        toModel: "backup",
+        afterFailures: 1,
+        failure: expect.objectContaining({ kind: "server" }),
+    }));
+    expect(logged
+        .filter((event) => event.type === "model_request")
+        .map((event) => event.model)).toEqual([
+            "primary",
+            "backup",
+            "primary",
+        ]);
+});
+
 test("a bash tool call runs and continues the model turn", async () => {
     const toolCallResponse: AssistantMessage = {
         role: "assistant",

@@ -24,6 +24,18 @@ export interface ModelRetryScheduled {
     readonly failure: ProviderFailure;
 }
 
+export interface ModelFallbackPolicy {
+    readonly model: string;
+    readonly afterFailures: number;
+}
+
+export interface ModelFallbackSelected {
+    readonly fromModel: string;
+    readonly toModel: string;
+    readonly afterFailures: number;
+    readonly failure: ProviderFailure;
+}
+
 export type WaitForModelRetry = (
     delayMs: number,
     signal?: AbortSignal,
@@ -31,9 +43,11 @@ export type WaitForModelRetry = (
 
 export interface ModelRecoveryOptions {
     readonly policy?: ModelRetryPolicy;
+    readonly fallback?: ModelFallbackPolicy;
     readonly wait?: WaitForModelRetry;
     readonly onEvent: (event: ModelStreamEvent) => void;
     readonly onRetry: (retry: ModelRetryScheduled) => void;
+    readonly onFallback: (fallback: ModelFallbackSelected) => void;
 }
 
 interface PendingModelRetry {
@@ -48,34 +62,71 @@ export async function requestModelWithRecovery(
 ): Promise<AssistantMessage> {
     const policy = options.policy ?? DEFAULT_MODEL_RETRY_POLICY;
     const wait = options.wait ?? waitForModelRetry;
+    let activeRequest = request;
+    let requestAttempt = 0;
+    let retryAttempt = 0;
+    let consecutiveOverloadFailures = 0;
+    let fallbackSelected = false;
 
-    for (let attempt = 0; ; attempt += 1) {
-        const stream = adapter.stream(request);
+    while (true) {
+        const stream = adapter.stream(activeRequest);
         let contentStarted = false;
         let retry: PendingModelRetry | undefined;
+        let fallback: ModelFallbackSelected | undefined;
 
         for await (const event of stream) {
-            if (event.type === "start" && attempt > 0) {
+            if (event.type === "start" && requestAttempt > 0) {
                 continue;
             }
             if (event.type === "error") {
-                const delayMs = policy.delaysMs[attempt];
+                if (request.signal?.aborted) {
+                    return abortModelRequest(
+                        event.message,
+                        request.signal,
+                        options,
+                    );
+                }
                 if (
                     !contentStarted
                     && event.error instanceof ProviderFailureError
-                    && event.error.failure.resolution === "retry"
-                    && delayMs !== undefined
                 ) {
-                    retry = {
-                        scheduled: {
-                            model: request.model,
-                            nextAttempt: attempt + 2,
-                            delayMs,
-                            failure: event.error.failure,
-                        },
-                        message: event.message,
-                    };
-                    break;
+                    const failure = event.error.failure;
+                    consecutiveOverloadFailures = isOverloadFailure(failure)
+                        ? consecutiveOverloadFailures + 1
+                        : 0;
+                    if (
+                        !fallbackSelected
+                        && options.fallback !== undefined
+                        && options.fallback.model !== activeRequest.model
+                        && failure.resolution === "retry"
+                        && consecutiveOverloadFailures
+                            >= options.fallback.afterFailures
+                    ) {
+                        fallback = {
+                            fromModel: activeRequest.model,
+                            toModel: options.fallback.model,
+                            afterFailures: consecutiveOverloadFailures,
+                            failure,
+                        };
+                        break;
+                    }
+
+                    const delayMs = policy.delaysMs[retryAttempt];
+                    if (
+                        failure.resolution === "retry"
+                        && delayMs !== undefined
+                    ) {
+                        retry = {
+                            scheduled: {
+                                model: activeRequest.model,
+                                nextAttempt: requestAttempt + 2,
+                                delayMs,
+                                failure,
+                            },
+                            message: event.message,
+                        };
+                        break;
+                    }
                 }
                 options.onEvent(event);
                 return event.message;
@@ -90,6 +141,18 @@ export async function requestModelWithRecovery(
             }
         }
 
+        if (fallback !== undefined) {
+            options.onFallback(fallback);
+            activeRequest = {
+                ...activeRequest,
+                model: fallback.toModel,
+            };
+            fallbackSelected = true;
+            retryAttempt = 0;
+            requestAttempt += 1;
+            continue;
+        }
+
         if (retry === undefined) {
             return await stream.result();
         }
@@ -101,15 +164,21 @@ export async function requestModelWithRecovery(
             if (!request.signal?.aborted) {
                 throw value;
             }
-            return abortPendingRetry(retry.message, request.signal, options, value);
+            return abortModelRequest(retry.message, request.signal, options, value);
         }
         if (request.signal?.aborted) {
-            return abortPendingRetry(retry.message, request.signal, options);
+            return abortModelRequest(retry.message, request.signal, options);
         }
+        retryAttempt += 1;
+        requestAttempt += 1;
     }
 }
 
-function abortPendingRetry(
+function isOverloadFailure(failure: ProviderFailure): boolean {
+    return failure.kind === "rate_limit" || failure.kind === "server";
+}
+
+function abortModelRequest(
     retryMessage: AssistantMessage,
     signal: AbortSignal,
     options: ModelRecoveryOptions,

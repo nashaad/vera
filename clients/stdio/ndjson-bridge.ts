@@ -8,6 +8,7 @@ import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
 import type { FrameEndpoint } from "../../src/engine/in-process-channel.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type { ModelFallbackPolicy } from "../../src/engine/recovery.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 
 interface FrameOutput {
@@ -16,6 +17,7 @@ interface FrameOutput {
 
 export interface RunNdjsonBridgeOptions {
     readonly approvalMode?: ApprovalMode;
+    readonly modelFallback?: ModelFallbackPolicy;
 }
 
 export class NdjsonInputEndedError extends Error {
@@ -69,6 +71,7 @@ export async function runNdjsonBridge(
     try {
         await runHeadlessLoop(endpoint, adapter, model, reasoningEffort, {
             approvalMode: options.approvalMode,
+            modelFallback: options.modelFallback,
         });
     } catch (error) {
         if (!(error instanceof NdjsonInputEndedError)) {

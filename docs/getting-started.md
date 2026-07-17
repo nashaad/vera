@@ -41,6 +41,22 @@ For other OpenRouter models, Vera reads the model's supported levels. If the
 mapped level differs, the status line shows both values, such as
 `thinking max → xhigh (inferred)`. Vera does not infer `off`.
 
+To use a backup model from the same provider, add:
+
+```json
+{
+  "fallback": {
+    "model": "your-backup-model",
+    "after_failures": 3
+  }
+}
+```
+
+`after_failures` may be 1, 2, or 3. Only consecutive rate-limit or server
+failures select the backup. Once selected, it remains active through the rest
+of that turn. OpenAI Codex fallback currently requires `reasoning_effort` to be
+omitted; OpenRouter resolves the configured effort against each model.
+
 ## OpenRouter
 
 Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:
