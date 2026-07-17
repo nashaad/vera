@@ -13,6 +13,7 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
+import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -61,17 +62,18 @@ test("multiple tool calls execute sequentially in content order", async () => {
         },
     };
     const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createFrameProjector(channel.engine));
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(workspace),
-        queuedPrompts: [],
-        events: new EngineEventBus(),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
     };
-    state.events.subscribe(createFrameProjector(channel.engine));
 
     try {
         channel.client.send({ type: "prompt", content: "check the workspace" });
-        const turn = runTurn(channel.engine, adapter, "test", state);
+        const turn = runTurn(adapter, "test", state);
         const frameTypes: string[] = [];
 
         while (true) {

@@ -13,6 +13,7 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
+import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -33,15 +34,16 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         },
     };
     const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
-        queuedPrompts: [],
-        events: createTestEvents(channel.engine),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
     };
 
     channel.client.send({ type: "prompt", content: "say hi" });
-    const turn = runTurn(channel.engine, adapter, "test", state, "high");
+    const turn = runTurn(adapter, "test", state, "high");
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
@@ -109,15 +111,16 @@ test("a bash tool call runs and continues the model turn", async () => {
     };
     const adapter = new FauxAdapter([toolCallResponse, finalResponse]);
     const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
-        queuedPrompts: [],
-        events: createTestEvents(channel.engine),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
     };
 
     channel.client.send({ type: "prompt", content: "run ls" });
-    const turn = runTurn(channel.engine, adapter, "test", state);
+    const turn = runTurn(adapter, "test", state);
 
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
@@ -170,15 +173,16 @@ test("aborting a turn stops its foreground bash tool", async () => {
     };
     const adapter = new FauxAdapter([toolCallResponse]);
     const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
-        queuedPrompts: [],
-        events: createTestEvents(channel.engine),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
     };
 
     channel.client.send({ type: "prompt", content: "run slowly" });
-    const turn = runTurn(channel.engine, adapter, "test", state);
+    const turn = runTurn(adapter, "test", state);
 
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
