@@ -1,4 +1,8 @@
-import type { EngineEventSubscriber } from "./events.ts";
+import type {
+    EngineEventSubscriber,
+    ToolApprovalUiRequest,
+    ToolApprovalUiResponse,
+} from "./events.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -16,7 +20,13 @@ export interface AbortFrame {
     readonly type: "abort";
 }
 
-export type ClientFrame = PromptFrame | AbortFrame;
+export interface UiResponseFrame {
+    readonly type: "ui_response";
+    readonly requestId: string;
+    readonly response: ToolApprovalUiResponse;
+}
+
+export type ClientFrame = PromptFrame | AbortFrame | UiResponseFrame;
 
 export interface HistoryFrame {
     readonly type: "history";
@@ -54,13 +64,21 @@ export interface StatusFrame {
     readonly seq: number;
 }
 
+export interface UiRequestFrame {
+    readonly type: "ui_request";
+    readonly requestId: string;
+    readonly request: ToolApprovalUiRequest;
+    readonly seq: number;
+}
+
 export type AgentFrame =
     | HistoryFrame
     | AssistantDeltaFrame
     | ToolStartedFrame
     | ToolFinishedFrame
     | TurnFinishedFrame
-    | StatusFrame;
+    | StatusFrame
+    | UiRequestFrame;
 
 export interface AgentFrameSender {
     send(frame: AgentFrame): void;
@@ -101,6 +119,17 @@ export function createFrameProjector(
             sender.send({
                 type: "tool_finished",
                 tool: event.toolCall.name,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "ui_request") {
+            seq += 1;
+            sender.send({
+                type: "ui_request",
+                requestId: event.requestId,
+                request: event.request,
                 seq,
             });
             return;

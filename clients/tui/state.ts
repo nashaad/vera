@@ -93,6 +93,9 @@ export function applyAgentFrame(state: TuiState, frame: AgentFrame): TuiState {
     if (frame.type === "history") {
         return state;
     }
+    if (frame.type === "ui_request") {
+        return state;
+    }
     return assertNever(frame);
 }
 

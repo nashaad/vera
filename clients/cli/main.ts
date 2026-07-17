@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+// This is the installed command dispatcher; the interactive client lives in ../tui.
+
 import { stderr, stdout } from "node:process";
 
 import {

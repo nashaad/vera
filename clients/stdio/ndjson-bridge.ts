@@ -82,6 +82,27 @@ function parseClientFrame(line: string): ClientFrame {
     if (frame.type === "abort") {
         return { type: "abort" };
     }
+    if (
+        frame.type === "ui_response"
+        && typeof frame.requestId === "string"
+        && typeof frame.response === "object"
+        && frame.response !== null
+    ) {
+        const response = frame.response as Record<string, unknown>;
+        if (
+            response.type === "tool_approval"
+            && (response.decision === "allow" || response.decision === "deny")
+        ) {
+            return {
+                type: "ui_response",
+                requestId: frame.requestId,
+                response: {
+                    type: "tool_approval",
+                    decision: response.decision,
+                },
+            };
+        }
+    }
 
     throw new Error("Unknown NDJSON client frame");
 }
