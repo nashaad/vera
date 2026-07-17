@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+    createOpenAICodexAdapter,
     OpenAICodexAdapter,
     type SendOpenAICodexResponse,
 } from "../../src/providers/openai-codex.ts";
@@ -387,6 +388,45 @@ describe("OpenAI Codex adapter", () => {
             });
         }
         expect(attempts).toBe(1);
+    });
+
+    test("classifies HTTP 408 as timeout rather than server overload", async () => {
+        const adapter = createOpenAICodexAdapter({
+            authStorage: {
+                getToken: () => JSON.stringify({
+                    schema_version: 1,
+                    access_token: "access-token",
+                    refresh_token: "refresh-token",
+                    expires_at: 60_000,
+                }),
+                setToken() {},
+            },
+            now: () => 0,
+            fetch: (async () => new Response("request timed out", {
+                status: 408,
+            })) as unknown as typeof fetch,
+        });
+        const stream = adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [],
+        });
+        const observed: ModelStreamEvent[] = [];
+
+        for await (const event of stream) {
+            observed.push(event);
+        }
+
+        const error = observed.at(-1);
+        expect(error?.type).toBe("error");
+        if (error?.type === "error") {
+            expect(error.error).toMatchObject({
+                failure: {
+                    kind: "timeout",
+                    resolution: "retry",
+                    statusCode: 408,
+                },
+            });
+        }
     });
 });
 

@@ -29,6 +29,7 @@ import {
 } from "./permissions.ts";
 import {
     requestModelWithRecovery,
+    type ModelFallbackPolicy,
     type WaitForModelRetry,
 } from "./recovery.ts";
 
@@ -43,6 +44,7 @@ export interface RunTurnState {
     readonly events: EngineEventBus;
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
+    readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
 }
 
@@ -50,6 +52,7 @@ export interface RunHeadlessLoopOptions {
     readonly sessionId?: string;
     readonly eventLogPath?: string;
     readonly approvalMode?: ApprovalMode;
+    readonly modelFallback?: ModelFallbackPolicy;
 }
 
 export async function runHeadlessLoop(
@@ -74,6 +77,9 @@ export async function runHeadlessLoop(
         events,
         hooks: new ToolHooks(),
         approvalMode: options.approvalMode ?? "approve_for_me",
+        ...(options.modelFallback === undefined
+            ? {}
+            : { modelFallback: options.modelFallback }),
     };
 
     while (true) {
@@ -96,6 +102,7 @@ export async function runTurn(
     state.messages.push(userMessage);
     state.events.emit({ type: "turn_started", message: userMessage });
     let assistantMessage: AssistantMessage;
+    let activeModel = model;
 
     try {
         while (true) {
@@ -105,7 +112,7 @@ export async function runTurn(
                 date: new Date(),
             });
             const request = {
-                model,
+                model: activeModel,
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
                 systemPrompt,
                 messages: state.messages.slice(),
@@ -143,6 +150,16 @@ export async function runTurn(
                             ...retry,
                         });
                     },
+                    onFallback(fallback): void {
+                        activeModel = fallback.toModel;
+                        state.events.emit({
+                            type: "model_fallback_selected",
+                            ...fallback,
+                        });
+                    },
+                    ...(state.modelFallback === undefined
+                        ? {}
+                        : { fallback: state.modelFallback }),
                     ...(state.waitForModelRetry === undefined
                         ? {}
                         : { wait: state.waitForModelRetry }),

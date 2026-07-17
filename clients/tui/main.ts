@@ -9,11 +9,15 @@ import {
     type Selection,
 } from "@opentui/core";
 
-import { loadVeraConfig } from "../../src/config.ts";
+import {
+    configuredModelFallback,
+    loadVeraConfig,
+} from "../../src/config.ts";
 import type { UiRequestFrame } from "../../src/engine/frames.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type { ModelFallbackPolicy } from "../../src/engine/recovery.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import {
     resolveReasoningSelection,
@@ -58,6 +62,7 @@ export interface TuiDependencies {
     readonly model: string;
     readonly reasoning?: ReasoningSelection;
     readonly approvalMode: ApprovalMode;
+    readonly modelFallback?: ModelFallbackPolicy;
 }
 
 if (import.meta.main) {
@@ -74,6 +79,7 @@ if (import.meta.main) {
         adapter: createConfiguredModelAdapter(config),
         model: config.model,
         approvalMode: config.approval_mode,
+        modelFallback: configuredModelFallback(config),
         ...(reasoning === undefined ? {} : { reasoning }),
     });
 }
@@ -81,7 +87,13 @@ if (import.meta.main) {
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<void> {
-    const { adapter, model, reasoning, approvalMode } = dependencies;
+    const {
+        adapter,
+        model,
+        reasoning,
+        approvalMode,
+        modelFallback,
+    } = dependencies;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
@@ -265,7 +277,7 @@ export async function startTui(
         adapter,
         model,
         reasoning?.requested,
-        { approvalMode },
+        { approvalMode, modelFallback },
     ).catch((error: unknown) => {
         if (shuttingDown) {
             return;

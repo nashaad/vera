@@ -1,6 +1,9 @@
 import { stdin, stdout } from "node:process";
 
-import { loadVeraConfig } from "../../src/config.ts";
+import {
+    configuredModelFallback,
+    loadVeraConfig,
+} from "../../src/config.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import { runNdjsonBridge } from "./ndjson-bridge.ts";
@@ -20,7 +23,10 @@ export async function runNdjsonProcess(): Promise<void> {
             adapter,
             config.model,
             config.reasoning_effort,
-            { approvalMode: config.approval_mode },
+            {
+                approvalMode: config.approval_mode,
+                modelFallback: configuredModelFallback(config),
+            },
         );
     } finally {
         presence.remove();

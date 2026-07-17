@@ -83,6 +83,14 @@ export interface ModelRetryScheduledEvent {
     readonly failure: ProviderFailure;
 }
 
+export interface ModelFallbackSelectedEvent {
+    readonly type: "model_fallback_selected";
+    readonly fromModel: string;
+    readonly toModel: string;
+    readonly afterFailures: number;
+    readonly failure: ProviderFailure;
+}
+
 export type ObservableModelStreamEvent = Exclude<
     ModelStreamEvent,
     StreamErrorEvent
@@ -125,6 +133,7 @@ export type EngineEvent =
     | UiRequestClosedEvent
     | ModelRequestEvent
     | ModelRetryScheduledEvent
+    | ModelFallbackSelectedEvent
     | ModelStreamObservedEvent
     | ModelStreamErrorEvent
     | ToolExecutionStartedEvent

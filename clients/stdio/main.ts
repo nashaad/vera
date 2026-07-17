@@ -1,7 +1,10 @@
 import { createInterface } from "node:readline";
 import { stdin, stdout } from "node:process";
 
-import { loadVeraConfig } from "../../src/config.ts";
+import {
+    configuredModelFallback,
+    loadVeraConfig,
+} from "../../src/config.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentFrame } from "../../src/engine/frames.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
@@ -46,7 +49,10 @@ try {
         adapter,
         config.model,
         config.reasoning_effort,
-        { approvalMode: config.approval_mode },
+        {
+            approvalMode: config.approval_mode,
+            modelFallback: configuredModelFallback(config),
+        },
     );
     lines.prompt();
 
