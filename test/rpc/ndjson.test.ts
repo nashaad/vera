@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 
-import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
+import type { AgentUpdate, ClientCommand } from "../../src/engine/protocol.ts";
 import { createNdjsonEngineEndpoint } from "../../clients/stdio/ndjson-bridge.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -19,7 +19,7 @@ import { SessionStore } from "../../src/store/session-store.ts";
 const projectRoot = process.cwd();
 
 test("NDJSON parses a typed UI response", async () => {
-    const frame: ClientFrame = {
+    const frame: ClientCommand = {
         type: "ui_response",
         requestId: "request-1",
         response: { type: "tool_approval", decision: "allow" },
@@ -49,7 +49,7 @@ test("NDJSON frames stream and abort across a process boundary", async () => {
         seq: 1,
     });
 
-    const firstTurn: AgentFrame[] = [];
+    const firstTurn: AgentUpdate[] = [];
     while (firstTurn.at(-1)?.type !== "turn_finished") {
         firstTurn.push(await frames.next());
     }
@@ -65,7 +65,7 @@ test("NDJSON frames stream and abort across a process boundary", async () => {
     sendFrame(child.stdin, { type: "prompt", content: "keep this prompt" });
     sendFrame(child.stdin, { type: "abort" });
 
-    const abortedTurn: AgentFrame[] = [];
+    const abortedTurn: AgentUpdate[] = [];
     while (abortedTurn.at(-1)?.type !== "turn_finished") {
         abortedTurn.push(await frames.next());
     }
@@ -75,7 +75,7 @@ test("NDJSON frames stream and abort across a process boundary", async () => {
         .join("");
     expect(abortedText).not.toBe("bcdefgh");
 
-    const queuedTurn: AgentFrame[] = [];
+    const queuedTurn: AgentUpdate[] = [];
     while (queuedTurn.at(-1)?.type !== "turn_finished") {
         queuedTurn.push(await frames.next());
     }
@@ -104,7 +104,7 @@ test("stdin EOF waits for the active turn to finish", async () => {
     sendFrame(child.stdin, { type: "prompt", content: "one piped prompt" });
     child.stdin.end();
 
-    const turn: AgentFrame[] = [];
+    const turn: AgentUpdate[] = [];
     while (turn.at(-1)?.type !== "turn_finished") {
         turn.push(await frames.next());
     }
@@ -237,7 +237,7 @@ test("resuming an unpaired tool call produces provider-safe history", async () =
 
 function sendFrame(
     input: Bun.FileSink,
-    frame: ClientFrame,
+    frame: ClientCommand,
 ): void {
     input.write(`${JSON.stringify(frame)}\n`);
     input.flush();
@@ -282,12 +282,12 @@ async function readTurnText(
 }
 
 function readFrames(stream: ReadableStream<Uint8Array>): {
-    next(): Promise<AgentFrame>;
+    next(): Promise<AgentUpdate>;
 } {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     const lines: string[] = [];
-    const waiters: Array<(frame: AgentFrame) => void> = [];
+    const waiters: Array<(frame: AgentUpdate) => void> = [];
     let pending = "";
 
     void (async () => {
@@ -304,17 +304,17 @@ function readFrames(stream: ReadableStream<Uint8Array>): {
                 if (waiter === undefined) {
                     lines.push(line);
                 } else {
-                    waiter(JSON.parse(line) as AgentFrame);
+                    waiter(JSON.parse(line) as AgentUpdate);
                 }
             }
         }
     })();
 
     return {
-        next(): Promise<AgentFrame> {
+        next(): Promise<AgentUpdate> {
             const line = lines.shift();
             if (line !== undefined) {
-                return Promise.resolve(JSON.parse(line) as AgentFrame);
+                return Promise.resolve(JSON.parse(line) as AgentUpdate);
             }
             return new Promise((resolve) => waiters.push(resolve));
         },

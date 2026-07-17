@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
 import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
-import { createFrameProjector } from "../../src/engine/frames.ts";
-import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
-import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
+import { createProtocolEncoder } from "../../src/engine/protocol.ts";
+import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 
 test("the inbound router queues prompts and aborts only the active turn", async () => {
@@ -11,7 +11,7 @@ test("the inbound router queues prompts and aborts only the active turn", async 
     const events = new EngineEventBus();
     const observed: EngineEvent[] = [];
     events.subscribe((event) => observed.push(event));
-    const router = new InboundFrameRouter(channel.engine, events);
+    const router = new InboundCommandRouter(channel.engine, events);
 
     const firstTurn = router.startTurn();
     await expect(router.startTurn()).rejects.toThrow(
@@ -45,9 +45,9 @@ test("the inbound router matches one approval response by request ID", async () 
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     const observed: EngineEvent[] = [];
-    events.subscribe(createFrameProjector(channel.engine));
+    events.subscribe(createProtocolEncoder(channel.engine));
     events.subscribe((event) => observed.push(event));
-    const router = new InboundFrameRouter(channel.engine, events);
+    const router = new InboundCommandRouter(channel.engine, events);
     const toolCall = bashToolCall("curl https://example.com");
 
     const approval = router.requestToolApproval(
@@ -67,7 +67,7 @@ test("the inbound router matches one approval response by request ID", async () 
         seq: 1,
     });
     if (request.type !== "ui_request") {
-        throw new Error("Expected a UI request frame");
+        throw new Error("Expected a UI request update");
     }
 
     channel.client.send({
@@ -92,8 +92,8 @@ test("the inbound router matches one approval response by request ID", async () 
 test("an unknown approval response is ignored and denial is explicit", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
-    events.subscribe(createFrameProjector(channel.engine));
-    const router = new InboundFrameRouter(channel.engine, events);
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
 
     const approval = router.requestToolApproval(
         bashToolCall("bun install"),
@@ -102,7 +102,7 @@ test("an unknown approval response is ignored and denial is explicit", async () 
     );
     const request = await channel.client.receive();
     if (request.type !== "ui_request") {
-        throw new Error("Expected a UI request frame");
+        throw new Error("Expected a UI request update");
     }
     channel.client.send({
         type: "ui_response",
@@ -129,8 +129,8 @@ test("an unknown approval response is ignored and denial is explicit", async () 
 test("approval timeout and turn abort both deny and clean up", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
-    events.subscribe(createFrameProjector(channel.engine));
-    const router = new InboundFrameRouter(channel.engine, events);
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
 
     const timedOut = router.requestToolApproval(
         bashToolCall("bun install"),
@@ -139,7 +139,7 @@ test("approval timeout and turn abort both deny and clean up", async () => {
     );
     const timeoutRequest = await channel.client.receive();
     if (timeoutRequest.type !== "ui_request") {
-        throw new Error("Expected a UI request frame");
+        throw new Error("Expected a UI request update");
     }
     expect(await timedOut).toEqual({
         behavior: "deny",
@@ -161,7 +161,7 @@ test("approval timeout and turn abort both deny and clean up", async () => {
     );
     const abortRequest = await channel.client.receive();
     if (abortRequest.type !== "ui_request") {
-        throw new Error("Expected a UI request frame");
+        throw new Error("Expected a UI request update");
     }
     channel.client.send({ type: "abort" });
     expect(await aborted).toEqual({
@@ -179,7 +179,7 @@ test("approval timeout and turn abort both deny and clean up", async () => {
 
 test("a disconnected client denies approval without waiting for timeout", async () => {
     const events = new EngineEventBus();
-    const router = new InboundFrameRouter({
+    const router = new InboundCommandRouter({
         send(): void {},
         receive(): Promise<never> {
             return Promise.reject(new Error("client disconnected"));

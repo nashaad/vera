@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 
 import {
-    applyTuiApprovalFrame,
+    applyTuiApprovalUpdate,
     createTuiApprovalResponse,
     renderTuiApproval,
     tuiApprovalDecision,
 } from "../../clients/tui/approval.ts";
-import type { UiRequestFrame } from "../../src/engine/frames.ts";
+import type { UiRequestUpdate } from "../../src/engine/protocol.ts";
 
-const request: UiRequestFrame = {
+const request: UiRequestUpdate = {
     type: "ui_request",
     requestId: "request-1",
     request: {
@@ -49,13 +49,13 @@ test("TUI approval accepts explicit allow and deny keys", () => {
 });
 
 test("TUI approval closes only for its matching request ID", () => {
-    expect(applyTuiApprovalFrame(undefined, request)).toBe(request);
-    expect(applyTuiApprovalFrame(request, {
+    expect(applyTuiApprovalUpdate(undefined, request)).toBe(request);
+    expect(applyTuiApprovalUpdate(request, {
         type: "ui_request_closed",
         requestId: "another-request",
         seq: 2,
     })).toBe(request);
-    expect(applyTuiApprovalFrame(request, {
+    expect(applyTuiApprovalUpdate(request, {
         type: "ui_request_closed",
         requestId: "request-1",
         seq: 3,

@@ -28,5 +28,5 @@ test("the inbound router is the only engine endpoint receiver", async () => {
         owners.push(...receives.map(() => basename(path)));
     }
 
-    expect(owners).toEqual(["inbound-frame-router.ts"]);
+    expect(owners).toEqual(["inbound-command-router.ts"]);
 });

@@ -4,9 +4,9 @@ import {
     createStdioApprovalResponse,
     renderStdioApproval,
 } from "../../clients/stdio/approval.ts";
-import type { UiRequestFrame } from "../../src/engine/frames.ts";
+import type { UiRequestUpdate } from "../../src/engine/protocol.ts";
 
-const request: UiRequestFrame = {
+const request: UiRequestUpdate = {
     type: "ui_request",
     requestId: "request-1",
     request: {

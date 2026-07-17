@@ -11,88 +11,88 @@ export interface TranscriptEntry {
     readonly [field: string]: unknown;
 }
 
-export interface PromptFrame {
+export interface PromptCommand {
     readonly type: "prompt";
     readonly content: string;
 }
 
-export interface AbortFrame {
+export interface AbortCommand {
     readonly type: "abort";
 }
 
-export interface UiResponseFrame {
+export interface UiResponseCommand {
     readonly type: "ui_response";
     readonly requestId: string;
     readonly response: ToolApprovalUiResponse;
 }
 
-export type ClientFrame = PromptFrame | AbortFrame | UiResponseFrame;
+export type ClientCommand = PromptCommand | AbortCommand | UiResponseCommand;
 
-export interface HistoryFrame {
+export interface HistoryUpdate {
     readonly type: "history";
     readonly entries: readonly TranscriptEntry[];
     readonly seq: number;
 }
 
-export interface AssistantDeltaFrame {
+export interface AssistantDeltaUpdate {
     readonly type: "assistant_delta";
     readonly text: string;
     readonly seq: number;
 }
 
-export interface ToolStartedFrame {
+export interface ToolStartedUpdate {
     readonly type: "tool_started";
     readonly tool: string;
     readonly args: Readonly<Record<string, unknown>>;
     readonly seq: number;
 }
 
-export interface ToolFinishedFrame {
+export interface ToolFinishedUpdate {
     readonly type: "tool_finished";
     readonly tool: string;
     readonly seq: number;
 }
 
-export interface TurnFinishedFrame {
+export interface TurnFinishedUpdate {
     readonly type: "turn_finished";
     readonly seq: number;
 }
 
-export interface StatusFrame {
+export interface StatusUpdate {
     readonly type: "status";
     readonly state: AgentStatus;
     readonly seq: number;
 }
 
-export interface UiRequestFrame {
+export interface UiRequestUpdate {
     readonly type: "ui_request";
     readonly requestId: string;
     readonly request: ToolApprovalUiRequest;
     readonly seq: number;
 }
 
-export interface UiRequestClosedFrame {
+export interface UiRequestClosedUpdate {
     readonly type: "ui_request_closed";
     readonly requestId: string;
     readonly seq: number;
 }
 
-export type AgentFrame =
-    | HistoryFrame
-    | AssistantDeltaFrame
-    | ToolStartedFrame
-    | ToolFinishedFrame
-    | TurnFinishedFrame
-    | StatusFrame
-    | UiRequestFrame
-    | UiRequestClosedFrame;
+export type AgentUpdate =
+    | HistoryUpdate
+    | AssistantDeltaUpdate
+    | ToolStartedUpdate
+    | ToolFinishedUpdate
+    | TurnFinishedUpdate
+    | StatusUpdate
+    | UiRequestUpdate
+    | UiRequestClosedUpdate;
 
-export interface AgentFrameSender {
-    send(frame: AgentFrame): void;
+export interface AgentUpdateSender {
+    send(update: AgentUpdate): void;
 }
 
-export function createFrameProjector(
-    sender: AgentFrameSender,
+export function createProtocolEncoder(
+    sender: AgentUpdateSender,
 ): EngineEventSubscriber {
     let seq = 0;
 

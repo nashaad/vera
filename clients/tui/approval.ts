@@ -1,8 +1,8 @@
 import type {
-    AgentFrame,
-    UiRequestFrame,
-    UiResponseFrame,
-} from "../../src/engine/frames.ts";
+    AgentUpdate,
+    UiRequestUpdate,
+    UiResponseCommand,
+} from "../../src/engine/protocol.ts";
 
 export type TuiApprovalDecision = "allow" | "deny";
 
@@ -13,12 +13,12 @@ export interface TuiApprovalKey {
     readonly shift?: boolean;
 }
 
-export function renderTuiApproval(frame: UiRequestFrame): string {
+export function renderTuiApproval(update: UiRequestUpdate): string {
     return [
-        formatToolCall(frame),
+        formatToolCall(update),
         "",
-        frame.request.reason,
-        frame.request.warning,
+        update.request.reason,
+        update.request.warning,
         "",
         "[y] allow    [n/esc] deny",
     ].join("\n");
@@ -40,40 +40,40 @@ export function tuiApprovalDecision(
 }
 
 export function createTuiApprovalResponse(
-    frame: UiRequestFrame,
+    update: UiRequestUpdate,
     key: TuiApprovalKey,
-): UiResponseFrame | undefined {
+): UiResponseCommand | undefined {
     const decision = tuiApprovalDecision(key);
     if (decision === undefined) {
         return undefined;
     }
     return {
         type: "ui_response",
-        requestId: frame.requestId,
+        requestId: update.requestId,
         response: { type: "tool_approval", decision },
     };
 }
 
-export function applyTuiApprovalFrame(
-    current: UiRequestFrame | undefined,
-    frame: AgentFrame,
-): UiRequestFrame | undefined {
-    if (frame.type === "ui_request") {
-        return frame;
+export function applyTuiApprovalUpdate(
+    current: UiRequestUpdate | undefined,
+    update: AgentUpdate,
+): UiRequestUpdate | undefined {
+    if (update.type === "ui_request") {
+        return update;
     }
     if (
-        frame.type === "ui_request_closed"
-        && current?.requestId === frame.requestId
+        update.type === "ui_request_closed"
+        && current?.requestId === update.requestId
     ) {
         return undefined;
     }
     return current;
 }
 
-function formatToolCall(frame: UiRequestFrame): string {
-    const command = frame.request.toolCall.input.command;
-    if (frame.request.toolCall.name === "bash" && typeof command === "string") {
+function formatToolCall(update: UiRequestUpdate): string {
+    const command = update.request.toolCall.input.command;
+    if (update.request.toolCall.name === "bash" && typeof command === "string") {
         return `$ ${command}`;
     }
-    return `${frame.request.toolCall.name} ${JSON.stringify(frame.request.toolCall.input)}`;
+    return `${update.request.toolCall.name} ${JSON.stringify(update.request.toolCall.input)}`;
 }
