@@ -6,8 +6,8 @@ import {
     loadVeraConfig,
 } from "../../src/config.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AgentFrame } from "../../src/engine/frames.ts";
-import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
@@ -76,51 +76,51 @@ try {
 
         channel.client.send({ type: "prompt", content: line });
 
-        let bufferedFrame: AgentFrame | undefined;
+        let bufferedUpdate: AgentUpdate | undefined;
         while (true) {
-            const frame = bufferedFrame ?? await channel.client.receive();
-            bufferedFrame = undefined;
+            const update = bufferedUpdate ?? await channel.client.receive();
+            bufferedUpdate = undefined;
 
-            if (frame.type === "assistant_delta") {
-                stdout.write(frame.text);
+            if (update.type === "assistant_delta") {
+                stdout.write(update.text);
             }
 
-            if (frame.type === "ui_request") {
-                stdout.write(`\n${renderStdioApproval(frame)}\n`);
+            if (update.type === "ui_request") {
+                stdout.write(`\n${renderStdioApproval(update)}\n`);
                 lines.setPrompt("Allow? [y/N] ");
                 lines.prompt();
                 const waiting = new AbortController();
-                const answerOrFrame = await Promise.race([
+                const answerOrUpdate = await Promise.race([
                     inputLines.receive(waiting.signal).then((answer) => ({
                         type: "answer" as const,
                         answer,
                     })),
-                    channel.client.receive(waiting.signal).then((nextFrame) => ({
-                        type: "frame" as const,
-                        frame: nextFrame,
+                    channel.client.receive(waiting.signal).then((nextUpdate) => ({
+                        type: "update" as const,
+                        update: nextUpdate,
                     })),
                 ]);
                 waiting.abort();
 
-                if (answerOrFrame.type === "answer") {
-                    const answer = answerOrFrame.answer;
+                if (answerOrUpdate.type === "answer") {
+                    const answer = answerOrUpdate.answer;
                     inputEnded = answer.type === "end";
                     channel.client.send(createStdioApprovalResponse(
-                        frame,
+                        update,
                         answer.type === "line" ? answer.value : undefined,
                     ));
                 } else {
                     stdout.write("\nApproval request closed.\n");
-                    bufferedFrame = answerOrFrame.frame;
+                    bufferedUpdate = answerOrUpdate.update;
                 }
                 lines.setPrompt("vera> ");
             }
 
-            if (frame.type === "ui_request_closed") {
+            if (update.type === "ui_request_closed") {
                 continue;
             }
 
-            if (frame.type === "turn_finished") {
+            if (update.type === "turn_finished") {
                 break;
             }
         }

@@ -16,17 +16,17 @@ import {
     type EngineEvent,
 } from "../../src/engine/events.ts";
 import {
-    createFrameProjector,
-    type AgentFrameSender,
-} from "../../src/engine/frames.ts";
+    createProtocolEncoder,
+    type AgentUpdateSender,
+} from "../../src/engine/protocol.ts";
 import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
     type ModelRequest,
 } from "../../src/model/types.ts";
-import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
-import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import {
     ProviderFailureError,
@@ -73,7 +73,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
@@ -162,7 +162,7 @@ test("turn finished waits for the assistant message append", async () => {
         messages: [],
         store,
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
@@ -229,7 +229,7 @@ test("a length stop preserves streamed text and continues with a larger cap", as
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
@@ -336,7 +336,7 @@ test("a transient model failure retries only in the engine event log", async () 
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
@@ -458,7 +458,7 @@ test("model fallback stays selected through the tool loop", async () => {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
@@ -561,7 +561,7 @@ test("a bash tool call runs and continues the model turn", async () => {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks,
         approvalMode: "ask",
@@ -585,7 +585,7 @@ test("a bash tool call runs and continues the model turn", async () => {
         seq: 1,
     });
     if (approvalRequest.type !== "ui_request") {
-        throw new Error("Expected a UI request frame");
+        throw new Error("Expected a UI request update");
     }
     channel.client.send({
         type: "ui_response",
@@ -666,7 +666,7 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
         messages: [],
         store,
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks,
         approvalMode: "approve_for_me",
@@ -730,7 +730,7 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks,
         approvalMode: "approve_for_me",
@@ -790,7 +790,7 @@ test("ask mode turns a client denial into a tool result", async () => {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "ask",
@@ -805,7 +805,7 @@ test("ask mode turns a client denial into a tool result", async () => {
 
     const approvalRequest = await channel.client.receive();
     if (approvalRequest.type !== "ui_request") {
-        throw new Error("Expected a UI request frame");
+        throw new Error("Expected a UI request update");
     }
     channel.client.send({
         type: "ui_response",
@@ -871,7 +871,7 @@ test("the built-in hard deny blocks a dangerous command in full access", async (
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "full_access",
@@ -929,7 +929,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
@@ -968,8 +968,8 @@ test("aborting a turn stops its foreground bash tool", async () => {
     });
 });
 
-function createTestEvents(sender: AgentFrameSender): EngineEventBus {
+function createTestEvents(sender: AgentUpdateSender): EngineEventBus {
     const events = new EngineEventBus();
-    events.subscribe(createFrameProjector(sender));
+    events.subscribe(createProtocolEncoder(sender));
     return events;
 }

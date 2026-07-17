@@ -5,13 +5,13 @@ import type {
     ModelReasoningEffort,
 } from "../../src/model/types.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
-import type { FrameEndpoint } from "../../src/engine/in-process-channel.ts";
+import type { AgentUpdate, ClientCommand } from "../../src/engine/protocol.ts";
+import type { MessageChannel } from "../../src/engine/message-channel.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../../src/engine/recovery.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 
-interface FrameOutput {
+interface NdjsonOutput {
     write(text: string): unknown;
 }
 
@@ -32,9 +32,9 @@ export class NdjsonInputEndedError extends Error {
 
 export function createNdjsonEngineEndpoint(
     input: NodeJS.ReadableStream,
-    output: FrameOutput,
-): FrameEndpoint<AgentFrame, ClientFrame> {
-    const incoming = new AsyncQueue<ClientFrame>();
+    output: NdjsonOutput,
+): MessageChannel<AgentUpdate, ClientCommand> {
+    const incoming = new AsyncQueue<ClientCommand>();
     const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
 
     void (async () => {
@@ -43,7 +43,7 @@ export function createNdjsonEngineEndpoint(
                 if (line.trim().length === 0) {
                     continue;
                 }
-                incoming.push(parseClientFrame(line));
+                incoming.push(parseClientCommand(line));
             }
             incoming.fail(new NdjsonInputEndedError());
         } catch (error) {
@@ -52,10 +52,10 @@ export function createNdjsonEngineEndpoint(
     })();
 
     return {
-        send(frame): void {
-            output.write(`${JSON.stringify(frame)}\n`);
+        send(update): void {
+            output.write(`${JSON.stringify(update)}\n`);
         },
-        receive(signal?: AbortSignal): Promise<ClientFrame> {
+        receive(signal?: AbortSignal): Promise<ClientCommand> {
             return incoming.receive(signal);
         },
     };
@@ -63,7 +63,7 @@ export function createNdjsonEngineEndpoint(
 
 export async function runNdjsonBridge(
     input: NodeJS.ReadableStream,
-    output: FrameOutput,
+    output: NdjsonOutput,
     adapter: ModelAdapter,
     model: string,
     reasoningEffort?: ModelReasoningEffort,
@@ -86,33 +86,33 @@ export async function runNdjsonBridge(
     }
 }
 
-function parseClientFrame(line: string): ClientFrame {
+function parseClientCommand(line: string): ClientCommand {
     const value: unknown = JSON.parse(line);
     if (typeof value !== "object" || value === null) {
-        throw new Error("NDJSON client frame must be an object");
+        throw new Error("NDJSON client command must be an object");
     }
 
-    const frame = value as Record<string, unknown>;
-    if (frame.type === "prompt" && typeof frame.content === "string") {
-        return { type: "prompt", content: frame.content };
+    const command = value as Record<string, unknown>;
+    if (command.type === "prompt" && typeof command.content === "string") {
+        return { type: "prompt", content: command.content };
     }
-    if (frame.type === "abort") {
+    if (command.type === "abort") {
         return { type: "abort" };
     }
     if (
-        frame.type === "ui_response"
-        && typeof frame.requestId === "string"
-        && typeof frame.response === "object"
-        && frame.response !== null
+        command.type === "ui_response"
+        && typeof command.requestId === "string"
+        && typeof command.response === "object"
+        && command.response !== null
     ) {
-        const response = frame.response as Record<string, unknown>;
+        const response = command.response as Record<string, unknown>;
         if (
             response.type === "tool_approval"
             && (response.decision === "allow" || response.decision === "deny")
         ) {
             return {
                 type: "ui_response",
-                requestId: frame.requestId,
+                requestId: command.requestId,
                 response: {
                     type: "tool_approval",
                     decision: response.decision,
@@ -121,5 +121,5 @@ function parseClientFrame(line: string): ClientFrame {
         }
     }
 
-    throw new Error("Unknown NDJSON client frame");
+    throw new Error("Unknown NDJSON client command");
 }

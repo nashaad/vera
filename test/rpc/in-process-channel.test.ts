@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
-import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import type { AgentUpdate, ClientCommand } from "../../src/engine/protocol.ts";
 
 describe("in-process channel", () => {
-    test("passes frames in both directions", async () => {
+    test("passes commands and updates in both directions", async () => {
         const channel = createInProcessChannel();
-        const prompt: ClientFrame = {
+        const prompt: ClientCommand = {
             type: "prompt",
             content: "say hi",
         };
-        const status: AgentFrame = {
+        const status: AgentUpdate = {
             type: "status",
             state: "working",
             seq: 1,

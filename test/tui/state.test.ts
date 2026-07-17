@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { StyledText } from "@opentui/core";
 
 import {
-    applyAgentFrame,
+    applyAgentUpdate,
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
@@ -18,33 +18,33 @@ function plainText(styled: StyledText): string {
 
 test("TUI state tracks a streamed turn and tool activity", () => {
     let state = beginTuiTurn(createTuiState(), "inspect the project");
-    state = applyAgentFrame(state, {
+    state = applyAgentUpdate(state, {
         type: "assistant_delta",
         text: "I will ",
         seq: 1,
     });
-    state = applyAgentFrame(state, {
+    state = applyAgentUpdate(state, {
         type: "assistant_delta",
         text: "check.",
         seq: 2,
     });
-    state = applyAgentFrame(state, {
+    state = applyAgentUpdate(state, {
         type: "tool_started",
         tool: "bash",
         args: { command: "pwd" },
         seq: 3,
     });
-    state = applyAgentFrame(state, {
+    state = applyAgentUpdate(state, {
         type: "tool_finished",
         tool: "bash",
         seq: 4,
     });
-    state = applyAgentFrame(state, {
+    state = applyAgentUpdate(state, {
         type: "assistant_delta",
         text: "Done.",
         seq: 5,
     });
-    state = applyAgentFrame(state, { type: "turn_finished", seq: 6 });
+    state = applyAgentUpdate(state, { type: "turn_finished", seq: 6 });
 
     expect(state.working).toBe(false);
     expect(state.entries).toEqual([
@@ -65,7 +65,7 @@ test("TUI entries render with kind-specific prefixes", () => {
 });
 
 test("TUI tool entries truncate long arguments", () => {
-    const state = applyAgentFrame(beginTuiTurn(createTuiState(), "go"), {
+    const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
         type: "tool_started",
         tool: "bash",
         args: { command: "x".repeat(100) },
@@ -89,13 +89,13 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
 
 test("TUI queues a follow-up without interrupting the active transcript", () => {
     let state = beginTuiTurn(createTuiState(), "first");
-    state = applyAgentFrame(state, {
+    state = applyAgentUpdate(state, {
         type: "assistant_delta",
         text: "current ",
         seq: 1,
     });
     state = queueTuiPrompt(state, "steer next");
-    state = applyAgentFrame(state, {
+    state = applyAgentUpdate(state, {
         type: "assistant_delta",
         text: "answer",
         seq: 2,
@@ -107,7 +107,7 @@ test("TUI queues a follow-up without interrupting the active transcript", () => 
     ]);
     expect(renderTuiQueuedPrompt(state)).toBe("queued · steer next");
 
-    state = applyAgentFrame(state, { type: "turn_finished", seq: 3 });
+    state = applyAgentUpdate(state, { type: "turn_finished", seq: 3 });
     state = beginNextQueuedTuiTurn(state);
 
     expect(state.working).toBe(true);

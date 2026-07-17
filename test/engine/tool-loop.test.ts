@@ -5,15 +5,15 @@ import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
-import { createFrameProjector } from "../../src/engine/frames.ts";
+import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
     type ModelRequest,
 } from "../../src/model/types.ts";
-import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
-import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
@@ -65,12 +65,12 @@ test("multiple tool calls execute sequentially in content order", async () => {
     };
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
-    events.subscribe(createFrameProjector(channel.engine));
+    events.subscribe(createProtocolEncoder(channel.engine));
     const state: RunTurnState = {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
@@ -79,12 +79,12 @@ test("multiple tool calls execute sequentially in content order", async () => {
     try {
         channel.client.send({ type: "prompt", content: "check the workspace" });
         const turn = runTurn(adapter, "test", state);
-        const frameTypes: string[] = [];
+        const updateTypes: string[] = [];
 
         while (true) {
-            const frame = await channel.client.receive();
-            frameTypes.push(frame.type);
-            if (frame.type === "turn_finished") {
+            const update = await channel.client.receive();
+            updateTypes.push(update.type);
+            if (update.type === "turn_finished") {
                 break;
             }
         }
@@ -102,7 +102,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
                 );
             }
         }
-        expect(frameTypes).toEqual([
+        expect(updateTypes).toEqual([
             "tool_started",
             "tool_finished",
             "tool_started",

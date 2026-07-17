@@ -6,12 +6,12 @@ import type {
     ToolApprovalUiResponse,
 } from "./events.ts";
 import type {
-    AgentFrame,
-    ClientFrame,
-    PromptFrame,
-    UiResponseFrame,
-} from "./frames.ts";
-import type { FrameEndpoint } from "./in-process-channel.ts";
+    AgentUpdate,
+    ClientCommand,
+    PromptCommand,
+    UiResponseCommand,
+} from "./protocol.ts";
+import type { MessageChannel } from "./message-channel.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 
 const FULL_USER_AUTHORITY_WARNING =
@@ -41,22 +41,22 @@ interface PendingApproval {
 }
 
 export interface InboundTurn {
-    readonly prompt: PromptFrame;
+    readonly prompt: PromptCommand;
     readonly signal: AbortSignal;
 }
 
-export class InboundFrameRouter {
-    private readonly prompts = new AsyncQueue<PromptFrame>();
+export class InboundCommandRouter {
+    private readonly prompts = new AsyncQueue<PromptCommand>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
     private waitingForPrompt = false;
     private activeTurn: AbortController | undefined;
     private receiveFailed = false;
 
     constructor(
-        endpoint: FrameEndpoint<AgentFrame, ClientFrame>,
+        endpoint: MessageChannel<AgentUpdate, ClientCommand>,
         private readonly events: EngineEventBus,
     ) {
-        void this.receiveFrames(endpoint);
+        void this.receiveCommands(endpoint);
     }
 
     async startTurn(): Promise<InboundTurn> {
@@ -65,7 +65,7 @@ export class InboundFrameRouter {
         }
 
         this.waitingForPrompt = true;
-        let prompt: PromptFrame;
+        let prompt: PromptCommand;
         try {
             prompt = await this.prompts.receive();
         } finally {
@@ -137,29 +137,29 @@ export class InboundFrameRouter {
         return result;
     }
 
-    private async receiveFrames(
-        endpoint: FrameEndpoint<AgentFrame, ClientFrame>,
+    private async receiveCommands(
+        endpoint: MessageChannel<AgentUpdate, ClientCommand>,
     ): Promise<void> {
         try {
             while (true) {
-                const frame = await endpoint.receive();
-                if (frame.type === "prompt") {
-                    this.prompts.push(frame);
+                const command = await endpoint.receive();
+                if (command.type === "prompt") {
+                    this.prompts.push(command);
                     if (this.activeTurn !== undefined) {
                         this.events.emit({
                             type: "prompt_queued",
-                            content: frame.content,
+                            content: command.content,
                         });
                     }
                     continue;
                 }
 
-                if (frame.type === "ui_response") {
-                    this.receiveUiResponse(frame);
+                if (command.type === "ui_response") {
+                    this.receiveUiResponse(command);
                     continue;
                 }
 
-                if (frame.type === "abort" && this.activeTurn !== undefined) {
+                if (command.type === "abort" && this.activeTurn !== undefined) {
                     this.events.emit({ type: "abort_requested" });
                     this.activeTurn.abort(new Error("Turn aborted"));
                 }
@@ -173,18 +173,18 @@ export class InboundFrameRouter {
         }
     }
 
-    private receiveUiResponse(frame: UiResponseFrame): void {
-        if (!this.pendingApprovals.has(frame.requestId)) {
+    private receiveUiResponse(command: UiResponseCommand): void {
+        if (!this.pendingApprovals.has(command.requestId)) {
             return;
         }
         this.events.emit({
             type: "ui_response",
-            requestId: frame.requestId,
-            response: frame.response,
+            requestId: command.requestId,
+            response: command.response,
         });
         this.finishApproval(
-            frame.requestId,
-            approvalResult(frame.response),
+            command.requestId,
+            approvalResult(command.response),
         );
     }
 

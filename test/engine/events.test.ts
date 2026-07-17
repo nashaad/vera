@@ -16,9 +16,9 @@ import {
     createJsonlEventLogger,
     type EngineEvent,
 } from "../../src/engine/events.ts";
-import { createFrameProjector } from "../../src/engine/frames.ts";
-import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
-import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
+import { createProtocolEncoder } from "../../src/engine/protocol.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
@@ -35,7 +35,7 @@ interface LoggedEventLine {
     readonly systemPrompt?: string;
 }
 
-test("a turn fans out to frames and a per-session event log", async () => {
+test("a turn fans out to updates and a per-session event log", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
     const logDirectory = join(workspace, "logs");
     const logPath = join(logDirectory, "session-test.jsonl");
@@ -55,7 +55,7 @@ test("a turn fans out to frames and a per-session event log", async () => {
     await writeFile(logPath, "", { mode: 0o666 });
     await chmod(logPath, 0o666);
 
-    events.subscribe(createFrameProjector(channel.engine));
+    events.subscribe(createProtocolEncoder(channel.engine));
     events.subscribe(() => {
         throw new Error("broken observer");
     });
@@ -72,7 +72,7 @@ test("a turn fans out to frames and a per-session event log", async () => {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
-        inbound: new InboundFrameRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",

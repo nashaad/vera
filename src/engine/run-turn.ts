@@ -10,9 +10,9 @@ import type {
     UserMessage,
 } from "../model/types.ts";
 import type { JsonObject } from "../sdk/hooks.ts";
-import type { FrameEndpoint } from "./in-process-channel.ts";
-import type { AgentFrame, ClientFrame } from "./frames.ts";
-import { createFrameProjector } from "./frames.ts";
+import type { MessageChannel } from "./message-channel.ts";
+import type { AgentUpdate, ClientCommand } from "./protocol.ts";
+import { createProtocolEncoder } from "./protocol.ts";
 import {
     EngineEventBus,
     createJsonlEventLogger,
@@ -22,7 +22,7 @@ import { availableTools, executeToolCall } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
 import { ToolHooks } from "./hooks.ts";
-import { InboundFrameRouter } from "./inbound-frame-router.ts";
+import { InboundCommandRouter } from "./inbound-command-router.ts";
 import {
     decideToolPermission,
     type ApprovalMode,
@@ -48,7 +48,7 @@ export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
     readonly toolRuntime: ToolRuntime;
-    readonly inbound: InboundFrameRouter;
+    readonly inbound: InboundCommandRouter;
     readonly events: EngineEventBus;
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
@@ -66,7 +66,7 @@ export interface RunHeadlessLoopOptions {
 }
 
 export async function runHeadlessLoop(
-    endpoint: FrameEndpoint<AgentFrame, ClientFrame>,
+    endpoint: MessageChannel<AgentUpdate, ClientCommand>,
     adapter: ModelAdapter,
     model: string,
     reasoningEffort?: ModelReasoningEffort,
@@ -89,12 +89,12 @@ export async function runHeadlessLoop(
         : await SessionStore.open(options.resumeSessionPath);
     const sessionId = store.header.id;
     const events = new EngineEventBus();
-    events.subscribe(createFrameProjector(endpoint));
+    events.subscribe(createProtocolEncoder(endpoint));
     events.subscribe(createJsonlEventLogger({
         path: options.eventLogPath ?? defaultEventLogPath(sessionId),
         sessionId,
     }));
-    const inbound = new InboundFrameRouter(endpoint, events);
+    const inbound = new InboundCommandRouter(endpoint, events);
     const state: RunTurnState = {
         messages: [...store.messages()],
         store,

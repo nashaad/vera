@@ -1,7 +1,7 @@
 import { fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
-import type { AgentFrame } from "../../src/engine/frames.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
 
 export type TuiTranscriptEntryKind = "user" | "assistant" | "tool" | "notice";
 
@@ -71,35 +71,35 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
     return `queued · ${compact}${remaining === 0 ? "" : ` · +${remaining}`}`;
 }
 
-export function applyAgentFrame(state: TuiState, frame: AgentFrame): TuiState {
-    if (frame.type === "assistant_delta") {
-        return appendAssistantText(state, frame.text);
+export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState {
+    if (update.type === "assistant_delta") {
+        return appendAssistantText(state, update.text);
     }
-    if (frame.type === "tool_started") {
+    if (update.type === "tool_started") {
         return appendEntry(state, {
             kind: "tool",
-            text: `∗ ${formatToolCall(frame.tool, frame.args)}`,
+            text: `∗ ${formatToolCall(update.tool, update.args)}`,
         });
     }
-    if (frame.type === "tool_finished") {
+    if (update.type === "tool_finished") {
         return state;
     }
-    if (frame.type === "turn_finished") {
+    if (update.type === "turn_finished") {
         return { ...state, working: false };
     }
-    if (frame.type === "status") {
-        return { ...state, working: frame.state !== "idle" };
+    if (update.type === "status") {
+        return { ...state, working: update.state !== "idle" };
     }
-    if (frame.type === "history") {
+    if (update.type === "history") {
         return state;
     }
-    if (frame.type === "ui_request") {
+    if (update.type === "ui_request") {
         return state;
     }
-    if (frame.type === "ui_request_closed") {
+    if (update.type === "ui_request_closed") {
         return state;
     }
-    return assertNever(frame);
+    return assertNever(update);
 }
 
 export function appendTuiNotice(state: TuiState, message: string): TuiState {
@@ -177,5 +177,5 @@ function appendEntry(state: TuiState, entry: TuiTranscriptEntry): TuiState {
 }
 
 function assertNever(value: never): never {
-    throw new Error(`Unhandled agent frame: ${JSON.stringify(value)}`);
+    throw new Error(`Unhandled agent update: ${JSON.stringify(value)}`);
 }

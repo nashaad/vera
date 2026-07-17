@@ -13,8 +13,8 @@ import {
     configuredModelFallback,
     loadVeraConfig,
 } from "../../src/config.ts";
-import type { UiRequestFrame } from "../../src/engine/frames.ts";
-import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
+import type { UiRequestUpdate } from "../../src/engine/protocol.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../../src/engine/recovery.ts";
@@ -26,7 +26,7 @@ import {
 import type { ModelAdapter } from "../../src/model/types.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import {
-    applyTuiApprovalFrame,
+    applyTuiApprovalUpdate,
     createTuiApprovalResponse,
     renderTuiApproval,
 } from "./approval.ts";
@@ -41,7 +41,7 @@ import {
     TUI_NOTICE,
     TUI_TEXT,
     appendTuiNotice,
-    applyAgentFrame,
+    applyAgentUpdate,
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
@@ -106,7 +106,7 @@ export async function startTui(
     let statusNoticeVersion = 0;
     let shuttingDown = false;
     let abortRequested = false;
-    let pendingApproval: UiRequestFrame | undefined;
+    let pendingApproval: UiRequestUpdate | undefined;
 
     const markdownStyle = SyntaxStyle.fromStyles({
         default: { fg: TUI_TEXT },
@@ -287,7 +287,7 @@ export async function startTui(
         state = appendTuiNotice(state, `Engine error: ${message}`);
         renderState();
     });
-    void receiveAgentFrames();
+    void receiveAgentUpdates();
 
     function submitPrompt(): void {
         const prompt = composer.plainText.trim();
@@ -303,20 +303,20 @@ export async function startTui(
         channel.client.send({ type: "prompt", content: prompt });
     }
 
-    async function receiveAgentFrames(): Promise<void> {
+    async function receiveAgentUpdates(): Promise<void> {
         while (!shuttingDown) {
-            const frame = await channel.client.receive();
+            const update = await channel.client.receive();
             if (shuttingDown) {
                 return;
             }
             if (
-                frame.type === "ui_request"
-                || frame.type === "ui_request_closed"
+                update.type === "ui_request"
+                || update.type === "ui_request_closed"
             ) {
                 const previousApproval = pendingApproval;
-                pendingApproval = applyTuiApprovalFrame(
+                pendingApproval = applyTuiApprovalUpdate(
                     pendingApproval,
-                    frame,
+                    update,
                 );
                 if (pendingApproval !== undefined) {
                     composer.blur();
@@ -328,8 +328,8 @@ export async function startTui(
                 }
                 continue;
             }
-            state = applyAgentFrame(state, frame);
-            if (frame.type === "turn_finished") {
+            state = applyAgentUpdate(state, update);
+            if (update.type === "turn_finished") {
                 abortRequested = false;
                 finishStreamingAssistant();
                 state = beginNextQueuedTuiTurn(state);
