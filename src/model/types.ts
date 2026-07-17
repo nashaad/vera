@@ -29,6 +29,7 @@ export type AssistantContent = TextContent | ThinkingContent | ToolCallContent;
 export interface UserMessage {
     readonly role: "user";
     readonly content: readonly TextContent[];
+    readonly internal?: boolean;
 }
 
 export interface AssistantMessage {

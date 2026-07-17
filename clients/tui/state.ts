@@ -2,6 +2,7 @@ import { fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 
 export type TuiTranscriptEntryKind = "user" | "assistant" | "tool" | "notice";
 
@@ -91,7 +92,17 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return { ...state, working: update.state !== "idle" };
     }
     if (update.type === "history") {
-        return state;
+        return {
+            ...state,
+            entries: update.entries.map(toTuiTranscriptEntry),
+        };
+    }
+    if (update.type === "user_prompt") {
+        const last = state.entries.at(-1);
+        if (last?.kind === "user" && last.text === update.content) {
+            return state;
+        }
+        return appendEntry(state, { kind: "user", text: update.content });
     }
     if (update.type === "ui_request") {
         return state;
@@ -154,6 +165,16 @@ function formatToolCall(
         return tool;
     }
     return `${tool} ${summary.length > 64 ? `${summary.slice(0, 63)}…` : summary}`;
+}
+
+function toTuiTranscriptEntry(entry: TranscriptEntry): TuiTranscriptEntry {
+    if (entry.kind === "tool") {
+        return {
+            kind: "tool",
+            text: `∗ ${formatToolCall(entry.tool, entry.args)}`,
+        };
+    }
+    return entry;
 }
 
 function appendAssistantText(state: TuiState, text: string): TuiState {

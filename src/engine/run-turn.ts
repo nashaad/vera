@@ -89,7 +89,8 @@ export async function runHeadlessLoop(
         : await SessionStore.open(options.resumeSessionPath);
     const sessionId = store.header.id;
     const events = new EngineEventBus();
-    events.subscribe(createProtocolEncoder(endpoint));
+    const protocol = createProtocolEncoder(endpoint);
+    events.subscribe(protocol);
     events.subscribe(createJsonlEventLogger({
         path: options.eventLogPath ?? defaultEventLogPath(sessionId),
         sessionId,
@@ -107,9 +108,11 @@ export async function runHeadlessLoop(
             ? {}
             : { modelFallback: options.modelFallback }),
     };
+    protocol.checkpoint(state.messages);
 
     while (true) {
         await runTurn(adapter, model, state, reasoningEffort);
+        protocol.checkpoint(state.messages);
     }
 }
 
@@ -216,6 +219,7 @@ export async function runTurn(
                 const continuationMessage: UserMessage = {
                     role: "user",
                     content: [{ type: "text", text: continuation.prompt }],
+                    internal: true,
                 };
                 await commitMessage(state, continuationMessage);
                 maxTokens = continuation.nextMaxTokens;

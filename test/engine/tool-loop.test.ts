@@ -103,6 +103,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
             }
         }
         expect(updateTypes).toEqual([
+            "user_prompt",
             "tool_started",
             "tool_finished",
             "tool_started",
