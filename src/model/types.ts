@@ -168,6 +168,10 @@ export interface ModelStream extends AsyncIterable<ModelStreamEvent> {
 }
 
 export interface ModelAdapter {
+    /**
+     * Return a stream immediately. Provider failures belong in its terminal
+     * error event so the engine can apply recovery without provider knowledge.
+     */
     stream(request: ModelRequest): ModelStream;
 }
 

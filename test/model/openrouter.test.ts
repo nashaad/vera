@@ -218,53 +218,12 @@ describe("OpenRouter adapter", () => {
         expect((await stream.result()).stopReason).toBe("aborted");
     });
 
-    test("retries a transient failure before the stream starts", async () => {
+    test("classifies a transient failure without choosing retry policy", async () => {
         let attempts = 0;
-        const delays: number[] = [];
-        const adapter = new OpenRouterAdapter(
-            async () => {
-                attempts += 1;
-                if (attempts === 1) {
-                    throw new ConnectionError("disconnected");
-                }
-                return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
-            },
-            {
-                waitForRetry: async (delayMs) => {
-                    delays.push(delayMs);
-                },
-            },
-        );
-        const stream = adapter.stream({
-            model: "test/model",
-            messages: [],
+        const adapter = new OpenRouterAdapter(async () => {
+            attempts += 1;
+            throw new ConnectionError(`disconnected ${attempts}`);
         });
-
-        const events: ModelStreamEvent[] = [];
-        for await (const event of stream) {
-            events.push(event);
-        }
-
-        expect(events.map((event) => event.type)).toEqual(["start", "done"]);
-        expect((await stream.result()).stopReason).toBe("stop");
-        expect(attempts).toBe(2);
-        expect(delays).toEqual([500]);
-    });
-
-    test("returns an error after exhausting transient retries", async () => {
-        let attempts = 0;
-        const delays: number[] = [];
-        const adapter = new OpenRouterAdapter(
-            async () => {
-                attempts += 1;
-                throw new ConnectionError(`disconnected ${attempts}`);
-            },
-            {
-                waitForRetry: async (delayMs) => {
-                    delays.push(delayMs);
-                },
-            },
-        );
         const stream = adapter.stream({
             model: "test/model",
             messages: [],
@@ -289,25 +248,17 @@ describe("OpenRouter adapter", () => {
         }
         expect(await stream.result()).toMatchObject({
             stopReason: "error",
-            errorMessage: "disconnected 3",
+            errorMessage: "disconnected 1",
         });
-        expect(attempts).toBe(3);
-        expect(delays).toEqual([500, 1000]);
+        expect(attempts).toBe(1);
     });
 
     test("does not retry a transient failure after receiving partial content", async () => {
         let attempts = 0;
-        const adapter = new OpenRouterAdapter(
-            async () => {
-                attempts += 1;
-                return partialThenError();
-            },
-            {
-                waitForRetry: async () => {
-                    throw new Error("wait should not be called");
-                },
-            },
-        );
+        const adapter = new OpenRouterAdapter(async () => {
+            attempts += 1;
+            return partialThenError();
+        });
         const stream = adapter.stream({
             model: "test/model",
             messages: [],
@@ -328,37 +279,6 @@ describe("OpenRouter adapter", () => {
             content: [{ type: "text", text: "partial" }],
             stopReason: "error",
             errorMessage: "stream disconnected",
-        });
-        expect(attempts).toBe(1);
-    });
-
-    test("does not retry when aborted during backoff", async () => {
-        let attempts = 0;
-        const controller = new AbortController();
-        const adapter = new OpenRouterAdapter(
-            async () => {
-                attempts += 1;
-                throw new ConnectionError("disconnected");
-            },
-            {
-                waitForRetry: async () => {
-                    controller.abort(new Error("stop now"));
-                },
-            },
-        );
-        const stream = adapter.stream({
-            model: "test/model",
-            messages: [],
-            signal: controller.signal,
-        });
-
-        for await (const _event of stream) {
-            // Drain the stream.
-        }
-
-        expect(await stream.result()).toMatchObject({
-            stopReason: "aborted",
-            errorMessage: "stop now",
         });
         expect(attempts).toBe(1);
     });
