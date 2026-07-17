@@ -6,7 +6,12 @@ import { join } from "node:path";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
 import { createFrameProjector } from "../../src/engine/frames.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
@@ -47,7 +52,14 @@ test("multiple tool calls execute sequentially in content order", async () => {
         usage: emptyUsage(),
         stopReason: "stop",
     };
-    const adapter = new FauxAdapter([toolCallResponse, finalResponse]);
+    const faux = new FauxAdapter([toolCallResponse, finalResponse]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
     const channel = createInProcessChannel();
     const state: RunTurnState = {
         messages: [],
@@ -71,6 +83,18 @@ test("multiple tool calls execute sequentially in content order", async () => {
         }
 
         expect(await turn).toEqual(finalResponse);
+        expect(requests).toHaveLength(2);
+        for (const request of requests) {
+            expect(request.systemPrompt).toContain("## Identity\n");
+            expect(request.systemPrompt).toContain(
+                `## Workspace\nWorking directory: ${workspace}`,
+            );
+            for (const tool of request.tools ?? []) {
+                expect(request.systemPrompt).toContain(
+                    `- ${tool.name}: ${tool.description}`,
+                );
+            }
+        }
         expect(frameTypes).toEqual([
             "tool_started",
             "tool_finished",

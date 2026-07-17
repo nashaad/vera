@@ -39,7 +39,7 @@ export interface ModelRequestEvent {
     readonly type: "model_request";
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
-    readonly systemPrompt?: string;
+    readonly systemPrompt: string;
     readonly messages: readonly ModelMessage[];
     readonly tools: readonly ModelTool[];
 }
