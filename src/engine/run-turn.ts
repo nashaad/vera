@@ -8,11 +8,7 @@ import type {
     UserMessage,
 } from "../model/types.ts";
 import type { FrameEndpoint } from "./in-process-channel.ts";
-import type {
-    AgentFrame,
-    ClientFrame,
-    PromptFrame,
-} from "./frames.ts";
+import type { AgentFrame, ClientFrame } from "./frames.ts";
 import { createFrameProjector } from "./frames.ts";
 import {
     EngineEventBus,
@@ -22,11 +18,12 @@ import {
 import { availableTools, executeToolCall } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
+import { InboundFrameRouter } from "./inbound-frame-router.ts";
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly toolRuntime: ToolRuntime;
-    readonly queuedPrompts: PromptFrame[];
+    readonly inbound: InboundFrameRouter;
     readonly events: EngineEventBus;
 }
 
@@ -49,47 +46,34 @@ export async function runHeadlessLoop(
         path: options.eventLogPath ?? defaultEventLogPath(sessionId),
         sessionId,
     }));
+    const inbound = new InboundFrameRouter(endpoint, events);
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
-        queuedPrompts: [],
+        inbound,
         events,
     };
 
     while (true) {
-        await runTurn(endpoint, adapter, model, state, reasoningEffort);
+        await runTurn(adapter, model, state, reasoningEffort);
     }
 }
 
 export async function runTurn(
-    endpoint: FrameEndpoint<AgentFrame, ClientFrame>,
     adapter: ModelAdapter,
     model: string,
     state: RunTurnState,
     reasoningEffort?: ModelReasoningEffort,
 ): Promise<AssistantMessage> {
-    const frame = state.queuedPrompts.shift() ?? await endpoint.receive();
-
-    if (frame.type !== "prompt") {
-        throw new Error(`Expected prompt frame, received ${frame.type}`);
-    }
+    const turn = await state.inbound.startTurn();
 
     const userMessage: UserMessage = {
         role: "user",
-        content: [{ type: "text", text: frame.content }],
+        content: [{ type: "text", text: turn.prompt.content }],
     };
     state.messages.push(userMessage);
     state.events.emit({ type: "turn_started", message: userMessage });
     let assistantMessage: AssistantMessage;
-    const turnController = new AbortController();
-    const receiveController = new AbortController();
-    const abortFrame = receiveAbort(
-        endpoint,
-        turnController,
-        receiveController.signal,
-        state.queuedPrompts,
-        state.events,
-    );
 
     try {
         while (true) {
@@ -104,7 +88,7 @@ export async function runTurn(
                 systemPrompt,
                 messages: state.messages.slice(),
                 tools: availableTools,
-                signal: turnController.signal,
+                signal: turn.signal,
             };
             state.events.emit({
                 type: "model_request",
@@ -148,7 +132,7 @@ export async function runTurn(
                     const result = await executeToolCall(
                         block,
                         state.toolRuntime,
-                        turnController.signal,
+                        turn.signal,
                     );
                     state.messages.push(result);
 
@@ -162,33 +146,9 @@ export async function runTurn(
             }
         }
     } finally {
-        receiveController.abort(new Error("Turn finished"));
-        await abortFrame;
+        state.inbound.finishTurn();
     }
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
-}
-
-async function receiveAbort(
-    endpoint: FrameEndpoint<AgentFrame, ClientFrame>,
-    turnController: AbortController,
-    signal: AbortSignal,
-    queuedPrompts: PromptFrame[],
-    events: EngineEventBus,
-): Promise<void> {
-    while (!signal.aborted) {
-        try {
-            const frame = await endpoint.receive(signal);
-            if (frame.type === "abort") {
-                events.emit({ type: "abort_requested" });
-                turnController.abort(new Error("Turn aborted"));
-                return;
-            }
-            queuedPrompts.push(frame);
-            events.emit({ type: "prompt_queued", content: frame.content });
-        } catch {
-            return;
-        }
-    }
 }

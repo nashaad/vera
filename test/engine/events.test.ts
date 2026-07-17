@@ -18,6 +18,7 @@ import {
 } from "../../src/engine/events.ts";
 import { createFrameProjector } from "../../src/engine/frames.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
+import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
@@ -68,18 +69,13 @@ test("a turn fans out to frames and a per-session event log", async () => {
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(workspace),
-        queuedPrompts: [],
+        inbound: new InboundFrameRouter(channel.engine, events),
         events,
     };
 
     try {
         channel.client.send({ type: "prompt", content: "say hello" });
-        const turn = runTurn(
-            channel.engine,
-            new FauxAdapter([response]),
-            "test",
-            state,
-        );
+        const turn = runTurn(new FauxAdapter([response]), "test", state);
 
         expect(await channel.client.receive()).toEqual({
             type: "assistant_delta",
