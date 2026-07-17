@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
@@ -17,6 +20,14 @@ import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+
+const temporaryWorkspaces: string[] = [];
+
+afterAll(() => {
+    for (const workspace of temporaryWorkspaces) {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
 
 test("one prompt streams assistant text and finishes the turn", async () => {
     const response: AssistantMessage = {
@@ -42,6 +53,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
     };
 
     channel.client.send({ type: "prompt", content: "say hi" });
@@ -125,30 +137,59 @@ test("a bash tool call runs and continues the model turn", async () => {
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
         hooks,
+        approvalMode: "ask",
     };
 
     channel.client.send({ type: "prompt", content: "run ls" });
     const turn = runTurn(adapter, "test", state);
 
+    const approvalRequest = await channel.client.receive();
+    expect(approvalRequest).toMatchObject({
+        type: "ui_request",
+        request: {
+            type: "tool_approval",
+            toolCall: {
+                id: "call_1",
+                name: "bash",
+                input: { command: "ls" },
+            },
+            reason: "Bash commands run with your full user permissions.",
+        },
+        seq: 1,
+    });
+    if (approvalRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request frame");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: approvalRequest.requestId,
+        response: { type: "tool_approval", decision: "allow" },
+    });
+
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: approvalRequest.requestId,
+        seq: 2,
+    });
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "bash",
         args: { command: "ls" },
-        seq: 1,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "bash",
-        seq: 2,
+        seq: 4,
     });
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "done",
-        seq: 3,
+        seq: 5,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 4,
+        seq: 6,
     });
     expect(await turn).toEqual(finalResponse);
     const toolResult = state.messages[2];
@@ -200,6 +241,7 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
         hooks,
+        approvalMode: "approve_for_me",
     };
 
     channel.client.send({ type: "prompt", content: "run it" });
@@ -228,6 +270,149 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
     });
 });
 
+test("ask mode turns a client denial into a tool result", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: { command: "printf should-not-run" },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "not run" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "ask",
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+
+    const approvalRequest = await channel.client.receive();
+    if (approvalRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request frame");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: approvalRequest.requestId,
+        response: { type: "tool_approval", decision: "deny" },
+    });
+
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: approvalRequest.requestId,
+        seq: 2,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "not run",
+        seq: 3,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 4,
+    });
+    expect(await turn).toEqual(finalResponse);
+    expect(state.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{ type: "text", text: "Tool use was denied by the user." }],
+        isError: true,
+    });
+});
+
+test("the built-in hard deny blocks a dangerous command in full access", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-permission-"));
+    temporaryWorkspaces.push(workspace);
+    const protectedDirectory = join(workspace, "protected");
+    mkdirSync(protectedDirectory);
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: {
+                    command: `rm -rf ${JSON.stringify(protectedDirectory)}`,
+                },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "blocked" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "remove it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "blocked",
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 2,
+    });
+    expect(await turn).toEqual(finalResponse);
+    expect(existsSync(protectedDirectory)).toBe(true);
+    expect(state.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{
+            type: "text",
+            text: "Blocked dangerous command: recursive-force rm is not allowed",
+        }],
+        isError: true,
+    });
+});
+
 test("aborting a turn stops its foreground bash tool", async () => {
     const toolCallResponse: AssistantMessage = {
         role: "assistant",
@@ -252,6 +437,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
     };
 
     channel.client.send({ type: "prompt", content: "run slowly" });

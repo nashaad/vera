@@ -77,9 +77,15 @@ test("the inbound router matches one approval response by request ID", async () 
     });
 
     expect(await approval).toEqual({ behavior: "allow" });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: request.requestId,
+        seq: 2,
+    });
     expect(observed.map((event) => event.type)).toEqual([
         "ui_request",
         "ui_response",
+        "ui_request_closed",
     ]);
 });
 
@@ -113,6 +119,11 @@ test("an unknown approval response is ignored and denial is explicit", async () 
         behavior: "deny",
         reason: "Tool use was denied by the user.",
     });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: request.requestId,
+        seq: 2,
+    });
 });
 
 test("approval timeout and turn abort both deny and clean up", async () => {
@@ -126,10 +137,18 @@ test("approval timeout and turn abort both deny and clean up", async () => {
         "This command may access the network.",
         { timeoutMs: 10 },
     );
-    await channel.client.receive();
+    const timeoutRequest = await channel.client.receive();
+    if (timeoutRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request frame");
+    }
     expect(await timedOut).toEqual({
         behavior: "deny",
         reason: "Tool approval timed out.",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: timeoutRequest.requestId,
+        seq: 2,
     });
 
     const turn = router.startTurn();
@@ -140,11 +159,19 @@ test("approval timeout and turn abort both deny and clean up", async () => {
         "This command may access the network.",
         { timeoutMs: 1_000, signal: active.signal },
     );
-    await channel.client.receive();
+    const abortRequest = await channel.client.receive();
+    if (abortRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request frame");
+    }
     channel.client.send({ type: "abort" });
     expect(await aborted).toEqual({
         behavior: "deny",
         reason: "Tool approval was cancelled.",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: abortRequest.requestId,
+        seq: 4,
     });
     expect(active.signal.aborted).toBe(true);
     router.finishTurn();

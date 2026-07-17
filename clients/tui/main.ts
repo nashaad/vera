@@ -10,8 +10,10 @@ import {
 } from "@opentui/core";
 
 import { loadVeraConfig } from "../../src/config.ts";
+import type { UiRequestFrame } from "../../src/engine/frames.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
+import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import {
     resolveReasoningSelection,
@@ -19,6 +21,11 @@ import {
 } from "../../src/model/reasoning-effort.ts";
 import type { ModelAdapter } from "../../src/model/types.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+import {
+    applyTuiApprovalFrame,
+    createTuiApprovalResponse,
+    renderTuiApproval,
+} from "./approval.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import { createTuiComposer } from "./composer.ts";
 import { tuiInterruptAction } from "./interrupt.ts";
@@ -43,12 +50,14 @@ import {
 const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
 const WORKING_HINT = "working… · enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
+const APPROVAL_HINT = "approval required · y allow · n/esc deny · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
 
 export interface TuiDependencies {
     readonly adapter: ModelAdapter;
     readonly model: string;
     readonly reasoning?: ReasoningSelection;
+    readonly approvalMode: ApprovalMode;
 }
 
 if (import.meta.main) {
@@ -64,6 +73,7 @@ if (import.meta.main) {
     await startTui({
         adapter: createConfiguredModelAdapter(config),
         model: config.model,
+        approvalMode: config.approval_mode,
         ...(reasoning === undefined ? {} : { reasoning }),
     });
 }
@@ -71,7 +81,7 @@ if (import.meta.main) {
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<void> {
-    const { adapter, model, reasoning } = dependencies;
+    const { adapter, model, reasoning, approvalMode } = dependencies;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
@@ -84,6 +94,7 @@ export async function startTui(
     let statusNoticeVersion = 0;
     let shuttingDown = false;
     let abortRequested = false;
+    let pendingApproval: UiRequestFrame | undefined;
 
     const markdownStyle = SyntaxStyle.fromStyles({
         default: { fg: TUI_TEXT },
@@ -148,6 +159,28 @@ export async function startTui(
 
     const composer = createTuiComposer(renderer, submitPrompt);
 
+    const approvalText = new TextRenderable(renderer, {
+        id: "approval-text",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: "auto",
+        wrapMode: "word",
+        selectable: true,
+    });
+
+    const approvalBox = new BoxRenderable(renderer, {
+        id: "approval-box",
+        title: " Tool approval ",
+        border: true,
+        borderColor: TUI_NOTICE,
+        width: "100%",
+        height: "auto",
+        paddingX: 1,
+        visible: false,
+    });
+    approvalBox.add(approvalText);
+
     const composerBox = new BoxRenderable(renderer, {
         id: "composer-box",
         border: ["left"],
@@ -171,6 +204,7 @@ export async function startTui(
     });
     app.add(transcript);
     app.add(queuedPromptText);
+    app.add(approvalBox);
     app.add(composerBox);
     app.add(statusText);
     renderer.root.add(app);
@@ -194,6 +228,19 @@ export async function startTui(
     });
 
     renderer.keyInput.on("keypress", (key) => {
+        if (pendingApproval !== undefined) {
+            const response = createTuiApprovalResponse(pendingApproval, key);
+            if (response !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                channel.client.send(response);
+                pendingApproval = undefined;
+                composer.focus();
+                renderState();
+                return;
+            }
+        }
+
         const action = tuiInterruptAction(key, state.working, abortRequested);
         if (action === "pass") {
             return;
@@ -218,11 +265,13 @@ export async function startTui(
         adapter,
         model,
         reasoning?.requested,
+        { approvalMode },
     ).catch((error: unknown) => {
         if (shuttingDown) {
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
+        pendingApproval = undefined;
         state = appendTuiNotice(state, `Engine error: ${message}`);
         renderState();
     });
@@ -248,6 +297,25 @@ export async function startTui(
             if (shuttingDown) {
                 return;
             }
+            if (
+                frame.type === "ui_request"
+                || frame.type === "ui_request_closed"
+            ) {
+                const previousApproval = pendingApproval;
+                pendingApproval = applyTuiApprovalFrame(
+                    pendingApproval,
+                    frame,
+                );
+                if (pendingApproval !== undefined) {
+                    composer.blur();
+                } else if (previousApproval !== undefined) {
+                    composer.focus();
+                }
+                if (pendingApproval !== previousApproval) {
+                    renderState();
+                }
+                continue;
+            }
             state = applyAgentFrame(state, frame);
             if (frame.type === "turn_finished") {
                 abortRequested = false;
@@ -270,6 +338,11 @@ export async function startTui(
         placeholder.visible = state.entries.length === 0;
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
+        approvalBox.visible = pendingApproval !== undefined;
+        composerBox.visible = pendingApproval === undefined;
+        if (pendingApproval !== undefined) {
+            approvalText.content = renderTuiApproval(pendingApproval);
+        }
 
         state.entries.forEach((entry, index) => {
             const existing = entryNodes[index];
@@ -364,6 +437,8 @@ export async function startTui(
         let lifecycleHint = READY_HINT;
         if (abortRequested) {
             lifecycleHint = STOPPING_HINT;
+        } else if (pendingApproval !== undefined) {
+            lifecycleHint = APPROVAL_HINT;
         } else if (state.working) {
             lifecycleHint = WORKING_HINT;
         }

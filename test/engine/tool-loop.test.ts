@@ -71,6 +71,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
     };
 
     try {

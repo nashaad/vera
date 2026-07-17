@@ -73,6 +73,7 @@ test("a turn fans out to frames and a per-session event log", async () => {
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
     };
 
     try {

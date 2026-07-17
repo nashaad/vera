@@ -60,6 +60,11 @@ export interface UiResponseEvent {
     readonly response: ToolApprovalUiResponse;
 }
 
+export interface UiRequestClosedEvent {
+    readonly type: "ui_request_closed";
+    readonly requestId: string;
+}
+
 export interface ModelRequestEvent {
     readonly type: "model_request";
     readonly model: string;
@@ -108,6 +113,7 @@ export type EngineEvent =
     | AbortRequestedEvent
     | UiRequestEvent
     | UiResponseEvent
+    | UiRequestClosedEvent
     | ModelRequestEvent
     | ModelStreamObservedEvent
     | ModelStreamErrorEvent

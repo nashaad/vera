@@ -7,10 +7,15 @@ import type {
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
 import type { FrameEndpoint } from "../../src/engine/in-process-channel.ts";
+import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 
 interface FrameOutput {
     write(text: string): unknown;
+}
+
+export interface RunNdjsonBridgeOptions {
+    readonly approvalMode?: ApprovalMode;
 }
 
 export class NdjsonInputEndedError extends Error {
@@ -57,11 +62,14 @@ export async function runNdjsonBridge(
     adapter: ModelAdapter,
     model: string,
     reasoningEffort?: ModelReasoningEffort,
+    options: RunNdjsonBridgeOptions = {},
 ): Promise<void> {
     const endpoint = createNdjsonEngineEndpoint(input, output);
 
     try {
-        await runHeadlessLoop(endpoint, adapter, model, reasoningEffort);
+        await runHeadlessLoop(endpoint, adapter, model, reasoningEffort, {
+            approvalMode: options.approvalMode,
+        });
     } catch (error) {
         if (!(error instanceof NdjsonInputEndedError)) {
             throw error;

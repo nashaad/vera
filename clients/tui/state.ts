@@ -96,6 +96,9 @@ export function applyAgentFrame(state: TuiState, frame: AgentFrame): TuiState {
     if (frame.type === "ui_request") {
         return state;
     }
+    if (frame.type === "ui_request_closed") {
+        return state;
+    }
     return assertNever(frame);
 }
 
