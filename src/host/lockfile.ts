@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
 import {
     chmod,
     mkdir,
@@ -11,6 +10,11 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
+import {
+    requestHostIdentity,
+    type HostIdentity,
+} from "./protocol.ts";
+
 export const HOST_LOCK_SCHEMA_VERSION = 1;
 
 export interface HostLockRecord {
@@ -18,11 +22,6 @@ export interface HostLockRecord {
     readonly pid: number;
     readonly started_at: string;
     readonly socket_path: string;
-}
-
-export interface HostIdentity {
-    readonly pid: number;
-    readonly started_at: string;
 }
 
 export interface HostLockfile {
@@ -121,73 +120,6 @@ export function createHostLockfile(
 
 function currentProcessStartedAt(): string {
     return new Date(Date.now() - process.uptime() * 1_000).toISOString();
-}
-
-function requestHostIdentity(
-    socketPath: string,
-): Promise<HostIdentity | undefined> {
-    return new Promise((resolve) => {
-        let socket: Socket;
-        try {
-            socket = createConnection(socketPath);
-        } catch {
-            resolve(undefined);
-            return;
-        }
-        let finished = false;
-        let buffered = "";
-        const finish = (identity: HostIdentity | undefined): void => {
-            if (finished) {
-                return;
-            }
-            finished = true;
-            socket.destroy();
-            resolve(identity);
-        };
-        socket.setEncoding("utf8");
-        socket.once("connect", () => {
-            socket.write(`${JSON.stringify({ type: "host_identity" })}\n`);
-        });
-        socket.on("data", (chunk: string) => {
-            buffered += chunk;
-            if (buffered.length > 4_096) {
-                finish(undefined);
-                return;
-            }
-            const newline = buffered.indexOf("\n");
-            if (newline !== -1) {
-                finish(parseHostIdentity(buffered.slice(0, newline)));
-            }
-        });
-        socket.once("error", () => finish(undefined));
-        socket.setTimeout(250, () => finish(undefined));
-    });
-}
-
-function parseHostIdentity(source: string): HostIdentity | undefined {
-    let value: unknown;
-    try {
-        value = JSON.parse(source);
-    } catch {
-        return undefined;
-    }
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
-    }
-    const response = value as Record<string, unknown>;
-    if (
-        response.type !== "host_identity"
-        || !Number.isInteger(response.pid)
-        || (response.pid as number) <= 0
-        || typeof response.started_at !== "string"
-        || Number.isNaN(Date.parse(response.started_at))
-    ) {
-        return undefined;
-    }
-    return {
-        pid: response.pid as number,
-        started_at: response.started_at,
-    };
 }
 
 async function readLockSource(path: string): Promise<string | undefined> {
