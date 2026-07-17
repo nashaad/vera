@@ -24,6 +24,7 @@ import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 
 interface LoggedEventLine {
     readonly timestamp: string;
@@ -69,6 +70,7 @@ test("a turn fans out to frames and a per-session event log", async () => {
 
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,

@@ -5,7 +5,8 @@ import {
     open,
     readFile,
 } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import type { ModelMessage } from "../model/types.ts";
 
@@ -37,6 +38,10 @@ export interface CreateSessionStoreOptions {
 export interface OpenSessionStoreOptions {
     readonly now?: () => Date;
     readonly createId?: () => string;
+}
+
+export interface SessionMessageStore {
+    appendMessage(message: ModelMessage): Promise<unknown>;
 }
 
 interface LoadedSessionFile {
@@ -173,6 +178,10 @@ export class SessionStore {
         this.leafId = entry.id;
         return entry;
     }
+}
+
+export function defaultSessionPath(sessionId: string): string {
+    return join(homedir(), ".vera", "sessions", `${sessionId}.jsonl`);
 }
 
 async function removeUnterminatedTail(

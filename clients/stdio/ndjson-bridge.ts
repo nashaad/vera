@@ -16,6 +16,7 @@ interface FrameOutput {
 }
 
 export interface RunNdjsonBridgeOptions {
+    readonly sessionPath?: string;
     readonly approvalMode?: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
 }
@@ -70,6 +71,7 @@ export async function runNdjsonBridge(
 
     try {
         await runHeadlessLoop(endpoint, adapter, model, reasoningEffort, {
+            sessionPath: options.sessionPath,
             approvalMode: options.approvalMode,
             modelFallback: options.modelFallback,
         });

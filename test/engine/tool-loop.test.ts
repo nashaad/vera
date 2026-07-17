@@ -17,6 +17,7 @@ import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 
 test("multiple tool calls execute sequentially in content order", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-tool-loop-"));
@@ -67,6 +68,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
     events.subscribe(createFrameProjector(channel.engine));
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,

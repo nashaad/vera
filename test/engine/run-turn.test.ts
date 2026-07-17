@@ -40,6 +40,8 @@ import {
 } from "../../src/engine/recovery.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
+import type { SessionMessageStore } from "../../src/store/session-store.ts";
 
 const temporaryWorkspaces: string[] = [];
 
@@ -69,6 +71,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -121,6 +124,80 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     ]);
 });
 
+test("turn finished waits for the assistant message append", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "saved" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const order: string[] = [];
+    let signalAppendStarted: () => void = () => {};
+    let releaseAppend: () => void = () => {};
+    const appendStarted = new Promise<void>((resolve) => {
+        signalAppendStarted = resolve;
+    });
+    const appendReleased = new Promise<void>((resolve) => {
+        releaseAppend = resolve;
+    });
+    const store: SessionMessageStore = {
+        async appendMessage(message): Promise<void> {
+            order.push(`append_started:${message.role}`);
+            if (message.role === "assistant") {
+                signalAppendStarted();
+                await appendReleased;
+            }
+            order.push(`append_finished:${message.role}`);
+        },
+    };
+    events.subscribe((event) => {
+        if (event.type === "turn_finished") {
+            order.push("turn_finished");
+        }
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+    };
+
+    channel.client.send({ type: "prompt", content: "persist this" });
+    const turn = runTurn(new FauxAdapter([response]), "test", state);
+
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "saved",
+        seq: 1,
+    });
+    await appendStarted;
+    expect(order).toEqual([
+        "append_started:user",
+        "append_finished:user",
+        "append_started:assistant",
+    ]);
+
+    releaseAppend();
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 2,
+    });
+    expect(await turn).toEqual(response);
+    expect(order).toEqual([
+        "append_started:user",
+        "append_finished:user",
+        "append_started:assistant",
+        "append_finished:assistant",
+        "turn_finished",
+    ]);
+});
+
 test("a length stop preserves streamed text and continues with a larger cap", async () => {
     const partialResponse: AssistantMessage = {
         role: "assistant",
@@ -150,6 +227,7 @@ test("a length stop preserves streamed text and continues with a larger cap", as
     events.subscribe((event) => observed.push(event));
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -256,6 +334,7 @@ test("a transient model failure retries only in the engine event log", async () 
     const delays: number[] = [];
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -377,6 +456,7 @@ test("model fallback stays selected through the tool loop", async () => {
     }));
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -479,6 +559,7 @@ test("a bash tool call runs and continues the model turn", async () => {
     });
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -552,6 +633,70 @@ test("a bash tool call runs and continues the model turn", async () => {
     expect(postHookTool).toBe("bash");
 });
 
+test("a failed tool-result append still closes the tool lifecycle", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_read",
+                name: "read",
+                input: { path: "package.json" },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    let postHookRan = false;
+    hooks.registerPostToolUse(() => {
+        postHookRan = true;
+    });
+    const store: SessionMessageStore = {
+        async appendMessage(message): Promise<void> {
+            if (message.role === "tool_result") {
+                throw new Error("disk full");
+            }
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "approve_for_me",
+    };
+
+    channel.client.send({ type: "prompt", content: "read package.json" });
+    const turn = runTurn(new FauxAdapter([toolCallResponse]), "test", state);
+
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_started",
+        tool: "read",
+        args: { path: "package.json" },
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_finished",
+        tool: "read",
+        seq: 2,
+    });
+    await expect(turn).rejects.toThrow("disk full");
+    expect(postHookRan).toBe(true);
+    expect(state.messages).toEqual([
+        {
+            role: "user",
+            content: [{ type: "text", text: "read package.json" }],
+        },
+        toolCallResponse,
+    ]);
+});
+
 test("a pre-tool hook can deny execution with a tool result", async () => {
     const toolCallResponse: AssistantMessage = {
         role: "assistant",
@@ -583,6 +728,7 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
     }));
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -642,6 +788,7 @@ test("ask mode turns a client denial into a tool result", async () => {
     const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -722,6 +869,7 @@ test("the built-in hard deny blocks a dangerous command in full access", async (
     const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
@@ -779,6 +927,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
     const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
+        store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
