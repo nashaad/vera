@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import type { AgentFrame, ClientFrame } from "../../src/rpc/frames.ts";
+import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
 
 test("NDJSON frames stream and abort across a process boundary", async () => {
     const child = Bun.spawn(

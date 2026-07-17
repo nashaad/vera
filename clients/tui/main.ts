@@ -10,6 +10,7 @@ import {
 } from "@opentui/core";
 
 import { loadVeraConfig } from "../../src/config.ts";
+import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import {
@@ -18,7 +19,6 @@ import {
 } from "../../src/model/reasoning-effort.ts";
 import type { ModelAdapter } from "../../src/model/types.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
-import { createInProcessChannel } from "../../src/rpc/in-process-channel.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import { createTuiComposer } from "./composer.ts";
 import { tuiInterruptAction } from "./interrupt.ts";

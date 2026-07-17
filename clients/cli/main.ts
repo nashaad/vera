@@ -6,9 +6,9 @@ import {
     createInstanceDirectory,
     type InstanceDirectory,
     type InstanceRecord,
-} from "./instances/directory.ts";
-import { runNdjsonProcess } from "./ndjson.ts";
-import { loginOpenAICodex } from "./providers/openai-codex-oauth.ts";
+} from "../../src/instances/directory.ts";
+import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
+import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 
 interface CliOutput {
     write(text: string): unknown;

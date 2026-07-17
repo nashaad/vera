@@ -1,13 +1,13 @@
 {
   "name": "vera",
-  "module": "src/index.ts",
+  "module": "index.ts",
   "bin": {
-    "vera": "./src/cli.ts"
+    "vera": "./clients/cli/main.ts"
   },
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run src/stdio.ts",
+    "start": "bun run clients/stdio/main.ts",
     "tui": "bun run clients/tui/main.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
     "smoke:codex": "bun run scripts/codex-smoke.ts",

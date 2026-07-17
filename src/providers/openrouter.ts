@@ -3,14 +3,14 @@ import type { ChatRequestEffort } from "@openrouter/sdk/models";
 
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
-import { resolveReasoningSelection } from "./reasoning-effort.ts";
+import { resolveReasoningSelection } from "../model/reasoning-effort.ts";
 import {
     DEFAULT_PROVIDER_RETRY_POLICY,
     retryBeforeStreamStart,
     type WaitForRetry,
-} from "./retry.ts";
-import { ModelEventStream } from "./stream.ts";
-import { transformMessages } from "./transform.ts";
+} from "../model/retry.ts";
+import { ModelEventStream } from "../model/stream.ts";
+import { transformMessages } from "../model/transform.ts";
 import {
     encodeOpenRouterMessages,
     encodeOpenRouterTools,
@@ -21,7 +21,7 @@ import type {
     ModelAdapter,
     ModelRequest,
     ModelSource,
-} from "./types.ts";
+} from "../model/types.ts";
 
 export type { SendOpenRouterChat } from "./openrouter-wire.ts";
 

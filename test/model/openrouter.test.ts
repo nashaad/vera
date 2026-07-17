@@ -10,9 +10,9 @@ import { ConnectionError } from "@openrouter/sdk/models/errors";
 import {
     OpenRouterAdapter,
     type SendOpenRouterChat,
-} from "../../src/model/openrouter.ts";
+} from "../../src/providers/openrouter.ts";
 import { ProviderFailureError } from "../../src/model/provider-failure.ts";
-import { normalizeOpenRouterToolCallId } from "../../src/model/openrouter-wire.ts";
+import { normalizeOpenRouterToolCallId } from "../../src/providers/openrouter-wire.ts";
 import type { ModelStreamEvent } from "../../src/model/types.ts";
 
 describe("OpenRouter adapter", () => {

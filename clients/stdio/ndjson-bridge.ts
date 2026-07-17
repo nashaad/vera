@@ -3,11 +3,11 @@ import { createInterface } from "node:readline";
 import type {
     ModelAdapter,
     ModelReasoningEffort,
-} from "../model/types.ts";
-import { runHeadlessLoop } from "../engine/run-turn.ts";
-import { AsyncQueue } from "./async-queue.ts";
-import type { AgentFrame, ClientFrame } from "./frames.ts";
-import type { FrameEndpoint } from "./in-process-channel.ts";
+} from "../../src/model/types.ts";
+import { AsyncQueue } from "../../src/engine/async-queue.ts";
+import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
+import type { FrameEndpoint } from "../../src/engine/in-process-channel.ts";
+import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 
 interface FrameOutput {
     write(text: string): unknown;
