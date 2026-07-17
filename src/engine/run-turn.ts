@@ -59,6 +59,7 @@ export interface RunTurnState {
 export interface RunHeadlessLoopOptions {
     readonly sessionId?: string;
     readonly sessionPath?: string;
+    readonly resumeSessionPath?: string;
     readonly eventLogPath?: string;
     readonly approvalMode?: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
@@ -71,11 +72,22 @@ export async function runHeadlessLoop(
     reasoningEffort?: ModelReasoningEffort,
     options: RunHeadlessLoopOptions = {},
 ): Promise<void> {
-    const sessionId = options.sessionId ?? randomUUID();
-    const store = await SessionStore.create(
-        options.sessionPath ?? defaultSessionPath(sessionId),
-        { sessionId, cwd: process.cwd() },
-    );
+    if (
+        options.resumeSessionPath !== undefined
+        && (options.sessionId !== undefined || options.sessionPath !== undefined)
+    ) {
+        throw new Error(
+            "A resumed session cannot also specify a new session ID or path",
+        );
+    }
+    const newSessionId = options.sessionId ?? randomUUID();
+    const store = options.resumeSessionPath === undefined
+        ? await SessionStore.create(
+            options.sessionPath ?? defaultSessionPath(newSessionId),
+            { sessionId: newSessionId, cwd: process.cwd() },
+        )
+        : await SessionStore.open(options.resumeSessionPath);
+    const sessionId = store.header.id;
     const events = new EngineEventBus();
     events.subscribe(createFrameProjector(endpoint));
     events.subscribe(createJsonlEventLogger({
@@ -84,9 +96,9 @@ export async function runHeadlessLoop(
     }));
     const inbound = new InboundFrameRouter(endpoint, events);
     const state: RunTurnState = {
-        messages: [],
+        messages: [...store.messages()],
         store,
-        toolRuntime: new ToolRuntime(process.cwd()),
+        toolRuntime: new ToolRuntime(store.header.cwd),
         inbound,
         events,
         hooks: new ToolHooks(),
