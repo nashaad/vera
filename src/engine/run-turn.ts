@@ -34,6 +34,11 @@ import {
     type ModelFallbackPolicy,
     type WaitForModelRetry,
 } from "./recovery.ts";
+import {
+    defaultSessionPath,
+    SessionStore,
+    type SessionMessageStore,
+} from "../store/session-store.ts";
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
@@ -41,6 +46,7 @@ const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
+    readonly store: SessionMessageStore;
     readonly toolRuntime: ToolRuntime;
     readonly inbound: InboundFrameRouter;
     readonly events: EngineEventBus;
@@ -52,6 +58,7 @@ export interface RunTurnState {
 
 export interface RunHeadlessLoopOptions {
     readonly sessionId?: string;
+    readonly sessionPath?: string;
     readonly eventLogPath?: string;
     readonly approvalMode?: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
@@ -65,6 +72,10 @@ export async function runHeadlessLoop(
     options: RunHeadlessLoopOptions = {},
 ): Promise<void> {
     const sessionId = options.sessionId ?? randomUUID();
+    const store = await SessionStore.create(
+        options.sessionPath ?? defaultSessionPath(sessionId),
+        { sessionId, cwd: process.cwd() },
+    );
     const events = new EngineEventBus();
     events.subscribe(createFrameProjector(endpoint));
     events.subscribe(createJsonlEventLogger({
@@ -74,6 +85,7 @@ export async function runHeadlessLoop(
     const inbound = new InboundFrameRouter(endpoint, events);
     const state: RunTurnState = {
         messages: [],
+        store,
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound,
         events,
@@ -96,19 +108,19 @@ export async function runTurn(
     reasoningEffort?: ModelReasoningEffort,
 ): Promise<AssistantMessage> {
     const turn = await state.inbound.startTurn();
-
-    const userMessage: UserMessage = {
-        role: "user",
-        content: [{ type: "text", text: turn.prompt.content }],
-    };
-    state.messages.push(userMessage);
-    state.events.emit({ type: "turn_started", message: userMessage });
     let assistantMessage: AssistantMessage;
     let activeModel = model;
     let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
     let lengthContinuations = 0;
 
     try {
+        const userMessage: UserMessage = {
+            role: "user",
+            content: [{ type: "text", text: turn.prompt.content }],
+        };
+        await commitMessage(state, userMessage);
+        state.events.emit({ type: "turn_started", message: userMessage });
+
         while (true) {
             const systemPrompt = assembleSystemPrompt({
                 tools: availableTools,
@@ -171,7 +183,7 @@ export async function runTurn(
                         : { wait: state.waitForModelRetry }),
                 },
             );
-            state.messages.push(assistantMessage);
+            await commitMessage(state, assistantMessage);
 
             if (assistantMessage.stopReason === "length") {
                 const continuation = nextLengthContinuation(
@@ -193,7 +205,7 @@ export async function runTurn(
                     role: "user",
                     content: [{ type: "text", text: continuation.prompt }],
                 };
-                state.messages.push(continuationMessage);
+                await commitMessage(state, continuationMessage);
                 maxTokens = continuation.nextMaxTokens;
                 lengthContinuations = continuation.continuation;
                 continue;
@@ -216,7 +228,7 @@ export async function runTurn(
                         state.toolRuntime.workspace,
                     );
                     if (permission.behavior === "deny") {
-                        state.messages.push(deniedToolResult(
+                        await commitMessage(state, deniedToolResult(
                             block,
                             permission.reason,
                         ));
@@ -232,7 +244,7 @@ export async function runTurn(
                             },
                         );
                         if (approval.behavior === "deny") {
-                            state.messages.push(deniedToolResult(
+                            await commitMessage(state, deniedToolResult(
                                 block,
                                 approval.reason,
                             ));
@@ -246,7 +258,7 @@ export async function runTurn(
                         workspace: state.toolRuntime.workspace,
                     }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
                     if (decision.behavior === "deny") {
-                        state.messages.push(deniedToolResult(
+                        await commitMessage(state, deniedToolResult(
                             block,
                             decision.reason,
                         ));
@@ -266,7 +278,6 @@ export async function runTurn(
                     );
                     const durationMs = performance.now() - startedAt;
 
-                    state.messages.push(result);
                     state.events.emit({
                         type: "tool_execution_finished",
                         toolCall: block,
@@ -274,18 +285,22 @@ export async function runTurn(
                         durationMs,
                     });
 
-                    await state.hooks.runPostToolUse({
-                        type: "post_tool_use",
-                        toolCall: hookToolCall,
-                        result: {
-                            toolCallId: result.toolCallId,
-                            toolName: result.toolName,
-                            content: result.content,
-                            isError: result.isError,
-                        },
-                        workspace: state.toolRuntime.workspace,
-                        durationMs,
-                    }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
+                    try {
+                        await state.hooks.runPostToolUse({
+                            type: "post_tool_use",
+                            toolCall: hookToolCall,
+                            result: {
+                                toolCallId: result.toolCallId,
+                                toolName: result.toolName,
+                                content: result.content,
+                                isError: result.isError,
+                            },
+                            workspace: state.toolRuntime.workspace,
+                            durationMs,
+                        }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
+                    } finally {
+                        await commitMessage(state, result);
+                    }
                 }
             }
         }
@@ -295,6 +310,14 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+async function commitMessage(
+    state: RunTurnState,
+    message: ModelMessage,
+): Promise<void> {
+    await state.store.appendMessage(message);
+    state.messages.push(message);
 }
 
 function deniedToolResult(
