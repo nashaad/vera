@@ -73,6 +73,9 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 );
             const providerRequest: OpenAICodexRequest = {
                 model: request.model,
+                ...(request.maxTokens === undefined
+                    ? {}
+                    : { max_output_tokens: request.maxTokens }),
                 instructions: request.systemPrompt ?? "",
                 input: encodeOpenAICodexInput(messages),
                 tools: encodeOpenAICodexTools(request.tools ?? []),

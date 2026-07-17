@@ -69,6 +69,7 @@ export interface UiRequestClosedEvent {
 export interface ModelRequestEvent {
     readonly type: "model_request";
     readonly model: string;
+    readonly maxTokens: number;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly systemPrompt: string;
     readonly messages: readonly ModelMessage[];
@@ -89,6 +90,15 @@ export interface ModelFallbackSelectedEvent {
     readonly toModel: string;
     readonly afterFailures: number;
     readonly failure: ProviderFailure;
+}
+
+export interface ModelLengthContinuationEvent {
+    readonly type: "model_length_continuation";
+    readonly model: string;
+    readonly previousMaxTokens: number;
+    readonly nextMaxTokens: number;
+    readonly continuation: number;
+    readonly maxContinuations: number;
 }
 
 export type ObservableModelStreamEvent = Exclude<
@@ -134,6 +144,7 @@ export type EngineEvent =
     | ModelRequestEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent
+    | ModelLengthContinuationEvent
     | ModelStreamObservedEvent
     | ModelStreamErrorEvent
     | ToolExecutionStartedEvent

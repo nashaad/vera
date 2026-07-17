@@ -137,6 +137,7 @@ describe("OpenAI Codex adapter", () => {
 
         const firstStream = adapter.stream({
             model: "gpt-5.6-sol",
+            maxTokens: 64_000,
             reasoningEffort: "off",
             systemPrompt: "Be concise.",
             messages: initialMessages,
@@ -207,6 +208,7 @@ describe("OpenAI Codex adapter", () => {
         ]);
         expect(requests[0]).toMatchObject({
             model: "gpt-5.6-sol",
+            max_output_tokens: 64_000,
             instructions: "Be concise.",
             reasoning: { effort: "none", summary: "auto" },
             input: [{

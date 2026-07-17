@@ -17,6 +17,14 @@ export const DEFAULT_MODEL_RETRY_POLICY: ModelRetryPolicy = {
     delaysMs: [500, 1_000],
 };
 
+export const DEFAULT_MODEL_MAX_TOKENS = 8_000;
+export const ESCALATED_MODEL_MAX_TOKENS = 64_000;
+export const MAX_LENGTH_CONTINUATIONS = 3;
+export const LENGTH_CONTINUATION_PROMPT = [
+    "Output token limit hit. Resume directly — no apology, no recap.",
+    "Pick up exactly where you stopped without repeating text.",
+].join(" ");
+
 export interface ModelRetryScheduled {
     readonly model: string;
     readonly nextAttempt: number;
@@ -36,6 +44,14 @@ export interface ModelFallbackSelected {
     readonly failure: ProviderFailure;
 }
 
+export interface ModelLengthContinuation {
+    readonly previousMaxTokens: number;
+    readonly nextMaxTokens: number;
+    readonly continuation: number;
+    readonly maxContinuations: number;
+    readonly prompt: string;
+}
+
 export type WaitForModelRetry = (
     delayMs: number,
     signal?: AbortSignal,
@@ -53,6 +69,23 @@ export interface ModelRecoveryOptions {
 interface PendingModelRetry {
     readonly scheduled: ModelRetryScheduled;
     readonly message: AssistantMessage;
+}
+
+export function nextLengthContinuation(
+    currentMaxTokens: number,
+    completedContinuations: number,
+): ModelLengthContinuation | undefined {
+    if (completedContinuations >= MAX_LENGTH_CONTINUATIONS) {
+        return undefined;
+    }
+
+    return {
+        previousMaxTokens: currentMaxTokens,
+        nextMaxTokens: ESCALATED_MODEL_MAX_TOKENS,
+        continuation: completedContinuations + 1,
+        maxContinuations: MAX_LENGTH_CONTINUATIONS,
+        prompt: LENGTH_CONTINUATION_PROMPT,
+    };
 }
 
 export async function requestModelWithRecovery(

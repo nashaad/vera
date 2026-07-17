@@ -16,6 +16,7 @@ import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
 
 export interface OpenRouterChatRequest {
     readonly model: string;
+    readonly maxTokens?: number;
     readonly messages: ChatMessages[];
     readonly reasoning?: {
         readonly effort: ProviderReasoningEffort;

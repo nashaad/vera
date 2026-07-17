@@ -77,6 +77,7 @@ export type ModelReasoningEffort = "off" | "low" | "medium" | "high" | "max";
 
 export interface ModelRequest {
     readonly model: string;
+    readonly maxTokens?: number;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly systemPrompt?: string;
     readonly messages: readonly ModelMessage[];
