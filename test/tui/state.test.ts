@@ -55,6 +55,39 @@ test("TUI state tracks a streamed turn and tool activity", () => {
     ]);
 });
 
+test("TUI applies canonical history and prompts from other clients", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "user", text: "inspect" },
+            { kind: "assistant", text: "Checking." },
+            { kind: "tool", tool: "read", args: { path: "note.txt" } },
+        ],
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "user_prompt",
+        content: "continue",
+        seq: 4,
+    });
+
+    expect(state.entries).toEqual([
+        { kind: "user", text: "inspect" },
+        { kind: "assistant", text: "Checking." },
+        { kind: "tool", text: "∗ read note.txt" },
+        { kind: "user", text: "continue" },
+    ]);
+});
+
+test("TUI does not duplicate its optimistic user prompt", () => {
+    const state = applyAgentUpdate(
+        beginTuiTurn(createTuiState(), "inspect"),
+        { type: "user_prompt", content: "inspect", seq: 1 },
+    );
+
+    expect(state.entries).toEqual([{ kind: "user", text: "inspect" }]);
+});
+
 test("TUI entries render with kind-specific prefixes", () => {
     expect(plainText(renderTuiEntry({ kind: "user", text: "hi\nthere" })))
         .toBe("▌ hi\n▌ there");

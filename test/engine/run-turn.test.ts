@@ -25,7 +25,10 @@ import {
     type ModelAdapter,
     type ModelRequest,
 } from "../../src/model/types.ts";
-import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import {
+    createInProcessChannel,
+    type InProcessChannel,
+} from "../../src/engine/message-channel.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import {
@@ -81,25 +84,26 @@ test("one prompt streams assistant text and finishes the turn", async () => {
 
     channel.client.send({ type: "prompt", content: "say hi" });
     const turn = runTurn(adapter, "test", state, "high");
+    await expectUserPrompt(channel, "say hi", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "he",
-        seq: 1,
-    });
-    expect(await channel.client.receive()).toEqual({
-        type: "assistant_delta",
-        text: "ll",
         seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
-        text: "o",
+        text: "ll",
         seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
-        type: "turn_finished",
+        type: "assistant_delta",
+        text: "o",
         seq: 4,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 5,
     });
     expect(await turn).toEqual(response);
     expect(capturedRequest?.reasoningEffort).toBe("high");
@@ -170,11 +174,12 @@ test("turn finished waits for the assistant message append", async () => {
 
     channel.client.send({ type: "prompt", content: "persist this" });
     const turn = runTurn(new FauxAdapter([response]), "test", state);
+    await expectUserPrompt(channel, "persist this", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "saved",
-        seq: 1,
+        seq: 2,
     });
     await appendStarted;
     expect(order).toEqual([
@@ -186,7 +191,7 @@ test("turn finished waits for the assistant message append", async () => {
     releaseAppend();
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 2,
+        seq: 3,
     });
     expect(await turn).toEqual(response);
     expect(order).toEqual([
@@ -237,20 +242,21 @@ test("a length stop preserves streamed text and continues with a larger cap", as
 
     channel.client.send({ type: "prompt", content: "write a long answer" });
     const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "write a long answer", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "first half",
-        seq: 1,
+        seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "second half",
-        seq: 2,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 3,
+        seq: 4,
     });
     expect(await turn).toEqual(finalResponse);
     expect(requests.map((request) => request.maxTokens)).toEqual([
@@ -266,6 +272,7 @@ test("a length stop preserves streamed text and continues with a larger cap", as
         {
             role: "user",
             content: [{ type: "text", text: LENGTH_CONTINUATION_PROMPT }],
+            internal: true,
         },
     ]);
     expect(state.messages).toEqual([
@@ -347,15 +354,16 @@ test("a transient model failure retries only in the engine event log", async () 
 
     channel.client.send({ type: "prompt", content: "recover" });
     const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "recover", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "recovered",
-        seq: 1,
+        seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 2,
+        seq: 3,
     });
     expect(await turn).toEqual(response);
     expect(attempts).toBe(2);
@@ -467,26 +475,27 @@ test("model fallback stays selected through the tool loop", async () => {
 
     channel.client.send({ type: "prompt", content: "use fallback" });
     const turn = runTurn(adapter, "primary", state);
+    await expectUserPrompt(channel, "use fallback", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "write",
         args: { path: "fallback.txt", content: "used backup" },
-        seq: 1,
+        seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "write",
-        seq: 2,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "finished on backup",
-        seq: 3,
+        seq: 4,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 4,
+        seq: 5,
     });
     expect(await turn).toEqual(finalResponse);
     expect(models).toEqual(["primary", "backup", "backup"]);
@@ -495,14 +504,15 @@ test("model fallback stays selected through the tool loop", async () => {
 
     channel.client.send({ type: "prompt", content: "new turn" });
     const nextTurn = runTurn(adapter, "primary", state);
+    await expectUserPrompt(channel, "new turn", 6);
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "primary again",
-        seq: 5,
+        seq: 7,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 6,
+        seq: 8,
     });
     expect(await nextTurn).toEqual(nextTurnResponse);
     expect(models).toEqual(["primary", "backup", "backup", "primary"]);
@@ -569,6 +579,7 @@ test("a bash tool call runs and continues the model turn", async () => {
 
     channel.client.send({ type: "prompt", content: "run ls" });
     const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "run ls", 1);
 
     const approvalRequest = await channel.client.receive();
     expect(approvalRequest).toMatchObject({
@@ -582,7 +593,7 @@ test("a bash tool call runs and continues the model turn", async () => {
             },
             reason: "Bash commands run with your full user permissions.",
         },
-        seq: 1,
+        seq: 2,
     });
     if (approvalRequest.type !== "ui_request") {
         throw new Error("Expected a UI request update");
@@ -596,27 +607,27 @@ test("a bash tool call runs and continues the model turn", async () => {
     expect(await channel.client.receive()).toEqual({
         type: "ui_request_closed",
         requestId: approvalRequest.requestId,
-        seq: 2,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "bash",
         args: { command: "ls" },
-        seq: 3,
+        seq: 4,
     });
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "bash",
-        seq: 4,
+        seq: 5,
     });
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "done",
-        seq: 5,
+        seq: 6,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 6,
+        seq: 7,
     });
     expect(await turn).toEqual(finalResponse);
     const toolResult = state.messages[2];
@@ -674,17 +685,18 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
 
     channel.client.send({ type: "prompt", content: "read package.json" });
     const turn = runTurn(new FauxAdapter([toolCallResponse]), "test", state);
+    await expectUserPrompt(channel, "read package.json", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "read",
         args: { path: "package.json" },
-        seq: 1,
+        seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "read",
-        seq: 2,
+        seq: 3,
     });
     await expect(turn).rejects.toThrow("disk full");
     expect(postHookRan).toBe(true);
@@ -742,15 +754,16 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
         "test",
         state,
     );
+    await expectUserPrompt(channel, "run it", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "denied",
-        seq: 1,
+        seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 2,
+        seq: 3,
     });
     expect(await turn).toEqual(finalResponse);
     expect(state.messages[2]).toEqual({
@@ -802,6 +815,7 @@ test("ask mode turns a client denial into a tool result", async () => {
         "test",
         state,
     );
+    await expectUserPrompt(channel, "run it", 1);
 
     const approvalRequest = await channel.client.receive();
     if (approvalRequest.type !== "ui_request") {
@@ -816,16 +830,16 @@ test("ask mode turns a client denial into a tool result", async () => {
     expect(await channel.client.receive()).toEqual({
         type: "ui_request_closed",
         requestId: approvalRequest.requestId,
-        seq: 2,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "not run",
-        seq: 3,
+        seq: 4,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 4,
+        seq: 5,
     });
     expect(await turn).toEqual(finalResponse);
     expect(state.messages[2]).toEqual({
@@ -883,15 +897,16 @@ test("the built-in hard deny blocks a dangerous command in full access", async (
         "test",
         state,
     );
+    await expectUserPrompt(channel, "remove it", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "blocked",
-        seq: 1,
+        seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 2,
+        seq: 3,
     });
     expect(await turn).toEqual(finalResponse);
     expect(existsSync(protectedDirectory)).toBe(true);
@@ -937,12 +952,13 @@ test("aborting a turn stops its foreground bash tool", async () => {
 
     channel.client.send({ type: "prompt", content: "run slowly" });
     const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "run slowly", 1);
 
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "bash",
         args: { command: "sleep 5" },
-        seq: 1,
+        seq: 2,
     });
     const abortedAt = performance.now();
     channel.client.send({ type: "abort" });
@@ -950,11 +966,11 @@ test("aborting a turn stops its foreground bash tool", async () => {
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "bash",
-        seq: 2,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 3,
+        seq: 4,
     });
     expect(performance.now() - abortedAt).toBeLessThan(1_000);
 
@@ -972,4 +988,16 @@ function createTestEvents(sender: AgentUpdateSender): EngineEventBus {
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(sender));
     return events;
+}
+
+async function expectUserPrompt(
+    channel: InProcessChannel,
+    content: string,
+    seq: number,
+): Promise<void> {
+    expect(await channel.client.receive()).toEqual({
+        type: "user_prompt",
+        content,
+        seq,
+    });
 }

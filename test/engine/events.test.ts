@@ -83,13 +83,18 @@ test("a turn fans out to updates and a per-session event log", async () => {
         const turn = runTurn(new FauxAdapter([response]), "test", state);
 
         expect(await channel.client.receive()).toEqual({
-            type: "assistant_delta",
-            text: "hello",
+            type: "user_prompt",
+            content: "say hello",
             seq: 1,
         });
         expect(await channel.client.receive()).toEqual({
-            type: "turn_finished",
+            type: "assistant_delta",
+            text: "hello",
             seq: 2,
+        });
+        expect(await channel.client.receive()).toEqual({
+            type: "turn_finished",
+            seq: 3,
         });
         expect(await turn).toEqual(response);
 

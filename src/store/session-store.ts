@@ -299,7 +299,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
         return false;
     }
     if (message.role === "user") {
-        return message.content.every(isTextContent);
+        return (message.internal === undefined
+            || typeof message.internal === "boolean")
+            && message.content.every(isTextContent);
     }
     if (message.role === "tool_result") {
         return typeof message.toolCallId === "string"
