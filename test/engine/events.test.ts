@@ -19,6 +19,7 @@ import {
 import { createFrameProjector } from "../../src/engine/frames.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
+import { ToolHooks } from "../../src/engine/hooks.ts";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
@@ -71,6 +72,7 @@ test("a turn fans out to frames and a per-session event log", async () => {
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
+        hooks: new ToolHooks(),
     };
 
     try {

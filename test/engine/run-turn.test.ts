@@ -14,6 +14,7 @@ import {
 } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
+import { ToolHooks } from "../../src/engine/hooks.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -40,6 +41,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
+        hooks: new ToolHooks(),
     };
 
     channel.client.send({ type: "prompt", content: "say hi" });
@@ -112,11 +114,17 @@ test("a bash tool call runs and continues the model turn", async () => {
     const adapter = new FauxAdapter([toolCallResponse, finalResponse]);
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    let postHookTool: string | undefined;
+    hooks.registerPostToolUse((payload) => {
+        postHookTool = payload.toolCall.name;
+    });
     const state: RunTurnState = {
         messages: [],
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
+        hooks,
     };
 
     channel.client.send({ type: "prompt", content: "run ls" });
@@ -154,6 +162,70 @@ test("a bash tool call runs and continues the model turn", async () => {
         throw new Error("Expected a tool result message");
     }
     expect(toolResult.content[0]?.text).toContain("package.json");
+    expect(postHookTool).toBe("bash");
+});
+
+test("a pre-tool hook can deny execution with a tool result", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: { command: "printf ran" },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "denied" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    hooks.registerPreToolUse(() => ({
+        behavior: "deny",
+        reason: "blocked by test",
+    }));
+    const state: RunTurnState = {
+        messages: [],
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundFrameRouter(channel.engine, events),
+        events,
+        hooks,
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "denied",
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 2,
+    });
+    expect(await turn).toEqual(finalResponse);
+    expect(state.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{ type: "text", text: "blocked by test" }],
+        isError: true,
+    });
 });
 
 test("aborting a turn stops its foreground bash tool", async () => {
@@ -179,6 +251,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
+        hooks: new ToolHooks(),
     };
 
     channel.client.send({ type: "prompt", content: "run slowly" });

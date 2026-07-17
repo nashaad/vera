@@ -5,8 +5,11 @@ import type {
     ModelAdapter,
     ModelMessage,
     ModelReasoningEffort,
+    ToolCallContent,
+    ToolResultMessage,
     UserMessage,
 } from "../model/types.ts";
+import type { JsonObject } from "../sdk/hooks.ts";
 import type { FrameEndpoint } from "./in-process-channel.ts";
 import type { AgentFrame, ClientFrame } from "./frames.ts";
 import { createFrameProjector } from "./frames.ts";
@@ -18,13 +21,18 @@ import {
 import { availableTools, executeToolCall } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
+import { ToolHooks } from "./hooks.ts";
 import { InboundFrameRouter } from "./inbound-frame-router.ts";
+
+const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
+const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly toolRuntime: ToolRuntime;
     readonly inbound: InboundFrameRouter;
     readonly events: EngineEventBus;
+    readonly hooks: ToolHooks;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -52,6 +60,7 @@ export async function runHeadlessLoop(
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound,
         events,
+        hooks: new ToolHooks(),
     };
 
     while (true) {
@@ -123,6 +132,24 @@ export async function runTurn(
 
             for (const block of assistantMessage.content) {
                 if (block.type === "tool_call") {
+                    const hookToolCall = {
+                        id: block.id,
+                        name: block.name,
+                        input: block.input as JsonObject,
+                    };
+                    const decision = await state.hooks.runPreToolUse({
+                        type: "pre_tool_use",
+                        toolCall: hookToolCall,
+                        workspace: state.toolRuntime.workspace,
+                    }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
+                    if (decision.behavior === "deny") {
+                        state.messages.push(deniedToolResult(
+                            block,
+                            decision.reason,
+                        ));
+                        continue;
+                    }
+
                     state.events.emit({
                         type: "tool_execution_started",
                         toolCall: block,
@@ -134,14 +161,28 @@ export async function runTurn(
                         state.toolRuntime,
                         turn.signal,
                     );
-                    state.messages.push(result);
+                    const durationMs = performance.now() - startedAt;
 
+                    state.messages.push(result);
                     state.events.emit({
                         type: "tool_execution_finished",
                         toolCall: block,
                         result,
-                        durationMs: performance.now() - startedAt,
+                        durationMs,
                     });
+
+                    await state.hooks.runPostToolUse({
+                        type: "post_tool_use",
+                        toolCall: hookToolCall,
+                        result: {
+                            toolCallId: result.toolCallId,
+                            toolName: result.toolName,
+                            content: result.content,
+                            isError: result.isError,
+                        },
+                        workspace: state.toolRuntime.workspace,
+                        durationMs,
+                    }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
                 }
             }
         }
@@ -151,4 +192,17 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+function deniedToolResult(
+    toolCall: ToolCallContent,
+    reason: string,
+): ToolResultMessage {
+    return {
+        role: "tool_result",
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: [{ type: "text", text: reason }],
+        isError: true,
+    };
 }

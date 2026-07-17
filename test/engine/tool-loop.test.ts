@@ -14,6 +14,7 @@ import {
 } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/engine/in-process-channel.ts";
 import { InboundFrameRouter } from "../../src/engine/inbound-frame-router.ts";
+import { ToolHooks } from "../../src/engine/hooks.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -69,6 +70,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundFrameRouter(channel.engine, events),
         events,
+        hooks: new ToolHooks(),
     };
 
     try {
