@@ -3,6 +3,7 @@ export * from "./src/engine/events.ts";
 export * from "./src/engine/assemble.ts";
 export * from "./src/engine/inbound-frame-router.ts";
 export * from "./src/engine/hooks.ts";
+export * from "./src/engine/permissions.ts";
 export * from "./src/sdk/hooks.ts";
 export * from "./src/instances/directory.ts";
 export * from "./src/providers/openrouter.ts";

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import type { ApprovalMode } from "./engine/permissions.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
@@ -13,6 +14,7 @@ export interface VeraConfig {
     readonly provider: VeraProviderId;
     readonly model: string;
     readonly reasoning_effort?: ModelReasoningEffort;
+    readonly approval_mode: ApprovalMode;
 }
 
 export interface LoadVeraConfigOptions {
@@ -34,7 +36,7 @@ export function loadVeraConfig(
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             throw new Error(
-                `Vera config not found at ${path}. Create it with schema_version 1, an optional provider, a model string, and an optional reasoning_effort.`,
+                `Vera config not found at ${path}. Create it with schema_version 1, an optional provider, a model string, an optional reasoning_effort, and an optional approval_mode.`,
             );
         }
         throw error;
@@ -51,7 +53,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, a non-empty model string, and optional reasoning_effort off, low, medium, high, or max.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, and optional approval_mode ask, approve_for_me, or full_access.`,
         );
     }
     return config;
@@ -76,6 +78,10 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && config.reasoning_effort !== "medium"
             && config.reasoning_effort !== "high"
             && config.reasoning_effort !== "max")
+        || (config.approval_mode !== undefined
+            && config.approval_mode !== "ask"
+            && config.approval_mode !== "approve_for_me"
+            && config.approval_mode !== "full_access")
     ) {
         return undefined;
     }
@@ -84,6 +90,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
         provider: config.provider ?? "openrouter",
         model: config.model.trim(),
+        approval_mode: config.approval_mode ?? "approve_for_me",
         ...(config.reasoning_effort === undefined
             ? {}
             : { reasoning_effort: config.reasoning_effort }),

@@ -16,6 +16,7 @@ test("Vera config loads the shared model choice", () => {
         schema_version: 1,
         provider: "openrouter",
         model: "anthropic/example-model",
+        approval_mode: "approve_for_me",
     });
 });
 
@@ -33,7 +34,21 @@ test("Vera config selects OpenAI Codex", () => {
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         reasoning_effort: "off",
+        approval_mode: "approve_for_me",
     });
+});
+
+test("Vera config loads each approval mode", () => {
+    for (const approval_mode of ["ask", "approve_for_me", "full_access"] as const) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            approval_mode,
+        }));
+
+        expect(loadVeraConfig({ path }).approval_mode).toBe(approval_mode);
+    }
 });
 
 test("Vera config rejects a missing model", () => {
@@ -55,6 +70,19 @@ test("Vera config rejects an unknown reasoning effort", () => {
 
     expect(() => loadVeraConfig({ path })).toThrow(
         "optional reasoning_effort off, low, medium, high, or max",
+    );
+});
+
+test("Vera config rejects an unknown approval mode", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        approval_mode: "sometimes",
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow(
+        "optional approval_mode ask, approve_for_me, or full_access",
     );
 });
 
