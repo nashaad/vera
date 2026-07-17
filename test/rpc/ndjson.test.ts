@@ -1,6 +1,20 @@
 import { expect, test } from "bun:test";
+import { Readable } from "node:stream";
 
 import type { AgentFrame, ClientFrame } from "../../src/engine/frames.ts";
+import { createNdjsonEngineEndpoint } from "../../clients/stdio/ndjson-bridge.ts";
+
+test("NDJSON parses a typed UI response", async () => {
+    const frame: ClientFrame = {
+        type: "ui_response",
+        requestId: "request-1",
+        response: { type: "tool_approval", decision: "allow" },
+    };
+    const input = Readable.from([`${JSON.stringify(frame)}\n`]);
+    const endpoint = createNdjsonEngineEndpoint(input, { write() {} });
+
+    expect(await endpoint.receive()).toEqual(frame);
+});
 
 test("NDJSON frames stream and abort across a process boundary", async () => {
     const child = Bun.spawn(

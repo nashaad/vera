@@ -20,6 +20,7 @@ import type {
     ToolResultMessage,
     UserMessage,
 } from "../model/types.ts";
+import type { HookToolCall } from "../sdk/hooks.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -33,6 +34,30 @@ export interface PromptQueuedEvent {
 
 export interface AbortRequestedEvent {
     readonly type: "abort_requested";
+}
+
+export interface ToolApprovalUiRequest {
+    readonly type: "tool_approval";
+    readonly toolCall: HookToolCall;
+    readonly reason: string;
+    readonly warning: string;
+}
+
+export interface ToolApprovalUiResponse {
+    readonly type: "tool_approval";
+    readonly decision: "allow" | "deny";
+}
+
+export interface UiRequestEvent {
+    readonly type: "ui_request";
+    readonly requestId: string;
+    readonly request: ToolApprovalUiRequest;
+}
+
+export interface UiResponseEvent {
+    readonly type: "ui_response";
+    readonly requestId: string;
+    readonly response: ToolApprovalUiResponse;
 }
 
 export interface ModelRequestEvent {
@@ -81,6 +106,8 @@ export type EngineEvent =
     | TurnStartedEvent
     | PromptQueuedEvent
     | AbortRequestedEvent
+    | UiRequestEvent
+    | UiResponseEvent
     | ModelRequestEvent
     | ModelStreamObservedEvent
     | ModelStreamErrorEvent
