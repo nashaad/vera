@@ -21,6 +21,7 @@ import {
 } from "./events.ts";
 import { availableTools, executeToolCall } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
+import { assembleSystemPrompt } from "./assemble.ts";
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
@@ -92,9 +93,15 @@ export async function runTurn(
 
     try {
         while (true) {
+            const systemPrompt = assembleSystemPrompt({
+                tools: availableTools,
+                workspace: state.toolRuntime.workspace,
+                date: new Date(),
+            });
             const request = {
                 model,
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+                systemPrompt,
                 messages: state.messages.slice(),
                 tools: availableTools,
                 signal: turnController.signal,
@@ -105,6 +112,7 @@ export async function runTurn(
                 ...(request.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: request.reasoningEffort }),
+                systemPrompt: request.systemPrompt,
                 messages: request.messages,
                 tools: request.tools,
             });

@@ -29,6 +29,7 @@ interface LoggedEventLine {
     readonly sessionId: string;
     readonly type: EngineEvent["type"];
     readonly event?: { readonly type: string };
+    readonly systemPrompt?: string;
 }
 
 test("a turn fans out to frames and a per-session event log", async () => {
@@ -113,6 +114,11 @@ test("a turn fans out to frames and a per-session event log", async () => {
             && line.sessionId === "session-test"
             && line.level === "debug"
         )).toBe(true);
+        const requestLine = lines.find((line) => line.type === "model_request");
+        expect(requestLine?.systemPrompt).toContain("## Identity\n");
+        expect(requestLine?.systemPrompt).toContain(
+            `## Workspace\nWorking directory: ${workspace}`,
+        );
         expect((await stat(logDirectory)).mode & 0o777).toBe(0o700);
         expect((await stat(logPath)).mode & 0o777).toBe(0o600);
     } finally {

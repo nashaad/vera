@@ -64,6 +64,18 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     });
     expect(await turn).toEqual(response);
     expect(capturedRequest?.reasoningEffort).toBe("high");
+    expect(capturedRequest?.systemPrompt).toContain("## Identity\n");
+    expect(capturedRequest?.systemPrompt).toContain("## Tools\n");
+    expect(capturedRequest?.systemPrompt).toContain("- bash: ");
+    expect(capturedRequest?.systemPrompt).toContain("- read: ");
+    expect(capturedRequest?.systemPrompt).toContain("- write: ");
+    expect(capturedRequest?.systemPrompt).toContain("- edit: ");
+    expect(capturedRequest?.systemPrompt).toContain(
+        `## Workspace\nWorking directory: ${process.cwd()}`,
+    );
+    expect(capturedRequest?.systemPrompt).toMatch(
+        /## Date\nCurrent date: \d{4}-\d{2}-\d{2}/,
+    );
     expect(state.messages).toEqual([
         {
             role: "user",
