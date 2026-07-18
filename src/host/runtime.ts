@@ -20,6 +20,7 @@ export interface StartResidentHostOptions {
     readonly pid?: number;
     readonly startedAt?: string;
     readonly sessionDirectory?: string;
+    readonly eventLogDirectory?: string;
 }
 
 export interface ResidentHost {
@@ -32,6 +33,9 @@ export async function startResidentHost(
     options: StartResidentHostOptions,
 ): Promise<ResidentHost> {
     const modelFallback = configuredModelFallback(options.config);
+    const sessionDirectory = options.sessionDirectory
+        ?? defaultSessionDirectory();
+    const eventLogDirectory = options.eventLogDirectory;
     const registry = new AgentRegistry({
         createAdapter: options.createAdapter
             ?? (() => createConfiguredModelAdapter(options.config)),
@@ -41,13 +45,21 @@ export async function startResidentHost(
             ? {}
             : { reasoningEffort: options.config.reasoning_effort }),
         ...(modelFallback === undefined ? {} : { modelFallback }),
+        sessionPathForId: (agentId) =>
+            join(sessionDirectory, `${agentId}.jsonl`),
+        ...(eventLogDirectory === undefined
+            ? {}
+            : {
+                eventLogPathForId: (agentId: string) =>
+                    join(eventLogDirectory, `${agentId}.jsonl`),
+            }),
     });
 
     let server: HostServer;
     try {
         await restoreStoredAgents(
             registry,
-            options.sessionDirectory ?? defaultSessionDirectory(),
+            sessionDirectory,
         );
         server = await startHostServer({
             ...(options.socketPath === undefined
