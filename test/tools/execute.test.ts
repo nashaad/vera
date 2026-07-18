@@ -11,8 +11,36 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ToolCallContent } from "../../src/model/types.ts";
-import { executeToolCall } from "../../src/tools/execute.ts";
+import {
+    availableTools,
+    executeToolCall,
+    executeToolHandler,
+    ordinaryToolDefinitions,
+} from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
+
+test("subagent is exposed only when the engine can apply effects", async () => {
+    expect(ordinaryToolDefinitions.map((tool) => tool.name)).not.toContain(
+        "subagent",
+    );
+    expect(availableTools.map((tool) => tool.name)).toContain("subagent");
+
+    const result = await executeToolHandler(
+        toolCall("call_subagent", "subagent", {
+            description: "Trace the request path",
+        }),
+        new ToolRuntime("/workspace"),
+        new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+        kind: "effect",
+        effect: {
+            type: "spawn_subagent",
+            description: "Trace the request path",
+        },
+    });
+});
 
 test("file tools read and write inside the workspace", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-files-"));
