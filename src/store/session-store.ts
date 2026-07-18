@@ -181,7 +181,11 @@ export class SessionStore {
 }
 
 export function defaultSessionPath(sessionId: string): string {
-    return join(homedir(), ".vera", "sessions", `${sessionId}.jsonl`);
+    return join(defaultSessionDirectory(), `${sessionId}.jsonl`);
+}
+
+export function defaultSessionDirectory(): string {
+    return join(homedir(), ".vera", "sessions");
 }
 
 async function removeUnterminatedTail(

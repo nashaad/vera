@@ -84,7 +84,8 @@ export class AgentRegistry {
     async resume(
         options: ResumeRegisteredAgentOptions,
     ): Promise<ResidentAgent> {
-        const store = await SessionStore.open(options.sessionPath);
+        const sessionPath = await realpath(options.sessionPath);
+        const store = await SessionStore.open(sessionPath);
         this.reserveId(store.header.id);
         try {
             this.requireOpen();

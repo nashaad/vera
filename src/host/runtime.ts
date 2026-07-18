@@ -1,10 +1,15 @@
+import { readdir, realpath } from "node:fs/promises";
+import { join } from "node:path";
+
 import {
     configuredModelFallback,
     type VeraConfig,
 } from "../config.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import { defaultSessionDirectory } from "../store/session-store.ts";
 import { AgentRegistry } from "./agent-registry.ts";
+import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
 
 export interface StartResidentHostOptions {
@@ -14,6 +19,7 @@ export interface StartResidentHostOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
+    readonly sessionDirectory?: string;
 }
 
 export interface ResidentHost {
@@ -39,6 +45,10 @@ export async function startResidentHost(
 
     let server: HostServer;
     try {
+        await restoreStoredAgents(
+            registry,
+            options.sessionDirectory ?? defaultSessionDirectory(),
+        );
         server = await startHostServer({
             ...(options.socketPath === undefined
                 ? {}
@@ -53,7 +63,7 @@ export async function startResidentHost(
             findAgent: (agentId) => registry.find(agentId),
             listAgents: () => registry.list(),
             createAgent: (workspace) => registry.create({ workspace }),
-            resumeAgent: (sessionPath) => registry.resume({ sessionPath }),
+            resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
         });
     } catch (error) {
         await registry.close();
@@ -69,6 +79,42 @@ export async function startResidentHost(
             return closing;
         },
     };
+}
+
+async function restoreStoredAgents(
+    registry: AgentRegistry,
+    sessionDirectory: string,
+): Promise<void> {
+    let names: string[];
+    try {
+        names = await readdir(sessionDirectory);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            return;
+        }
+        throw error;
+    }
+
+    for (const name of names.filter((value) => value.endsWith(".jsonl")).sort()) {
+        await registry.resume({ sessionPath: join(sessionDirectory, name) });
+    }
+}
+
+async function resumeOrFind(
+    registry: AgentRegistry,
+    sessionPath: string,
+): Promise<ResidentAgent> {
+    const canonicalPath = await realpath(sessionPath);
+    const existing = registry.list().find(
+        (agent) => agent.session_path === canonicalPath,
+    );
+    if (existing !== undefined) {
+        const agent = registry.find(existing.id);
+        if (agent !== undefined) {
+            return agent;
+        }
+    }
+    return registry.resume({ sessionPath: canonicalPath });
 }
 
 async function closeResidentHost(

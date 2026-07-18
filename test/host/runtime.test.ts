@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { connectHost } from "../../src/host/connection.ts";
+import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import {
@@ -20,6 +21,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
         const root = await mkdtemp(join(tmpdir(), "vera-host-runtime-"));
         const workspace = await realpath(root);
         const socketPath = join(root, "host.sock");
+        const sessionDirectory = join(root, "sessions");
         const sessionPath = join(root, "agent.jsonl");
         const host = await startResidentHost({
             config: {
@@ -31,6 +33,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             createAdapter: () => new FauxAdapter([textResponse("hello")]),
             socketPath,
             lockPath: join(root, "host.json"),
+            sessionDirectory,
         });
 
         try {
@@ -103,6 +106,68 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host restores stored sessions before publishing itself",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-restore-"));
+        const workspace = await realpath(root);
+        const sessionDirectory = join(root, "sessions");
+        const firstPath = join(sessionDirectory, "first.jsonl");
+        const secondPath = join(sessionDirectory, "second.jsonl");
+        const firstStore = await SessionStore.create(firstPath, {
+            sessionId: "first",
+            cwd: workspace,
+        });
+        await firstStore.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "stored prompt" }],
+        });
+        await SessionStore.create(secondPath, {
+            sessionId: "second",
+            cwd: workspace,
+        });
+
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "approve_for_me",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+        });
+        try {
+            expect(host.registry.list().map((agent) => agent.id)).toEqual([
+                "first",
+                "second",
+            ]);
+            expect(await resumeAgentThroughHost(socketPath, firstPath)).toEqual({
+                id: "first",
+                workspace,
+            });
+
+            const first = host.registry.find("first");
+            if (first === undefined) {
+                throw new Error("Expected restored first agent");
+            }
+            const attached = first.attach();
+            expect(await attached.receive()).toEqual({
+                type: "history",
+                entries: [{ kind: "user", text: "stored prompt" }],
+                seq: 0,
+            });
+            attached.detach();
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "closing the resident host aborts an active model request",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-close-"));
@@ -147,6 +212,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             createAdapter: () => adapter,
             socketPath: join(root, "host.sock"),
             lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
         });
 
         try {
