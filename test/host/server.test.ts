@@ -109,6 +109,90 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host creates and resumes agents through one ready response shape",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const created = new ResidentAgent("created", "/work/created");
+        const resumed = new ResidentAgent("resumed", "/work/resumed");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            createAgent: async (workspace) => {
+                expect(workspace).toBe("/work/created");
+                return created;
+            },
+            resumeAgent: async (sessionPath) => {
+                expect(sessionPath).toBe("/sessions/resumed.jsonl");
+                return resumed;
+            },
+        });
+        try {
+            const createConnection = await connectHost({ socketPath });
+            try {
+                await createConnection.send({
+                    type: "create_agent",
+                    workspace: "/work/created",
+                });
+                expect(await createConnection.receive()).toEqual({
+                    type: "agent_ready",
+                    agent_id: "created",
+                    workspace: "/work/created",
+                });
+            } finally {
+                createConnection.close();
+            }
+
+            const resumeConnection = await connectHost({ socketPath });
+            try {
+                await resumeConnection.send({
+                    type: "resume_agent",
+                    session_path: "/sessions/resumed.jsonl",
+                });
+                expect(await resumeConnection.receive()).toEqual({
+                    type: "agent_ready",
+                    agent_id: "resumed",
+                    workspace: "/work/resumed",
+                });
+            } finally {
+                resumeConnection.close();
+            }
+        } finally {
+            created.close();
+            resumed.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host reports an agent startup failure without exposing internals",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            createAgent: () => Promise.reject(new Error("private failure")),
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({
+                type: "create_agent",
+                workspace: "/missing",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "agent_start_failed",
+                operation: "create",
+            });
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host attaches a socket to one resident agent until detach",
     async () => {
         const directory = temporaryHostDirectory();

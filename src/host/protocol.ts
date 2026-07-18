@@ -16,6 +16,16 @@ export interface ListAgentsRequest {
     readonly type: "list_agents";
 }
 
+export interface CreateAgentRequest {
+    readonly type: "create_agent";
+    readonly workspace: string;
+}
+
+export interface ResumeAgentRequest {
+    readonly type: "resume_agent";
+    readonly session_path: string;
+}
+
 export interface HostIdentityResponse {
     readonly type: "host_identity";
     readonly pid: number;
@@ -52,14 +62,29 @@ export interface AgentListResponse {
     readonly agents: readonly RegisteredAgentSummary[];
 }
 
+export interface AgentReadyResponse {
+    readonly type: "agent_ready";
+    readonly agent_id: string;
+    readonly workspace: string;
+}
+
+export interface AgentStartFailedResponse {
+    readonly type: "agent_start_failed";
+    readonly operation: "create" | "resume";
+}
+
 export type HostRequest =
     | HostIdentityRequest
     | ListAgentsRequest
+    | CreateAgentRequest
+    | ResumeAgentRequest
     | AttachRequest;
 export type AttachedClientMessage = ClientCommand | DetachRequest;
 export type HostResponse =
     | HostIdentityResponse
     | AgentListResponse
+    | AgentReadyResponse
+    | AgentStartFailedResponse
     | AttachedResponse
     | AttachFailedResponse
     | DetachedResponse;
@@ -71,6 +96,20 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "list_agents") {
         return { type: "list_agents" };
+    }
+    if (
+        value?.type === "create_agent"
+        && typeof value.workspace === "string"
+        && value.workspace.length > 0
+    ) {
+        return { type: "create_agent", workspace: value.workspace };
+    }
+    if (
+        value?.type === "resume_agent"
+        && typeof value.session_path === "string"
+        && value.session_path.length > 0
+    ) {
+        return { type: "resume_agent", session_path: value.session_path };
     }
     if (
         value?.type === "attach"

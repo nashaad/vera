@@ -52,6 +52,8 @@ export async function startResidentHost(
                 : { startedAt: options.startedAt }),
             findAgent: (agentId) => registry.find(agentId),
             listAgents: () => registry.list(),
+            createAgent: (workspace) => registry.create({ workspace }),
+            resumeAgent: (sessionPath) => registry.resume({ sessionPath }),
         });
     } catch (error) {
         await registry.close();
