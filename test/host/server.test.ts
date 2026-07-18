@@ -75,6 +75,40 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host lists resident agents without attaching",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            listAgents: () => [{
+                id: "agent-1",
+                workspace: "/work/one",
+                session_path: "/sessions/agent-1.jsonl",
+                status: "waiting",
+            }],
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "list_agents" });
+            expect(await connection.receive()).toEqual({
+                type: "agent_list",
+                agents: [{
+                    id: "agent-1",
+                    workspace: "/work/one",
+                    session_path: "/sessions/agent-1.jsonl",
+                    status: "waiting",
+                }],
+            });
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host attaches a socket to one resident agent until detach",
     async () => {
         const directory = temporaryHostDirectory();
