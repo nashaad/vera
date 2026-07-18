@@ -118,7 +118,7 @@ test("TUI does not duplicate its optimistic user prompt", () => {
 
 test("TUI entries render with kind-specific prefixes", () => {
     expect(plainText(renderTuiEntry({ kind: "user", text: "hi\nthere" })))
-        .toBe("▌ hi\n▌ there");
+        .toBe("▌ hi\n  there");
     expect(plainText(renderTuiEntry({ kind: "tool", text: "∗ bash pwd" })))
         .toBe("∗ bash pwd");
     expect(plainText(renderTuiEntry({ kind: "notice", text: "Engine error" })))

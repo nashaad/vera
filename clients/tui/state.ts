@@ -128,9 +128,11 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         const chunks: TextChunk[] = [];
         entry.text.split("\n").forEach((line, lineIndex) => {
             if (lineIndex > 0) {
-                chunks.push(fg(TUI_TEXT)("\n"));
+                chunks.push(fg(TUI_TEXT)("\n  "));
+            } else {
+                chunks.push(fg(TUI_ACCENT)("▌ "));
             }
-            chunks.push(fg(TUI_ACCENT)("▌ "), fg(TUI_TEXT)(line));
+            chunks.push(fg(TUI_TEXT)(line));
         });
         return new StyledText(chunks);
     }
