@@ -5,6 +5,10 @@ interface WaitingReceiver<T> {
     readonly onAbort?: () => void;
 }
 
+export interface FailAsyncQueueOptions {
+    readonly discardBuffered?: boolean;
+}
+
 export class AsyncQueue<T> {
     private readonly values: T[] = [];
     private readonly receivers: WaitingReceiver<T>[] = [];
@@ -64,13 +68,16 @@ export class AsyncQueue<T> {
         });
     }
 
-    fail(error: unknown): void {
+    fail(error: unknown, options: FailAsyncQueueOptions = {}): void {
         if (this.failed) {
             return;
         }
 
         this.failed = true;
         this.failure = error;
+        if (options.discardBuffered === true) {
+            this.values.length = 0;
+        }
         for (const receiver of this.receivers.splice(0)) {
             removeAbortListener(receiver);
             receiver.reject(error);

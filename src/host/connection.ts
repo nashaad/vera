@@ -14,11 +14,11 @@ export interface HostConnectionOptions {
 
 /**
  * A persistent NDJSON connection over a Unix socket: send JSON values as
- * newline-delimited frames, receive parsed JSON values in order. One fixed
- * wall-clock deadline covers the whole connection, including the initial
- * connect, not each read. Parsed values that arrive faster than `receive()`
- * drains them are bounded by `maxPendingValues`; past that limit the socket
- * is paused until the caller catches up.
+ * newline-delimited frames and receive parsed JSON values in order. The
+ * connection attempt has a fixed deadline; an established connection remains
+ * open until a peer closes it. Parsed values that arrive faster than
+ * `receive()` drains them are bounded by `maxPendingValues`; past that limit
+ * the socket is paused until the caller catches up.
  */
 export interface HostConnection {
     send(value: unknown): Promise<void>;
@@ -40,8 +40,6 @@ export function connectHost(
     );
     const connectionTimeoutMs = options.connectionTimeoutMs
         ?? DEFAULT_CONNECTION_TIMEOUT_MS;
-    const deadlineAt = Date.now() + connectionTimeoutMs;
-
     return new Promise((resolve, reject) => {
         const socket = createConnection(options.socketPath);
         const connectDeadline = setTimeout(() => {
@@ -59,7 +57,6 @@ export function connectHost(
                 socket,
                 maxLineBytes,
                 maxPendingValues,
-                deadlineAt,
             ));
         });
         socket.once("error", onConnectError);
@@ -70,12 +67,12 @@ function createConnection_(
     socket: Socket,
     maxLineBytes: number,
     maxPendingValues: number,
-    deadlineAt: number,
 ): HostConnection {
     const decoder = new TextDecoder("utf-8", { fatal: true });
 
     let buffered = Buffer.alloc(0);
     let closed = false;
+    let remoteEnded = false;
     let failure: Error | undefined;
     const pendingValues: unknown[] = [];
     const pendingReceivers: Array<{
@@ -85,12 +82,29 @@ function createConnection_(
     const pendingSends = new Set<(error: Error) => void>();
     let sendTail: Promise<void> = Promise.resolve();
 
-    const deadline = setTimeout(() => {
-        fail(new Error("host connection deadline exceeded"));
-    }, Math.max(0, deadlineAt - Date.now()));
-
     function fail(error: Error): void {
         teardown(error);
+    }
+
+    function finishRemote(): void {
+        if (closed) {
+            return;
+        }
+        if (buffered.length > 0) {
+            teardown(new Error("host connection received an incomplete line"));
+            return;
+        }
+        closed = true;
+        remoteEnded = true;
+        failure = new Error("host connection closed");
+        for (const receiver of pendingReceivers.splice(0)) {
+            receiver.reject(failure);
+        }
+        for (const rejectSend of pendingSends) {
+            rejectSend(failure);
+        }
+        pendingSends.clear();
+        socket.destroy();
     }
 
     function teardown(error: Error): void {
@@ -99,7 +113,6 @@ function createConnection_(
         }
         closed = true;
         failure = error;
-        clearTimeout(deadline);
         pendingValues.length = 0;
         for (const receiver of pendingReceivers.splice(0)) {
             receiver.reject(error);
@@ -162,8 +175,11 @@ function createConnection_(
         processBufferedLines();
     });
     socket.once("error", (error: Error) => fail(error));
+    socket.once("end", finishRemote);
     socket.once("close", () => {
-        fail(new Error("host connection closed"));
+        if (!remoteEnded) {
+            fail(new Error("host connection closed"));
+        }
     });
 
     return {
@@ -189,6 +205,12 @@ function createConnection_(
             return pending;
         },
         receive(): Promise<unknown> {
+            if (remoteEnded) {
+                const value = pendingValues.shift();
+                return value === undefined
+                    ? Promise.reject(failure)
+                    : Promise.resolve(value);
+            }
             if (closed) {
                 return Promise.reject(
                     failure ?? new Error("host connection is closed"),

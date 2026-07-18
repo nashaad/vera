@@ -302,31 +302,33 @@ skipIfNoNetwork(
 );
 
 skipIfNoNetwork(
-    "enforces a fixed wall-clock connection deadline",
+    "a graceful peer close leaves its final value readable",
     async () => {
         await withServer(
-            (socket) => {
-                const drip = setInterval(() => {
-                    if (!socket.destroyed) {
-                        socket.write(" ");
-                    }
-                }, 50);
-                socket.once("error", () => {});
-                socket.once("close", () => clearInterval(drip));
+            (socket) => socket.end('{"type":"done"}\n'),
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                expect(await connection.receive()).toEqual({ type: "done" });
+                await expect(connection.receive()).rejects.toThrow();
             },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "an established connection outlives its connection deadline",
+    async () => {
+        await withServer(
+            () => {},
             async (socketPath) => {
                 const connection = await connectHost({
                     socketPath,
-                    connectionTimeoutMs: 100,
+                    connectionTimeoutMs: 25,
                 });
-                const startedAt = Date.now();
-                await expect(connection.receive()).rejects.toThrow(
-                    /deadline/,
-                );
-                const elapsedMs = Date.now() - startedAt;
-                expect(elapsedMs).toBeGreaterThanOrEqual(50);
-                expect(elapsedMs).toBeLessThan(750);
-                expect(connection.closed).toBe(true);
+                await new Promise((resolve) => setTimeout(resolve, 75));
+                expect(connection.closed).toBe(false);
+                connection.close();
             },
         );
     },
