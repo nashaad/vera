@@ -1,6 +1,9 @@
 import type {
+    HookToolCall,
+    HookToolResult,
     PostToolUseHook,
     PostToolUseHookPayload,
+    PostToolUseHookResult,
     PreToolUseHook,
     PreToolUseHookPayload,
     PreToolUseHookResult,
@@ -8,6 +11,11 @@ import type {
 
 export interface HookCallOptions {
     readonly timeoutMs: number;
+}
+
+export interface PreToolUseOutcome {
+    readonly toolCall: HookToolCall;
+    readonly result: PreToolUseHookResult;
 }
 
 export class ToolHooks {
@@ -27,41 +35,174 @@ export class ToolHooks {
     async runPreToolUse(
         payload: PreToolUseHookPayload,
         options: HookCallOptions,
-    ): Promise<PreToolUseHookResult> {
+    ): Promise<PreToolUseOutcome> {
         const deadline = hookDeadline(options.timeoutMs);
-        const safePayload = cloneHookData(payload);
+        let currentPayload = cloneHookData(payload);
+        let currentResult: PreToolUseHookResult = { power: "observe" };
         remainingTime(deadline, options.timeoutMs, payload.type);
         for (const hook of this.preToolUse) {
             const result = await callHook(
-                async () => cloneHookData(await hook(cloneHookData(safePayload))),
+                async () => cloneHookData(
+                    await hook(cloneHookData(currentPayload)),
+                ),
                 remainingTime(deadline, options.timeoutMs, payload.type),
                 options.timeoutMs,
                 payload.type,
             );
+            assertPreToolUseHookResult(result);
             remainingTime(deadline, options.timeoutMs, payload.type);
-            if (result.behavior === "deny") {
-                return result;
+            if (result.power === "mutate") {
+                currentPayload = {
+                    ...currentPayload,
+                    toolCall: {
+                        ...currentPayload.toolCall,
+                        input: cloneHookData(result.input),
+                    },
+                };
+                currentResult = {
+                    power: "mutate",
+                    input: cloneHookData(result.input),
+                };
+                continue;
+            }
+            if (result.power === "block" || result.power === "replace") {
+                return {
+                    toolCall: currentPayload.toolCall,
+                    result,
+                };
             }
         }
-        return { behavior: "continue" };
+        return {
+            toolCall: currentPayload.toolCall,
+            result: currentResult,
+        };
     }
 
     async runPostToolUse(
         payload: PostToolUseHookPayload,
         options: HookCallOptions,
-    ): Promise<void> {
+    ): Promise<HookToolResult> {
         const deadline = hookDeadline(options.timeoutMs);
-        const safePayload = cloneHookData(payload);
+        let currentPayload = cloneHookData(payload);
         remainingTime(deadline, options.timeoutMs, payload.type);
         for (const hook of this.postToolUse) {
-            await callHook(
-                () => hook(cloneHookData(safePayload)),
+            const result: PostToolUseHookResult = await callHook(
+                async () => cloneHookData(
+                    await hook(cloneHookData(currentPayload)),
+                ),
                 remainingTime(deadline, options.timeoutMs, payload.type),
                 options.timeoutMs,
                 payload.type,
             );
+            assertPostToolUseHookResult(result);
             remainingTime(deadline, options.timeoutMs, payload.type);
+            if (result.power === "mutate") {
+                currentPayload = {
+                    ...currentPayload,
+                    result: {
+                        ...currentPayload.result,
+                        ...(result.patch.content === undefined
+                            ? {}
+                            : { content: cloneHookData(result.patch.content) }),
+                        ...(result.patch.isError === undefined
+                            ? {}
+                            : { isError: result.patch.isError }),
+                    },
+                };
+            }
         }
+        return currentPayload.result;
+    }
+}
+
+function assertPreToolUseHookResult(
+    result: unknown,
+): asserts result is PreToolUseHookResult {
+    assertHookResultObject(result, "pre_tool_use");
+    if (result.power === "observe") {
+        return;
+    }
+    if (result.power === "mutate") {
+        assertPlainObject(result.input, "pre_tool_use mutate input");
+        return;
+    }
+    if (result.power === "block") {
+        if (typeof result.reason !== "string" || result.reason.length === 0) {
+            throw new Error("pre_tool_use block reason must be a non-empty string");
+        }
+        return;
+    }
+    if (result.power === "replace") {
+        assertToolResultValue(result.result, "pre_tool_use replacement");
+        return;
+    }
+    throw new Error(`pre_tool_use returned unsupported power: ${String(result.power)}`);
+}
+
+function assertPostToolUseHookResult(
+    result: unknown,
+): asserts result is PostToolUseHookResult {
+    assertHookResultObject(result, "post_tool_use");
+    if (result.power === "observe") {
+        return;
+    }
+    if (result.power !== "mutate") {
+        throw new Error(`post_tool_use returned unsupported power: ${String(result.power)}`);
+    }
+    assertPlainObject(result.patch, "post_tool_use mutate patch");
+    if (result.patch.content !== undefined) {
+        assertTextContent(result.patch.content, "post_tool_use mutate patch content");
+    }
+    if (
+        result.patch.isError !== undefined
+        && typeof result.patch.isError !== "boolean"
+    ) {
+        throw new Error("post_tool_use mutate patch isError must be a boolean");
+    }
+}
+
+function assertHookResultObject(
+    result: unknown,
+    hookType: string,
+): asserts result is Record<string, unknown> {
+    assertPlainObject(result, `${hookType} result`);
+    if (typeof result.power !== "string") {
+        throw new Error(`${hookType} result power must be a string`);
+    }
+}
+
+function assertToolResultValue(value: unknown, label: string): void {
+    assertPlainObject(value, label);
+    assertTextContent(value.content, `${label} content`);
+    if (typeof value.isError !== "boolean") {
+        throw new Error(`${label} isError must be a boolean`);
+    }
+}
+
+function assertTextContent(value: unknown, label: string): void {
+    if (!Array.isArray(value)) {
+        throw new Error(`${label} must be an array`);
+    }
+    for (const item of value) {
+        assertPlainObject(item, `${label} item`);
+        if (item.type !== "text" || typeof item.text !== "string") {
+            throw new Error(`${label} items must be text content`);
+        }
+    }
+}
+
+function assertPlainObject(
+    value: unknown,
+    label: string,
+): asserts value is Record<string, unknown> {
+    if (
+        value === null
+        || typeof value !== "object"
+        || Array.isArray(value)
+        || (Object.getPrototypeOf(value) !== Object.prototype
+            && Object.getPrototypeOf(value) !== null)
+    ) {
+        throw new Error(`${label} must be a plain object`);
     }
 }
 

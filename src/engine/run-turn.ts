@@ -10,6 +10,11 @@ import type {
     UserMessage,
 } from "../model/types.ts";
 import type { JsonObject } from "../sdk/hooks.ts";
+import type {
+    HookToolCall,
+    HookToolResult,
+    PreToolUseHookResult,
+} from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { AgentUpdate, ClientCommand } from "./protocol.ts";
 import { createProtocolEncoder } from "./protocol.ts";
@@ -32,7 +37,7 @@ import type {
     ToolOutput,
 } from "../tools/types.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
-import { ToolHooks } from "./hooks.ts";
+import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
@@ -253,6 +258,15 @@ export async function runTurn(
                         : { wait: state.waitForModelRetry }),
                 },
             );
+            let preparedToolCalls: readonly PreparedToolCall[] = [];
+            if (assistantMessage.stopReason === "tool_use") {
+                const prepared = await prepareAssistantToolCalls(
+                    state,
+                    assistantMessage,
+                );
+                assistantMessage = prepared.message;
+                preparedToolCalls = prepared.toolCalls;
+            }
             await commitMessage(state, assistantMessage);
 
             if (assistantMessage.stopReason === "length") {
@@ -286,32 +300,31 @@ export async function runTurn(
                 break;
             }
 
-            const toolCalls = assistantMessage.content.filter(
-                (block): block is ToolCallContent => block.type === "tool_call",
-            );
             let toolIndex = 0;
-            while (toolIndex < toolCalls.length) {
-                const first = toolCalls[toolIndex]!;
-                if (!toolMayRunInParallel(first.name)) {
+            while (toolIndex < preparedToolCalls.length) {
+                const first = preparedToolCalls[toolIndex]!;
+                if (!toolMayRunInParallel(first.toolCall.name)) {
                     await finishToolCalls(state, [
-                        executeTurnTool(state, first, turn.signal),
+                        executePreparedTool(state, first, turn.signal),
                     ]);
                     toolIndex += 1;
                     continue;
                 }
 
-                const parallelCalls: ToolCallContent[] = [];
+                const parallelCalls: PreparedToolCall[] = [];
                 while (
-                    toolIndex < toolCalls.length
-                    && toolMayRunInParallel(toolCalls[toolIndex]!.name)
+                    toolIndex < preparedToolCalls.length
+                    && toolMayRunInParallel(
+                        preparedToolCalls[toolIndex]!.toolCall.name,
+                    )
                 ) {
-                    parallelCalls.push(toolCalls[toolIndex]!);
+                    parallelCalls.push(preparedToolCalls[toolIndex]!);
                     toolIndex += 1;
                 }
                 await finishToolCalls(
                     state,
-                    parallelCalls.map((toolCall) =>
-                        executeTurnTool(state, toolCall, turn.signal)
+                    parallelCalls.map((prepared) =>
+                        executePreparedTool(state, prepared, turn.signal)
                     ),
                 );
             }
@@ -366,22 +379,122 @@ function escapeXml(value: string): string {
 
 interface CompletedToolCall {
     readonly result: ToolResultMessage;
-    readonly postHookFailure?: { readonly error: unknown };
 }
 
-async function executeTurnTool(
+interface PreparedToolCall {
+    readonly toolCall: ToolCallContent;
+    readonly hookResult: PreToolUseHookResult;
+}
+
+interface PreparedAssistantToolCalls {
+    readonly message: AssistantMessage;
+    readonly toolCalls: readonly PreparedToolCall[];
+}
+
+async function prepareAssistantToolCalls(
     state: RunTurnState,
-    toolCall: ToolCallContent,
+    message: AssistantMessage,
+): Promise<PreparedAssistantToolCalls> {
+    const preparedById = new Map<string, PreparedToolCall>();
+    for (const block of message.content) {
+        if (block.type !== "tool_call") {
+            continue;
+        }
+        const original = hookToolCall(block);
+        let outcome: PreToolUseOutcome;
+        try {
+            outcome = await state.hooks.runPreToolUse({
+                type: "pre_tool_use",
+                toolCall: original,
+                workspace: state.toolRuntime.workspace,
+            }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
+        } catch (error) {
+            const message = errorMessage(error);
+            state.events.emit({
+                type: "tool_hook_failed",
+                phase: "pre_tool_use",
+                toolCall: original,
+                error: message,
+            });
+            outcome = {
+                toolCall: original,
+                result: {
+                    power: "block",
+                    reason: `pre_tool_use hook failed: ${message}`,
+                },
+            };
+        }
+        const inputChanged = !sameJson(original.input, outcome.toolCall.input);
+        const effective: ToolCallContent = {
+            type: "tool_call",
+            id: outcome.toolCall.id,
+            name: outcome.toolCall.name,
+            input: outcome.toolCall.input,
+            ...(inputChanged
+                ? {}
+                : block.signature === undefined
+                    ? {}
+                    : { signature: block.signature }),
+        };
+        const prepared = {
+            toolCall: effective,
+            hookResult: outcome.result,
+        };
+        preparedById.set(block.id, prepared);
+        if (inputChanged) {
+            state.events.emit({
+                type: "tool_input_changed",
+                original,
+                effective: outcome.toolCall,
+            });
+        }
+    }
+    return {
+        message: {
+            ...message,
+            content: message.content.map((block) =>
+                block.type === "tool_call"
+                    ? preparedById.get(block.id)!.toolCall
+                    : block
+            ),
+        },
+        toolCalls: message.content.flatMap((block) =>
+            block.type === "tool_call"
+                ? [preparedById.get(block.id)!]
+                : []
+        ),
+    };
+}
+
+async function executePreparedTool(
+    state: RunTurnState,
+    prepared: PreparedToolCall,
     signal: AbortSignal,
 ): Promise<CompletedToolCall> {
-    const hookToolCall = {
-        id: toolCall.id,
-        name: toolCall.name,
-        input: toolCall.input as JsonObject,
-    };
+    const toolCall = prepared.toolCall;
+    const hookCall = hookToolCall(toolCall);
+    if (prepared.hookResult.power === "block") {
+        return {
+            result: deniedToolResult(toolCall, prepared.hookResult.reason),
+        };
+    }
+    if (prepared.hookResult.power === "replace") {
+        const replacement = hookResultMessage(
+            toolCall,
+            prepared.hookResult.result,
+        );
+        state.events.emit({ type: "tool_execution_started", toolCall });
+        state.events.emit({
+            type: "tool_execution_replaced",
+            toolCall: hookCall,
+            result: replacement,
+        });
+        return finishExecutedTool(state, toolCall, hookCall, replacement, 0);
+    }
+
     const permission = decideToolPermission(
         state.approvalMode,
-        hookToolCall,
+        hookCall,
         state.toolRuntime.workspace,
     );
     if (permission.behavior === "deny") {
@@ -389,22 +502,13 @@ async function executeTurnTool(
     }
     if (permission.behavior === "ask") {
         const approval = await state.inbound.requestToolApproval(
-            hookToolCall,
+            hookCall,
             permission.reason,
             { timeoutMs: TOOL_APPROVAL_TIMEOUT_MS, signal },
         );
         if (approval.behavior === "deny") {
             return { result: deniedToolResult(toolCall, approval.reason) };
         }
-    }
-
-    const decision = await state.hooks.runPreToolUse({
-        type: "pre_tool_use",
-        toolCall: hookToolCall,
-        workspace: state.toolRuntime.workspace,
-    }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
-    if (decision.behavior === "deny") {
-        return { result: deniedToolResult(toolCall, decision.reason) };
     }
 
     state.events.emit({ type: "tool_execution_started", toolCall });
@@ -421,30 +525,99 @@ async function executeTurnTool(
     );
     const result = toolResultMessage(toolCall, output);
     const durationMs = performance.now() - startedAt;
-    state.events.emit({
-        type: "tool_execution_finished",
-        toolCall,
-        result,
-        durationMs,
-    });
+    return finishExecutedTool(state, toolCall, hookCall, result, durationMs);
+}
 
+async function finishExecutedTool(
+    state: RunTurnState,
+    toolCall: ToolCallContent,
+    hookCall: HookToolCall,
+    result: ToolResultMessage,
+    durationMs: number,
+): Promise<CompletedToolCall> {
     try {
-        await state.hooks.runPostToolUse({
+        const effective = await state.hooks.runPostToolUse({
             type: "post_tool_use",
-            toolCall: hookToolCall,
-            result: {
-                toolCallId: result.toolCallId,
-                toolName: result.toolName,
-                content: result.content,
-                isError: result.isError,
-            },
+            toolCall: hookCall,
+            result: hookResult(result),
             workspace: state.toolRuntime.workspace,
             durationMs,
         }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
-        return { result };
+        const finalResult = hookResultMessage(toolCall, effective);
+        if (!sameToolResult(result, finalResult)) {
+            state.events.emit({
+                type: "tool_result_changed",
+                original: result,
+                effective: finalResult,
+            });
+        }
+        state.events.emit({
+            type: "tool_execution_finished",
+            toolCall,
+            result: finalResult,
+            durationMs,
+        });
+        return { result: finalResult };
     } catch (postHookError) {
-        return { result, postHookFailure: { error: postHookError } };
+        state.events.emit({
+            type: "tool_hook_failed",
+            phase: "post_tool_use",
+            toolCall: hookCall,
+            error: errorMessage(postHookError),
+        });
+        state.events.emit({
+            type: "tool_execution_finished",
+            toolCall,
+            result,
+            durationMs,
+        });
+        return { result };
     }
+}
+
+function hookToolCall(toolCall: ToolCallContent): HookToolCall {
+    return {
+        id: toolCall.id,
+        name: toolCall.name,
+        input: toolCall.input as JsonObject,
+    };
+}
+
+function hookResult(result: ToolResultMessage): HookToolResult {
+    return {
+        toolCallId: result.toolCallId,
+        toolName: result.toolName,
+        content: result.content,
+        isError: result.isError,
+    };
+}
+
+function hookResultMessage(
+    toolCall: ToolCallContent,
+    result: Pick<HookToolResult, "content" | "isError">,
+): ToolResultMessage {
+    return {
+        role: "tool_result",
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        content: result.content,
+        isError: result.isError,
+    };
+}
+
+function sameToolResult(
+    left: ToolResultMessage,
+    right: ToolResultMessage,
+): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 async function finishToolCalls(
@@ -463,12 +636,6 @@ async function finishToolCalls(
     );
     if (rejected?.status === "rejected") {
         throw rejected.reason;
-    }
-    const failedHook = completed.find(
-        (toolCall) => toolCall.postHookFailure !== undefined,
-    );
-    if (failedHook?.postHookFailure !== undefined) {
-        throw failedHook.postHookFailure.error;
     }
 }
 
