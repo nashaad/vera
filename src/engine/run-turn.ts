@@ -57,6 +57,7 @@ export interface RunTurnState {
 }
 
 export interface RunHeadlessLoopOptions {
+    readonly sessionStore?: SessionStore;
     readonly sessionId?: string;
     readonly sessionPath?: string;
     readonly resumeSessionPath?: string;
@@ -73,6 +74,18 @@ export async function runHeadlessLoop(
     options: RunHeadlessLoopOptions = {},
 ): Promise<void> {
     if (
+        options.sessionStore !== undefined
+        && (
+            options.sessionId !== undefined
+            || options.sessionPath !== undefined
+            || options.resumeSessionPath !== undefined
+        )
+    ) {
+        throw new Error(
+            "An open session store cannot be combined with session paths",
+        );
+    }
+    if (
         options.resumeSessionPath !== undefined
         && (options.sessionId !== undefined || options.sessionPath !== undefined)
     ) {
@@ -81,12 +94,14 @@ export async function runHeadlessLoop(
         );
     }
     const newSessionId = options.sessionId ?? randomUUID();
-    const store = options.resumeSessionPath === undefined
-        ? await SessionStore.create(
-            options.sessionPath ?? defaultSessionPath(newSessionId),
-            { sessionId: newSessionId, cwd: process.cwd() },
-        )
-        : await SessionStore.open(options.resumeSessionPath);
+    const store = options.sessionStore ?? (
+        options.resumeSessionPath === undefined
+            ? await SessionStore.create(
+                options.sessionPath ?? defaultSessionPath(newSessionId),
+                { sessionId: newSessionId, cwd: process.cwd() },
+            )
+            : await SessionStore.open(options.resumeSessionPath)
+    );
     const sessionId = store.header.id;
     const events = new EngineEventBus();
     const protocol = createProtocolEncoder(endpoint);
