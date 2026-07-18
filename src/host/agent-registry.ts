@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
-import { defaultEventLogPath } from "../engine/events.ts";
+import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
 import type { ApprovalMode } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
@@ -68,6 +68,7 @@ interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
     readonly kind: RegisteredAgentKind;
+    readonly events: EngineEventBus;
     run: Promise<void>;
     completed: boolean;
     failure?: unknown;
@@ -163,10 +164,12 @@ export class AgentRegistry {
     ): ResidentAgent {
         const adapter = this.options.createAdapter();
         const agent = new ResidentAgent(store.header.id, store.header.cwd);
+        const events = new EngineEventBus();
         const entry: RegisteredAgentEntry = {
             agent,
             store,
             kind,
+            events,
             run: Promise.resolve(),
             completed: false,
         };
@@ -195,6 +198,7 @@ export class AgentRegistry {
             {
                 sessionStore: store,
                 eventLogPath,
+                eventBus: events,
                 approvalMode: this.options.approvalMode,
                 modelFallback: this.options.modelFallback,
                 applyToolEffect,
@@ -209,6 +213,14 @@ export class AgentRegistry {
                 agent.close();
             }
         });
+        for (const delivery of store.pendingDeliveries()) {
+            events.emit({
+                type: "task_notification",
+                deliveryId: delivery.id,
+                sourceAgentId: delivery.sourceAgentId,
+                content: delivery.content,
+            });
+        }
         return agent;
     }
 
@@ -275,11 +287,20 @@ export class AgentRegistry {
         } finally {
             attachment.detach();
         }
-        await parentStore.recordDelivery({
+        const delivery = {
             id: `completion:${childId}`,
             sourceAgentId: childId,
             content,
-        });
+        };
+        const recorded = await parentStore.recordDelivery(delivery);
+        if (recorded) {
+            this.agents.get(parentStore.header.id)?.events.emit({
+                type: "task_notification",
+                deliveryId: delivery.id,
+                sourceAgentId: delivery.sourceAgentId,
+                content: delivery.content,
+            });
+        }
         const entry = this.agents.get(childId);
         if (entry !== undefined && entry.failure === undefined) {
             entry.completed = true;

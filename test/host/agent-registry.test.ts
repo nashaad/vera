@@ -1,8 +1,16 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+    mkdir,
+    mkdtemp,
+    readFile,
+    realpath,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { TaskNotificationUpdate } from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
@@ -118,6 +126,46 @@ test("a registry resumes the same resident agent from its session", async () => 
     }
 });
 
+test("a resumed registry replays pending delivery without a model call", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-delivery-resume-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const eventLogPath = join(root, "events.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "durable-agent",
+        cwd: root,
+    });
+    await store.recordDelivery({
+        id: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "The tests pass.",
+    });
+    const registry = createRegistry(() => [textResponse("unused")]);
+
+    try {
+        const agent = await registry.resume({ sessionPath, eventLogPath });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        expect(await attachment.receive()).toEqual({
+            type: "task_notification",
+            deliveryId: "completion:child-1",
+            sourceAgentId: "child-1",
+            content: "The tests pass.",
+            seq: 1,
+        });
+        expect(store.pendingDeliveries()).toHaveLength(1);
+        const events = (await readFile(eventLogPath, "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as { type: string });
+        expect(events.map((event) => event.type)).toEqual([
+            "task_notification",
+        ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a background agent returns immediately and delivers its final summary", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-background-"));
     const parentSession = join(root, "parent.jsonl");
@@ -164,7 +212,8 @@ test("a background agent returns immediately and delivers its final summary", as
             sessionPath: parentSession,
             eventLogPath: join(root, "parent-events.jsonl"),
         });
-        await runPrompt(parent.attach(), "Run tests in the background");
+        const parentAttachment = parent.attach();
+        await runPrompt(parentAttachment, "Run tests in the background");
 
         const agents = registry.list();
         expect(agents).toHaveLength(2);
@@ -189,6 +238,22 @@ test("a background agent returns immediately and delivers its final summary", as
             sourceAgentId: child!.id,
             content: "All integration tests pass.",
         });
+        expect(await waitForTaskNotification(parentAttachment)).toMatchObject({
+            deliveryId: `completion:${child!.id}`,
+            sourceAgentId: child!.id,
+            content: "All integration tests pass.",
+        });
+        const parentEvents = (await readFile(
+            join(root, "parent-events.jsonl"),
+            "utf8",
+        )).trim().split("\n").map(
+            (line) => JSON.parse(line) as { type: string },
+        );
+        expect(parentEvents.filter((event) => event.type === "model_request"))
+            .toHaveLength(2);
+        expect(parentEvents.filter(
+            (event) => event.type === "task_notification",
+        )).toHaveLength(1);
         expect(registry.list().find((agent) => agent.id === child!.id))
             .toMatchObject({ kind: "background", status: "completed" });
         expect(registry.find(child!.id)).toBeDefined();
@@ -349,4 +414,15 @@ async function waitForDelivery(
         await Bun.sleep(5);
     }
     throw new Error("Timed out waiting for background delivery");
+}
+
+async function waitForTaskNotification(
+    attachment: AgentAttachment,
+): Promise<TaskNotificationUpdate> {
+    while (true) {
+        const update = await attachment.receive();
+        if (update.type === "task_notification") {
+            return update;
+        }
+    }
 }

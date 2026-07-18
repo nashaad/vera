@@ -79,6 +79,34 @@ test("TUI applies canonical history and prompts from other clients", () => {
     ]);
 });
 
+test("TUI renders a background completion without starting a turn", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "task_notification",
+        deliveryId: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "The tests pass.",
+        seq: 1,
+    });
+
+    expect(state.working).toBe(false);
+    expect(state.entries).toEqual([{
+        kind: "notice",
+        text: "Background agent child-1 completed:\nThe tests pass.",
+    }]);
+
+    const working = applyAgentUpdate(
+        beginTuiTurn(createTuiState(), "keep working"),
+        {
+            type: "task_notification",
+            deliveryId: "completion:child-1",
+            sourceAgentId: "child-1",
+            content: "The tests pass.",
+            seq: 1,
+        },
+    );
+    expect(working.working).toBe(true);
+});
+
 test("TUI does not duplicate its optimistic user prompt", () => {
     const state = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "inspect"),

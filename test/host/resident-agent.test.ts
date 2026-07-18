@@ -68,10 +68,21 @@ test("resident agent replays a checkpoint and every later update", async () => {
 
     const third = agent.attach();
     expect(await third.receive()).toEqual(checkpoint);
-    agent.engine.send({ type: "turn_finished", seq: 3 });
-    expect(await first.receive()).toEqual({ type: "turn_finished", seq: 3 });
-    expect(await second.receive()).toEqual({ type: "turn_finished", seq: 3 });
-    expect(await third.receive()).toEqual({ type: "turn_finished", seq: 3 });
+    const notification = {
+        type: "task_notification" as const,
+        deliveryId: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "The tests pass.",
+        seq: 3,
+    };
+    agent.engine.send(notification);
+    expect(await first.receive()).toEqual(notification);
+    expect(await second.receive()).toEqual(notification);
+    expect(await third.receive()).toEqual(notification);
+
+    const fourth = agent.attach();
+    expect(await fourth.receive()).toEqual(checkpoint);
+    expect(await fourth.receive()).toEqual(notification);
 });
 
 test("resident agent bounds commands waiting for the engine", async () => {

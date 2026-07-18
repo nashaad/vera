@@ -37,6 +37,13 @@ export interface AbortRequestedEvent {
     readonly type: "abort_requested";
 }
 
+export interface TaskNotificationEvent {
+    readonly type: "task_notification";
+    readonly deliveryId: string;
+    readonly sourceAgentId: string;
+    readonly content: string;
+}
+
 export interface ToolApprovalUiRequest {
     readonly type: "tool_approval";
     readonly toolCall: HookToolCall;
@@ -138,6 +145,7 @@ export type EngineEvent =
     | TurnStartedEvent
     | PromptQueuedEvent
     | AbortRequestedEvent
+    | TaskNotificationEvent
     | UiRequestEvent
     | UiResponseEvent
     | UiRequestClosedEvent

@@ -91,6 +91,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "status") {
         return { ...state, working: update.state !== "idle" };
     }
+    if (update.type === "task_notification") {
+        return appendEntry(state, {
+            kind: "notice",
+            text: `Background agent ${update.sourceAgentId} completed:\n${update.content}`,
+        });
+    }
     if (update.type === "history") {
         return {
             ...state,

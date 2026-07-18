@@ -15,6 +15,7 @@ import {
     createStdioApprovalResponse,
     renderStdioApproval,
 } from "./approval.ts";
+import { renderStdioTaskNotification } from "./notification.ts";
 
 interface StdioLineInput {
     readonly type: "line";
@@ -83,6 +84,10 @@ try {
 
             if (update.type === "assistant_delta") {
                 stdout.write(update.text);
+            }
+
+            if (update.type === "task_notification") {
+                stdout.write(renderStdioTaskNotification(update));
             }
 
             if (update.type === "ui_request") {

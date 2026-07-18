@@ -87,6 +87,14 @@ export interface StatusUpdate {
     readonly seq: number;
 }
 
+export interface TaskNotificationUpdate {
+    readonly type: "task_notification";
+    readonly deliveryId: string;
+    readonly sourceAgentId: string;
+    readonly content: string;
+    readonly seq: number;
+}
+
 export interface UiRequestUpdate {
     readonly type: "ui_request";
     readonly requestId: string;
@@ -108,6 +116,7 @@ export type AgentUpdate =
     | ToolFinishedUpdate
     | TurnFinishedUpdate
     | StatusUpdate
+    | TaskNotificationUpdate
     | UiRequestUpdate
     | UiRequestClosedUpdate;
 
@@ -130,6 +139,17 @@ export function createProtocolEncoder(
             sender.send({
                 type: "user_prompt",
                 content: textContent(event.message.content),
+                seq,
+            });
+            return;
+        }
+        if (event.type === "task_notification") {
+            seq += 1;
+            sender.send({
+                type: "task_notification",
+                deliveryId: event.deliveryId,
+                sourceAgentId: event.sourceAgentId,
+                content: event.content,
                 seq,
             });
             return;

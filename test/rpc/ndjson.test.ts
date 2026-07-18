@@ -30,6 +30,29 @@ test("NDJSON parses a typed UI response", async () => {
     expect(await endpoint.receive()).toEqual(frame);
 });
 
+test("NDJSON writes task notifications as ordinary agent updates", () => {
+    let output = "";
+    const endpoint = createNdjsonEngineEndpoint(
+        Readable.from([]),
+        { write: (text) => output += text },
+    );
+    endpoint.send({
+        type: "task_notification",
+        deliveryId: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "The tests pass.",
+        seq: 7,
+    });
+
+    expect(JSON.parse(output)).toEqual({
+        type: "task_notification",
+        deliveryId: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "The tests pass.",
+        seq: 7,
+    });
+});
+
 test("NDJSON frames stream and abort across a process boundary", async () => {
     const child = Bun.spawn(
         [process.execPath, "test/support/ndjson-child.ts"],
