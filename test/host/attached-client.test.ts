@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import {
     AgentAttachError,
     attachAgent,
+    type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
@@ -74,6 +76,48 @@ afterEach(() => {
             expect(agent.closed).toBe(false);
         } finally {
             client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "two socket clients receive the same resident update stream",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const first = await attachAgent({ socketPath, agentId: agent.id });
+        const second = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            expect(await first.receive()).toEqual(await second.receive());
+            await first.send({ type: "prompt", content: "hello" });
+            expect(await agent.engine.receive()).toEqual({
+                type: "prompt",
+                content: "hello",
+            });
+            const updates = [
+                { type: "user_prompt" as const, content: "hello", seq: 1 },
+                { type: "assistant_delta" as const, text: "hi", seq: 2 },
+                { type: "turn_finished" as const, seq: 3 },
+            ];
+            for (const update of updates) {
+                agent.engine.send(update);
+            }
+
+            const firstUpdates = await receiveUpdates(first, updates.length);
+            const secondUpdates = await receiveUpdates(second, updates.length);
+            expect(firstUpdates).toEqual(updates);
+            expect(secondUpdates).toEqual(firstUpdates);
+        } finally {
+            first.close();
+            second.close();
             agent.close();
             await server.close();
         }
@@ -156,4 +200,15 @@ function temporaryDirectory(): string {
     const directory = mkdtempSync(join("/private/tmp", "vera-attached-client-"));
     temporaryDirectories.push(directory);
     return directory;
+}
+
+async function receiveUpdates(
+    client: AttachedAgentClient,
+    count: number,
+): Promise<AgentUpdate[]> {
+    const updates: AgentUpdate[] = [];
+    while (updates.length < count) {
+        updates.push(await client.receive());
+    }
+    return updates;
 }

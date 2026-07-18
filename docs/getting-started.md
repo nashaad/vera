@@ -17,7 +17,7 @@ No API key or Codex CLI is required.
 Sign in:
 
 ```sh
-bun run src/cli.ts login openai-codex
+bun run clients/cli/main.ts login openai-codex
 ```
 
 Complete sign-in in the browser. Vera stores credentials in

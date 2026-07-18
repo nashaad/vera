@@ -19,6 +19,7 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
+import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import {
     type AgentAttachment,
     ResidentAgent,
@@ -292,14 +293,11 @@ export class AgentRegistry {
             sourceAgentId: childId,
             content,
         };
-        const recorded = await parentStore.recordDelivery(delivery);
-        if (recorded) {
-            this.agents.get(parentStore.header.id)?.events.emit({
-                type: "task_notification",
-                deliveryId: delivery.id,
-                sourceAgentId: delivery.sourceAgentId,
-                content: delivery.content,
-            });
+        const parentEvents = this.agents.get(parentStore.header.id)?.events;
+        if (parentEvents === undefined) {
+            await parentStore.recordDelivery(delivery);
+        } else {
+            await recordDeliveryAndNotify(parentStore, parentEvents, delivery);
         }
         const entry = this.agents.get(childId);
         if (entry !== undefined && entry.failure === undefined) {
