@@ -50,6 +50,26 @@ test("vera rpc starts the NDJSON bridge", async () => {
     expect(started).toBe(true);
 });
 
+test("vera send runs one prompt through a resident agent", async () => {
+    const sent: string[][] = [];
+    let output = "";
+
+    const exitCode = await runCli(
+        ["send", "agent-1", "check", "the", "tests"],
+        {
+            sendPrompt: async (agentId, content) => {
+                sent.push([agentId, content]);
+                return "The tests pass.";
+            },
+            stdout: { write: (text) => output += text },
+        },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(sent).toEqual([["agent-1", "check the tests"]]);
+    expect(output).toBe("The tests pass.\n");
+});
+
 test("vera interactive commands select create, attach, and resume targets", async () => {
     const targets: unknown[] = [];
     const runTui = async (target: unknown): Promise<void> => {

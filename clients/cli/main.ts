@@ -6,6 +6,7 @@ import { stderr, stdout } from "node:process";
 
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { sendPromptThroughHost } from "../../src/host/agent-send-client.ts";
 import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
@@ -17,6 +18,10 @@ interface CliOutput {
 
 export interface CliDependencies {
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly sendPrompt?: (
+        agentId: string,
+        content: string,
+    ) => Promise<string>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
@@ -65,6 +70,23 @@ export async function runCli(
         return 0;
     }
 
+    if (
+        args.length >= 3
+        && args[0] === "send"
+        && typeof args[1] === "string"
+        && args[1].length > 0
+    ) {
+        const content = args.slice(2).join(" ");
+        if (content.length > 0) {
+            const response = await (dependencies.sendPrompt ?? sendLivePrompt)(
+                args[1],
+                content,
+            );
+            output.write(`${response}\n`);
+            return 0;
+        }
+    }
+
     if (args.length === 1 && args[0] === "rpc") {
         await (dependencies.runRpc ?? runNdjsonProcess)();
         return 0;
@@ -88,7 +110,7 @@ export async function runCli(
     }
 
     errorOutput.write(
-        "Usage: vera [attach <agent-id>|resume <session-path>|ls|rpc|login [openai-codex]]\n",
+        "Usage: vera [attach <agent-id>|resume <session-path>|send <agent-id> <message>|ls|rpc|login [openai-codex]]\n",
     );
     return 1;
 }
@@ -125,6 +147,17 @@ async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
     return host === undefined
         ? []
         : listAgentsThroughHost(host.socket_path);
+}
+
+async function sendLivePrompt(
+    agentId: string,
+    content: string,
+): Promise<string> {
+    const host = await createHostLockfile().read();
+    if (host === undefined) {
+        throw new Error("No live Vera host");
+    }
+    return sendPromptThroughHost(host.socket_path, agentId, content);
 }
 
 async function runConfiguredTui(target: TuiStartTarget): Promise<void> {
