@@ -566,6 +566,7 @@ test("a bash tool call runs and continues the model turn", async () => {
     let postHookTool: string | undefined;
     hooks.registerPostToolUse((payload) => {
         postHookTool = payload.toolCall.name;
+        return { power: "observe" };
     });
     const state: RunTurnState = {
         messages: [],
@@ -665,6 +666,7 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
     let postHookRan = false;
     hooks.registerPostToolUse(() => {
         postHookRan = true;
+        return { power: "observe" };
     });
     const store: SessionMessageStore = {
         async appendMessage(message): Promise<void> {
@@ -735,7 +737,7 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
     const events = createTestEvents(channel.engine);
     const hooks = new ToolHooks();
     hooks.registerPreToolUse(() => ({
-        behavior: "deny",
+        power: "block",
         reason: "blocked by test",
     }));
     const state: RunTurnState = {
@@ -773,6 +775,413 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
         content: [{ type: "text", text: "blocked by test" }],
         isError: true,
     });
+});
+
+test("a pre-tool mutation becomes the validated and durable tool call", async () => {
+    const originalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "printf original" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([originalResponse, finalResponse]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observedEvents: EngineEvent[] = [];
+    events.subscribe((event) => observedEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerPreToolUse(() => ({
+        power: "mutate",
+        input: { command: "printf changed" },
+    }));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "run it", 1);
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "printf changed" },
+        seq: 2,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_finished",
+        tool: "bash",
+        seq: 3,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "done",
+        seq: 4,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 5,
+    });
+    await turn;
+
+    expect(state.messages[1]).toMatchObject({
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            input: { command: "printf changed" },
+        }],
+    });
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        content: [{ type: "text", text: "changed" }],
+    });
+    expect(requests[1]?.messages[1]).toEqual(state.messages[1]);
+    expect(observedEvents).toContainEqual({
+        type: "tool_input_changed",
+        original: {
+            id: "call_1",
+            name: "bash",
+            input: { command: "printf original" },
+        },
+        effective: {
+            id: "call_1",
+            name: "bash",
+            input: { command: "printf changed" },
+        },
+    });
+});
+
+test("a pre-tool replacement returns data without executing the tool", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-replace-"));
+    temporaryWorkspaces.push(workspace);
+    const marker = join(workspace, "should-not-exist");
+    const mutatedMarker = join(workspace, "also-should-not-exist");
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: `touch ${JSON.stringify(marker)}` },
+            signature: "signature-for-original-input",
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "synthetic result received" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    hooks.registerPreToolUse(() => ({
+        power: "mutate",
+        input: { command: `touch ${JSON.stringify(mutatedMarker)}` },
+    }));
+    hooks.registerPreToolUse(() => ({
+        power: "replace",
+        result: {
+            content: [{ type: "text", text: "synthetic" }],
+            isError: false,
+        },
+    }));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+    await expectUserPrompt(channel, "run it", 1);
+    expect(await channel.client.receive()).toMatchObject({
+        type: "tool_started",
+        tool: "bash",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_finished",
+        tool: "bash",
+        seq: 3,
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "assistant_delta",
+        text: "synthetic result received",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 5,
+    });
+    await turn;
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(mutatedMarker)).toBe(false);
+    expect(state.messages[1]).toMatchObject({
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            input: { command: `touch ${JSON.stringify(mutatedMarker)}` },
+        }],
+    });
+    if (state.messages[1]?.role !== "assistant") {
+        throw new Error("Expected an assistant tool call");
+    }
+    expect(state.messages[1].content[0]).not.toHaveProperty("signature");
+    expect(state.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{ type: "text", text: "synthetic" }],
+        isError: false,
+    });
+});
+
+test("hook failures fail closed without breaking durable tool history", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "printf should-not-run" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "continued" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observedEvents: EngineEvent[] = [];
+    events.subscribe((event) => observedEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerPreToolUse(() => {
+        throw new Error("broken extension");
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+    await expectUserPrompt(channel, "run it", 1);
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "continued",
+        seq: 2,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 3,
+    });
+    await turn;
+
+    expect(state.messages[1]).toEqual(toolCallResponse);
+    expect(state.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{
+            type: "text",
+            text: "pre_tool_use hook failed: broken extension",
+        }],
+        isError: true,
+    });
+    expect(observedEvents).toContainEqual({
+        type: "tool_hook_failed",
+        phase: "pre_tool_use",
+        toolCall: {
+            id: "call_1",
+            name: "bash",
+            input: { command: "printf should-not-run" },
+        },
+        error: "broken extension",
+    });
+});
+
+test("a post-tool hook failure preserves the raw result and continues", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "printf raw" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "continued" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observedEvents: EngineEvent[] = [];
+    events.subscribe((event) => observedEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerPostToolUse(() => {
+        throw new Error("broken observer");
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+    await expectUserPrompt(channel, "run it", 1);
+    expect(await channel.client.receive()).toMatchObject({ type: "tool_started" });
+    expect(await channel.client.receive()).toMatchObject({ type: "tool_finished" });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "assistant_delta",
+        text: "continued",
+    });
+    expect(await channel.client.receive()).toMatchObject({ type: "turn_finished" });
+    await turn;
+
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        content: [{ type: "text", text: "raw" }],
+        isError: false,
+    });
+    expect(observedEvents).toContainEqual(expect.objectContaining({
+        type: "tool_hook_failed",
+        phase: "post_tool_use",
+        error: "broken observer",
+    }));
+});
+
+test("a post-tool mutation becomes the durable model-visible result", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "printf raw" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([toolCallResponse, finalResponse]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    hooks.registerPostToolUse(() => ({
+        power: "mutate",
+        patch: {
+            content: [{ type: "text", text: "redacted" }],
+            isError: true,
+        },
+    }));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "run it" });
+    const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "run it", 1);
+    expect(await channel.client.receive()).toMatchObject({ type: "tool_started" });
+    expect(await channel.client.receive()).toMatchObject({ type: "tool_finished" });
+    expect(await channel.client.receive()).toMatchObject({ type: "assistant_delta" });
+    expect(await channel.client.receive()).toMatchObject({ type: "turn_finished" });
+    await turn;
+
+    expect(state.messages[2]).toEqual({
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "bash",
+        content: [{ type: "text", text: "redacted" }],
+        isError: true,
+    });
+    expect(requests[1]?.messages[2]).toEqual(state.messages[2]);
 });
 
 test("ask mode turns a client denial into a tool result", async () => {
@@ -851,7 +1260,7 @@ test("ask mode turns a client denial into a tool result", async () => {
     });
 });
 
-test("the built-in hard deny blocks a dangerous command in full access", async () => {
+test("the built-in hard deny validates mutated input in full access", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-permission-"));
     temporaryWorkspaces.push(workspace);
     const protectedDirectory = join(workspace, "protected");
@@ -863,9 +1272,7 @@ test("the built-in hard deny blocks a dangerous command in full access", async (
                 type: "tool_call",
                 id: "call_1",
                 name: "bash",
-                input: {
-                    command: `rm -rf ${JSON.stringify(protectedDirectory)}`,
-                },
+                input: { command: "printf harmless" },
             },
         ],
         source: { provider: "faux", api: "scripted", model: "test" },
@@ -881,13 +1288,20 @@ test("the built-in hard deny blocks a dangerous command in full access", async (
     };
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    hooks.registerPreToolUse(() => ({
+        power: "mutate",
+        input: {
+            command: `rm -rf ${JSON.stringify(protectedDirectory)}`,
+        },
+    }));
     const state: RunTurnState = {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
-        hooks: new ToolHooks(),
+        hooks,
         approvalMode: "full_access",
     };
 

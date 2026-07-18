@@ -24,22 +24,53 @@ export interface HookToolResult {
     readonly isError: boolean;
 }
 
+export type HookPower = "observe" | "mutate" | "block" | "replace";
+
+export interface ObserveHookResult {
+    readonly power: "observe";
+}
+
+export interface MutateToolInputHookResult {
+    readonly power: "mutate";
+    readonly input: JsonObject;
+}
+
+export interface BlockHookResult {
+    readonly power: "block";
+    readonly reason: string;
+}
+
+export interface HookToolResultValue {
+    readonly content: readonly HookTextContent[];
+    readonly isError: boolean;
+}
+
+export interface ReplaceToolExecutionHookResult {
+    readonly power: "replace";
+    readonly result: HookToolResultValue;
+}
+
+export interface HookToolResultPatch {
+    readonly content?: readonly HookTextContent[];
+    readonly isError?: boolean;
+}
+
+export interface MutateToolResultHookResult {
+    readonly power: "mutate";
+    readonly patch: HookToolResultPatch;
+}
+
 export interface PreToolUseHookPayload {
     readonly type: "pre_tool_use";
     readonly toolCall: HookToolCall;
     readonly workspace: string;
 }
 
-export interface ContinueToolUse {
-    readonly behavior: "continue";
-}
-
-export interface DenyToolUse {
-    readonly behavior: "deny";
-    readonly reason: string;
-}
-
-export type PreToolUseHookResult = ContinueToolUse | DenyToolUse;
+export type PreToolUseHookResult =
+    | ObserveHookResult
+    | MutateToolInputHookResult
+    | BlockHookResult
+    | ReplaceToolExecutionHookResult;
 
 export interface PostToolUseHookPayload {
     readonly type: "post_tool_use";
@@ -49,10 +80,14 @@ export interface PostToolUseHookPayload {
     readonly durationMs: number;
 }
 
+export type PostToolUseHookResult =
+    | ObserveHookResult
+    | MutateToolResultHookResult;
+
 export type PreToolUseHook = (
     payload: PreToolUseHookPayload,
 ) => PreToolUseHookResult | Promise<PreToolUseHookResult>;
 
 export type PostToolUseHook = (
     payload: PostToolUseHookPayload,
-) => void | Promise<void>;
+) => PostToolUseHookResult | Promise<PostToolUseHookResult>;

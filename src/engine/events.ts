@@ -129,6 +129,31 @@ export interface ToolExecutionStartedEvent {
     readonly toolCall: ToolCallContent;
 }
 
+export interface ToolInputChangedEvent {
+    readonly type: "tool_input_changed";
+    readonly original: HookToolCall;
+    readonly effective: HookToolCall;
+}
+
+export interface ToolExecutionReplacedEvent {
+    readonly type: "tool_execution_replaced";
+    readonly toolCall: HookToolCall;
+    readonly result: ToolResultMessage;
+}
+
+export interface ToolHookFailedEvent {
+    readonly type: "tool_hook_failed";
+    readonly phase: "pre_tool_use" | "post_tool_use";
+    readonly toolCall: HookToolCall;
+    readonly error: string;
+}
+
+export interface ToolResultChangedEvent {
+    readonly type: "tool_result_changed";
+    readonly original: ToolResultMessage;
+    readonly effective: ToolResultMessage;
+}
+
 export interface ToolExecutionFinishedEvent {
     readonly type: "tool_execution_finished";
     readonly toolCall: ToolCallContent;
@@ -155,6 +180,10 @@ export type EngineEvent =
     | ModelLengthContinuationEvent
     | ModelStreamObservedEvent
     | ModelStreamErrorEvent
+    | ToolInputChangedEvent
+    | ToolExecutionReplacedEvent
+    | ToolHookFailedEvent
+    | ToolResultChangedEvent
     | ToolExecutionStartedEvent
     | ToolExecutionFinishedEvent
     | TurnFinishedEvent;
