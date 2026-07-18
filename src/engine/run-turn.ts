@@ -33,6 +33,7 @@ import type {
 import { assembleSystemPrompt } from "./assemble.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
+import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     decideToolPermission,
     type ApprovalMode,
@@ -130,6 +131,16 @@ export async function runHeadlessLoop(
         events,
         hooks: new ToolHooks(),
         approvalMode: options.approvalMode ?? "approve_for_me",
+        applyToolEffect: createSubagentEffectApplier({
+            adapter,
+            model,
+            workspace: store.header.cwd,
+            approvalMode: options.approvalMode ?? "approve_for_me",
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+            ...(options.modelFallback === undefined
+                ? {}
+                : { modelFallback: options.modelFallback }),
+        }),
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),

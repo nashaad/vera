@@ -21,6 +21,17 @@ import { createProtocolEncoder } from "./protocol.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
+import type { ApplyToolEffect } from "../tools/types.ts";
+
+export interface CreateSubagentEffectApplierOptions {
+    readonly adapter: ModelAdapter;
+    readonly model: string;
+    readonly workspace: string;
+    readonly approvalMode: ApprovalMode;
+    readonly reasoningEffort?: ModelReasoningEffort;
+    readonly modelFallback?: ModelFallbackPolicy;
+    readonly sessionPathForId?: (sessionId: string) => string;
+}
 
 export interface RunSubagentOptions {
     readonly adapter: ModelAdapter;
@@ -39,6 +50,37 @@ export interface SubagentResult {
     readonly text: string;
     readonly sessionId: string;
     readonly sessionPath: string;
+}
+
+export function createSubagentEffectApplier(
+    options: CreateSubagentEffectApplierOptions,
+): ApplyToolEffect {
+    return async (effect, signal) => {
+        const sessionId = randomUUID();
+        const result = await runSubagent({
+            adapter: options.adapter,
+            model: options.model,
+            description: effect.description,
+            workspace: options.workspace,
+            approvalMode: options.approvalMode,
+            signal,
+            sessionId,
+            ...(options.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: options.reasoningEffort }),
+            ...(options.modelFallback === undefined
+                ? {}
+                : { modelFallback: options.modelFallback }),
+            ...(options.sessionPathForId === undefined
+                ? {}
+                : { sessionPath: options.sessionPathForId(sessionId) }),
+        });
+        return {
+            kind: "output",
+            output: result.text,
+            isError: false,
+        };
+    };
 }
 
 export async function runSubagent(
