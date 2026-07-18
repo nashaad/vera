@@ -22,6 +22,7 @@ import {
     availableTools,
     executeToolHandler,
     ordinaryToolDefinitions,
+    toolMayRunInParallel,
     toolResultMessage,
 } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
@@ -271,99 +272,34 @@ export async function runTurn(
                 break;
             }
 
-            for (const block of assistantMessage.content) {
-                if (block.type === "tool_call") {
-                    const hookToolCall = {
-                        id: block.id,
-                        name: block.name,
-                        input: block.input as JsonObject,
-                    };
-                    const permission = decideToolPermission(
-                        state.approvalMode,
-                        hookToolCall,
-                        state.toolRuntime.workspace,
-                    );
-                    if (permission.behavior === "deny") {
-                        await commitMessage(state, deniedToolResult(
-                            block,
-                            permission.reason,
-                        ));
-                        continue;
-                    }
-                    if (permission.behavior === "ask") {
-                        const approval = await state.inbound.requestToolApproval(
-                            hookToolCall,
-                            permission.reason,
-                            {
-                                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
-                                signal: turn.signal,
-                            },
-                        );
-                        if (approval.behavior === "deny") {
-                            await commitMessage(state, deniedToolResult(
-                                block,
-                                approval.reason,
-                            ));
-                            continue;
-                        }
-                    }
-
-                    const decision = await state.hooks.runPreToolUse({
-                        type: "pre_tool_use",
-                        toolCall: hookToolCall,
-                        workspace: state.toolRuntime.workspace,
-                    }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
-                    if (decision.behavior === "deny") {
-                        await commitMessage(state, deniedToolResult(
-                            block,
-                            decision.reason,
-                        ));
-                        continue;
-                    }
-
-                    state.events.emit({
-                        type: "tool_execution_started",
-                        toolCall: block,
-                    });
-                    const startedAt = performance.now();
-
-                    const execution = await executeToolHandler(
-                        block,
-                        state.toolRuntime,
-                        turn.signal,
-                    );
-                    const output = await applyToolExecution(
-                        execution,
-                        state.applyToolEffect,
-                        turn.signal,
-                    );
-                    const result = toolResultMessage(block, output);
-                    const durationMs = performance.now() - startedAt;
-
-                    state.events.emit({
-                        type: "tool_execution_finished",
-                        toolCall: block,
-                        result,
-                        durationMs,
-                    });
-
-                    try {
-                        await state.hooks.runPostToolUse({
-                            type: "post_tool_use",
-                            toolCall: hookToolCall,
-                            result: {
-                                toolCallId: result.toolCallId,
-                                toolName: result.toolName,
-                                content: result.content,
-                                isError: result.isError,
-                            },
-                            workspace: state.toolRuntime.workspace,
-                            durationMs,
-                        }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
-                    } finally {
-                        await commitMessage(state, result);
-                    }
+            const toolCalls = assistantMessage.content.filter(
+                (block): block is ToolCallContent => block.type === "tool_call",
+            );
+            let toolIndex = 0;
+            while (toolIndex < toolCalls.length) {
+                const first = toolCalls[toolIndex]!;
+                if (!toolMayRunInParallel(first.name)) {
+                    await finishToolCalls(state, [
+                        executeTurnTool(state, first, turn.signal),
+                    ]);
+                    toolIndex += 1;
+                    continue;
                 }
+
+                const parallelCalls: ToolCallContent[] = [];
+                while (
+                    toolIndex < toolCalls.length
+                    && toolMayRunInParallel(toolCalls[toolIndex]!.name)
+                ) {
+                    parallelCalls.push(toolCalls[toolIndex]!);
+                    toolIndex += 1;
+                }
+                await finishToolCalls(
+                    state,
+                    parallelCalls.map((toolCall) =>
+                        executeTurnTool(state, toolCall, turn.signal)
+                    ),
+                );
             }
         }
     } finally {
@@ -372,6 +308,114 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+interface CompletedToolCall {
+    readonly result: ToolResultMessage;
+    readonly postHookFailure?: { readonly error: unknown };
+}
+
+async function executeTurnTool(
+    state: RunTurnState,
+    toolCall: ToolCallContent,
+    signal: AbortSignal,
+): Promise<CompletedToolCall> {
+    const hookToolCall = {
+        id: toolCall.id,
+        name: toolCall.name,
+        input: toolCall.input as JsonObject,
+    };
+    const permission = decideToolPermission(
+        state.approvalMode,
+        hookToolCall,
+        state.toolRuntime.workspace,
+    );
+    if (permission.behavior === "deny") {
+        return { result: deniedToolResult(toolCall, permission.reason) };
+    }
+    if (permission.behavior === "ask") {
+        const approval = await state.inbound.requestToolApproval(
+            hookToolCall,
+            permission.reason,
+            { timeoutMs: TOOL_APPROVAL_TIMEOUT_MS, signal },
+        );
+        if (approval.behavior === "deny") {
+            return { result: deniedToolResult(toolCall, approval.reason) };
+        }
+    }
+
+    const decision = await state.hooks.runPreToolUse({
+        type: "pre_tool_use",
+        toolCall: hookToolCall,
+        workspace: state.toolRuntime.workspace,
+    }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
+    if (decision.behavior === "deny") {
+        return { result: deniedToolResult(toolCall, decision.reason) };
+    }
+
+    state.events.emit({ type: "tool_execution_started", toolCall });
+    const startedAt = performance.now();
+    const execution = await executeToolHandler(
+        toolCall,
+        state.toolRuntime,
+        signal,
+    );
+    const output = await applyToolExecution(
+        execution,
+        state.applyToolEffect,
+        signal,
+    );
+    const result = toolResultMessage(toolCall, output);
+    const durationMs = performance.now() - startedAt;
+    state.events.emit({
+        type: "tool_execution_finished",
+        toolCall,
+        result,
+        durationMs,
+    });
+
+    try {
+        await state.hooks.runPostToolUse({
+            type: "post_tool_use",
+            toolCall: hookToolCall,
+            result: {
+                toolCallId: result.toolCallId,
+                toolName: result.toolName,
+                content: result.content,
+                isError: result.isError,
+            },
+            workspace: state.toolRuntime.workspace,
+            durationMs,
+        }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
+        return { result };
+    } catch (postHookError) {
+        return { result, postHookFailure: { error: postHookError } };
+    }
+}
+
+async function finishToolCalls(
+    state: RunTurnState,
+    pending: readonly Promise<CompletedToolCall>[],
+): Promise<void> {
+    const settled = await Promise.allSettled(pending);
+    const completed = settled.flatMap((toolCall) =>
+        toolCall.status === "fulfilled" ? [toolCall.value] : []
+    );
+    for (const toolCall of completed) {
+        await commitMessage(state, toolCall.result);
+    }
+    const rejected = settled.find(
+        (toolCall) => toolCall.status === "rejected",
+    );
+    if (rejected?.status === "rejected") {
+        throw rejected.reason;
+    }
+    const failedHook = completed.find(
+        (toolCall) => toolCall.postHookFailure !== undefined,
+    );
+    if (failedHook?.postHookFailure !== undefined) {
+        throw failedHook.postHookFailure.error;
+    }
 }
 
 async function applyToolExecution(
