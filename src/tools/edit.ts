@@ -72,6 +72,7 @@ async function editFileInWorkspace(
         await Bun.write(path, editedContent);
         runtime.recordFileSnapshot(path, editedContent);
         return {
+            kind: "output",
             output: `Applied ${edits.length} edit${edits.length === 1 ? "" : "s"} to ${requestedPath}`,
             isError: false,
         };

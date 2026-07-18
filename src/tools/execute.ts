@@ -36,6 +36,11 @@ export async function executeToolCall(
         try {
             signal.throwIfAborted();
             const result = await tool.execute(toolCall.input, runtime, signal);
+            if (result.kind === "effect") {
+                throw new Error(
+                    `Tool effect is not connected to the engine: ${result.effect.type}`,
+                );
+            }
             output = result.output;
             isError = result.isError;
         } catch (error) {
