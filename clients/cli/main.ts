@@ -9,6 +9,7 @@ import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
+import type { TuiStartTarget } from "../tui/main.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -19,6 +20,7 @@ export interface CliDependencies {
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
+    readonly runTui?: (target: TuiStartTarget) => Promise<void>;
     readonly runOpenAICodexLogin?: (
         onAuthorizationUrl: (url: string) => void,
     ) => Promise<void>;
@@ -30,6 +32,32 @@ export async function runCli(
 ): Promise<number> {
     const output = dependencies.stdout ?? stdout;
     const errorOutput = dependencies.stderr ?? stderr;
+    const runTui = dependencies.runTui ?? runConfiguredTui;
+
+    if (args.length === 0) {
+        await runTui({ type: "create", workspace: process.cwd() });
+        return 0;
+    }
+
+    if (
+        args.length === 2
+        && args[0] === "attach"
+        && typeof args[1] === "string"
+        && args[1].length > 0
+    ) {
+        await runTui({ type: "attach", agentId: args[1] });
+        return 0;
+    }
+
+    if (
+        args.length === 2
+        && args[0] === "resume"
+        && typeof args[1] === "string"
+        && args[1].length > 0
+    ) {
+        await runTui({ type: "resume", sessionPath: args[1] });
+        return 0;
+    }
 
     if (args.length === 1 && args[0] === "ls") {
         const agents = await (dependencies.listAgents ?? listLiveAgents)();
@@ -59,7 +87,9 @@ export async function runCli(
         return 0;
     }
 
-    errorOutput.write("Usage: vera <ls|rpc|login [openai-codex]>\n");
+    errorOutput.write(
+        "Usage: vera [attach <agent-id>|resume <session-path>|ls|rpc|login [openai-codex]]\n",
+    );
     return 1;
 }
 
@@ -94,6 +124,11 @@ async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
     return host === undefined
         ? []
         : listAgentsThroughHost(host.socket_path);
+}
+
+async function runConfiguredTui(target: TuiStartTarget): Promise<void> {
+    const { startConfiguredTui } = await import("../tui/main.ts");
+    await startConfiguredTui(target);
 }
 
 if (import.meta.main) {
