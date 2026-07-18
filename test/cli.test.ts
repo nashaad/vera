@@ -1,51 +1,36 @@
 import { expect, test } from "bun:test";
 
 import { runCli } from "../clients/cli/main.ts";
-import type {
-    InstanceDirectory,
-    InstanceRecord,
-} from "../src/instances/directory.ts";
+import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 
-test("vera ls renders two concurrent live instances", async () => {
-    const records: InstanceRecord[] = [
+test("vera ls renders resident agents from the host", async () => {
+    const agents: RegisteredAgentSummary[] = [
         {
-            schema_version: 1,
-            instance_id: "instance-a",
-            pid: 101,
-            client: "stdio",
-            workspace_path: "/work/alpha",
-            started_at: "2026-07-15T14:00:00.000Z",
+            id: "agent-a",
+            workspace: "/work/alpha",
+            session_path: "/sessions/agent-a.jsonl",
+            status: "working",
         },
         {
-            schema_version: 1,
-            instance_id: "instance-b",
-            pid: 202,
-            client: "tui",
-            workspace_path: "/work/beta",
-            started_at: "2026-07-15T14:01:00.000Z",
+            id: "agent-b",
+            workspace: "/work/beta",
+            session_path: "/sessions/agent-b.jsonl",
+            status: "waiting",
         },
     ];
-    const instances: InstanceDirectory = {
-        register: () => {
-            throw new Error("not used");
-        },
-        list: () => records,
-    };
     let output = "";
 
     const exitCode = await runCli(["ls"], {
-        instances,
+        listAgents: async () => agents,
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(0);
-    expect(output).toContain("PID  CLIENT  STARTED");
-    expect(output).toContain("101  stdio");
+    expect(output).toContain("STATUS   WORKSPACE");
+    expect(output).toContain("working  /work/alpha  agent-a");
     expect(output).toContain("/work/alpha");
-    expect(output).toContain("instance-a");
-    expect(output).toContain("202  tui");
-    expect(output).toContain("/work/beta");
-    expect(output).toContain("instance-b");
+    expect(output).toContain("/sessions/agent-a.jsonl");
+    expect(output).toContain("waiting  /work/beta");
 });
 
 test("vera rpc starts the NDJSON bridge", async () => {

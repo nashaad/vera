@@ -4,11 +4,9 @@
 
 import { stderr, stdout } from "node:process";
 
-import {
-    createInstanceDirectory,
-    type InstanceDirectory,
-    type InstanceRecord,
-} from "../../src/instances/directory.ts";
+import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 
@@ -17,7 +15,7 @@ interface CliOutput {
 }
 
 export interface CliDependencies {
-    readonly instances?: InstanceDirectory;
+    readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
@@ -34,8 +32,8 @@ export async function runCli(
     const errorOutput = dependencies.stderr ?? stderr;
 
     if (args.length === 1 && args[0] === "ls") {
-        const instances = dependencies.instances ?? createInstanceDirectory();
-        output.write(renderInstanceList(instances.list()));
+        const agents = await (dependencies.listAgents ?? listLiveAgents)();
+        output.write(renderAgentList(agents));
         return 0;
     }
 
@@ -65,19 +63,20 @@ export async function runCli(
     return 1;
 }
 
-export function renderInstanceList(records: readonly InstanceRecord[]): string {
-    if (records.length === 0) {
-        return "No live Vera instances.\n";
+export function renderAgentList(
+    agents: readonly RegisteredAgentSummary[],
+): string {
+    if (agents.length === 0) {
+        return "No live Vera agents.\n";
     }
 
-    const rows = records.map((record) => [
-        String(record.pid),
-        record.client,
-        record.started_at,
-        record.workspace_path,
-        record.instance_id,
+    const rows = agents.map((agent) => [
+        agent.status,
+        agent.workspace,
+        agent.id,
+        agent.session_path,
     ]);
-    const headings = ["PID", "CLIENT", "STARTED", "WORKSPACE", "INSTANCE"];
+    const headings = ["STATUS", "WORKSPACE", "AGENT", "SESSION"];
     const widths = headings.map((heading, index) =>
         Math.max(heading.length, ...rows.map((row) => row[index]?.length ?? 0))
     );
@@ -88,6 +87,13 @@ export function renderInstanceList(records: readonly InstanceRecord[]): string {
             .join("  ")
             .trimEnd())
         .join("\n") + "\n";
+}
+
+async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
+    const host = await createHostLockfile().read();
+    return host === undefined
+        ? []
+        : listAgentsThroughHost(host.socket_path);
 }
 
 if (import.meta.main) {
