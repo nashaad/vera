@@ -54,6 +54,20 @@ afterEach(() => {
                 text: "hi",
                 seq: 1,
             });
+            agent.engine.send({
+                type: "task_notification",
+                deliveryId: "completion:child-1",
+                sourceAgentId: "child-1",
+                content: "The tests pass.",
+                seq: 2,
+            });
+            expect(await client.receive()).toEqual({
+                type: "task_notification",
+                deliveryId: "completion:child-1",
+                sourceAgentId: "child-1",
+                content: "The tests pass.",
+                seq: 2,
+            });
 
             await client.detach();
             expect(client.closed).toBe(true);

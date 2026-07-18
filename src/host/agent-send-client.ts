@@ -19,6 +19,10 @@ export async function sendPromptThroughHost(
             if (update.type === "assistant_delta") {
                 response += update.text;
             }
+            if (update.type === "task_notification") {
+                // This one-shot command prints only the turn it requested.
+                continue;
+            }
             if (update.type === "ui_request") {
                 throw new Error(
                     "Agent needs interactive approval; use vera attach instead",

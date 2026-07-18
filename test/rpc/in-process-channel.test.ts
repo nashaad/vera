@@ -21,5 +21,15 @@ describe("in-process channel", () => {
 
         channel.engine.send(status);
         expect(await channel.client.receive()).toEqual(status);
+
+        const notification: AgentUpdate = {
+            type: "task_notification",
+            deliveryId: "completion:child-1",
+            sourceAgentId: "child-1",
+            content: "The tests pass.",
+            seq: 2,
+        };
+        channel.engine.send(notification);
+        expect(await channel.client.receive()).toEqual(notification);
     });
 });

@@ -40,11 +40,18 @@ async function respondToPrompt(agent: ResidentAgent): Promise<void> {
         content: "check the tests",
     });
     agent.engine.send({
-        type: "user_prompt",
-        content: "check the tests",
+        type: "task_notification",
+        deliveryId: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "Unrelated background work finished.",
         seq: 1,
     });
-    agent.engine.send({ type: "assistant_delta", text: "The tests ", seq: 2 });
-    agent.engine.send({ type: "assistant_delta", text: "pass.", seq: 3 });
-    agent.engine.send({ type: "turn_finished", seq: 4 });
+    agent.engine.send({
+        type: "user_prompt",
+        content: "check the tests",
+        seq: 2,
+    });
+    agent.engine.send({ type: "assistant_delta", text: "The tests ", seq: 3 });
+    agent.engine.send({ type: "assistant_delta", text: "pass.", seq: 4 });
+    agent.engine.send({ type: "turn_finished", seq: 5 });
 }

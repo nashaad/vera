@@ -113,3 +113,31 @@ test("protocol checkpoints keep the current update sequence", () => {
         },
     ]);
 });
+
+test("task notifications share the ordered agent update sequence", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "task_notification",
+        deliveryId: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "The tests pass.",
+    });
+    protocol.checkpoint([]);
+
+    expect(updates).toEqual([
+        {
+            type: "task_notification",
+            deliveryId: "completion:child-1",
+            sourceAgentId: "child-1",
+            content: "The tests pass.",
+            seq: 1,
+        },
+        { type: "history", entries: [], seq: 1 },
+    ]);
+});

@@ -38,6 +38,15 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "task_notification") {
+        return typeof update.deliveryId === "string"
+                && update.deliveryId.length > 0
+                && typeof update.sourceAgentId === "string"
+                && update.sourceAgentId.length > 0
+                && typeof update.content === "string"
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "ui_request_closed") {
         return typeof update.requestId === "string" ? value as AgentUpdate : undefined;
     }

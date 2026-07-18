@@ -79,6 +79,7 @@ export interface RunHeadlessLoopOptions {
     readonly sessionPath?: string;
     readonly resumeSessionPath?: string;
     readonly eventLogPath?: string;
+    readonly eventBus?: EngineEventBus;
     readonly approvalMode?: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly applyToolEffect?: ApplyToolEffect;
@@ -122,7 +123,7 @@ export async function runHeadlessLoop(
             : await SessionStore.open(options.resumeSessionPath)
     );
     const sessionId = store.header.id;
-    const events = new EngineEventBus();
+    const events = options.eventBus ?? new EngineEventBus();
     const protocol = createProtocolEncoder(endpoint);
     events.subscribe(protocol);
     events.subscribe(createJsonlEventLogger({
