@@ -17,12 +17,104 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelMessage,
     type ModelRequest,
 } from "../../src/model/types.ts";
+import { ModelEventStream } from "../../src/model/stream.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
+
+test("two real subagent effects overlap and create separate sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-siblings-"));
+    const sessionPaths: string[] = [];
+    const childRequests: ModelRequest[] = [];
+    let activeChildren = 0;
+    let maximumActiveChildren = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            childRequests.push(request);
+            const prompt = firstText(request.messages[0]);
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            activeChildren += 1;
+            maximumActiveChildren = Math.max(
+                maximumActiveChildren,
+                activeChildren,
+            );
+            void (async () => {
+                await Bun.sleep(prompt.startsWith("slow") ? 30 : 5);
+                activeChildren -= 1;
+                stream.push({
+                    type: "done",
+                    message: {
+                        role: "assistant",
+                        content: [{ type: "text", text: `${prompt} result` }],
+                        source: {
+                            provider: "faux",
+                            api: "concurrent",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "stop",
+                    },
+                });
+            })();
+            return stream;
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        model: "test",
+        workspace: root,
+        approvalMode: "approve_for_me",
+        sessionPathForId(id) {
+            const path = join(root, `${id}.jsonl`);
+            sessionPaths.push(path);
+            return path;
+        },
+    });
+    const signal = new AbortController().signal;
+
+    try {
+        const results = await Promise.all([
+            applyEffect({
+                type: "spawn_subagent",
+                description: "slow child",
+            }, signal),
+            applyEffect({
+                type: "spawn_subagent",
+                description: "fast child",
+            }, signal),
+        ]);
+
+        expect(maximumActiveChildren).toBe(2);
+        expect(results.map((result) => result.output)).toEqual([
+            "slow child result",
+            "fast child result",
+        ]);
+        expect(sessionPaths).toHaveLength(2);
+        const childPrompts: string[] = [];
+        for (const path of sessionPaths) {
+            const messages = (await SessionStore.open(path)).messages();
+            childPrompts.push(firstText(messages[0]));
+        }
+        expect(childPrompts.sort()).toEqual(["fast child", "slow child"]);
+        for (const request of childRequests) {
+            expect(request.tools?.map((tool) => tool.name)).not.toContain(
+                "subagent",
+            );
+        }
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+function firstText(message: ModelMessage | undefined): string {
+    const block = message?.content[0];
+    return block?.type === "text" ? block.text : "";
+}
 
 test("parent receives the real child final text as its tool result", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-parent-"));
