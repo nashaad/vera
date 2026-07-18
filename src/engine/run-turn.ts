@@ -49,6 +49,8 @@ import {
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionDeliveryEntry,
+    type SessionDeliveryInbox,
     type SessionMessageStore,
 } from "../store/session-store.ts";
 
@@ -59,6 +61,7 @@ const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
+    readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
     readonly inbound: InboundCommandRouter;
     readonly events: EngineEventBus;
@@ -127,6 +130,7 @@ export async function runHeadlessLoop(
     const state: RunTurnState = {
         messages: [...store.messages()],
         store,
+        deliveryInbox: store,
         toolRuntime: new ToolRuntime(store.header.cwd),
         inbound,
         events,
@@ -170,6 +174,7 @@ export async function runTurn(
         : availableTools;
 
     try {
+        await drainPendingDeliveries(state);
         const userMessage: UserMessage = {
             role: "user",
             content: [{ type: "text", text: turn.prompt.content }],
@@ -308,6 +313,46 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
+    const inbox = state.deliveryInbox;
+    if (inbox === undefined) {
+        return;
+    }
+    for (const delivery of inbox.pendingDeliveries()) {
+        await commitMessage(state, deliveryMessage(delivery));
+        if (!await inbox.acknowledgeDelivery(delivery.id)) {
+            throw new Error(`Pending delivery ${delivery.id} was not acknowledged`);
+        }
+    }
+}
+
+function deliveryMessage(delivery: SessionDeliveryEntry): UserMessage {
+    return {
+        role: "user",
+        internal: true,
+        content: [{
+            type: "text",
+            text: [
+                "<task_notification>",
+                `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,
+                `  <agent_id>${escapeXml(delivery.sourceAgentId)}</agent_id>`,
+                "  <status>completed</status>",
+                `  <summary>${escapeXml(delivery.content)}</summary>`,
+                "</task_notification>",
+            ].join("\n"),
+        }],
+    };
+}
+
+function escapeXml(value: string): string {
+    return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&apos;");
 }
 
 interface CompletedToolCall {

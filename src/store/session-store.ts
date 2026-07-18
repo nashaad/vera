@@ -61,6 +61,11 @@ export interface SessionMessageStore {
     appendMessage(message: ModelMessage): Promise<unknown>;
 }
 
+export interface SessionDeliveryInbox {
+    pendingDeliveries(): readonly SessionDeliveryEntry[];
+    acknowledgeDelivery(deliveryId: string): Promise<boolean>;
+}
+
 interface LoadedSessionFile {
     readonly header: SessionHeader;
     readonly messageEntries: SessionMessageEntry[];
