@@ -136,10 +136,10 @@ export class AgentRegistry {
                 kind: entry.kind,
                 status: entry.failure !== undefined
                     ? "failed" as const
-                    : entry.completed
-                        ? "completed" as const
-                        : entry.agent.closed
-                            ? "closed" as const
+                    : entry.agent.closed
+                        ? "closed" as const
+                        : entry.completed && entry.agent.status === "idle"
+                            ? "completed" as const
                             : entry.agent.status,
             }))
             .sort((left, right) => left.id.localeCompare(right.id));
@@ -283,7 +283,6 @@ export class AgentRegistry {
         const entry = this.agents.get(childId);
         if (entry !== undefined && entry.failure === undefined) {
             entry.completed = true;
-            entry.agent.close();
         }
     }
 

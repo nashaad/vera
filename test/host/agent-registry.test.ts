@@ -146,10 +146,10 @@ test("a background agent returns immediately and delivers its final summary", as
                     textResponse("I started the background work."),
                 ]);
             }
-            return new FauxAdapter(
-                [textResponse("All integration tests pass.")],
-                { delayMs: 100 },
-            );
+            return new FauxAdapter([
+                textResponse("All integration tests pass."),
+                textResponse("The focused tests pass too."),
+            ], { delayMs: 100 });
         },
         model: "faux/test",
         approvalMode: "approve_for_me",
@@ -191,7 +191,7 @@ test("a background agent returns immediately and delivers its final summary", as
         });
         expect(registry.list().find((agent) => agent.id === child!.id))
             .toMatchObject({ kind: "background", status: "completed" });
-        expect(registry.find(child!.id)).toBeUndefined();
+        expect(registry.find(child!.id)).toBeDefined();
         const childStore = await SessionStore.open(child!.session_path);
         expect(childStore.messages()).toEqual([
             {
@@ -203,6 +203,12 @@ test("a background agent returns immediately and delivers its final summary", as
             },
             textResponse("All integration tests pass."),
         ]);
+        await runPrompt(
+            registry.find(child!.id)!.attach(),
+            "Run the focused tests",
+        );
+        expect(registry.list().find((agent) => agent.id === child!.id))
+            .toMatchObject({ kind: "background", status: "completed" });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
