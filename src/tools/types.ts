@@ -12,7 +12,12 @@ export interface SpawnSubagentEffect {
     readonly description: string;
 }
 
-export type ToolEffect = SpawnSubagentEffect;
+export interface SpawnBackgroundAgentEffect {
+    readonly type: "spawn_background_agent";
+    readonly description: string;
+}
+
+export type ToolEffect = SpawnSubagentEffect | SpawnBackgroundAgentEffect;
 
 export interface ToolEffectRequest {
     readonly kind: "effect";

@@ -56,6 +56,9 @@ export function createSubagentEffectApplier(
     options: CreateSubagentEffectApplierOptions,
 ): ApplyToolEffect {
     return async (effect, signal) => {
+        if (effect.type !== "spawn_subagent") {
+            throw new Error(`Unsupported subagent effect: ${effect.type}`);
+        }
         const sessionId = randomUUID();
         const result = await runSubagent({
             adapter: options.adapter,
