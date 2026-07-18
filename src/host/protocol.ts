@@ -1,6 +1,7 @@
 import { createConnection, type Socket } from "node:net";
 
 import type { ClientCommand } from "../engine/protocol.ts";
+import type { RegisteredAgentSummary } from "./agent-registry.ts";
 
 export interface HostIdentity {
     readonly pid: number;
@@ -9,6 +10,10 @@ export interface HostIdentity {
 
 export interface HostIdentityRequest {
     readonly type: "host_identity";
+}
+
+export interface ListAgentsRequest {
+    readonly type: "list_agents";
 }
 
 export interface HostIdentityResponse {
@@ -42,10 +47,19 @@ export interface DetachedResponse {
     readonly type: "detached";
 }
 
-export type HostRequest = HostIdentityRequest | AttachRequest;
+export interface AgentListResponse {
+    readonly type: "agent_list";
+    readonly agents: readonly RegisteredAgentSummary[];
+}
+
+export type HostRequest =
+    | HostIdentityRequest
+    | ListAgentsRequest
+    | AttachRequest;
 export type AttachedClientMessage = ClientCommand | DetachRequest;
 export type HostResponse =
     | HostIdentityResponse
+    | AgentListResponse
     | AttachedResponse
     | AttachFailedResponse
     | DetachedResponse;
@@ -54,6 +68,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
     if (value?.type === "host_identity") {
         return { type: "host_identity" };
+    }
+    if (value?.type === "list_agents") {
+        return { type: "list_agents" };
     }
     if (
         value?.type === "attach"

@@ -13,6 +13,7 @@ import {
     parseHostRequest,
     type HostIdentity,
 } from "./protocol.ts";
+import type { RegisteredAgentSummary } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 
 const MAX_REQUEST_BYTES = 64 * 1_024;
@@ -24,6 +25,7 @@ export interface StartHostServerOptions {
     readonly pid?: number;
     readonly startedAt?: string;
     readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
+    readonly listAgents?: () => readonly RegisteredAgentSummary[];
 }
 
 export interface HostServer {
@@ -49,6 +51,7 @@ export async function startHostServer(
             socket,
             identity,
             options.findAgent ?? (() => undefined),
+            options.listAgents ?? (() => []),
         );
     });
     await prepareSocketDirectory(socketPath);
@@ -86,6 +89,7 @@ function receiveConnection(
     socket: Socket,
     identity: HostIdentity,
     findAgent: (agentId: string) => ResidentAgent | undefined,
+    listAgents: () => readonly RegisteredAgentSummary[],
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     const deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
@@ -168,6 +172,7 @@ function receiveConnection(
     function receiveInitialRequest(line: string): void {
         const request = parseHostRequest(line);
         if (request?.type === "host_identity") {
+            clearTimeout(deadline);
             finished = true;
             void send({
                 type: "host_identity",
@@ -176,10 +181,27 @@ function receiveConnection(
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (request?.type === "list_agents") {
+            clearTimeout(deadline);
+            let agents: readonly RegisteredAgentSummary[];
+            try {
+                agents = listAgents();
+            } catch {
+                socket.destroy();
+                return;
+            }
+            finished = true;
+            void send({ type: "agent_list", agents }).then(
+                () => socket.end(),
+                () => socket.destroy(),
+            );
+            return;
+        }
         if (request?.type !== "attach") {
             socket.destroy();
             return;
         }
+        clearTimeout(deadline);
 
         let agent: ResidentAgent | undefined;
         try {
@@ -207,8 +229,6 @@ function receiveConnection(
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
-
-        clearTimeout(deadline);
         let attached: AgentAttachment;
         try {
             attached = agent.attach();

@@ -14,6 +14,9 @@ test("host protocol parses identity requests and encodes responses", () => {
     expect(parseHostRequest('{"type":"host_identity"}')).toEqual({
         type: "host_identity",
     });
+    expect(parseHostRequest('{"type":"list_agents"}')).toEqual({
+        type: "list_agents",
+    });
     expect(parseHostRequest('{"type":"attach","agent_id":"agent-1"}'))
         .toEqual({ type: "attach", agent_id: "agent-1" });
     expect(parseHostRequest('{"type":"attach","agent_id":""}'))
@@ -27,6 +30,20 @@ test("host protocol parses identity requests and encodes responses", () => {
     })).toBe(
         '{"type":"host_identity","pid":101,'
         + '"started_at":"2026-07-17T12:00:00.000Z"}\n',
+    );
+    expect(encodeHostResponse({
+        type: "agent_list",
+        agents: [{
+            id: "agent-1",
+            workspace: "/work/one",
+            session_path: "/sessions/agent-1.jsonl",
+            status: "working",
+        }],
+    })).toBe(
+        '{"type":"agent_list","agents":[{"id":"agent-1",'
+        + '"workspace":"/work/one",'
+        + '"session_path":"/sessions/agent-1.jsonl",'
+        + '"status":"working"}]}\n',
     );
 });
 
