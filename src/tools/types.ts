@@ -37,6 +37,7 @@ export type ToolExecutionResult = ToolOutput | ToolEffectRequest;
 export interface RegisteredTool {
     readonly definition: ModelTool;
     readonly parallel?: boolean;
+    readonly effectType?: ToolEffect["type"];
     execute(
         input: Readonly<Record<string, unknown>>,
         context: ToolRuntime,

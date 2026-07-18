@@ -19,9 +19,8 @@ import {
     defaultEventLogPath,
 } from "./events.ts";
 import {
-    availableTools,
     executeToolHandler,
-    ordinaryToolDefinitions,
+    toolDefinitionsForEffects,
     toolMayRunInParallel,
     toolResultMessage,
 } from "../tools/execute.ts";
@@ -29,6 +28,7 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import type {
     ApplyToolEffect,
     ToolExecutionResult,
+    ToolEffect,
     ToolOutput,
 } from "../tools/types.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
@@ -68,6 +68,7 @@ export interface RunTurnState {
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
     readonly applyToolEffect?: ApplyToolEffect;
+    readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
 }
@@ -146,6 +147,7 @@ export async function runHeadlessLoop(
                 ? {}
                 : { modelFallback: options.modelFallback }),
         }),
+        enabledToolEffects: ["spawn_subagent"],
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
@@ -169,9 +171,11 @@ export async function runTurn(
     let activeModel = model;
     let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
     let lengthContinuations = 0;
-    const tools = state.applyToolEffect === undefined
-        ? ordinaryToolDefinitions
-        : availableTools;
+    const tools = toolDefinitionsForEffects(
+        state.applyToolEffect === undefined
+            ? []
+            : state.enabledToolEffects ?? [],
+    );
 
     try {
         await drainPendingDeliveries(state);

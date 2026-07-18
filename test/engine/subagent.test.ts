@@ -157,6 +157,7 @@ test("parent receives the real child final text as its tool result", async () =>
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
+        enabledToolEffects: ["spawn_subagent"],
         applyToolEffect: createSubagentEffectApplier({
             adapter,
             model: "test",
