@@ -19,6 +19,11 @@ export interface ToolEffectRequest {
     readonly effect: ToolEffect;
 }
 
+export type ApplyToolEffect = (
+    effect: ToolEffect,
+    signal: AbortSignal,
+) => Promise<ToolOutput>;
+
 // Tools either finish with text or ask the engine owner to apply an effect.
 // Effects stay plain data: live loops, stores, and AbortControllers never cross
 // this boundary.

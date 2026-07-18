@@ -18,8 +18,18 @@ import {
     createJsonlEventLogger,
     defaultEventLogPath,
 } from "./events.ts";
-import { availableTools, executeToolCall } from "../tools/execute.ts";
+import {
+    availableTools,
+    executeToolHandler,
+    ordinaryToolDefinitions,
+    toolResultMessage,
+} from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
+import type {
+    ApplyToolEffect,
+    ToolExecutionResult,
+    ToolOutput,
+} from "../tools/types.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
@@ -52,6 +62,7 @@ export interface RunTurnState {
     readonly events: EngineEventBus;
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
+    readonly applyToolEffect?: ApplyToolEffect;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
 }
@@ -142,6 +153,9 @@ export async function runTurn(
     let activeModel = model;
     let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
     let lengthContinuations = 0;
+    const tools = state.applyToolEffect === undefined
+        ? ordinaryToolDefinitions
+        : availableTools;
 
     try {
         const userMessage: UserMessage = {
@@ -153,7 +167,7 @@ export async function runTurn(
 
         while (true) {
             const systemPrompt = assembleSystemPrompt({
-                tools: availableTools,
+                tools,
                 workspace: state.toolRuntime.workspace,
                 date: new Date(),
             });
@@ -163,7 +177,7 @@ export async function runTurn(
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
                 systemPrompt,
                 messages: state.messages.slice(),
-                tools: availableTools,
+                tools,
                 signal: turn.signal,
             };
             state.events.emit({
@@ -302,11 +316,17 @@ export async function runTurn(
                     });
                     const startedAt = performance.now();
 
-                    const result = await executeToolCall(
+                    const execution = await executeToolHandler(
                         block,
                         state.toolRuntime,
                         turn.signal,
                     );
+                    const output = await applyToolExecution(
+                        execution,
+                        state.applyToolEffect,
+                        turn.signal,
+                    );
+                    const result = toolResultMessage(block, output);
                     const durationMs = performance.now() - startedAt;
 
                     state.events.emit({
@@ -341,6 +361,33 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+async function applyToolExecution(
+    execution: ToolExecutionResult,
+    applyEffect: ApplyToolEffect | undefined,
+    signal: AbortSignal,
+): Promise<ToolOutput> {
+    if (execution.kind === "output") {
+        return execution;
+    }
+    if (applyEffect === undefined) {
+        return {
+            kind: "output",
+            output: "Tool effects are not enabled in this agent",
+            isError: true,
+        };
+    }
+    try {
+        signal.throwIfAborted();
+        return await applyEffect(execution.effect, signal);
+    } catch (error) {
+        return {
+            kind: "output",
+            output: error instanceof Error ? error.message : String(error),
+            isError: true,
+        };
+    }
 }
 
 async function commitMessage(

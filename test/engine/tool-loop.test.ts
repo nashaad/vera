@@ -129,3 +129,78 @@ test("multiple tool calls execute sequentially in content order", async () => {
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("the turn loop applies a subagent effect and returns its text", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-subagent-loop-"));
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_subagent",
+            name: "subagent",
+            input: { description: "Trace the request path" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "The child traced it." }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([toolCallResponse, finalResponse]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        async applyToolEffect(effect) {
+            expect(effect).toEqual({
+                type: "spawn_subagent",
+                description: "Trace the request path",
+            });
+            return {
+                kind: "output",
+                output: "The socket reaches the resident agent.",
+                isError: false,
+            };
+        },
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "delegate this" });
+        const turn = runTurn(adapter, "test", state);
+        while ((await channel.client.receive()).type !== "turn_finished") {
+            // Drain protocol updates until the turn completes.
+        }
+
+        expect(await turn).toEqual(finalResponse);
+        expect(requests[0]?.tools?.map((tool) => tool.name)).toContain(
+            "subagent",
+        );
+        const result = state.messages.find(
+            (message) => message.role === "tool_result",
+        );
+        expect(result?.content[0]?.text).toBe(
+            "The socket reaches the resident agent.",
+        );
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});

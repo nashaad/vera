@@ -7,16 +7,29 @@ import { bashTool } from "./bash.ts";
 import { editTool } from "./edit.ts";
 import { readTool, writeTool } from "./files.ts";
 import type { ToolRuntime } from "./runtime.ts";
-import type { RegisteredTool } from "./types.ts";
+import { subagentTool } from "./subagent.ts";
+import type {
+    RegisteredTool,
+    ToolExecutionResult,
+    ToolOutput,
+} from "./types.ts";
 
-const registeredTools: readonly RegisteredTool[] = [
+const ordinaryTools: readonly RegisteredTool[] = [
     bashTool,
     readTool,
     writeTool,
     editTool,
 ];
+const registeredTools: readonly RegisteredTool[] = [
+    ...ordinaryTools,
+    subagentTool,
+];
 const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
+);
+
+export const ordinaryToolDefinitions: readonly ModelTool[] = ordinaryTools.map(
+    (tool) => tool.definition,
 );
 
 export const availableTools: readonly ModelTool[] = registeredTools.map(
@@ -28,32 +41,44 @@ export async function executeToolCall(
     runtime: ToolRuntime,
     signal: AbortSignal = new AbortController().signal,
 ): Promise<ToolResultMessage> {
-    const tool = toolRegistry.get(toolCall.name);
-    let output = `Unknown tool: ${toolCall.name}`;
-    let isError = true;
+    const execution = await executeToolHandler(toolCall, runtime, signal);
+    const output = execution.kind === "output"
+        ? execution
+        : errorOutput("Tool effects are not enabled in this agent");
+    return toolResultMessage(toolCall, output);
+}
 
-    if (tool !== undefined) {
-        try {
-            signal.throwIfAborted();
-            const result = await tool.execute(toolCall.input, runtime, signal);
-            if (result.kind === "effect") {
-                throw new Error(
-                    `Tool effect is not connected to the engine: ${result.effect.type}`,
-                );
-            }
-            output = result.output;
-            isError = result.isError;
-        } catch (error) {
-            output = error instanceof Error ? error.message : String(error);
-            isError = true;
-        }
+export async function executeToolHandler(
+    toolCall: ToolCallContent,
+    runtime: ToolRuntime,
+    signal: AbortSignal,
+): Promise<ToolExecutionResult> {
+    const tool = toolRegistry.get(toolCall.name);
+    if (tool === undefined) {
+        return errorOutput(`Unknown tool: ${toolCall.name}`);
     }
 
+    try {
+        signal.throwIfAborted();
+        return await tool.execute(toolCall.input, runtime, signal);
+    } catch (error) {
+        return errorOutput(error instanceof Error ? error.message : String(error));
+    }
+}
+
+export function toolResultMessage(
+    toolCall: ToolCallContent,
+    result: ToolOutput,
+): ToolResultMessage {
     return {
         role: "tool_result",
         toolCallId: toolCall.id,
         toolName: toolCall.name,
-        content: [{ type: "text", text: output }],
-        isError,
+        content: [{ type: "text", text: result.output }],
+        isError: result.isError,
     };
+}
+
+function errorOutput(output: string): ToolOutput {
+    return { kind: "output", output, isError: true };
 }
