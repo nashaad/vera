@@ -46,6 +46,22 @@ test("vera rpc starts the NDJSON bridge", async () => {
     expect(started).toBe(true);
 });
 
+test("vera interactive commands select create, attach, and resume targets", async () => {
+    const targets: unknown[] = [];
+    const runTui = async (target: unknown): Promise<void> => {
+        targets.push(target);
+    };
+
+    expect(await runCli([], { runTui })).toBe(0);
+    expect(await runCli(["attach", "agent-1"], { runTui })).toBe(0);
+    expect(await runCli(["resume", "/sessions/one.jsonl"], { runTui })).toBe(0);
+    expect(targets).toEqual([
+        { type: "create", workspace: process.cwd() },
+        { type: "attach", agentId: "agent-1" },
+        { type: "resume", sessionPath: "/sessions/one.jsonl" },
+    ]);
+});
+
 test("vera login runs OpenAI Codex OAuth and prints the authorization URL", async () => {
     let output = "";
     let loggedIn = false;

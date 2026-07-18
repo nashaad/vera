@@ -15,7 +15,10 @@ import type {
     ClientCommand,
     UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
-import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
+import {
+    createAgentThroughHost,
+    resumeAgentThroughHost,
+} from "../../src/host/agent-start-client.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import {
     resolveReasoningSelection,
@@ -67,7 +70,34 @@ export interface TuiAgentClient {
     close(): void;
 }
 
+export interface CreateTuiTarget {
+    readonly type: "create";
+    readonly workspace: string;
+}
+
+export interface AttachTuiTarget {
+    readonly type: "attach";
+    readonly agentId: string;
+}
+
+export interface ResumeTuiTarget {
+    readonly type: "resume";
+    readonly sessionPath: string;
+}
+
+export type TuiStartTarget =
+    | CreateTuiTarget
+    | AttachTuiTarget
+    | ResumeTuiTarget;
+
 if (import.meta.main) {
+    await startConfiguredTui({
+        type: "create",
+        workspace: process.cwd(),
+    });
+}
+
+export async function startConfiguredTui(target: TuiStartTarget): Promise<void> {
     const config = loadVeraConfig();
     const reasoning = config.reasoning_effort === undefined
         ? undefined
@@ -78,13 +108,20 @@ if (import.meta.main) {
         );
 
     const host = await findOrStartResidentHost();
-    const ready = await createAgentThroughHost(
-        host.socket_path,
-        process.cwd(),
-    );
+    const agentId = target.type === "create"
+        ? (await createAgentThroughHost(
+            host.socket_path,
+            target.workspace,
+        )).id
+        : target.type === "resume"
+            ? (await resumeAgentThroughHost(
+                host.socket_path,
+                target.sessionPath,
+            )).id
+            : target.agentId;
     const client = await attachAgent({
         socketPath: host.socket_path,
-        agentId: ready.id,
+        agentId,
     });
     try {
         await startTui({
