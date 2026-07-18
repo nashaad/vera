@@ -4,6 +4,7 @@
 
 import { stderr, stdout } from "node:process";
 
+import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { sendPromptThroughHost } from "../../src/host/agent-send-client.ts";
@@ -17,6 +18,7 @@ interface CliOutput {
 }
 
 export interface CliDependencies {
+    readonly abortAgent?: (agentId: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly sendPrompt?: (
         agentId: string,
@@ -87,6 +89,17 @@ export async function runCli(
         }
     }
 
+    if (
+        args.length === 2
+        && args[0] === "abort"
+        && typeof args[1] === "string"
+        && args[1].length > 0
+    ) {
+        await (dependencies.abortAgent ?? abortLiveAgent)(args[1]);
+        output.write(`Abort requested for ${args[1]}.\n`);
+        return 0;
+    }
+
     if (args.length === 1 && args[0] === "rpc") {
         await (dependencies.runRpc ?? runNdjsonProcess)();
         return 0;
@@ -110,7 +123,7 @@ export async function runCli(
     }
 
     errorOutput.write(
-        "Usage: vera [attach <agent-id>|resume <session-path>|send <agent-id> <message>|ls|rpc|login [openai-codex]]\n",
+        "Usage: vera [attach <agent-id>|resume <session-path>|send <agent-id> <message>|abort <agent-id>|ls|rpc|login [openai-codex]]\n",
     );
     return 1;
 }
@@ -158,6 +171,14 @@ async function sendLivePrompt(
         throw new Error("No live Vera host");
     }
     return sendPromptThroughHost(host.socket_path, agentId, content);
+}
+
+async function abortLiveAgent(agentId: string): Promise<void> {
+    const host = await createHostLockfile().read();
+    if (host === undefined) {
+        throw new Error("No live Vera host");
+    }
+    await abortAgentThroughHost(host.socket_path, agentId);
 }
 
 async function runConfiguredTui(target: TuiStartTarget): Promise<void> {
