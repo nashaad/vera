@@ -1,5 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync, unlinkSync } from "node:fs";
+import {
+    mkdtempSync,
+    rmSync,
+    statSync,
+    unlinkSync,
+    writeFileSync,
+} from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 
@@ -39,6 +45,72 @@ afterEach(() => {
         }
 
         expect(await lockfile.read()).toBeUndefined();
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host replaces a stale socket left by an unclean exit",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        writeFileSync(socketPath, "stale socket placeholder");
+
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+        });
+        try {
+            const connection = await connectHost({ socketPath });
+            await connection.send({ type: "host_identity" });
+            expect(await connection.receive()).toEqual({
+                type: "host_identity",
+                pid: server.identity.pid,
+                started_at: server.identity.started_at,
+            });
+            connection.close();
+        } finally {
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "two concurrent starters produce one live host",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const attempts = await Promise.allSettled([
+            startHostServer({
+                socketPath,
+                lockPath: join(directory, "first.json"),
+            }),
+            startHostServer({
+                socketPath,
+                lockPath: join(directory, "second.json"),
+            }),
+        ]);
+        const started = attempts.filter(
+            (result) => result.status === "fulfilled",
+        );
+        expect(attempts.map((result) => result.status).sort()).toEqual([
+            "fulfilled",
+            "rejected",
+        ]);
+        if (started[0]?.status !== "fulfilled") {
+            throw new Error("Expected one host to start");
+        }
+
+        try {
+            const connection = await connectHost({ socketPath });
+            await connection.send({ type: "host_identity" });
+            expect(await connection.receive()).toMatchObject({
+                type: "host_identity",
+                pid: process.pid,
+            });
+            connection.close();
+        } finally {
+            await started[0].value.close();
+        }
     },
 );
 

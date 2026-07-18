@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from "node:net";
-import { chmod, mkdir } from "node:fs/promises";
+import { chmod, mkdir, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
@@ -11,10 +11,12 @@ import {
 import {
     parseAttachedClientMessage,
     parseHostRequest,
+    requestHostIdentity,
     type HostIdentity,
 } from "./protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
+import { acquireHostStartupClaim } from "./startup-claim.ts";
 
 const MAX_REQUEST_BYTES = 64 * 1_024;
 const REQUEST_TIMEOUT_MS = 1_000;
@@ -24,6 +26,7 @@ export interface StartHostServerOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
+    readonly startupClaimPath?: string;
     readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
     readonly createAgent?: (workspace: string) => Promise<ResidentAgent>;
@@ -45,6 +48,10 @@ export async function startHostServer(
         pid: options.pid ?? process.pid,
         started_at: options.startedAt ?? currentProcessStartedAt(),
     };
+    const startupClaim = await acquireHostStartupClaim({
+        path: options.startupClaimPath ?? `${socketPath}.starting`,
+        pid: identity.pid,
+    });
     const sockets = new Set<Socket>();
     const server = createServer((socket) => {
         sockets.add(socket);
@@ -62,9 +69,9 @@ export async function startHostServer(
             )),
         );
     });
-    await prepareSocketDirectory(socketPath);
     try {
-        await listen(server, socketPath);
+        await prepareSocketDirectory(socketPath);
+        await listenAfterRemovingStaleSocket(server, socketPath);
         await chmod(socketPath, 0o600);
         const lock = await createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
@@ -72,6 +79,7 @@ export async function startHostServer(
             pid: identity.pid,
             startedAt: identity.started_at,
         }).publish();
+        await startupClaim.release();
 
         return {
             identity,
@@ -89,6 +97,11 @@ export async function startHostServer(
             socket.destroy();
         }
         await closeServer(server);
+        try {
+            await startupClaim.release();
+        } catch {
+            // Preserve the startup error after making a best-effort release.
+        }
         throw error;
     }
 }
@@ -361,6 +374,34 @@ function listen(server: Server, socketPath: string): Promise<void> {
         server.once("listening", onListening);
         server.listen(socketPath);
     });
+}
+
+async function listenAfterRemovingStaleSocket(
+    server: Server,
+    socketPath: string,
+): Promise<void> {
+    try {
+        await listen(server, socketPath);
+        return;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") {
+            throw error;
+        }
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            if (await requestHostIdentity(socketPath) !== undefined) {
+                throw error;
+            }
+        }
+    }
+
+    try {
+        await unlink(socketPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw error;
+        }
+    }
+    await listen(server, socketPath);
 }
 
 function closeServer(server: Server): Promise<void> {
