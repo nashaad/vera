@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+    AgentCommandQueueFullError,
     AgentDetachedError,
     ResidentAgent,
     ResidentAgentClosedError,
@@ -71,6 +72,27 @@ test("resident agent replays a checkpoint and every later update", async () => {
     expect(await first.receive()).toEqual({ type: "turn_finished", seq: 3 });
     expect(await second.receive()).toEqual({ type: "turn_finished", seq: 3 });
     expect(await third.receive()).toEqual({ type: "turn_finished", seq: 3 });
+});
+
+test("resident agent bounds commands waiting for the engine", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        maxPendingCommands: 1,
+    });
+    const client = agent.attach();
+    await client.receive();
+
+    client.send({ type: "prompt", content: "first" });
+    expect(() => client.send({ type: "prompt", content: "second" }))
+        .toThrow(AgentCommandQueueFullError);
+    expect(await agent.engine.receive()).toEqual({
+        type: "prompt",
+        content: "first",
+    });
+    client.send({ type: "prompt", content: "after drain" });
+    expect(await agent.engine.receive()).toEqual({
+        type: "prompt",
+        content: "after drain",
+    });
 });
 
 test("detaching one client leaves the resident agent and peers alive", async () => {

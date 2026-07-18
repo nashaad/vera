@@ -1,5 +1,7 @@
 import { createConnection, type Socket } from "node:net";
 
+import type { ClientCommand } from "../engine/protocol.ts";
+
 export interface HostIdentity {
     readonly pid: number;
     readonly started_at: string;
@@ -15,14 +17,89 @@ export interface HostIdentityResponse {
     readonly started_at: string;
 }
 
-export type HostRequest = HostIdentityRequest;
-export type HostResponse = HostIdentityResponse;
+export interface AttachRequest {
+    readonly type: "attach";
+    readonly agent_id: string;
+}
+
+export interface DetachRequest {
+    readonly type: "detach";
+}
+
+export interface AttachedResponse {
+    readonly type: "attached";
+    readonly agent_id: string;
+    readonly workspace: string;
+}
+
+export interface AttachFailedResponse {
+    readonly type: "attach_failed";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "unavailable";
+}
+
+export interface DetachedResponse {
+    readonly type: "detached";
+}
+
+export type HostRequest = HostIdentityRequest | AttachRequest;
+export type AttachedClientMessage = ClientCommand | DetachRequest;
+export type HostResponse =
+    | HostIdentityResponse
+    | AttachedResponse
+    | AttachFailedResponse
+    | DetachedResponse;
 
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
-    return value?.type === "host_identity"
-        ? { type: "host_identity" }
-        : undefined;
+    if (value?.type === "host_identity") {
+        return { type: "host_identity" };
+    }
+    if (
+        value?.type === "attach"
+        && typeof value.agent_id === "string"
+        && value.agent_id.length > 0
+    ) {
+        return { type: "attach", agent_id: value.agent_id };
+    }
+    return undefined;
+}
+
+export function parseAttachedClientMessage(
+    source: string,
+): AttachedClientMessage | undefined {
+    const value = parseJsonObject(source);
+    if (value?.type === "detach") {
+        return { type: "detach" };
+    }
+    if (value?.type === "prompt" && typeof value.content === "string") {
+        return { type: "prompt", content: value.content };
+    }
+    if (value?.type === "abort") {
+        return { type: "abort" };
+    }
+    if (
+        value?.type === "ui_response"
+        && typeof value.requestId === "string"
+        && typeof value.response === "object"
+        && value.response !== null
+    ) {
+        const response = value.response as Record<string, unknown>;
+        if (
+            response.type === "tool_approval"
+            && (response.decision === "allow" || response.decision === "deny")
+        ) {
+            return {
+                type: "ui_response",
+                requestId: value.requestId,
+                response: {
+                    type: "tool_approval",
+                    decision: response.decision,
+                },
+            };
+        }
+    }
+    return undefined;
 }
 
 export function encodeHostResponse(response: HostResponse): string {

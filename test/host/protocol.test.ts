@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
     encodeHostResponse,
+    parseAttachedClientMessage,
     parseHostRequest,
     requestHostIdentity,
 } from "../../src/host/protocol.ts";
@@ -13,6 +14,10 @@ test("host protocol parses identity requests and encodes responses", () => {
     expect(parseHostRequest('{"type":"host_identity"}')).toEqual({
         type: "host_identity",
     });
+    expect(parseHostRequest('{"type":"attach","agent_id":"agent-1"}'))
+        .toEqual({ type: "attach", agent_id: "agent-1" });
+    expect(parseHostRequest('{"type":"attach","agent_id":""}'))
+        .toBeUndefined();
     expect(parseHostRequest('{"type":"unknown"}')).toBeUndefined();
     expect(parseHostRequest("not json")).toBeUndefined();
     expect(encodeHostResponse({
@@ -23,6 +28,28 @@ test("host protocol parses identity requests and encodes responses", () => {
         '{"type":"host_identity","pid":101,'
         + '"started_at":"2026-07-17T12:00:00.000Z"}\n',
     );
+});
+
+test("host protocol parses messages after attach", () => {
+    expect(parseAttachedClientMessage(
+        '{"type":"prompt","content":"hello"}',
+    )).toEqual({ type: "prompt", content: "hello" });
+    expect(parseAttachedClientMessage('{"type":"abort"}')).toEqual({
+        type: "abort",
+    });
+    expect(parseAttachedClientMessage('{"type":"detach"}')).toEqual({
+        type: "detach",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "ui_response",
+        requestId: "request-1",
+        response: { type: "tool_approval", decision: "allow" },
+    }))).toEqual({
+        type: "ui_response",
+        requestId: "request-1",
+        response: { type: "tool_approval", decision: "allow" },
+    });
+    expect(parseAttachedClientMessage('{"type":"unknown"}')).toBeUndefined();
 });
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(

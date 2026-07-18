@@ -20,6 +20,17 @@ export class ResidentAgentClosedError extends Error {
     }
 }
 
+export class AgentCommandQueueFullError extends Error {
+    constructor() {
+        super("Resident agent command queue is full");
+        this.name = "AgentCommandQueueFullError";
+    }
+}
+
+export interface ResidentAgentOptions {
+    readonly maxPendingCommands?: number;
+}
+
 export interface AgentAttachment
     extends MessageChannel<ClientCommand, AgentUpdate> {
     detach(): void;
@@ -38,24 +49,37 @@ export class ResidentAgent {
         seq: 0,
     };
     private updatesAfterCheckpoint: AgentUpdate[] = [];
-    private closed = false;
+    private isClosed = false;
+    private pendingCommandCount = 0;
+    private readonly maxPendingCommands: number;
 
-    constructor(id: string, workspace: string) {
+    constructor(
+        id: string,
+        workspace: string,
+        options: ResidentAgentOptions = {},
+    ) {
         this.id = nonEmpty(id, "agent ID");
         this.workspace = nonEmpty(workspace, "agent workspace");
+        this.maxPendingCommands = positiveInteger(
+            options.maxPendingCommands ?? 1_024,
+            "maximum pending commands",
+        );
         this.engine = {
             send: (update): void => this.broadcast(update),
             receive: (signal): Promise<ClientCommand> => {
-                if (this.closed) {
+                if (this.isClosed) {
                     return Promise.reject(new ResidentAgentClosedError());
                 }
-                return this.inbound.receive(signal);
+                return this.inbound.receive(signal).then((command) => {
+                    this.pendingCommandCount -= 1;
+                    return command;
+                });
             },
         };
     }
 
     attach(): AgentAttachment {
-        if (this.closed) {
+        if (this.isClosed) {
             throw new ResidentAgentClosedError();
         }
 
@@ -72,16 +96,25 @@ export class ResidentAgent {
                 if (!attached) {
                     throw new AgentDetachedError();
                 }
-                if (this.closed) {
+                if (this.isClosed) {
                     throw new ResidentAgentClosedError();
                 }
-                this.inbound.push(clone(command));
+                if (this.pendingCommandCount >= this.maxPendingCommands) {
+                    throw new AgentCommandQueueFullError();
+                }
+                this.pendingCommandCount += 1;
+                try {
+                    this.inbound.push(clone(command));
+                } catch (error) {
+                    this.pendingCommandCount -= 1;
+                    throw error;
+                }
             },
             receive: (signal): Promise<AgentUpdate> => {
                 if (!attached) {
                     return Promise.reject(new AgentDetachedError());
                 }
-                if (this.closed) {
+                if (this.isClosed) {
                     return Promise.reject(new ResidentAgentClosedError());
                 }
                 return outgoing.receive(signal);
@@ -92,26 +125,29 @@ export class ResidentAgent {
                 }
                 attached = false;
                 this.attachments.delete(outgoing);
-                outgoing.fail(new AgentDetachedError());
+                outgoing.fail(new AgentDetachedError(), {
+                    discardBuffered: true,
+                });
             },
         };
     }
 
     close(): void {
-        if (this.closed) {
+        if (this.isClosed) {
             return;
         }
-        this.closed = true;
+        this.isClosed = true;
+        this.pendingCommandCount = 0;
         const error = new ResidentAgentClosedError();
-        this.inbound.fail(error);
+        this.inbound.fail(error, { discardBuffered: true });
         for (const outgoing of this.attachments) {
-            outgoing.fail(error);
+            outgoing.fail(error, { discardBuffered: true });
         }
         this.attachments.clear();
     }
 
     private broadcast(update: AgentUpdate): void {
-        if (this.closed) {
+        if (this.isClosed) {
             throw new ResidentAgentClosedError();
         }
         const snapshot = clone(update);
@@ -125,6 +161,10 @@ export class ResidentAgent {
             outgoing.push(clone(snapshot));
         }
     }
+
+    get closed(): boolean {
+        return this.isClosed;
+    }
 }
 
 function clone<T>(value: T): T {
@@ -134,6 +174,13 @@ function clone<T>(value: T): T {
 function nonEmpty(value: string, name: string): string {
     if (value.length === 0) {
         throw new Error(`${name} must not be empty`);
+    }
+    return value;
+}
+
+function positiveInteger(value: number, name: string): number {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`${name} must be a positive integer`);
     }
     return value;
 }

@@ -4,6 +4,8 @@ import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 
 import { createHostLockfile } from "../../src/host/lockfile.ts";
+import { connectHost } from "../../src/host/connection.ts";
+import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
 
 const temporaryDirectories: string[] = [];
@@ -70,6 +72,194 @@ afterEach(() => {
         }
     },
     2_000,
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host attaches a socket to one resident agent until detach",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            expect(await connection.receive()).toEqual({
+                type: "attached",
+                agent_id: agent.id,
+                workspace: "/work/one",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "history",
+                entries: [],
+                seq: 0,
+            });
+
+            await connection.send({ type: "prompt", content: "hello" });
+            expect(await agent.engine.receive()).toEqual({
+                type: "prompt",
+                content: "hello",
+            });
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "hi",
+                seq: 1,
+            });
+            expect(await connection.receive()).toEqual({
+                type: "assistant_delta",
+                text: "hi",
+                seq: 1,
+            });
+
+            await connection.send({ type: "detach" });
+            expect(await connection.receive()).toEqual({ type: "detached" });
+            connection.close();
+
+            const reattached = await connectHost({ socketPath });
+            try {
+                await reattached.send({
+                    type: "attach",
+                    agent_id: agent.id,
+                });
+                expect(await reattached.receive()).toMatchObject({
+                    type: "attached",
+                    agent_id: agent.id,
+                });
+                expect(await reattached.receive()).toEqual({
+                    type: "history",
+                    entries: [],
+                    seq: 0,
+                });
+                expect(await reattached.receive()).toEqual({
+                    type: "assistant_delta",
+                    text: "hi",
+                    seq: 1,
+                });
+            } finally {
+                reattached.close();
+            }
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host rejects an unknown agent without affecting known agents",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+        });
+        const missing = await connectHost({ socketPath });
+        try {
+            await missing.send({ type: "attach", agent_id: "missing" });
+            expect(await missing.receive()).toEqual({
+                type: "attach_failed",
+                agent_id: "missing",
+                reason: "not_found",
+            });
+            missing.close();
+
+            const known = await connectHost({ socketPath });
+            try {
+                await known.send({ type: "attach", agent_id: agent.id });
+                expect(await known.receive()).toMatchObject({
+                    type: "attached",
+                    workspace: "/work/one",
+                });
+                await known.receive();
+                await known.send({ type: "detach" });
+                expect(await known.receive()).toEqual({ type: "detached" });
+            } finally {
+                known.close();
+            }
+        } finally {
+            missing.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host reports a closed resident agent as unavailable",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        agent.close();
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            expect(await connection.receive()).toEqual({
+                type: "attach_failed",
+                agent_id: agent.id,
+                reason: "unavailable",
+            });
+            connection.close();
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host disconnects a client that fills an agent command queue",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            maxPendingCommands: 1,
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.receive();
+            await connection.receive();
+            await connection.send({ type: "prompt", content: "first" });
+            await connection.send({ type: "prompt", content: "overflow" });
+            await expect(connection.receive()).rejects.toThrow();
+
+            expect(await agent.engine.receive()).toEqual({
+                type: "prompt",
+                content: "first",
+            });
+            const survivingClient = agent.attach();
+            await survivingClient.receive();
+            survivingClient.send({ type: "prompt", content: "still alive" });
+            expect(await agent.engine.receive()).toEqual({
+                type: "prompt",
+                content: "still alive",
+            });
+            survivingClient.detach();
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
