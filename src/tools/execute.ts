@@ -10,9 +10,11 @@ import type { ToolRuntime } from "./runtime.ts";
 import { subagentTool } from "./subagent.ts";
 import type {
     RegisteredTool,
+    ToolEffect,
     ToolExecutionResult,
     ToolOutput,
 } from "./types.ts";
+import { backgroundAgentTool } from "./background-agent.ts";
 
 const ordinaryTools: readonly RegisteredTool[] = [
     bashTool,
@@ -23,18 +25,22 @@ const ordinaryTools: readonly RegisteredTool[] = [
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
     subagentTool,
+    backgroundAgentTool,
 ];
 const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
 );
 
-export const ordinaryToolDefinitions: readonly ModelTool[] = ordinaryTools.map(
-    (tool) => tool.definition,
-);
-
-export const availableTools: readonly ModelTool[] = registeredTools.map(
-    (tool) => tool.definition,
-);
+export function toolDefinitionsForEffects(
+    enabledEffects: readonly ToolEffect["type"][],
+): readonly ModelTool[] {
+    const enabled = new Set(enabledEffects);
+    return registeredTools
+        .filter((tool) =>
+            tool.effectType === undefined || enabled.has(tool.effectType)
+        )
+        .map((tool) => tool.definition);
+}
 
 export function toolMayRunInParallel(name: string): boolean {
     return toolRegistry.get(name)?.parallel === true;

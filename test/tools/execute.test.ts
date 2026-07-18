@@ -12,18 +12,28 @@ import { join } from "node:path";
 
 import type { ToolCallContent } from "../../src/model/types.ts";
 import {
-    availableTools,
     executeToolCall,
     executeToolHandler,
-    ordinaryToolDefinitions,
+    toolDefinitionsForEffects,
 } from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
 test("subagent is exposed only when the engine can apply effects", async () => {
-    expect(ordinaryToolDefinitions.map((tool) => tool.name)).not.toContain(
-        "subagent",
-    );
-    expect(availableTools.map((tool) => tool.name)).toContain("subagent");
+    const ordinary = toolDefinitionsForEffects([]).map((tool) => tool.name);
+    const withSubagent = toolDefinitionsForEffects([
+        "spawn_subagent",
+    ]).map((tool) => tool.name);
+    const withAllEffects = toolDefinitionsForEffects([
+        "spawn_subagent",
+        "spawn_background_agent",
+    ]).map((tool) => tool.name);
+
+    expect(ordinary).not.toContain("subagent");
+    expect(ordinary).not.toContain("background_agent");
+    expect(withSubagent).toContain("subagent");
+    expect(withSubagent).not.toContain("background_agent");
+    expect(withAllEffects).toContain("subagent");
+    expect(withAllEffects).toContain("background_agent");
 
     const result = await executeToolHandler(
         toolCall("call_subagent", "subagent", {

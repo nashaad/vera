@@ -170,6 +170,7 @@ test("the turn loop applies a subagent effect and returns its text", async () =>
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
+        enabledToolEffects: ["spawn_subagent"],
         async applyToolEffect(effect) {
             expect(effect).toEqual({
                 type: "spawn_subagent",
@@ -248,6 +249,7 @@ test("sibling subagents run concurrently and commit results in call order", asyn
         events,
         hooks: new ToolHooks(),
         approvalMode: "approve_for_me",
+        enabledToolEffects: ["spawn_subagent"],
         async applyToolEffect(effect) {
             activeChildren += 1;
             maximumActiveChildren = Math.max(
