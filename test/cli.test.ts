@@ -70,6 +70,22 @@ test("vera send runs one prompt through a resident agent", async () => {
     expect(output).toBe("The tests pass.\n");
 });
 
+test("vera abort requests cancellation through a resident agent", async () => {
+    const aborted: string[] = [];
+    let output = "";
+
+    const exitCode = await runCli(["abort", "agent-1"], {
+        abortAgent: async (agentId) => {
+            aborted.push(agentId);
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(aborted).toEqual(["agent-1"]);
+    expect(output).toBe("Abort requested for agent-1.\n");
+});
+
 test("vera interactive commands select create, attach, and resume targets", async () => {
     const targets: unknown[] = [];
     const runTui = async (target: unknown): Promise<void> => {
