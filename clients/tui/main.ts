@@ -318,12 +318,12 @@ export async function startTui(
     void receiveAgentUpdates();
 
     function submitPrompt(): void {
-        const prompt = composer.plainText.trim();
+        const prompt = composer.expandedText().trim();
         if (prompt.length === 0) {
             return;
         }
 
-        composer.setText("");
+        composer.clearComposer();
         state = state.working
             ? queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt);

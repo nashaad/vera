@@ -39,3 +39,45 @@ test("TUI composer edits, pastes, submits, and survives resize", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("TUI composer collapses a large paste and expands it on submit", async () => {
+    const setup = await createTestRenderer({
+        width: 80,
+        height: 8,
+        kittyKeyboard: true,
+    });
+    const pasted = [
+        "┌────────┬────────┐",
+        "│ Aspect │ Vera   │",
+        "├────────┼────────┤",
+        "│ Client │ TUI    │",
+        "└────────┴────────┘",
+    ].join("\n");
+    const submitted: string[] = [];
+    let composer: ReturnType<typeof createTuiComposer>;
+    composer = createTuiComposer(setup.renderer, () => {
+        submitted.push(composer.expandedText());
+    });
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        await setup.mockInput.typeText("compare this: ");
+        await setup.mockInput.pasteBracketedText(pasted);
+        await setup.flush();
+
+        expect(composer.plainText).toBe(
+            `compare this: [Pasted Content ${pasted.length} chars]`,
+        );
+        expect(composer.expandedText()).toBe(`compare this: ${pasted}`);
+
+        setup.mockInput.pressEnter();
+        expect(submitted).toEqual([`compare this: ${pasted}`]);
+
+        composer.clearComposer();
+        expect(composer.plainText).toBe("");
+        expect(composer.expandedText()).toBe("");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
