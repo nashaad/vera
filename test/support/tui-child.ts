@@ -1,4 +1,9 @@
-import { startTui } from "../../clients/tui/main.ts";
+import {
+    startTui,
+    type TuiAgentClient,
+} from "../../clients/tui/main.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -9,11 +14,28 @@ const responses: AssistantMessage[] = [
     response(`PARTIAL ${"x".repeat(200)} FIRST-END`),
     response("STEER WORKED"),
 ];
+const channel = createInProcessChannel();
+void runHeadlessLoop(
+    channel.engine,
+    new FauxAdapter(responses, { chunkSize: 1, delayMs: 40 }),
+    "test",
+    "high",
+    { approvalMode: "approve_for_me" },
+);
+const client: TuiAgentClient = {
+    async send(command): Promise<void> {
+        channel.client.send(command);
+    },
+    receive(signal) {
+        return channel.client.receive(signal);
+    },
+    async detach(): Promise<void> {},
+    close(): void {},
+};
 
 await startTui({
-    adapter: new FauxAdapter(responses, { chunkSize: 1, delayMs: 40 }),
+    client,
     model: "test",
-    approvalMode: "approve_for_me",
     reasoning: {
         requested: "high",
         providerEffort: "high",

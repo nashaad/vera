@@ -9,22 +9,19 @@ import {
     type Selection,
 } from "@opentui/core";
 
-import {
-    configuredModelFallback,
-    loadVeraConfig,
-} from "../../src/config.ts";
-import type { UiRequestUpdate } from "../../src/engine/protocol.ts";
-import { createInProcessChannel } from "../../src/engine/message-channel.ts";
-import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
-import type { ApprovalMode } from "../../src/engine/permissions.ts";
-import type { ModelFallbackPolicy } from "../../src/engine/recovery.ts";
-import { createInstanceDirectory } from "../../src/instances/directory.ts";
+import { loadVeraConfig } from "../../src/config.ts";
+import type {
+    AgentUpdate,
+    ClientCommand,
+    UiRequestUpdate,
+} from "../../src/engine/protocol.ts";
+import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
+import { attachAgent } from "../../src/host/attached-client.ts";
 import {
     resolveReasoningSelection,
     type ReasoningSelection,
 } from "../../src/model/reasoning-effort.ts";
-import type { ModelAdapter } from "../../src/model/types.ts";
-import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+import { findOrStartResidentHost } from "../host/launch.ts";
 import {
     applyTuiApprovalUpdate,
     createTuiApprovalResponse,
@@ -58,11 +55,16 @@ const APPROVAL_HINT = "approval required · y allow · n/esc deny · ctrl+c stop
 const COPY_NOTICE_DURATION_MS = 1_500;
 
 export interface TuiDependencies {
-    readonly adapter: ModelAdapter;
+    readonly client: TuiAgentClient;
     readonly model: string;
     readonly reasoning?: ReasoningSelection;
-    readonly approvalMode: ApprovalMode;
-    readonly modelFallback?: ModelFallbackPolicy;
+}
+
+export interface TuiAgentClient {
+    send(command: ClientCommand): Promise<void>;
+    receive(signal?: AbortSignal): Promise<AgentUpdate>;
+    detach(): Promise<void>;
+    close(): void;
 }
 
 if (import.meta.main) {
@@ -75,24 +77,34 @@ if (import.meta.main) {
             config.reasoning_effort,
         );
 
-    await startTui({
-        adapter: createConfiguredModelAdapter(config),
-        model: config.model,
-        approvalMode: config.approval_mode,
-        modelFallback: configuredModelFallback(config),
-        ...(reasoning === undefined ? {} : { reasoning }),
+    const host = await findOrStartResidentHost();
+    const ready = await createAgentThroughHost(
+        host.socket_path,
+        process.cwd(),
+    );
+    const client = await attachAgent({
+        socketPath: host.socket_path,
+        agentId: ready.id,
     });
+    try {
+        await startTui({
+            client,
+            model: config.model,
+            ...(reasoning === undefined ? {} : { reasoning }),
+        });
+    } catch (error) {
+        client.close();
+        throw error;
+    }
 }
 
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<void> {
     const {
-        adapter,
+        client,
         model,
         reasoning,
-        approvalMode,
-        modelFallback,
     } = dependencies;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
@@ -100,7 +112,6 @@ export async function startTui(
     });
     renderer.setTerminalTitle("Vera");
 
-    const channel = createInProcessChannel();
     let state = createTuiState();
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
@@ -223,14 +234,9 @@ export async function startTui(
     composer.focus();
     renderStatus();
 
-    const presence = createInstanceDirectory().register({
-        client: "tui",
-        workspacePath: process.cwd(),
-    });
-
     renderer.on(CliRenderEvents.DESTROY, () => {
         shuttingDown = true;
-        presence.remove();
+        void client.detach().catch(() => client.close());
     });
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
@@ -245,7 +251,7 @@ export async function startTui(
             if (response !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
-                channel.client.send(response);
+                sendCommand(response);
                 pendingApproval = undefined;
                 composer.focus();
                 renderState();
@@ -267,26 +273,11 @@ export async function startTui(
         }
         if (action === "abort") {
             abortRequested = true;
-            channel.client.send({ type: "abort" });
+            sendCommand({ type: "abort" });
             renderStatus();
         }
     });
 
-    void runHeadlessLoop(
-        channel.engine,
-        adapter,
-        model,
-        reasoning?.requested,
-        { approvalMode, modelFallback },
-    ).catch((error: unknown) => {
-        if (shuttingDown) {
-            return;
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        pendingApproval = undefined;
-        state = appendTuiNotice(state, `Engine error: ${message}`);
-        renderState();
-    });
     void receiveAgentUpdates();
 
     function submitPrompt(): void {
@@ -300,46 +291,64 @@ export async function startTui(
             ? queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt);
         renderState();
-        channel.client.send({ type: "prompt", content: prompt });
+        sendCommand({ type: "prompt", content: prompt });
     }
 
     async function receiveAgentUpdates(): Promise<void> {
-        while (!shuttingDown) {
-            const update = await channel.client.receive();
-            if (shuttingDown) {
-                return;
-            }
-            if (
-                update.type === "ui_request"
-                || update.type === "ui_request_closed"
-            ) {
-                const previousApproval = pendingApproval;
-                pendingApproval = applyTuiApprovalUpdate(
-                    pendingApproval,
-                    update,
-                );
-                if (pendingApproval !== undefined) {
-                    composer.blur();
-                } else if (previousApproval !== undefined) {
+        try {
+            while (!shuttingDown) {
+                const update = await client.receive();
+                if (shuttingDown) {
+                    return;
+                }
+                if (
+                    update.type === "ui_request"
+                    || update.type === "ui_request_closed"
+                ) {
+                    const previousApproval = pendingApproval;
+                    pendingApproval = applyTuiApprovalUpdate(
+                        pendingApproval,
+                        update,
+                    );
+                    if (pendingApproval !== undefined) {
+                        composer.blur();
+                    } else if (previousApproval !== undefined) {
+                        composer.focus();
+                    }
+                    if (pendingApproval !== previousApproval) {
+                        renderState();
+                    }
+                    continue;
+                }
+                state = applyAgentUpdate(state, update);
+                if (update.type === "turn_finished") {
+                    abortRequested = false;
+                    finishStreamingAssistant();
+                    state = beginNextQueuedTuiTurn(state);
+                }
+                renderState();
+
+                if (!state.working) {
                     composer.focus();
                 }
-                if (pendingApproval !== previousApproval) {
-                    renderState();
-                }
-                continue;
             }
-            state = applyAgentUpdate(state, update);
-            if (update.type === "turn_finished") {
-                abortRequested = false;
-                finishStreamingAssistant();
-                state = beginNextQueuedTuiTurn(state);
-            }
-            renderState();
-
-            if (!state.working) {
-                composer.focus();
-            }
+        } catch (error) {
+            reportConnectionError(error);
         }
+    }
+
+    function sendCommand(command: ClientCommand): void {
+        void client.send(command).catch(reportConnectionError);
+    }
+
+    function reportConnectionError(error: unknown): void {
+        if (shuttingDown) {
+            return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        pendingApproval = undefined;
+        state = appendTuiNotice(state, `Connection error: ${message}`);
+        renderState();
     }
 
     function renderState(): void {
