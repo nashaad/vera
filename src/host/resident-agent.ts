@@ -1,5 +1,6 @@
 import { AsyncQueue } from "../engine/async-queue.ts";
 import type {
+    AgentStatus,
     AgentUpdate,
     ClientCommand,
     HistoryUpdate,
@@ -49,6 +50,7 @@ export class ResidentAgent {
         seq: 0,
     };
     private updatesAfterCheckpoint: AgentUpdate[] = [];
+    private currentStatus: AgentStatus = "idle";
     private isClosed = false;
     private pendingCommandCount = 0;
     private readonly maxPendingCommands: number;
@@ -151,6 +153,17 @@ export class ResidentAgent {
             throw new ResidentAgentClosedError();
         }
         const snapshot = clone(update);
+        if (snapshot.type === "status") {
+            this.currentStatus = snapshot.state;
+        } else if (snapshot.type === "user_prompt") {
+            this.currentStatus = "working";
+        } else if (snapshot.type === "ui_request") {
+            this.currentStatus = "waiting";
+        } else if (snapshot.type === "ui_request_closed") {
+            this.currentStatus = "working";
+        } else if (snapshot.type === "turn_finished") {
+            this.currentStatus = "idle";
+        }
         if (snapshot.type === "history") {
             this.checkpoint = snapshot;
             this.updatesAfterCheckpoint = [];
@@ -164,6 +177,10 @@ export class ResidentAgent {
 
     get closed(): boolean {
         return this.isClosed;
+    }
+
+    get status(): AgentStatus {
+        return this.currentStatus;
     }
 }
 
