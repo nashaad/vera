@@ -5,15 +5,24 @@ import { defaultEventLogPath } from "../engine/events.ts";
 import type { ApprovalMode } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
+import { createSubagentEffectApplier } from "../engine/subagent.ts";
 import type {
     ModelAdapter,
     ModelReasoningEffort,
 } from "../model/types.ts";
+import type {
+    ApplyToolEffect,
+    SpawnBackgroundAgentEffect,
+    ToolOutput,
+} from "../tools/types.ts";
 import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
-import { ResidentAgent } from "./resident-agent.ts";
+import {
+    type AgentAttachment,
+    ResidentAgent,
+} from "./resident-agent.ts";
 
 export type RegisteredAgentStatus =
     | "idle"
@@ -35,6 +44,8 @@ export interface AgentRegistryOptions {
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
+    readonly sessionPathForId?: (agentId: string) => string;
+    readonly eventLogPathForId?: (agentId: string) => string;
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -59,6 +70,7 @@ interface RegisteredAgentEntry {
 export class AgentRegistry {
     private readonly agents = new Map<string, RegisteredAgentEntry>();
     private readonly startingIds = new Set<string>();
+    private readonly deliveryTasks = new Set<Promise<void>>();
     private isClosed = false;
 
     constructor(private readonly options: AgentRegistryOptions) {}
@@ -71,7 +83,9 @@ export class AgentRegistry {
         try {
             const workspace = await realpath(options.workspace);
             const store = await SessionStore.create(
-                options.sessionPath ?? defaultSessionPath(id),
+                options.sessionPath
+                    ?? this.options.sessionPathForId?.(id)
+                    ?? defaultSessionPath(id),
                 { sessionId: id, cwd: workspace },
             );
             this.requireOpen();
@@ -122,11 +136,13 @@ export class AgentRegistry {
             entry.agent.close();
         }
         await Promise.all(entries.map((entry) => entry.run));
+        await Promise.all([...this.deliveryTasks]);
     }
 
     private start(
         store: SessionStore,
-        eventLogPath = defaultEventLogPath(store.header.id),
+        eventLogPath = this.options.eventLogPathForId?.(store.header.id)
+            ?? defaultEventLogPath(store.header.id),
     ): ResidentAgent {
         const adapter = this.options.createAdapter();
         const agent = new ResidentAgent(store.header.id, store.header.cwd);
@@ -136,6 +152,22 @@ export class AgentRegistry {
             run: Promise.resolve(),
         };
         this.agents.set(agent.id, entry);
+        const applySubagentEffect = createSubagentEffectApplier({
+            adapter,
+            model: this.options.model,
+            workspace: store.header.cwd,
+            approvalMode: this.options.approvalMode,
+            ...(this.options.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: this.options.reasoningEffort }),
+            ...(this.options.modelFallback === undefined
+                ? {}
+                : { modelFallback: this.options.modelFallback }),
+        });
+        const applyToolEffect: ApplyToolEffect = (effect, signal) =>
+            effect.type === "spawn_background_agent"
+                ? this.spawnBackgroundAgent(store, effect)
+                : applySubagentEffect(effect, signal);
         entry.run = runHeadlessLoop(
             agent.engine,
             adapter,
@@ -146,6 +178,11 @@ export class AgentRegistry {
                 eventLogPath,
                 approvalMode: this.options.approvalMode,
                 modelFallback: this.options.modelFallback,
+                applyToolEffect,
+                enabledToolEffects: [
+                    "spawn_subagent",
+                    "spawn_background_agent",
+                ],
             },
         ).catch((error: unknown) => {
             if (!agent.closed) {
@@ -154,6 +191,72 @@ export class AgentRegistry {
             }
         });
         return agent;
+    }
+
+    private async spawnBackgroundAgent(
+        parentStore: SessionStore,
+        effect: SpawnBackgroundAgentEffect,
+    ): Promise<ToolOutput> {
+        const child = await this.create({ workspace: parentStore.header.cwd });
+        const attachment = child.attach();
+        try {
+            attachment.send({ type: "prompt", content: effect.description });
+        } catch (error) {
+            attachment.detach();
+            child.close();
+            throw error;
+        }
+        const deliveryTask = this.deliverBackgroundResult(
+            parentStore,
+            child.id,
+            attachment,
+        ).catch((error: unknown) => {
+            const entry = this.agents.get(child.id);
+            if (entry !== undefined) {
+                entry.failure = error;
+            }
+        });
+        this.deliveryTasks.add(deliveryTask);
+        void deliveryTask.then(() => this.deliveryTasks.delete(deliveryTask));
+        return {
+            kind: "output",
+            output: `Background agent ${child.id} started. Its final summary will arrive as a task notification.`,
+            isError: false,
+        };
+    }
+
+    private async deliverBackgroundResult(
+        parentStore: SessionStore,
+        childId: string,
+        attachment: AgentAttachment,
+    ): Promise<void> {
+        let content = "Background agent failed before producing a summary.";
+        try {
+            while ((await attachment.receive()).type !== "turn_finished") {
+                // The internal attachment only waits for the terminal update.
+            }
+            const childStore = this.agents.get(childId)?.store;
+            const finalMessage = childStore?.messages().findLast(
+                (message) => message.role === "assistant",
+            );
+            const summary = finalMessage?.content
+                .filter((block) => block.type === "text")
+                .map((block) => block.text)
+                .join("\n")
+                .trim();
+            if (summary !== undefined && summary.length > 0) {
+                content = summary;
+            }
+        } catch {
+            // The durable failure delivery below is safer than exposing host internals.
+        } finally {
+            attachment.detach();
+        }
+        await parentStore.recordDelivery({
+            id: `completion:${childId}`,
+            sourceAgentId: childId,
+            content,
+        });
     }
 
     private reserveId(id: string): void {
