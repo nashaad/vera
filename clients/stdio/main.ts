@@ -9,7 +9,6 @@ import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
-import { createInstanceDirectory } from "../../src/instances/directory.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import {
     createStdioApprovalResponse,
@@ -39,10 +38,6 @@ const lines = createInterface({
 const inputLines = new AsyncQueue<StdioInput>();
 lines.on("line", (value) => inputLines.push({ type: "line", value }));
 lines.on("close", () => inputLines.push({ type: "end" }));
-const presence = createInstanceDirectory().register({
-    client: "stdio",
-    workspacePath: process.cwd(),
-});
 
 try {
     void runHeadlessLoop(
@@ -137,5 +132,4 @@ try {
     }
 } finally {
     lines.close();
-    presence.remove();
 }
