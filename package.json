@@ -8,6 +8,7 @@
   "private": true,
   "scripts": {
     "start": "bun run clients/stdio/main.ts",
+    "host": "bun run clients/host/main.ts",
     "tui": "bun run clients/tui/main.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
     "smoke:codex": "bun run scripts/codex-smoke.ts",

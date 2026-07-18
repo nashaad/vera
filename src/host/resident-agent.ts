@@ -32,6 +32,11 @@ export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
 }
 
+interface QueuedCommand {
+    readonly command: ClientCommand;
+    readonly countsTowardLimit: boolean;
+}
+
 export interface AgentAttachment
     extends MessageChannel<ClientCommand, AgentUpdate> {
     detach(): void;
@@ -42,7 +47,7 @@ export class ResidentAgent {
     readonly workspace: string;
     readonly engine: MessageChannel<AgentUpdate, ClientCommand>;
 
-    private readonly inbound = new AsyncQueue<ClientCommand>();
+    private readonly inbound = new AsyncQueue<QueuedCommand>();
     private readonly attachments = new Set<AsyncQueue<AgentUpdate>>();
     private checkpoint: HistoryUpdate = {
         type: "history",
@@ -72,9 +77,11 @@ export class ResidentAgent {
                 if (this.isClosed) {
                     return Promise.reject(new ResidentAgentClosedError());
                 }
-                return this.inbound.receive(signal).then((command) => {
-                    this.pendingCommandCount -= 1;
-                    return command;
+                return this.inbound.receive(signal).then((queued) => {
+                    if (queued.countsTowardLimit) {
+                        this.pendingCommandCount -= 1;
+                    }
+                    return queued.command;
                 });
             },
         };
@@ -106,7 +113,10 @@ export class ResidentAgent {
                 }
                 this.pendingCommandCount += 1;
                 try {
-                    this.inbound.push(clone(command));
+                    this.inbound.push({
+                        command: clone(command),
+                        countsTowardLimit: true,
+                    });
                 } catch (error) {
                     this.pendingCommandCount -= 1;
                     throw error;
@@ -138,6 +148,12 @@ export class ResidentAgent {
         if (this.isClosed) {
             return;
         }
+        // Wake an active turn before failing the engine's next receive. An
+        // idle engine ignores abort, while an active one cancels its work.
+        this.inbound.push({
+            command: { type: "abort" },
+            countsTowardLimit: false,
+        });
         this.isClosed = true;
         this.pendingCommandCount = 0;
         const error = new ResidentAgentClosedError();
