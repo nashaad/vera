@@ -30,3 +30,12 @@ test("the inbound router is the only engine endpoint receiver", async () => {
 
     expect(owners).toEqual(["inbound-command-router.ts"]);
 });
+
+test("the TUI reaches agents only through its client interface", async () => {
+    const source = await Bun.file("clients/tui/main.ts").text();
+
+    expect(source).not.toContain("engine/run-turn");
+    expect(source).not.toContain("engine/message-channel");
+    expect(source).not.toContain("providers/configured");
+    expect(source).not.toContain("instances/directory");
+});
