@@ -1,4 +1,4 @@
-import type { RegisteredTool, ToolExecutionResult } from "./types.ts";
+import type { RegisteredTool, ToolOutput } from "./types.ts";
 import { containsRecursiveForceRm } from "./bash-danger.ts";
 
 export const bashTool: RegisteredTool = {
@@ -14,7 +14,7 @@ export const bashTool: RegisteredTool = {
             additionalProperties: false,
         },
     },
-    execute(input, context, signal): Promise<ToolExecutionResult> {
+    execute(input, context, signal): Promise<ToolOutput> {
         const command = input.command;
         if (typeof command !== "string") {
             throw new Error("bash tool requires a string command");
@@ -27,10 +27,11 @@ export async function runBash(
     command: string,
     workspace: string,
     signal?: AbortSignal,
-): Promise<ToolExecutionResult> {
+): Promise<ToolOutput> {
     signal?.throwIfAborted();
     if (containsRecursiveForceRm(command)) {
         return {
+            kind: "output",
             output: "Blocked dangerous command: recursive-force rm is not allowed",
             isError: true,
         };
@@ -82,6 +83,7 @@ export async function runBash(
         .trim();
 
     return {
+        kind: "output",
         output: output || "(no output)",
         isError: exitCode !== 0,
     };

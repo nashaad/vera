@@ -61,6 +61,7 @@ test("bash blocks recursive-force rm before starting a subprocess", async () => 
         const result = await runBash("rm -rf keep-me", workspace);
 
         expect(result).toEqual({
+            kind: "output",
             output: "Blocked dangerous command: recursive-force rm is not allowed",
             isError: true,
         });
@@ -76,7 +77,11 @@ test("bash still runs ordinary commands", async () => {
     try {
         const result = await runBash("printf 'safe command'", workspace);
 
-        expect(result).toEqual({ output: "safe command", isError: false });
+        expect(result).toEqual({
+            kind: "output",
+            output: "safe command",
+            isError: false,
+        });
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

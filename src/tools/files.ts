@@ -22,6 +22,7 @@ export const readTool: RegisteredTool = {
         const content = await Bun.file(safePath).text();
         context.recordFileSnapshot(safePath, content);
         return {
+            kind: "output",
             output: content,
             isError: false,
         };
@@ -50,6 +51,7 @@ export const writeTool: RegisteredTool = {
             const bytesWritten = await Bun.write(safePath, content);
             context.recordFileSnapshot(safePath, content);
             return {
+                kind: "output",
                 output: `Wrote ${bytesWritten} bytes to ${path}`,
                 isError: false,
             };
