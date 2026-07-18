@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
     "resident host wires its registry to list and attach requests",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-runtime-"));
+        const workspace = await realpath(root);
         const socketPath = join(root, "host.sock");
         const sessionPath = join(root, "agent.jsonl");
         const host = await startResidentHost({
@@ -39,13 +40,35 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                 sessionPath,
                 eventLogPath: join(root, "events.jsonl"),
             });
+            const resumedSessionPath = join(root, "resumed.jsonl");
+            await SessionStore.create(resumedSessionPath, {
+                sessionId: "resumed-agent",
+                cwd: workspace,
+            });
+            const resume = await connectHost({ socketPath });
+            try {
+                await resume.send({
+                    type: "resume_agent",
+                    session_path: resumedSessionPath,
+                });
+                expect(await resume.receive()).toEqual({
+                    type: "agent_ready",
+                    agent_id: "resumed-agent",
+                    workspace,
+                });
+            } finally {
+                resume.close();
+            }
 
             const listing = await connectHost({ socketPath });
             try {
                 await listing.send({ type: "list_agents" });
                 expect(await listing.receive()).toMatchObject({
                     type: "agent_list",
-                    agents: [{ id: "agent-1", status: "idle" }],
+                    agents: [
+                        { id: "agent-1", status: "idle" },
+                        { id: "resumed-agent", status: "idle" },
+                    ],
                 });
             } finally {
                 listing.close();

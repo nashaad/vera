@@ -26,6 +26,8 @@ export interface StartHostServerOptions {
     readonly startedAt?: string;
     readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
+    readonly createAgent?: (workspace: string) => Promise<ResidentAgent>;
+    readonly resumeAgent?: (sessionPath: string) => Promise<ResidentAgent>;
 }
 
 export interface HostServer {
@@ -52,6 +54,12 @@ export async function startHostServer(
             identity,
             options.findAgent ?? (() => undefined),
             options.listAgents ?? (() => []),
+            options.createAgent ?? (() => Promise.reject(
+                new Error("Agent creation is unavailable"),
+            )),
+            options.resumeAgent ?? (() => Promise.reject(
+                new Error("Agent resume is unavailable"),
+            )),
         );
     });
     await prepareSocketDirectory(socketPath);
@@ -90,6 +98,8 @@ function receiveConnection(
     identity: HostIdentity,
     findAgent: (agentId: string) => ResidentAgent | undefined,
     listAgents: () => readonly RegisteredAgentSummary[],
+    createAgent: (workspace: string) => Promise<ResidentAgent>,
+    resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     const deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
@@ -197,6 +207,18 @@ function receiveConnection(
             );
             return;
         }
+        if (request?.type === "create_agent") {
+            clearTimeout(deadline);
+            finished = true;
+            startAgent("create", () => createAgent(request.workspace));
+            return;
+        }
+        if (request?.type === "resume_agent") {
+            clearTimeout(deadline);
+            finished = true;
+            startAgent("resume", () => resumeAgent(request.session_path));
+            return;
+        }
         if (request?.type !== "attach") {
             socket.destroy();
             return;
@@ -249,6 +271,23 @@ function receiveConnection(
         }).then(
             () => forwardAgentUpdates(attached),
             () => socket.destroy(),
+        );
+    }
+
+    function startAgent(
+        operation: "create" | "resume",
+        start: () => Promise<ResidentAgent>,
+    ): void {
+        void Promise.resolve().then(start).then(
+            (agent) => send({
+                type: "agent_ready",
+                agent_id: agent.id,
+                workspace: agent.workspace,
+            }).then(() => socket.end(), () => socket.destroy()),
+            () => send({ type: "agent_start_failed", operation }).then(
+                () => socket.end(),
+                () => socket.destroy(),
+            ),
         );
     }
 
