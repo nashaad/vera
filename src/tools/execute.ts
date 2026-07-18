@@ -36,6 +36,10 @@ export const availableTools: readonly ModelTool[] = registeredTools.map(
     (tool) => tool.definition,
 );
 
+export function toolMayRunInParallel(name: string): boolean {
+    return toolRegistry.get(name)?.parallel === true;
+}
+
 export async function executeToolCall(
     toolCall: ToolCallContent,
     runtime: ToolRuntime,

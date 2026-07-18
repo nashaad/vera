@@ -204,3 +204,90 @@ test("the turn loop applies a subagent effect and returns its text", async () =>
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("sibling subagents run concurrently and commit results in call order", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-subagent-parallel-"));
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_slow",
+                name: "subagent",
+                input: { description: "slow child" },
+            },
+            {
+                type: "tool_call",
+                id: "call_fast",
+                name: "subagent",
+                input: { description: "fast child" },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "both children returned" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const adapter = new FauxAdapter([toolCallResponse, finalResponse]);
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let activeChildren = 0;
+    let maximumActiveChildren = 0;
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        async applyToolEffect(effect) {
+            activeChildren += 1;
+            maximumActiveChildren = Math.max(
+                maximumActiveChildren,
+                activeChildren,
+            );
+            try {
+                await Bun.sleep(effect.description.startsWith("slow") ? 30 : 5);
+                return {
+                    kind: "output",
+                    output: `${effect.description} result`,
+                    isError: false,
+                };
+            } finally {
+                activeChildren -= 1;
+            }
+        },
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "fan out" });
+        const turn = runTurn(adapter, "test", state);
+        while ((await channel.client.receive()).type !== "turn_finished") {
+            // Drain protocol updates until the parent turn completes.
+        }
+
+        expect(await turn).toEqual(finalResponse);
+        expect(maximumActiveChildren).toBe(2);
+        const results = state.messages.filter(
+            (message) => message.role === "tool_result",
+        );
+        expect(results.map((result) => result.toolCallId)).toEqual([
+            "call_slow",
+            "call_fast",
+        ]);
+        expect(results.map((result) => result.content[0]?.text)).toEqual([
+            "slow child result",
+            "fast child result",
+        ]);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
