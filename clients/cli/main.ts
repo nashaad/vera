@@ -101,12 +101,13 @@ export function renderAgentList(
     }
 
     const rows = agents.map((agent) => [
+        agent.kind,
         agent.status,
         agent.workspace,
         agent.id,
         agent.session_path,
     ]);
-    const headings = ["STATUS", "WORKSPACE", "AGENT", "SESSION"];
+    const headings = ["KIND", "STATUS", "WORKSPACE", "AGENT", "SESSION"];
     const widths = headings.map((heading, index) =>
         Math.max(heading.length, ...rows.map((row) => row[index]?.length ?? 0))
     );

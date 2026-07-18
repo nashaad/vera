@@ -29,10 +29,12 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         && agent.workspace.length > 0
         && typeof agent.session_path === "string"
         && agent.session_path.length > 0
+        && (agent.kind === "interactive" || agent.kind === "background")
         && (
             agent.status === "idle"
             || agent.status === "working"
             || agent.status === "waiting"
+            || agent.status === "completed"
             || agent.status === "closed"
             || agent.status === "failed"
         );
