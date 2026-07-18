@@ -158,6 +158,7 @@ afterEach(() => {
                 id: "agent-1",
                 workspace: "/work/one",
                 session_path: "/sessions/agent-1.jsonl",
+                kind: "background",
                 status: "waiting",
             }],
         });
@@ -170,6 +171,7 @@ afterEach(() => {
                     id: "agent-1",
                     workspace: "/work/one",
                     session_path: "/sessions/agent-1.jsonl",
+                    kind: "background",
                     status: "waiting",
                 }],
             });

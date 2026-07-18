@@ -28,13 +28,17 @@ export type RegisteredAgentStatus =
     | "idle"
     | "working"
     | "waiting"
+    | "completed"
     | "closed"
     | "failed";
+
+export type RegisteredAgentKind = "interactive" | "background";
 
 export interface RegisteredAgentSummary {
     readonly id: string;
     readonly workspace: string;
     readonly session_path: string;
+    readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
 }
 
@@ -63,7 +67,9 @@ export interface ResumeRegisteredAgentOptions {
 interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
+    readonly kind: RegisteredAgentKind;
     run: Promise<void>;
+    completed: boolean;
     failure?: unknown;
 }
 
@@ -78,6 +84,13 @@ export class AgentRegistry {
     async create(
         options: CreateRegisteredAgentOptions,
     ): Promise<ResidentAgent> {
+        return this.createWithKind(options, "interactive");
+    }
+
+    private async createWithKind(
+        options: CreateRegisteredAgentOptions,
+        kind: RegisteredAgentKind,
+    ): Promise<ResidentAgent> {
         const id = options.id ?? randomUUID();
         this.reserveId(id);
         try {
@@ -89,7 +102,7 @@ export class AgentRegistry {
                 { sessionId: id, cwd: workspace },
             );
             this.requireOpen();
-            return this.start(store, options.eventLogPath);
+            return this.start(store, kind, options.eventLogPath);
         } finally {
             this.startingIds.delete(id);
         }
@@ -103,7 +116,7 @@ export class AgentRegistry {
         this.reserveId(store.header.id);
         try {
             this.requireOpen();
-            return this.start(store, options.eventLogPath);
+            return this.start(store, "interactive", options.eventLogPath);
         } finally {
             this.startingIds.delete(store.header.id);
         }
@@ -120,11 +133,14 @@ export class AgentRegistry {
                 id: entry.agent.id,
                 workspace: entry.agent.workspace,
                 session_path: entry.store.path,
+                kind: entry.kind,
                 status: entry.failure !== undefined
                     ? "failed" as const
-                    : entry.agent.closed
-                        ? "closed" as const
-                        : entry.agent.status,
+                    : entry.completed
+                        ? "completed" as const
+                        : entry.agent.closed
+                            ? "closed" as const
+                            : entry.agent.status,
             }))
             .sort((left, right) => left.id.localeCompare(right.id));
     }
@@ -141,6 +157,7 @@ export class AgentRegistry {
 
     private start(
         store: SessionStore,
+        kind: RegisteredAgentKind,
         eventLogPath = this.options.eventLogPathForId?.(store.header.id)
             ?? defaultEventLogPath(store.header.id),
     ): ResidentAgent {
@@ -149,7 +166,9 @@ export class AgentRegistry {
         const entry: RegisteredAgentEntry = {
             agent,
             store,
+            kind,
             run: Promise.resolve(),
+            completed: false,
         };
         this.agents.set(agent.id, entry);
         const applySubagentEffect = createSubagentEffectApplier({
@@ -197,7 +216,10 @@ export class AgentRegistry {
         parentStore: SessionStore,
         effect: SpawnBackgroundAgentEffect,
     ): Promise<ToolOutput> {
-        const child = await this.create({ workspace: parentStore.header.cwd });
+        const child = await this.createWithKind(
+            { workspace: parentStore.header.cwd },
+            "background",
+        );
         const attachment = child.attach();
         try {
             attachment.send({ type: "prompt", content: effect.description });
@@ -214,6 +236,7 @@ export class AgentRegistry {
             const entry = this.agents.get(child.id);
             if (entry !== undefined) {
                 entry.failure = error;
+                entry.agent.close();
             }
         });
         this.deliveryTasks.add(deliveryTask);
@@ -257,6 +280,11 @@ export class AgentRegistry {
             sourceAgentId: childId,
             content,
         });
+        const entry = this.agents.get(childId);
+        if (entry !== undefined && entry.failure === undefined) {
+            entry.completed = true;
+            entry.agent.close();
+        }
     }
 
     private reserveId(id: string): void {

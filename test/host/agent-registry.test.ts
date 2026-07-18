@@ -46,12 +46,14 @@ test("resident agents keep file tools inside their fixed workspaces", async () =
                 id: "first",
                 workspace: await realpath(firstWorkspace),
                 session_path: firstSession,
+                kind: "interactive",
                 status: "idle",
             },
             {
                 id: "second",
                 workspace: await realpath(secondWorkspace),
                 session_path: secondSession,
+                kind: "interactive",
                 status: "idle",
             },
         ]);
@@ -166,8 +168,16 @@ test("a background agent returns immediately and delivers its final summary", as
 
         const agents = registry.list();
         expect(agents).toHaveLength(2);
+        expect(agents.find((agent) => agent.id === "parent")).toMatchObject({
+            kind: "interactive",
+            status: "idle",
+        });
         const child = agents.find((agent) => agent.id !== "parent");
         expect(child).toBeDefined();
+        expect(child).toMatchObject({
+            kind: "background",
+            status: "working",
+        });
         const placeholder = await toolResultText(parentSession);
         expect(placeholder).toContain(`Background agent ${child!.id} started`);
         expect((await SessionStore.open(parentSession)).pendingDeliveries())
@@ -179,6 +189,9 @@ test("a background agent returns immediately and delivers its final summary", as
             sourceAgentId: child!.id,
             content: "All integration tests pass.",
         });
+        expect(registry.list().find((agent) => agent.id === child!.id))
+            .toMatchObject({ kind: "background", status: "completed" });
+        expect(registry.find(child!.id)).toBeUndefined();
         const childStore = await SessionStore.open(child!.session_path);
         expect(childStore.messages()).toEqual([
             {

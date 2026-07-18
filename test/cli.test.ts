@@ -9,13 +9,15 @@ test("vera ls renders resident agents from the host", async () => {
             id: "agent-a",
             workspace: "/work/alpha",
             session_path: "/sessions/agent-a.jsonl",
+            kind: "interactive",
             status: "working",
         },
         {
             id: "agent-b",
             workspace: "/work/beta",
             session_path: "/sessions/agent-b.jsonl",
-            status: "waiting",
+            kind: "background",
+            status: "completed",
         },
     ];
     let output = "";
@@ -26,11 +28,13 @@ test("vera ls renders resident agents from the host", async () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(output).toContain("STATUS   WORKSPACE");
-    expect(output).toContain("working  /work/alpha  agent-a");
+    expect(output).toContain("KIND         STATUS");
+    expect(output).toContain("interactive  working");
+    expect(output).toContain("background   completed");
+    expect(output).toContain("working    /work/alpha  agent-a");
     expect(output).toContain("/work/alpha");
     expect(output).toContain("/sessions/agent-a.jsonl");
-    expect(output).toContain("waiting  /work/beta");
+    expect(output).toContain("completed  /work/beta");
 });
 
 test("vera rpc starts the NDJSON bridge", async () => {

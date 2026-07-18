@@ -18,6 +18,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 id: "agent-1",
                 workspace: "/work/one",
                 session_path: "/sessions/agent-1.jsonl",
+                kind: "background",
                 status: "working",
             }],
         });
@@ -26,6 +27,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 id: "agent-1",
                 workspace: "/work/one",
                 session_path: "/sessions/agent-1.jsonl",
+                kind: "background",
                 status: "working",
             }]);
         } finally {
