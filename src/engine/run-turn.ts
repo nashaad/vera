@@ -81,6 +81,8 @@ export interface RunHeadlessLoopOptions {
     readonly eventLogPath?: string;
     readonly approvalMode?: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
+    readonly applyToolEffect?: ApplyToolEffect;
+    readonly enabledToolEffects?: readonly ToolEffect["type"][];
 }
 
 export async function runHeadlessLoop(
@@ -128,6 +130,17 @@ export async function runHeadlessLoop(
         sessionId,
     }));
     const inbound = new InboundCommandRouter(endpoint, events);
+    const applyToolEffect = options.applyToolEffect
+        ?? createSubagentEffectApplier({
+            adapter,
+            model,
+            workspace: store.header.cwd,
+            approvalMode: options.approvalMode ?? "approve_for_me",
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+            ...(options.modelFallback === undefined
+                ? {}
+                : { modelFallback: options.modelFallback }),
+        });
     const state: RunTurnState = {
         messages: [...store.messages()],
         store,
@@ -137,17 +150,8 @@ export async function runHeadlessLoop(
         events,
         hooks: new ToolHooks(),
         approvalMode: options.approvalMode ?? "approve_for_me",
-        applyToolEffect: createSubagentEffectApplier({
-            adapter,
-            model,
-            workspace: store.header.cwd,
-            approvalMode: options.approvalMode ?? "approve_for_me",
-            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-            ...(options.modelFallback === undefined
-                ? {}
-                : { modelFallback: options.modelFallback }),
-        }),
-        enabledToolEffects: ["spawn_subagent"],
+        applyToolEffect,
+        enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),

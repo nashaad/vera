@@ -116,6 +116,86 @@ test("a registry resumes the same resident agent from its session", async () => 
     }
 });
 
+test("a background agent returns immediately and delivers its final summary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-background-"));
+    const parentSession = join(root, "parent.jsonl");
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "start-background",
+                            name: "background_agent",
+                            input: { description: "Run the integration tests" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("I started the background work."),
+                ]);
+            }
+            return new FauxAdapter(
+                [textResponse("All integration tests pass.")],
+                { delayMs: 100 },
+            );
+        },
+        model: "faux/test",
+        approvalMode: "approve_for_me",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: parentSession,
+            eventLogPath: join(root, "parent-events.jsonl"),
+        });
+        await runPrompt(parent.attach(), "Run tests in the background");
+
+        const agents = registry.list();
+        expect(agents).toHaveLength(2);
+        const child = agents.find((agent) => agent.id !== "parent");
+        expect(child).toBeDefined();
+        const placeholder = await toolResultText(parentSession);
+        expect(placeholder).toContain(`Background agent ${child!.id} started`);
+        expect((await SessionStore.open(parentSession)).pendingDeliveries())
+            .toEqual([]);
+
+        const delivery = await waitForDelivery(parentSession);
+        expect(delivery).toMatchObject({
+            id: `completion:${child!.id}`,
+            sourceAgentId: child!.id,
+            content: "All integration tests pass.",
+        });
+        const childStore = await SessionStore.open(child!.session_path);
+        expect(childStore.messages()).toEqual([
+            {
+                role: "user",
+                content: [{
+                    type: "text",
+                    text: "Run the integration tests",
+                }],
+            },
+            textResponse("All integration tests pass."),
+        ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a registry reserves IDs while agents start and stays closed", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-lifecycle-"));
     const firstWorkspace = join(root, "first");
@@ -236,4 +316,18 @@ async function toolResultText(sessionPath: string): Promise<string | undefined> 
         (message) => message.role === "tool_result",
     );
     return result?.role === "tool_result" ? result.content[0]?.text : undefined;
+}
+
+async function waitForDelivery(
+    sessionPath: string,
+): Promise<ReturnType<SessionStore["pendingDeliveries"]>[number]> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        const store = await SessionStore.open(sessionPath);
+        const delivery = store.pendingDeliveries()[0];
+        if (delivery !== undefined) {
+            return delivery;
+        }
+        await Bun.sleep(5);
+    }
+    throw new Error("Timed out waiting for background delivery");
 }
