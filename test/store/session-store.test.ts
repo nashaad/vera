@@ -132,6 +132,57 @@ test("session store serializes concurrent appends into one chain", async () => {
     expect((await SessionStore.open(path)).messages()).toEqual([first, second]);
 });
 
+test("pending deliveries are idempotent and survive restart until acknowledged", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const delivery = {
+        id: "delivery-1",
+        sourceAgentId: "background-1",
+        content: "Background agent finished: tests pass.",
+    };
+    const store = await SessionStore.create(path, {
+        sessionId: "parent-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-17T12:00:00.000Z",
+            "2026-07-17T12:00:01.000Z",
+        ),
+    });
+
+    expect(await Promise.all([
+        store.recordDelivery(delivery),
+        store.recordDelivery(delivery),
+    ])).toEqual([true, false]);
+    expect(store.pendingDeliveries()).toEqual([{
+        type: "delivery",
+        ...delivery,
+        timestamp: "2026-07-17T12:00:01.000Z",
+    }]);
+
+    const reopened = await SessionStore.open(path, {
+        now: dates("2026-07-17T12:00:02.000Z"),
+    });
+    expect(reopened.pendingDeliveries()).toHaveLength(1);
+    expect(await reopened.acknowledgeDelivery(delivery.id)).toBe(true);
+    expect(await reopened.acknowledgeDelivery(delivery.id)).toBe(false);
+    expect(await reopened.recordDelivery(delivery)).toBe(false);
+    await expect(reopened.recordDelivery({
+        ...delivery,
+        content: "Conflicting result",
+    })).rejects.toThrow(
+        "Delivery delivery-1 conflicts with its stored payload",
+    );
+    expect(reopened.pendingDeliveries()).toEqual([]);
+
+    const afterSecondRestart = await SessionStore.open(path);
+    expect(afterSecondRestart.pendingDeliveries()).toEqual([]);
+    expect(readLines(path).map((line) => line.type)).toEqual([
+        "session",
+        "delivery",
+        "delivery_receipt",
+    ]);
+});
+
 test("session store removes one unterminated crash fragment before appending", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

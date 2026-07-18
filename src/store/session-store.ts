@@ -28,6 +28,23 @@ export interface SessionMessageEntry {
     readonly message: ModelMessage;
 }
 
+export interface PendingDelivery {
+    readonly id: string;
+    readonly sourceAgentId: string;
+    readonly content: string;
+}
+
+export interface SessionDeliveryEntry extends PendingDelivery {
+    readonly type: "delivery";
+    readonly timestamp: string;
+}
+
+export interface SessionDeliveryReceiptEntry {
+    readonly type: "delivery_receipt";
+    readonly deliveryId: string;
+    readonly timestamp: string;
+}
+
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
@@ -46,7 +63,9 @@ export interface SessionMessageStore {
 
 interface LoadedSessionFile {
     readonly header: SessionHeader;
-    readonly entries: SessionMessageEntry[];
+    readonly messageEntries: SessionMessageEntry[];
+    readonly deliveryEntries: SessionDeliveryEntry[];
+    readonly deliveryReceipts: Set<string>;
     readonly leafId: string | null;
 }
 
@@ -57,6 +76,8 @@ export class SessionStore {
     private readonly now: () => Date;
     private readonly createId: () => string;
     private readonly storedEntries: SessionMessageEntry[];
+    private readonly deliveryEntries: SessionDeliveryEntry[];
+    private readonly deliveryReceipts: Set<string>;
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -67,7 +88,9 @@ export class SessionStore {
     ) {
         this.path = path;
         this.header = loaded.header;
-        this.storedEntries = loaded.entries;
+        this.storedEntries = loaded.messageEntries;
+        this.deliveryEntries = loaded.deliveryEntries;
+        this.deliveryReceipts = loaded.deliveryReceipts;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -98,7 +121,13 @@ export class SessionStore {
 
         return new SessionStore(
             path,
-            { header, entries: [], leafId: null },
+            {
+                header,
+                messageEntries: [],
+                deliveryEntries: [],
+                deliveryReceipts: new Set(),
+                leafId: null,
+            },
             {
                 now,
                 ...(options.createId === undefined
@@ -140,8 +169,36 @@ export class SessionStore {
         return branch.reverse();
     }
 
+    pendingDeliveries(): readonly SessionDeliveryEntry[] {
+        return this.deliveryEntries.filter(
+            (delivery) => !this.deliveryReceipts.has(delivery.id),
+        );
+    }
+
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    recordDelivery(delivery: PendingDelivery): Promise<boolean> {
+        const result = this.pendingAppend.then(() =>
+            this.commitDelivery(delivery)
+        );
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    acknowledgeDelivery(deliveryId: string): Promise<boolean> {
+        const result = this.pendingAppend.then(() =>
+            this.commitDeliveryReceipt(deliveryId)
+        );
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -166,17 +223,70 @@ export class SessionStore {
             throw new Error(`Session entry ID ${entry.id} already exists`);
         }
 
-        const file = await open(this.path, "a", 0o600);
-        try {
-            await file.writeFile(jsonLine(entry), "utf8");
-            await file.sync();
-        } finally {
-            await file.close();
-        }
+        await this.appendRecord(entry);
 
         this.storedEntries.push(entry);
         this.leafId = entry.id;
         return entry;
+    }
+
+    private async commitDelivery(delivery: PendingDelivery): Promise<boolean> {
+        const id = nonEmpty(delivery.id, "delivery ID");
+        if (typeof delivery.content !== "string") {
+            throw new Error("delivery content must be a string");
+        }
+        const sourceAgentId = nonEmpty(
+            delivery.sourceAgentId,
+            "delivery source agent ID",
+        );
+        const existing = this.deliveryEntries.find((entry) => entry.id === id);
+        if (existing !== undefined) {
+            if (
+                existing.sourceAgentId !== sourceAgentId
+                || existing.content !== delivery.content
+            ) {
+                throw new Error(`Delivery ${id} conflicts with its stored payload`);
+            }
+            return false;
+        }
+        const entry: SessionDeliveryEntry = {
+            type: "delivery",
+            id,
+            sourceAgentId,
+            content: delivery.content,
+            timestamp: this.now().toISOString(),
+        };
+        await this.appendRecord(entry);
+        this.deliveryEntries.push(entry);
+        return true;
+    }
+
+    private async commitDeliveryReceipt(deliveryId: string): Promise<boolean> {
+        const id = nonEmpty(deliveryId, "delivery ID");
+        if (
+            !this.deliveryEntries.some((delivery) => delivery.id === id)
+            || this.deliveryReceipts.has(id)
+        ) {
+            return false;
+        }
+        const receipt: SessionDeliveryReceiptEntry = {
+            type: "delivery_receipt",
+            deliveryId: id,
+            timestamp: this.now().toISOString(),
+        };
+        await this.appendRecord(receipt);
+        this.deliveryReceipts.add(id);
+        return true;
+    }
+
+    private async appendRecord(record: object): Promise<void> {
+        const file = await open(this.path, "a", 0o600);
+        try {
+            await file.writeFile(jsonLine(record), "utf8");
+            await file.sync();
+        } finally {
+            await file.close();
+        }
     }
 }
 
@@ -214,28 +324,77 @@ async function removeUnterminatedTail(
 function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const lines = source.slice(0, -1).split("\n");
     const header = parseHeader(path, lines[0]);
-    const entries: SessionMessageEntry[] = [];
-    const knownIds = new Set<string>();
+    const messageEntries: SessionMessageEntry[] = [];
+    const deliveryEntries: SessionDeliveryEntry[] = [];
+    const deliveryReceipts = new Set<string>();
+    const knownMessageIds = new Set<string>();
+    const knownDeliveryIds = new Set<string>();
 
     for (let index = 1; index < lines.length; index += 1) {
-        const entry = parseMessageEntry(path, index + 1, lines[index]);
-        if (knownIds.has(entry.id)) {
-            throw invalidSession(path, `line ${index + 1} repeats entry ID ${entry.id}`);
+        const lineNumber = index + 1;
+        const value = parseJsonObject(path, lineNumber, lines[index]);
+        if (value.type === "message") {
+            const entry = parseMessageEntry(path, lineNumber, value);
+            if (knownMessageIds.has(entry.id)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} repeats entry ID ${entry.id}`,
+                );
+            }
+            if (
+                entry.parentId !== null
+                && !knownMessageIds.has(entry.parentId)
+            ) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} references missing parent ${entry.parentId}`,
+                );
+            }
+            knownMessageIds.add(entry.id);
+            messageEntries.push(entry);
+            continue;
         }
-        if (entry.parentId !== null && !knownIds.has(entry.parentId)) {
-            throw invalidSession(
-                path,
-                `line ${index + 1} references missing parent ${entry.parentId}`,
-            );
+        if (value.type === "delivery") {
+            const entry = parseDeliveryEntry(path, lineNumber, value);
+            if (knownDeliveryIds.has(entry.id)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} repeats delivery ID ${entry.id}`,
+                );
+            }
+            knownDeliveryIds.add(entry.id);
+            deliveryEntries.push(entry);
+            continue;
         }
-        knownIds.add(entry.id);
-        entries.push(entry);
+        if (value.type === "delivery_receipt") {
+            const receipt = parseDeliveryReceipt(path, lineNumber, value);
+            if (!knownDeliveryIds.has(receipt.deliveryId)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} references missing delivery ${receipt.deliveryId}`,
+                );
+            }
+            if (deliveryReceipts.has(receipt.deliveryId)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} repeats delivery receipt ${receipt.deliveryId}`,
+                );
+            }
+            deliveryReceipts.add(receipt.deliveryId);
+            continue;
+        }
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid session entry`,
+        );
     }
 
     return {
         header,
-        entries,
-        leafId: entries.at(-1)?.id ?? null,
+        messageEntries,
+        deliveryEntries,
+        deliveryReceipts,
+        leafId: messageEntries.at(-1)?.id ?? null,
     };
 }
 
@@ -258,9 +417,8 @@ function parseHeader(path: string, line: string | undefined): SessionHeader {
 function parseMessageEntry(
     path: string,
     lineNumber: number,
-    line: string | undefined,
+    value: Record<string, unknown>,
 ): SessionMessageEntry {
-    const value = parseJsonObject(path, lineNumber, line);
     if (
         value.type !== "message"
         || typeof value.id !== "string"
@@ -275,6 +433,45 @@ function parseMessageEntry(
         );
     }
     return value as unknown as SessionMessageEntry;
+}
+
+function parseDeliveryEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionDeliveryEntry {
+    if (
+        typeof value.id !== "string"
+        || value.id.length === 0
+        || typeof value.sourceAgentId !== "string"
+        || value.sourceAgentId.length === 0
+        || typeof value.content !== "string"
+        || typeof value.timestamp !== "string"
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid delivery entry`,
+        );
+    }
+    return value as unknown as SessionDeliveryEntry;
+}
+
+function parseDeliveryReceipt(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionDeliveryReceiptEntry {
+    if (
+        typeof value.deliveryId !== "string"
+        || value.deliveryId.length === 0
+        || typeof value.timestamp !== "string"
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid delivery receipt`,
+        );
+    }
+    return value as unknown as SessionDeliveryReceiptEntry;
 }
 
 function parseJsonObject(
