@@ -4,6 +4,7 @@ import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 
 test("the inbound router queues prompts and aborts only the active turn", async () => {
@@ -230,10 +231,13 @@ test("a later settings command cannot change an earlier queued prompt", async ()
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(channel.engine));
-    let settings = { model: "first-model", reasoningEffort: "low" as const };
+    let settings: ModelTurnSettings = {
+        model: "first-model",
+        reasoningEffort: "low",
+    };
     const router = new InboundCommandRouter(channel.engine, events, {
         readModelSettings: () => settings,
-        updateModelSettings(patch) {
+        async updateModelSettings(patch) {
             settings = {
                 model: patch.model ?? settings.model,
                 reasoningEffort: "low",
@@ -268,6 +272,66 @@ test("a later settings command cannot change an earlier queued prompt", async ()
     expect(second.modelSettings).toEqual({
         model: "second-model",
         reasoningEffort: "low",
+    });
+    router.finishTurn();
+});
+
+test("a following prompt waits for the durable settings boundary", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let settings: ModelTurnSettings = {
+        model: "first-model",
+        reasoningEffort: "low",
+    };
+    let finishPersistence: () => void = () => {};
+    const persistence = new Promise<void>((resolve) => {
+        finishPersistence = resolve;
+    });
+    let signalPersistenceStarted: () => void = () => {};
+    const persistenceStarted = new Promise<void>((resolve) => {
+        signalPersistenceStarted = resolve;
+    });
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readModelSettings: () => settings,
+        async updateModelSettings() {
+            signalPersistenceStarted();
+            await persistence;
+            settings = {
+                model: "second-model",
+                reasoningEffort: "high",
+            };
+            return settings;
+        },
+    });
+
+    channel.client.send({
+        type: "update_model_settings",
+        requestId: "durable-settings",
+        patch: { model: "second-model", reasoningEffort: "high" },
+    });
+    await persistenceStarted;
+    channel.client.send({ type: "prompt", content: "after settings" });
+    const turn = router.startTurn();
+    expect(await Promise.race([
+        turn.then(() => "started" as const),
+        Bun.sleep(10).then(() => "waiting" as const),
+    ])).toBe("waiting");
+
+    finishPersistence();
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings",
+        requestId: "durable-settings",
+        settings: {
+            model: "second-model",
+            reasoningEffort: "high",
+        },
+    });
+    const active = await turn;
+    expect(active.prompt.content).toBe("after settings");
+    expect(active.modelSettings).toEqual({
+        model: "second-model",
+        reasoningEffort: "high",
     });
     router.finishTurn();
 });

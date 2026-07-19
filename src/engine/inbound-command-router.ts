@@ -59,7 +59,7 @@ export interface InboundCommandRouterOptions {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
-    ) => ModelTurnSettings | undefined;
+    ) => Promise<ModelTurnSettings | undefined>;
 }
 
 export class InboundCommandRouter {
@@ -198,7 +198,10 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "update_model_settings") {
-                    this.updateModelSettings(command.requestId, command.patch);
+                    await this.updateModelSettings(
+                        command.requestId,
+                        command.patch,
+                    );
                     continue;
                 }
 
@@ -234,11 +237,11 @@ export class InboundCommandRouter {
         });
     }
 
-    private updateModelSettings(
+    private async updateModelSettings(
         requestId: string,
         patch: ModelSettingsPatch,
-    ): void {
-        const settings = this.options.updateModelSettings?.(patch);
+    ): Promise<void> {
+        const settings = await this.options.updateModelSettings?.(patch);
         if (settings === undefined) {
             this.events.emit({
                 type: "model_settings_rejected",

@@ -26,7 +26,7 @@ void runHeadlessLoop(
             model: "test",
             reasoningEffort: "high",
         }),
-        updateModelSettings: () => undefined,
+        updateModelSettings: async () => undefined,
     },
 );
 const client: TuiAgentClient = {

@@ -9,6 +9,10 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ModelMessage } from "../model/types.ts";
+import {
+    isModelTurnSettings,
+    type ModelTurnSettings,
+} from "../engine/model-settings.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -45,6 +49,12 @@ export interface SessionDeliveryReceiptEntry {
     readonly timestamp: string;
 }
 
+export interface SessionModelSettingsEntry {
+    readonly type: "model_settings";
+    readonly timestamp: string;
+    readonly settings: ModelTurnSettings;
+}
+
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
@@ -71,6 +81,7 @@ interface LoadedSessionFile {
     readonly messageEntries: SessionMessageEntry[];
     readonly deliveryEntries: SessionDeliveryEntry[];
     readonly deliveryReceipts: Set<string>;
+    readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly leafId: string | null;
 }
 
@@ -83,6 +94,7 @@ export class SessionStore {
     private readonly storedEntries: SessionMessageEntry[];
     private readonly deliveryEntries: SessionDeliveryEntry[];
     private readonly deliveryReceipts: Set<string>;
+    private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -96,6 +108,7 @@ export class SessionStore {
         this.storedEntries = loaded.messageEntries;
         this.deliveryEntries = loaded.deliveryEntries;
         this.deliveryReceipts = loaded.deliveryReceipts;
+        this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -131,6 +144,7 @@ export class SessionStore {
                 messageEntries: [],
                 deliveryEntries: [],
                 deliveryReceipts: new Set(),
+                modelSettingsEntries: [],
                 leafId: null,
             },
             {
@@ -180,8 +194,26 @@ export class SessionStore {
         );
     }
 
+    modelSettings(): ModelTurnSettings | undefined {
+        const settings = this.modelSettingsEntries.at(-1)?.settings;
+        return settings === undefined ? undefined : { ...settings };
+    }
+
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendModelSettings(
+        settings: ModelTurnSettings,
+    ): Promise<SessionModelSettingsEntry> {
+        const result = this.pendingAppend.then(() =>
+            this.commitModelSettings(settings)
+        );
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -232,6 +264,27 @@ export class SessionStore {
 
         this.storedEntries.push(entry);
         this.leafId = entry.id;
+        return entry;
+    }
+
+    private async commitModelSettings(
+        settings: ModelTurnSettings,
+    ): Promise<SessionModelSettingsEntry> {
+        if (!isModelTurnSettings(settings)) {
+            throw new Error("Cannot append invalid model settings");
+        }
+        const entry: SessionModelSettingsEntry = {
+            type: "model_settings",
+            timestamp: this.now().toISOString(),
+            settings: {
+                model: settings.model.trim(),
+                ...(settings.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: settings.reasoningEffort }),
+            },
+        };
+        await this.appendRecord(entry);
+        this.modelSettingsEntries.push(entry);
         return entry;
     }
 
@@ -332,6 +385,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const messageEntries: SessionMessageEntry[] = [];
     const deliveryEntries: SessionDeliveryEntry[] = [];
     const deliveryReceipts = new Set<string>();
+    const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
 
@@ -388,6 +442,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             deliveryReceipts.add(receipt.deliveryId);
             continue;
         }
+        if (value.type === "model_settings") {
+            modelSettingsEntries.push(
+                parseModelSettingsEntry(path, lineNumber, value),
+            );
+            continue;
+        }
         throw invalidSession(
             path,
             `line ${lineNumber} is not a valid session entry`,
@@ -399,6 +459,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         messageEntries,
         deliveryEntries,
         deliveryReceipts,
+        modelSettingsEntries,
         leafId: messageEntries.at(-1)?.id ?? null,
     };
 }
@@ -477,6 +538,33 @@ function parseDeliveryReceipt(
         );
     }
     return value as unknown as SessionDeliveryReceiptEntry;
+}
+
+function parseModelSettingsEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionModelSettingsEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || !isModelTurnSettings(value.settings)
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid model settings entry`,
+        );
+    }
+    const settings = value.settings;
+    return {
+        type: "model_settings",
+        timestamp: value.timestamp,
+        settings: {
+            model: settings.model.trim(),
+            ...(settings.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: settings.reasoningEffort }),
+        },
+    };
 }
 
 function parseJsonObject(
