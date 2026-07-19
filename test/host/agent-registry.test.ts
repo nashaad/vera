@@ -13,7 +13,12 @@ import { join } from "node:path";
 import type { TaskNotificationUpdate } from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -64,6 +69,65 @@ test("resident agents keep file tools inside their fixed workspaces", async () =
                 kind: "interactive",
                 status: "idle",
             },
+        ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a resident agent applies new model settings at the next turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-"));
+    const faux = new FauxAdapter([
+        textResponse("first reply"),
+        textResponse("second reply"),
+    ], { chunkSize: 1, delayMs: 10 });
+    const requests: ModelRequest[] = [];
+    let signalRequestStarted: () => void = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+        signalRequestStarted = resolve;
+    });
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            signalRequestStarted();
+            return faux.stream(request);
+        },
+    };
+    const registry = new AgentRegistry({
+        createAdapter: () => adapter,
+        model: "first-model",
+        reasoningEffort: "low",
+        approvalMode: "approve_for_me",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "settings-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+
+        attachment.send({ type: "prompt", content: "first turn" });
+        await requestStarted;
+        registry.updateModelSettings(agent.id, {
+            model: "second-model",
+            reasoningEffort: "high",
+        });
+        await receiveTurnFinished(attachment);
+
+        attachment.send({ type: "prompt", content: "second turn" });
+        await receiveTurnFinished(attachment);
+
+        expect(requests.map((request) => ({
+            model: request.model,
+            reasoningEffort: request.reasoningEffort,
+        }))).toEqual([
+            { model: "first-model", reasoningEffort: "low" },
+            { model: "second-model", reasoningEffort: "high" },
         ]);
     } finally {
         await registry.close();
@@ -389,6 +453,14 @@ async function runPrompt(
         expect((await attachment.receive()).type).toBe("history");
     }
     attachment.send({ type: "prompt", content });
+    while ((await attachment.receive()).type !== "turn_finished") {
+        // A client consumes the ordered update stream until the turn boundary.
+    }
+}
+
+async function receiveTurnFinished(
+    attachment: AgentAttachment,
+): Promise<void> {
     while ((await attachment.receive()).type !== "turn_finished") {
         // A client consumes the ordered update stream until the turn boundary.
     }

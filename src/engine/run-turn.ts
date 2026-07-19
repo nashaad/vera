@@ -63,6 +63,11 @@ const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
+export interface ModelTurnSettings {
+    readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+}
+
 export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
@@ -76,6 +81,7 @@ export interface RunTurnState {
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
+    readonly readModelSettings?: () => ModelTurnSettings;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -89,6 +95,7 @@ export interface RunHeadlessLoopOptions {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
+    readonly readModelSettings?: () => ModelTurnSettings;
 }
 
 export async function runHeadlessLoop(
@@ -161,6 +168,9 @@ export async function runHeadlessLoop(
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
+        ...(options.readModelSettings === undefined
+            ? {}
+            : { readModelSettings: options.readModelSettings }),
     };
     protocol.checkpoint(state.messages);
 
@@ -178,16 +188,21 @@ export async function runTurn(
 ): Promise<AssistantMessage> {
     const turn = await state.inbound.startTurn();
     let assistantMessage: AssistantMessage;
-    let activeModel = model;
-    let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
-    let lengthContinuations = 0;
-    const tools = toolDefinitionsForEffects(
-        state.applyToolEffect === undefined
-            ? []
-            : state.enabledToolEffects ?? [],
-    );
 
     try {
+        const modelSettings = state.readModelSettings?.() ?? {
+            model,
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        };
+        let activeModel = modelSettings.model;
+        const turnReasoningEffort = modelSettings.reasoningEffort;
+        let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
+        let lengthContinuations = 0;
+        const tools = toolDefinitionsForEffects(
+            state.applyToolEffect === undefined
+                ? []
+                : state.enabledToolEffects ?? [],
+        );
         await drainPendingDeliveries(state);
         const userMessage: UserMessage = {
             role: "user",
@@ -205,7 +220,9 @@ export async function runTurn(
             const request = {
                 model: activeModel,
                 maxTokens,
-                ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+                ...(turnReasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: turnReasoningEffort }),
                 systemPrompt,
                 messages: state.messages.slice(),
                 tools,
