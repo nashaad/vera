@@ -11,6 +11,7 @@ import type {
     ModelSettingsPatch,
     ModelTurnSettings,
 } from "./model-settings.ts";
+import { isApprovalMode, type ApprovalMode } from "./permissions.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -61,12 +62,25 @@ export interface UpdateModelSettingsCommand {
     readonly patch: ModelSettingsPatch;
 }
 
+export interface GetPermissionsCommand {
+    readonly type: "get_permissions";
+    readonly requestId: string;
+}
+
+export interface UpdatePermissionsCommand {
+    readonly type: "update_permissions";
+    readonly requestId: string;
+    readonly mode: ApprovalMode;
+}
+
 export type ClientCommand =
     | PromptCommand
     | AbortCommand
     | UiResponseCommand
     | GetModelSettingsCommand
-    | UpdateModelSettingsCommand;
+    | UpdateModelSettingsCommand
+    | GetPermissionsCommand
+    | UpdatePermissionsCommand;
 
 export interface HistoryUpdate {
     readonly type: "history";
@@ -146,6 +160,21 @@ export interface ModelSettingsRejectedUpdate {
     readonly seq: number;
 }
 
+export interface PermissionsUpdate {
+    readonly type: "permissions";
+    readonly requestId: string;
+    readonly mode: ApprovalMode;
+    readonly pending: boolean;
+    readonly seq: number;
+}
+
+export interface PermissionsRejectedUpdate {
+    readonly type: "permissions_rejected";
+    readonly requestId: string;
+    readonly reason: "invalid" | "unavailable";
+    readonly seq: number;
+}
+
 export type AgentUpdate =
     | HistoryUpdate
     | UserPromptUpdate
@@ -158,7 +187,9 @@ export type AgentUpdate =
     | UiRequestUpdate
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
-    | ModelSettingsRejectedUpdate;
+    | ModelSettingsRejectedUpdate
+    | PermissionsUpdate
+    | PermissionsRejectedUpdate;
 
 export interface AgentUpdateSender {
     send(update: AgentUpdate): void;
@@ -221,6 +252,23 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                 patch,
             };
         }
+    }
+    if (command.type === "get_permissions" && isRequestId(command.requestId)) {
+        return {
+            type: "get_permissions",
+            requestId: command.requestId,
+        };
+    }
+    if (
+        command.type === "update_permissions"
+        && isRequestId(command.requestId)
+        && isApprovalMode(command.mode)
+    ) {
+        return {
+            type: "update_permissions",
+            requestId: command.requestId,
+            mode: command.mode,
+        };
     }
     return undefined;
 }
@@ -366,6 +414,29 @@ export function createProtocolEncoder(
             seq += 1;
             sender.send({
                 type: "model_settings_rejected",
+                requestId: event.requestId,
+                reason: event.reason,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "permissions_changed") {
+            seq += 1;
+            sender.send({
+                type: "permissions",
+                requestId: event.requestId,
+                mode: event.mode,
+                pending: event.pending,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "permissions_rejected") {
+            seq += 1;
+            sender.send({
+                type: "permissions_rejected",
                 requestId: event.requestId,
                 reason: event.reason,
                 seq,

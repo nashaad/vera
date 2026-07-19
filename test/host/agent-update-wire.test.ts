@@ -58,3 +58,37 @@ test("host wire validates model settings results", () => {
         seq: 10,
     });
 });
+
+test("host wire validates permission results", () => {
+    expect(parseAgentUpdate({
+        type: "permissions",
+        requestId: "permissions-1",
+        mode: "full_access",
+        pending: false,
+        seq: 11,
+    })).toEqual({
+        type: "permissions",
+        requestId: "permissions-1",
+        mode: "full_access",
+        pending: false,
+        seq: 11,
+    });
+    expect(parseAgentUpdate({
+        type: "permissions",
+        requestId: "permissions-2",
+        mode: "always_allow",
+        pending: false,
+        seq: 12,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "permissions_rejected",
+        requestId: "permissions-3",
+        reason: "unavailable",
+        seq: 13,
+    })).toEqual({
+        type: "permissions_rejected",
+        requestId: "permissions-3",
+        reason: "unavailable",
+        seq: 13,
+    });
+});

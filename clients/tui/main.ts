@@ -297,6 +297,10 @@ export async function startTui(
         type: "get_model_settings",
         requestId: randomUUID(),
     });
+    sendCommand({
+        type: "get_permissions",
+        requestId: randomUUID(),
+    });
 
     function submitPrompt(): void {
         const prompt = composer.expandedText().trim();
@@ -485,6 +489,7 @@ export async function startTui(
         statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
         statusText.content = renderTuiStatusLine(
             state.modelSettings,
+            state.approvalMode,
             statusNotice ?? lifecycleHint,
         );
     }

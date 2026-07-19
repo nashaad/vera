@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
-import type { ApprovalMode } from "../engine/permissions.ts";
+import { isApprovalMode, type ApprovalMode } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import type {
     ModelSettingsPatch,
@@ -69,12 +69,17 @@ export interface ResumeRegisteredAgentOptions {
     readonly eventLogPath?: string;
 }
 
+interface InheritedAgentSettings {
+    readonly approvalMode: ApprovalMode;
+}
+
 interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
     readonly kind: RegisteredAgentKind;
     readonly events: EngineEventBus;
     modelSettings: ModelTurnSettings;
+    approvalMode: ApprovalMode;
     run: Promise<void>;
     completed: boolean;
     failure?: unknown;
@@ -97,6 +102,7 @@ export class AgentRegistry {
     private async createWithKind(
         options: CreateRegisteredAgentOptions,
         kind: RegisteredAgentKind,
+        inherited?: InheritedAgentSettings,
     ): Promise<ResidentAgent> {
         const id = options.id ?? randomUUID();
         this.reserveId(id);
@@ -108,6 +114,9 @@ export class AgentRegistry {
                     ?? defaultSessionPath(id),
                 { sessionId: id, cwd: workspace },
             );
+            if (inherited !== undefined) {
+                await store.appendApprovalMode(inherited.approvalMode);
+            }
             this.requireOpen();
             return this.start(store, kind, options.eventLogPath);
         } finally {
@@ -168,6 +177,23 @@ export class AgentRegistry {
         return { ...entry.modelSettings };
     }
 
+    async updateApprovalMode(
+        id: string,
+        mode: ApprovalMode,
+    ): Promise<ApprovalMode | undefined> {
+        const entry = this.agents.get(id);
+        if (
+            entry === undefined
+            || entry.agent.closed
+            || !isApprovalMode(mode)
+        ) {
+            return undefined;
+        }
+        await entry.store.appendApprovalMode(mode);
+        entry.approvalMode = mode;
+        return entry.approvalMode;
+    }
+
     list(): RegisteredAgentSummary[] {
         return [...this.agents.values()]
             .map((entry) => ({
@@ -216,6 +242,7 @@ export class AgentRegistry {
                     ? {}
                     : { reasoningEffort: this.options.reasoningEffort }),
             },
+            approvalMode: store.approvalMode() ?? this.options.approvalMode,
             run: Promise.resolve(),
             completed: false,
         };
@@ -224,7 +251,6 @@ export class AgentRegistry {
             adapter,
             model: this.options.model,
             workspace: store.header.cwd,
-            approvalMode: this.options.approvalMode,
             ...(this.options.reasoningEffort === undefined
                 ? {}
                 : { reasoningEffort: this.options.reasoningEffort }),
@@ -232,10 +258,14 @@ export class AgentRegistry {
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
         });
-        const applyToolEffect: ApplyToolEffect = (effect, signal) =>
+        const applyToolEffect: ApplyToolEffect = (effect, signal, context) =>
             effect.type === "spawn_background_agent"
-                ? this.spawnBackgroundAgent(store, effect)
-                : applySubagentEffect(effect, signal);
+                ? this.spawnBackgroundAgent(
+                    store,
+                    effect,
+                    context.approvalMode,
+                )
+                : applySubagentEffect(effect, signal, context);
         entry.run = runHeadlessLoop(
             agent.engine,
             adapter,
@@ -245,7 +275,7 @@ export class AgentRegistry {
                 sessionStore: store,
                 eventLogPath,
                 eventBus: events,
-                approvalMode: this.options.approvalMode,
+                approvalMode: entry.approvalMode,
                 modelFallback: this.options.modelFallback,
                 applyToolEffect,
                 enabledToolEffects: [
@@ -255,6 +285,9 @@ export class AgentRegistry {
                 readModelSettings: () => entry.modelSettings,
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
+                readApprovalMode: () => entry.approvalMode,
+                updateApprovalMode: (mode) =>
+                    this.updateApprovalMode(agent.id, mode),
             },
         ).catch((error: unknown) => {
             if (!agent.closed) {
@@ -276,10 +309,12 @@ export class AgentRegistry {
     private async spawnBackgroundAgent(
         parentStore: SessionStore,
         effect: SpawnBackgroundAgentEffect,
+        approvalMode: ApprovalMode,
     ): Promise<ToolOutput> {
         const child = await this.createWithKind(
             { workspace: parentStore.header.cwd },
             "background",
+            { approvalMode },
         );
         const attachment = child.attach();
         try {

@@ -4,6 +4,7 @@ import type { TextChunk } from "@opentui/core";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import type { ApprovalMode } from "../../src/engine/permissions.ts";
 
 export type TuiTranscriptEntryKind = "user" | "assistant" | "tool" | "notice";
 
@@ -17,6 +18,7 @@ export interface TuiState {
     readonly working: boolean;
     readonly queuedPrompts: readonly string[];
     readonly modelSettings?: ModelTurnSettings;
+    readonly approvalMode?: ApprovalMode;
 }
 
 export const TUI_ACCENT = "#7AA2F7";
@@ -123,6 +125,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return { ...state, modelSettings: update.settings };
     }
     if (update.type === "model_settings_rejected") {
+        return state;
+    }
+    if (update.type === "permissions") {
+        return { ...state, approvalMode: update.mode };
+    }
+    if (update.type === "permissions_rejected") {
         return state;
     }
     return assertNever(update);

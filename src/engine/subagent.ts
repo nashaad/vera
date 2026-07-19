@@ -27,7 +27,6 @@ export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly model: string;
     readonly workspace: string;
-    readonly approvalMode: ApprovalMode;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (sessionId: string) => string;
@@ -55,7 +54,7 @@ export interface SubagentResult {
 export function createSubagentEffectApplier(
     options: CreateSubagentEffectApplierOptions,
 ): ApplyToolEffect {
-    return async (effect, signal) => {
+    return async (effect, signal, context) => {
         if (effect.type !== "spawn_subagent") {
             throw new Error(`Unsupported subagent effect: ${effect.type}`);
         }
@@ -65,7 +64,7 @@ export function createSubagentEffectApplier(
             model: options.model,
             description: effect.description,
             workspace: options.workspace,
-            approvalMode: options.approvalMode,
+            approvalMode: context.approvalMode,
             signal,
             sessionId,
             ...(options.reasoningEffort === undefined
@@ -95,6 +94,7 @@ export async function runSubagent(
         options.sessionPath ?? defaultSessionPath(sessionId),
         { sessionId, cwd: options.workspace },
     );
+    await store.appendApprovalMode(options.approvalMode);
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     const protocol = createProtocolEncoder(channel.engine);

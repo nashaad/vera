@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     createProtocolEncoder,
+    parseClientCommand,
     projectTranscript,
     type AgentUpdate,
 } from "../../src/engine/protocol.ts";
@@ -173,6 +174,67 @@ test("model settings results share the ordered agent update sequence", () => {
         {
             type: "model_settings_rejected",
             requestId: "settings-2",
+            reason: "invalid",
+            seq: 2,
+        },
+    ]);
+});
+
+test("permission commands parse only known modes", () => {
+    expect(parseClientCommand({
+        type: "get_permissions",
+        requestId: "permissions-1",
+    })).toEqual({
+        type: "get_permissions",
+        requestId: "permissions-1",
+    });
+    expect(parseClientCommand({
+        type: "update_permissions",
+        requestId: "permissions-2",
+        mode: "full_access",
+    })).toEqual({
+        type: "update_permissions",
+        requestId: "permissions-2",
+        mode: "full_access",
+    });
+    expect(parseClientCommand({
+        type: "update_permissions",
+        requestId: "permissions-3",
+        mode: "always_allow",
+    })).toBeUndefined();
+});
+
+test("permission results share the ordered agent update sequence", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "permissions_changed",
+        requestId: "permissions-1",
+        mode: "full_access",
+        pending: true,
+    });
+    protocol({
+        type: "permissions_rejected",
+        requestId: "permissions-2",
+        reason: "invalid",
+    });
+
+    expect(updates).toEqual([
+        {
+            type: "permissions",
+            requestId: "permissions-1",
+            mode: "full_access",
+            pending: true,
+            seq: 1,
+        },
+        {
+            type: "permissions_rejected",
+            requestId: "permissions-2",
             reason: "invalid",
             seq: 2,
         },

@@ -34,6 +34,7 @@ import type {
     ApplyToolEffect,
     ToolExecutionResult,
     ToolEffect,
+    ToolEffectContext,
     ToolOutput,
 } from "../tools/types.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
@@ -81,6 +82,7 @@ export interface RunTurnState {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
+    readonly readApprovalMode?: () => ApprovalMode;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -98,6 +100,10 @@ export interface RunHeadlessLoopOptions {
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly readApprovalMode?: () => ApprovalMode;
+    readonly updateApprovalMode?: (
+        mode: ApprovalMode,
+    ) => Promise<ApprovalMode | undefined>;
 }
 
 export async function runHeadlessLoop(
@@ -137,6 +143,25 @@ export async function runHeadlessLoop(
             : await SessionStore.open(options.resumeSessionPath)
     );
     const sessionId = store.header.id;
+    if (
+        (options.readApprovalMode === undefined)
+        !== (options.updateApprovalMode === undefined)
+    ) {
+        throw new Error(
+            "Approval mode reads and updates must use the same owner",
+        );
+    }
+    let localApprovalMode = store.approvalMode()
+        ?? options.approvalMode
+        ?? "approve_for_me";
+    const readApprovalMode = options.readApprovalMode
+        ?? (() => localApprovalMode);
+    const updateApprovalMode = options.updateApprovalMode
+        ?? (async (mode: ApprovalMode): Promise<ApprovalMode> => {
+            await store.appendApprovalMode(mode);
+            localApprovalMode = mode;
+            return localApprovalMode;
+        });
     const events = options.eventBus ?? new EngineEventBus();
     const protocol = createProtocolEncoder(endpoint);
     events.subscribe(protocol);
@@ -151,13 +176,14 @@ export async function runHeadlessLoop(
         ...(options.updateModelSettings === undefined
             ? {}
             : { updateModelSettings: options.updateModelSettings }),
+        readApprovalMode,
+        updateApprovalMode,
     });
     const applyToolEffect = options.applyToolEffect
         ?? createSubagentEffectApplier({
             adapter,
             model,
             workspace: store.header.cwd,
-            approvalMode: options.approvalMode ?? "approve_for_me",
             ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
             ...(options.modelFallback === undefined
                 ? {}
@@ -171,7 +197,7 @@ export async function runHeadlessLoop(
         inbound,
         events,
         hooks: new ToolHooks(),
-        approvalMode: options.approvalMode ?? "approve_for_me",
+        approvalMode: localApprovalMode,
         applyToolEffect,
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
         ...(options.modelFallback === undefined
@@ -180,6 +206,7 @@ export async function runHeadlessLoop(
         ...(options.readModelSettings === undefined
             ? {}
             : { readModelSettings: options.readModelSettings }),
+        readApprovalMode,
     };
     protocol.checkpoint(state.messages);
 
@@ -207,6 +234,9 @@ export async function runTurn(
             };
         let activeModel = modelSettings.model;
         const turnReasoningEffort = modelSettings.reasoningEffort;
+        const turnApprovalMode = turn.approvalMode
+            ?? state.readApprovalMode?.()
+            ?? state.approvalMode;
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
         const tools = toolDefinitionsForEffects(
@@ -333,7 +363,12 @@ export async function runTurn(
                 const first = preparedToolCalls[toolIndex]!;
                 if (!toolMayRunInParallel(first.toolCall.name)) {
                     await finishToolCalls(state, [
-                        executePreparedTool(state, first, turn.signal),
+                        executePreparedTool(
+                            state,
+                            first,
+                            turn.signal,
+                            turnApprovalMode,
+                        ),
                     ]);
                     toolIndex += 1;
                     continue;
@@ -352,7 +387,12 @@ export async function runTurn(
                 await finishToolCalls(
                     state,
                     parallelCalls.map((prepared) =>
-                        executePreparedTool(state, prepared, turn.signal)
+                        executePreparedTool(
+                            state,
+                            prepared,
+                            turn.signal,
+                            turnApprovalMode,
+                        )
                     ),
                 );
             }
@@ -498,6 +538,7 @@ async function executePreparedTool(
     state: RunTurnState,
     prepared: PreparedToolCall,
     signal: AbortSignal,
+    approvalMode: ApprovalMode,
 ): Promise<CompletedToolCall> {
     const toolCall = prepared.toolCall;
     const hookCall = hookToolCall(toolCall);
@@ -521,7 +562,7 @@ async function executePreparedTool(
     }
 
     const permission = decideToolPermission(
-        state.approvalMode,
+        approvalMode,
         hookCall,
         state.toolRuntime.workspace,
     );
@@ -550,6 +591,7 @@ async function executePreparedTool(
         execution,
         state.applyToolEffect,
         signal,
+        { approvalMode },
     );
     const result = toolResultMessage(toolCall, output);
     const durationMs = performance.now() - startedAt;
@@ -671,6 +713,7 @@ async function applyToolExecution(
     execution: ToolExecutionResult,
     applyEffect: ApplyToolEffect | undefined,
     signal: AbortSignal,
+    context: ToolEffectContext,
 ): Promise<ToolOutput> {
     if (execution.kind === "output") {
         return execution;
@@ -684,7 +727,7 @@ async function applyToolExecution(
     }
     try {
         signal.throwIfAborted();
-        return await applyEffect(execution.effect, signal);
+        return await applyEffect(execution.effect, signal, context);
     } catch (error) {
         return {
             kind: "output",

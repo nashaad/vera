@@ -27,6 +27,8 @@ void runHeadlessLoop(
             reasoningEffort: "high",
         }),
         updateModelSettings: async () => undefined,
+        readApprovalMode: () => "approve_for_me",
+        updateApprovalMode: async () => undefined,
     },
 );
 const client: TuiAgentClient = {

@@ -123,6 +123,19 @@ test("TUI state keeps host-reported model settings", () => {
     expect(state.entries).toEqual([]);
 });
 
+test("TUI state keeps host-reported permissions", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "permissions",
+        requestId: "permissions-1",
+        mode: "full_access",
+        pending: false,
+        seq: 1,
+    });
+
+    expect(state.approvalMode).toBe("full_access");
+    expect(state.entries).toEqual([]);
+});
+
 test("TUI does not duplicate its optimistic user prompt", () => {
     const state = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "inspect"),

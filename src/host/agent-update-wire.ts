@@ -2,6 +2,7 @@ import type {
     AgentUpdate,
     TranscriptEntry,
 } from "../engine/protocol.ts";
+import { isApprovalMode } from "../engine/permissions.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
@@ -63,6 +64,21 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     if (update.type === "model_settings_rejected") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && (update.reason === "invalid" || update.reason === "unavailable")
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "permissions") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && isApprovalMode(update.mode)
+                && typeof update.pending === "boolean"
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "permissions_rejected") {
         return typeof update.requestId === "string"
                 && update.requestId.length > 0
                 && (update.reason === "invalid" || update.reason === "unavailable")
