@@ -20,7 +20,14 @@ void runHeadlessLoop(
     new FauxAdapter(responses, { chunkSize: 1, delayMs: 40 }),
     "test",
     "high",
-    { approvalMode: "approve_for_me" },
+    {
+        approvalMode: "approve_for_me",
+        readModelSettings: () => ({
+            model: "test",
+            reasoningEffort: "high",
+        }),
+        updateModelSettings: () => undefined,
+    },
 );
 const client: TuiAgentClient = {
     async send(command): Promise<void> {
@@ -33,15 +40,7 @@ const client: TuiAgentClient = {
     close(): void {},
 };
 
-await startTui({
-    client,
-    model: "test",
-    reasoning: {
-        requested: "high",
-        providerEffort: "high",
-        inferred: false,
-    },
-});
+await startTui({ client });
 
 function response(text: string): AssistantMessage {
     return {
