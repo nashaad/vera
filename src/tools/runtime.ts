@@ -1,72 +1,10 @@
-/**
- * The exact before and intended-after states of one file, handed to the
- * checkpoint recorder just before a `write` or `edit` overwrites it.
- * `priorContent` is meaningful only when `existedBefore` is true; for a newly
- * created file it is the empty string.
- */
-export interface FileCheckpointCapture {
-    readonly path: string;
-    readonly existedBefore: boolean;
-    readonly priorContent: string;
-    readonly intendedContent: string;
-    readonly tool: "write" | "edit";
-}
-
-export interface BoundFileCheckpointCapture extends FileCheckpointCapture {
-    readonly userMessageId: string;
-}
-
-export type FileCheckpointRecorder = (
-    capture: BoundFileCheckpointCapture,
-) => Promise<void>;
-
-export interface ToolRuntimeOptions {
-    readonly recordCheckpoint?: FileCheckpointRecorder;
-}
-
 export class ToolRuntime {
     readonly workspace: string;
     private readonly fileSnapshots = new Map<string, string>();
     private mutationTail: Promise<void> = Promise.resolve();
-    private readonly checkpointRecorder?: FileCheckpointRecorder;
-    private checkpointBoundaryId: string | undefined;
 
-    constructor(workspace: string, options: ToolRuntimeOptions = {}) {
+    constructor(workspace: string) {
         this.workspace = workspace;
-        this.checkpointRecorder = options.recordCheckpoint;
-    }
-
-    /**
-     * Record a file's prior state before a mutation. When no recorder is
-     * configured this is a no-op, so tool execution works the same with or
-     * without checkpointing wired up.
-     */
-    async recordCheckpoint(capture: FileCheckpointCapture): Promise<void> {
-        if (this.checkpointRecorder !== undefined) {
-            if (this.checkpointBoundaryId === undefined) {
-                throw new Error(
-                    "Cannot record a checkpoint without a user-message boundary",
-                );
-            }
-            await this.checkpointRecorder({
-                ...capture,
-                userMessageId: this.checkpointBoundaryId,
-            });
-        }
-    }
-
-    beginCheckpointBoundary(userMessageId: string): void {
-        if (userMessageId.length === 0) {
-            throw new Error("Checkpoint boundary ID must not be empty");
-        }
-        if (this.checkpointBoundaryId !== undefined) {
-            throw new Error("A checkpoint boundary is already active");
-        }
-        this.checkpointBoundaryId = userMessageId;
-    }
-
-    endCheckpointBoundary(): void {
-        this.checkpointBoundaryId = undefined;
     }
 
     recordFileSnapshot(path: string, content: string): void {

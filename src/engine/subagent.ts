@@ -9,11 +9,6 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
-import {
-    CheckpointStore,
-    defaultCheckpointDirectory,
-    sha256Text,
-} from "../store/checkpoint-store.ts";
 import { EngineEventBus } from "./events.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
@@ -25,10 +20,7 @@ import type { ApprovalMode } from "./permissions.ts";
 import { createProtocolEncoder } from "./protocol.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
-import {
-    ToolRuntime,
-    type BoundFileCheckpointCapture,
-} from "../tools/runtime.ts";
+import { ToolRuntime } from "../tools/runtime.ts";
 import type { ApplyToolEffect } from "../tools/types.ts";
 
 export interface CreateSubagentEffectApplierOptions {
@@ -36,7 +28,6 @@ export interface CreateSubagentEffectApplierOptions {
     readonly workspace: string;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (sessionId: string) => string;
-    readonly checkpointStoreForId?: (sessionId: string) => CheckpointStore;
 }
 
 export interface RunSubagentOptions {
@@ -49,7 +40,6 @@ export interface RunSubagentOptions {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionId?: string;
     readonly sessionPath?: string;
-    readonly checkpointStore?: CheckpointStore;
     readonly signal?: AbortSignal;
 }
 
@@ -85,11 +75,6 @@ export function createSubagentEffectApplier(
             ...(options.sessionPathForId === undefined
                 ? {}
                 : { sessionPath: options.sessionPathForId(sessionId) }),
-            ...(options.checkpointStoreForId === undefined
-                ? {}
-                : {
-                    checkpointStore: options.checkpointStoreForId(sessionId),
-                }),
         });
         return {
             kind: "output",
@@ -116,37 +101,13 @@ export async function runSubagent(
         options.signal?.throwIfAborted();
         await store.appendApprovalMode(options.approvalMode);
         options.signal?.throwIfAborted();
-        const checkpointStore = options.checkpointStore
-            ?? new CheckpointStore(defaultCheckpointDirectory(sessionId));
-        const recordCheckpoint = async (
-            capture: BoundFileCheckpointCapture,
-        ): Promise<void> => {
-            const checkpointId = randomUUID();
-            await checkpointStore.write(checkpointId, {
-                existed: capture.existedBefore,
-                content: capture.priorContent,
-            });
-            await store.appendCheckpoint({
-                checkpointId,
-                path: capture.path,
-                existedBefore: capture.existedBefore,
-                tool: capture.tool,
-                userMessageId: capture.userMessageId,
-                beforeSha256: capture.existedBefore
-                    ? sha256Text(capture.priorContent)
-                    : null,
-                afterSha256: sha256Text(capture.intendedContent),
-            });
-        };
         const events = new EngineEventBus();
         const protocol = createProtocolEncoder(channel.engine);
         events.subscribe(protocol);
         const state: RunTurnState = {
             messages: [],
             store,
-            toolRuntime: new ToolRuntime(options.workspace, {
-                recordCheckpoint,
-            }),
+            toolRuntime: new ToolRuntime(options.workspace),
             inbound: new InboundCommandRouter(channel.engine, events),
             events,
             hooks: new ToolHooks(),

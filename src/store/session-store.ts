@@ -62,38 +62,6 @@ export interface SessionPermissionsEntry {
     readonly mode: ApprovalMode;
 }
 
-export type CheckpointTool = "write" | "edit";
-
-export interface SessionCheckpointEntry {
-    readonly type: "checkpoint";
-    readonly timestamp: string;
-    readonly checkpointId: string;
-    readonly path: string;
-    readonly existedBefore: boolean;
-    readonly tool: CheckpointTool;
-    readonly userMessageId?: string;
-    readonly beforeSha256?: string | null;
-    readonly afterSha256?: string;
-}
-
-export type SessionBoundaryRecord =
-    | SessionMessageEntry
-    | SessionCheckpointEntry;
-
-export interface NewSessionCheckpoint {
-    readonly checkpointId: string;
-    readonly path: string;
-    readonly existedBefore: boolean;
-    readonly tool: CheckpointTool;
-    readonly userMessageId: string;
-    readonly beforeSha256: string | null;
-    readonly afterSha256: string;
-}
-
-export interface StoredMessageReference {
-    readonly id: string;
-}
-
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
@@ -107,9 +75,7 @@ export interface OpenSessionStoreOptions {
 }
 
 export interface SessionMessageStore {
-    appendMessage(
-        message: ModelMessage,
-    ): Promise<StoredMessageReference | void>;
+    appendMessage(message: ModelMessage): Promise<unknown>;
 }
 
 export interface SessionDeliveryInbox {
@@ -124,8 +90,6 @@ interface LoadedSessionFile {
     readonly deliveryReceipts: Set<string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
-    readonly checkpointEntries: SessionCheckpointEntry[];
-    readonly boundaryRecords: SessionBoundaryRecord[];
     readonly leafId: string | null;
 }
 
@@ -140,8 +104,6 @@ export class SessionStore {
     private readonly deliveryReceipts: Set<string>;
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
-    private readonly checkpointEntries: SessionCheckpointEntry[];
-    private readonly boundaryRecords: SessionBoundaryRecord[];
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -157,8 +119,6 @@ export class SessionStore {
         this.deliveryReceipts = loaded.deliveryReceipts;
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
-        this.checkpointEntries = loaded.checkpointEntries;
-        this.boundaryRecords = loaded.boundaryRecords;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -196,8 +156,6 @@ export class SessionStore {
                 deliveryReceipts: new Set(),
                 modelSettingsEntries: [],
                 permissionsEntries: [],
-                checkpointEntries: [],
-                boundaryRecords: [],
                 leafId: null,
             },
             {
@@ -256,14 +214,6 @@ export class SessionStore {
         return this.permissionsEntries.at(-1)?.mode;
     }
 
-    checkpoints(): readonly SessionCheckpointEntry[] {
-        return this.checkpointEntries.slice();
-    }
-
-    checkpointTimeline(): readonly SessionBoundaryRecord[] {
-        return this.boundaryRecords.slice();
-    }
-
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
         this.pendingAppend = result.then(
@@ -289,19 +239,6 @@ export class SessionStore {
     appendApprovalMode(mode: ApprovalMode): Promise<SessionPermissionsEntry> {
         const result = this.pendingAppend.then(() =>
             this.commitApprovalMode(mode)
-        );
-        this.pendingAppend = result.then(
-            () => undefined,
-            () => undefined,
-        );
-        return result;
-    }
-
-    appendCheckpoint(
-        checkpoint: NewSessionCheckpoint,
-    ): Promise<SessionCheckpointEntry> {
-        const result = this.pendingAppend.then(() =>
-            this.commitCheckpoint(checkpoint)
         );
         this.pendingAppend = result.then(
             () => undefined,
@@ -352,7 +289,6 @@ export class SessionStore {
         await this.appendRecord(entry);
 
         this.storedEntries.push(entry);
-        this.boundaryRecords.push(entry);
         this.leafId = entry.id;
         return entry;
     }
@@ -391,48 +327,6 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.permissionsEntries.push(entry);
-        return entry;
-    }
-
-    private async commitCheckpoint(
-        checkpoint: NewSessionCheckpoint,
-    ): Promise<SessionCheckpointEntry> {
-        const checkpointId = nonEmpty(checkpoint.checkpointId, "checkpoint ID");
-        if (
-            this.checkpointEntries.some(
-                (entry) => entry.checkpointId === checkpointId,
-            )
-        ) {
-            throw new Error(`Checkpoint ${checkpointId} already exists`);
-        }
-        const boundary = latestExternalUserMessage(this.storedEntries);
-        if (boundary?.id !== checkpoint.userMessageId) {
-            throw new Error(
-                `Checkpoint ${checkpointId} does not reference the latest user message`,
-            );
-        }
-        if (
-            (checkpoint.existedBefore
-                ? !isSha256(checkpoint.beforeSha256)
-                : checkpoint.beforeSha256 !== null)
-            || !isSha256(checkpoint.afterSha256)
-        ) {
-            throw new Error(`Checkpoint ${checkpointId} has invalid digests`);
-        }
-        const entry: SessionCheckpointEntry = {
-            type: "checkpoint",
-            timestamp: this.now().toISOString(),
-            checkpointId,
-            path: nonEmpty(checkpoint.path, "checkpoint path"),
-            existedBefore: checkpoint.existedBefore,
-            tool: checkpoint.tool,
-            userMessageId: checkpoint.userMessageId,
-            beforeSha256: checkpoint.beforeSha256,
-            afterSha256: checkpoint.afterSha256,
-        };
-        await this.appendRecord(entry);
-        this.checkpointEntries.push(entry);
-        this.boundaryRecords.push(entry);
         return entry;
     }
 
@@ -535,9 +429,6 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const deliveryReceipts = new Set<string>();
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
-    const checkpointEntries: SessionCheckpointEntry[] = [];
-    const boundaryRecords: SessionBoundaryRecord[] = [];
-    const knownCheckpointIds = new Set<string>();
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
 
@@ -563,7 +454,6 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             }
             knownMessageIds.add(entry.id);
             messageEntries.push(entry);
-            boundaryRecords.push(entry);
             continue;
         }
         if (value.type === "delivery") {
@@ -608,26 +498,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             continue;
         }
         if (value.type === "checkpoint") {
-            const entry = parseCheckpointEntry(path, lineNumber, value);
-            if (knownCheckpointIds.has(entry.checkpointId)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats checkpoint ${entry.checkpointId}`,
-                );
-            }
-            if (
-                entry.userMessageId !== undefined
-                && latestExternalUserMessage(messageEntries)?.id
-                    !== entry.userMessageId
-            ) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} does not reference the latest user message ${entry.userMessageId}`,
-                );
-            }
-            knownCheckpointIds.add(entry.checkpointId);
-            checkpointEntries.push(entry);
-            boundaryRecords.push(entry);
+            parseRemovedFileCheckpointEntry(path, lineNumber, value);
             continue;
         }
         throw invalidSession(
@@ -643,8 +514,6 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         deliveryReceipts,
         modelSettingsEntries,
         permissionsEntries,
-        checkpointEntries,
-        boundaryRecords,
         leafId: messageEntries.at(-1)?.id ?? null,
     };
 }
@@ -773,11 +642,16 @@ function parsePermissionsEntry(
     };
 }
 
-function parseCheckpointEntry(
+/**
+ * File checkpoints were briefly written by Vera 2 before file undo was
+ * removed. Validate and ignore those records so the surrounding conversation
+ * remains readable without retaining any checkpoint behavior or API.
+ */
+function parseRemovedFileCheckpointEntry(
     path: string,
     lineNumber: number,
     value: Record<string, unknown>,
-): SessionCheckpointEntry {
+): void {
     const hasBoundaryMetadata = value.userMessageId !== undefined
         || value.beforeSha256 !== undefined
         || value.afterSha256 !== undefined;
@@ -800,40 +674,13 @@ function parseCheckpointEntry(
     ) {
         throw invalidSession(
             path,
-            `line ${lineNumber} is not a valid checkpoint entry`,
+            `line ${lineNumber} is not a valid removed checkpoint entry`,
         );
     }
-    return {
-        type: "checkpoint",
-        timestamp: value.timestamp,
-        checkpointId: value.checkpointId,
-        path: value.path,
-        existedBefore: value.existedBefore,
-        tool: value.tool,
-        ...(hasBoundaryMetadata
-            ? {
-                userMessageId: value.userMessageId as string,
-                beforeSha256: value.beforeSha256 as string | null,
-                afterSha256: value.afterSha256 as string,
-            }
-            : {}),
-    };
 }
 
 function isSha256(value: unknown): value is string {
     return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
-}
-
-function latestExternalUserMessage(
-    entries: readonly SessionMessageEntry[],
-): SessionMessageEntry | undefined {
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const entry = entries[index]!;
-        if (entry.message.role === "user" && entry.message.internal !== true) {
-            return entry;
-        }
-    }
-    return undefined;
 }
 
 function parseJsonObject(
