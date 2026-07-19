@@ -76,6 +76,10 @@ export interface SessionCheckpointEntry {
     readonly afterSha256?: string;
 }
 
+export type SessionBoundaryRecord =
+    | SessionMessageEntry
+    | SessionCheckpointEntry;
+
 export interface NewSessionCheckpoint {
     readonly checkpointId: string;
     readonly path: string;
@@ -121,6 +125,7 @@ interface LoadedSessionFile {
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly checkpointEntries: SessionCheckpointEntry[];
+    readonly boundaryRecords: SessionBoundaryRecord[];
     readonly leafId: string | null;
 }
 
@@ -136,6 +141,7 @@ export class SessionStore {
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
     private readonly checkpointEntries: SessionCheckpointEntry[];
+    private readonly boundaryRecords: SessionBoundaryRecord[];
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -152,6 +158,7 @@ export class SessionStore {
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
         this.checkpointEntries = loaded.checkpointEntries;
+        this.boundaryRecords = loaded.boundaryRecords;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -190,6 +197,7 @@ export class SessionStore {
                 modelSettingsEntries: [],
                 permissionsEntries: [],
                 checkpointEntries: [],
+                boundaryRecords: [],
                 leafId: null,
             },
             {
@@ -250,6 +258,10 @@ export class SessionStore {
 
     checkpoints(): readonly SessionCheckpointEntry[] {
         return this.checkpointEntries.slice();
+    }
+
+    checkpointTimeline(): readonly SessionBoundaryRecord[] {
+        return this.boundaryRecords.slice();
     }
 
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
@@ -340,6 +352,7 @@ export class SessionStore {
         await this.appendRecord(entry);
 
         this.storedEntries.push(entry);
+        this.boundaryRecords.push(entry);
         this.leafId = entry.id;
         return entry;
     }
@@ -419,6 +432,7 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.checkpointEntries.push(entry);
+        this.boundaryRecords.push(entry);
         return entry;
     }
 
@@ -522,6 +536,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
     const checkpointEntries: SessionCheckpointEntry[] = [];
+    const boundaryRecords: SessionBoundaryRecord[] = [];
     const knownCheckpointIds = new Set<string>();
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
@@ -548,6 +563,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             }
             knownMessageIds.add(entry.id);
             messageEntries.push(entry);
+            boundaryRecords.push(entry);
             continue;
         }
         if (value.type === "delivery") {
@@ -611,6 +627,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             }
             knownCheckpointIds.add(entry.checkpointId);
             checkpointEntries.push(entry);
+            boundaryRecords.push(entry);
             continue;
         }
         throw invalidSession(
@@ -627,6 +644,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         modelSettingsEntries,
         permissionsEntries,
         checkpointEntries,
+        boundaryRecords,
         leafId: messageEntries.at(-1)?.id ?? null,
     };
 }
