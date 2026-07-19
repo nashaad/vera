@@ -141,4 +141,5 @@ vite.config.ts.timestamp-*
 # Local/private developer notes (not committed)
 AGENTS.local.md
 CLAUDE.md
+.agent-notes/
 vera-one-archived/
