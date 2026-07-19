@@ -8,8 +8,8 @@ import {
     createCliRenderer,
     type Selection,
 } from "@opentui/core";
+import { randomUUID } from "node:crypto";
 
-import { loadVeraConfig } from "../../src/config.ts";
 import type {
     AgentUpdate,
     ClientCommand,
@@ -20,10 +20,6 @@ import {
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
-import {
-    resolveReasoningSelection,
-    type ReasoningSelection,
-} from "../../src/model/reasoning-effort.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import {
     applyTuiApprovalUpdate,
@@ -59,8 +55,6 @@ const COPY_NOTICE_DURATION_MS = 1_500;
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
-    readonly model: string;
-    readonly reasoning?: ReasoningSelection;
 }
 
 export interface TuiAgentClient {
@@ -98,15 +92,6 @@ if (import.meta.main) {
 }
 
 export async function startConfiguredTui(target: TuiStartTarget): Promise<void> {
-    const config = loadVeraConfig();
-    const reasoning = config.reasoning_effort === undefined
-        ? undefined
-        : await resolveReasoningSelection(
-            config.provider,
-            config.model,
-            config.reasoning_effort,
-        );
-
     const host = await findOrStartResidentHost();
     const agentId = target.type === "create"
         ? (await createAgentThroughHost(
@@ -124,11 +109,7 @@ export async function startConfiguredTui(target: TuiStartTarget): Promise<void> 
         agentId,
     });
     try {
-        await startTui({
-            client,
-            model: config.model,
-            ...(reasoning === undefined ? {} : { reasoning }),
-        });
+        await startTui({ client });
     } catch (error) {
         client.close();
         throw error;
@@ -138,11 +119,7 @@ export async function startConfiguredTui(target: TuiStartTarget): Promise<void> 
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<void> {
-    const {
-        client,
-        model,
-        reasoning,
-    } = dependencies;
+    const { client } = dependencies;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
@@ -316,6 +293,10 @@ export async function startTui(
     });
 
     void receiveAgentUpdates();
+    sendCommand({
+        type: "get_model_settings",
+        requestId: randomUUID(),
+    });
 
     function submitPrompt(): void {
         const prompt = composer.expandedText().trim();
@@ -503,8 +484,7 @@ export async function startTui(
 
         statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
         statusText.content = renderTuiStatusLine(
-            model,
-            reasoning,
+            state.modelSettings,
             statusNotice ?? lifecycleHint,
         );
     }

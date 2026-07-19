@@ -2,48 +2,32 @@ import { expect, test } from "bun:test";
 
 import { renderTuiStatusLine } from "../../clients/tui/status.ts";
 
-test("TUI status line shows the model and configured reasoning effort", () => {
-    expect(renderTuiStatusLine("gpt-5.6-sol", {
-        requested: "high",
-        providerEffort: "high",
-        inferred: false,
+test("TUI status line shows host-reported model and reasoning", () => {
+    expect(renderTuiStatusLine({
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
     }, "ready")).toBe(
         "gpt-5.6-sol · thinking high · ready",
     );
 });
 
-test("TUI status line shows a different curated provider effort", () => {
-    expect(renderTuiStatusLine("gpt-5.6-sol", {
-        requested: "max",
-        providerEffort: "xhigh",
-        inferred: false,
+test("TUI status line shows host-reported reasoning off", () => {
+    expect(renderTuiStatusLine({
+        model: "gpt-5.6-sol",
+        reasoningEffort: "off",
     }, "ready")).toBe(
-        "gpt-5.6-sol · thinking max → xhigh · ready",
+        "gpt-5.6-sol · thinking off · ready",
     );
 });
 
-test("TUI status line labels an inferred provider effort", () => {
-    expect(renderTuiStatusLine("provider/model", {
-        requested: "high",
-        providerEffort: "magna",
-        inferred: true,
-    }, "ready")).toBe(
-        "provider/model · thinking high → magna (inferred) · ready",
-    );
-});
-
-test("TUI status line shows explicit off mapping", () => {
-    expect(renderTuiStatusLine("gpt-5.6-sol", {
-        requested: "off",
-        providerEffort: "none",
-        inferred: false,
-    }, "ready")).toBe(
-        "gpt-5.6-sol · thinking off → none · ready",
-    );
-});
-
-test("TUI status line identifies provider-default reasoning", () => {
-    expect(renderTuiStatusLine("gpt-5.6-sol", undefined, "working…")).toBe(
+test("TUI status line identifies host-reported provider-default reasoning", () => {
+    expect(renderTuiStatusLine({ model: "gpt-5.6-sol" }, "working…")).toBe(
         "gpt-5.6-sol · thinking default · working…",
+    );
+});
+
+test("TUI status does not guess settings while the host query is pending", () => {
+    expect(renderTuiStatusLine(undefined, "ready")).toBe(
+        "model loading · thinking loading · ready",
     );
 });

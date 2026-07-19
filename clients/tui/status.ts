@@ -1,21 +1,12 @@
-import type { ReasoningSelection } from "../../src/model/reasoning-effort.ts";
+import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 
 export function renderTuiStatusLine(
-    model: string,
-    reasoning: ReasoningSelection | undefined,
+    settings: ModelTurnSettings | undefined,
     message: string,
 ): string {
-    const thinking = renderReasoning(reasoning);
-    return `${model} · ${thinking} · ${message}`;
-}
-
-function renderReasoning(reasoning: ReasoningSelection | undefined): string {
-    if (reasoning === undefined) {
-        return "thinking default";
+    if (settings === undefined) {
+        return `model loading · thinking loading · ${message}`;
     }
-    if (reasoning.requested === reasoning.providerEffort) {
-        return `thinking ${reasoning.requested}`;
-    }
-    const inference = reasoning.inferred ? " (inferred)" : "";
-    return `thinking ${reasoning.requested} → ${reasoning.providerEffort}${inference}`;
+    const thinking = settings.reasoningEffort ?? "default";
+    return `${settings.model} · thinking ${thinking} · ${message}`;
 }
