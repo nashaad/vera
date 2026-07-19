@@ -1,6 +1,9 @@
 import { createConnection, type Socket } from "node:net";
 
-import type { ClientCommand } from "../engine/protocol.ts";
+import {
+    parseClientCommand,
+    type ClientCommand,
+} from "../engine/protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 
 export interface HostIdentity {
@@ -128,34 +131,7 @@ export function parseAttachedClientMessage(
     if (value?.type === "detach") {
         return { type: "detach" };
     }
-    if (value?.type === "prompt" && typeof value.content === "string") {
-        return { type: "prompt", content: value.content };
-    }
-    if (value?.type === "abort") {
-        return { type: "abort" };
-    }
-    if (
-        value?.type === "ui_response"
-        && typeof value.requestId === "string"
-        && typeof value.response === "object"
-        && value.response !== null
-    ) {
-        const response = value.response as Record<string, unknown>;
-        if (
-            response.type === "tool_approval"
-            && (response.decision === "allow" || response.decision === "deny")
-        ) {
-            return {
-                type: "ui_response",
-                requestId: value.requestId,
-                response: {
-                    type: "tool_approval",
-                    decision: response.decision,
-                },
-            };
-        }
-    }
-    return undefined;
+    return parseClientCommand(value);
 }
 
 export function encodeHostResponse(response: HostResponse): string {

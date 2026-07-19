@@ -196,6 +196,82 @@ test("a disconnected client denies approval without waiting for timeout", async 
     });
 });
 
+test("model settings commands reject explicitly when no owner is installed", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events);
+
+    channel.client.send({
+        type: "get_model_settings",
+        requestId: "read-settings",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "model_settings_rejected",
+        requestId: "read-settings",
+        reason: "unavailable",
+        seq: 1,
+    });
+
+    channel.client.send({
+        type: "update_model_settings",
+        requestId: "change-settings",
+        patch: { model: "next-model" },
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "model_settings_rejected",
+        requestId: "change-settings",
+        reason: "unavailable",
+        seq: 2,
+    });
+});
+
+test("a later settings command cannot change an earlier queued prompt", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let settings = { model: "first-model", reasoningEffort: "low" as const };
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readModelSettings: () => settings,
+        updateModelSettings(patch) {
+            settings = {
+                model: patch.model ?? settings.model,
+                reasoningEffort: "low",
+            };
+            return settings;
+        },
+    });
+
+    channel.client.send({ type: "prompt", content: "first" });
+    channel.client.send({
+        type: "update_model_settings",
+        requestId: "change-settings",
+        patch: { model: "second-model" },
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings",
+        requestId: "change-settings",
+        settings: { model: "second-model", reasoningEffort: "low" },
+        pending: true,
+    });
+
+    const first = await router.startTurn();
+    expect(first.prompt.content).toBe("first");
+    expect(first.modelSettings).toEqual({
+        model: "first-model",
+        reasoningEffort: "low",
+    });
+    router.finishTurn();
+
+    channel.client.send({ type: "prompt", content: "second" });
+    const second = await router.startTurn();
+    expect(second.modelSettings).toEqual({
+        model: "second-model",
+        reasoningEffort: "low",
+    });
+    router.finishTurn();
+});
+
 function bashToolCall(command: string): HookToolCall {
     return {
         id: "call_1",

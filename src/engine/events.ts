@@ -22,6 +22,7 @@ import type {
 } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
+import type { ModelTurnSettings } from "./model-settings.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -71,6 +72,19 @@ export interface UiResponseEvent {
 export interface UiRequestClosedEvent {
     readonly type: "ui_request_closed";
     readonly requestId: string;
+}
+
+export interface ModelSettingsChangedEvent {
+    readonly type: "model_settings_changed";
+    readonly requestId: string;
+    readonly settings: ModelTurnSettings;
+    readonly pending: boolean;
+}
+
+export interface ModelSettingsRejectedEvent {
+    readonly type: "model_settings_rejected";
+    readonly requestId: string;
+    readonly reason: "invalid" | "unavailable";
 }
 
 export interface ModelRequestEvent {
@@ -174,6 +188,8 @@ export type EngineEvent =
     | UiRequestEvent
     | UiResponseEvent
     | UiRequestClosedEvent
+    | ModelSettingsChangedEvent
+    | ModelSettingsRejectedEvent
     | ModelRequestEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent

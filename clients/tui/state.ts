@@ -3,6 +3,7 @@ import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import type { TranscriptEntry } from "../../src/engine/protocol.ts";
+import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 
 export type TuiTranscriptEntryKind = "user" | "assistant" | "tool" | "notice";
 
@@ -15,6 +16,7 @@ export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
     readonly working: boolean;
     readonly queuedPrompts: readonly string[];
+    readonly modelSettings?: ModelTurnSettings;
 }
 
 export const TUI_ACCENT = "#7AA2F7";
@@ -32,9 +34,9 @@ export function createTuiState(): TuiState {
 
 export function beginTuiTurn(state: TuiState, prompt: string): TuiState {
     return {
+        ...state,
         entries: [...state.entries, { kind: "user", text: prompt }],
         working: true,
-        queuedPrompts: state.queuedPrompts,
     };
 }
 
@@ -52,6 +54,7 @@ export function beginNextQueuedTuiTurn(state: TuiState): TuiState {
     }
 
     return {
+        ...state,
         entries: [...state.entries, { kind: "user", text: prompt }],
         working: true,
         queuedPrompts,
@@ -114,6 +117,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "ui_request_closed") {
+        return state;
+    }
+    if (update.type === "model_settings") {
+        return { ...state, modelSettings: update.settings };
+    }
+    if (update.type === "model_settings_rejected") {
         return state;
     }
     return assertNever(update);

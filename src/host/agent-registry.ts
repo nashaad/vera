@@ -4,10 +4,11 @@ import { realpath } from "node:fs/promises";
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
 import type { ApprovalMode } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
-import {
-    runHeadlessLoop,
-    type ModelTurnSettings,
-} from "../engine/run-turn.ts";
+import type {
+    ModelSettingsPatch,
+    ModelTurnSettings,
+} from "../engine/model-settings.ts";
+import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { createSubagentEffectApplier } from "../engine/subagent.ts";
 import type {
     ModelAdapter,
@@ -133,21 +134,36 @@ export class AgentRegistry {
         return agent?.closed === false ? agent : undefined;
     }
 
-    updateModelSettings(id: string, settings: ModelTurnSettings): void {
+    updateModelSettings(
+        id: string,
+        patch: ModelSettingsPatch,
+    ): ModelTurnSettings | undefined {
         const entry = this.agents.get(id);
         if (entry === undefined || entry.agent.closed) {
-            throw new Error(`Resident agent ${id} is unavailable`);
+            return undefined;
         }
-        const model = settings.model.trim();
-        if (model.length === 0) {
-            throw new Error("Agent model must not be empty");
+        if (
+            (patch.model === undefined && patch.reasoningEffort === undefined)
+            || (patch.model !== undefined && patch.model.trim().length === 0)
+            || (patch.reasoningEffort !== undefined
+                && patch.reasoningEffort !== null
+                && !isModelReasoningEffort(patch.reasoningEffort))
+        ) {
+            return undefined;
         }
+        const model = patch.model?.trim() ?? entry.modelSettings.model;
+        const reasoningEffort = patch.reasoningEffort === undefined
+            ? entry.modelSettings.reasoningEffort
+            : patch.reasoningEffort === null
+                ? undefined
+                : patch.reasoningEffort;
         entry.modelSettings = {
             model,
-            ...(settings.reasoningEffort === undefined
+            ...(reasoningEffort === undefined
                 ? {}
-                : { reasoningEffort: settings.reasoningEffort }),
+                : { reasoningEffort }),
         };
+        return { ...entry.modelSettings };
     }
 
     list(): RegisteredAgentSummary[] {
@@ -235,6 +251,8 @@ export class AgentRegistry {
                     "spawn_background_agent",
                 ],
                 readModelSettings: () => entry.modelSettings,
+                updateModelSettings: (patch) =>
+                    this.updateModelSettings(agent.id, patch),
             },
         ).catch((error: unknown) => {
             if (!agent.closed) {
@@ -346,4 +364,12 @@ export class AgentRegistry {
             throw new Error("Agent registry is closed");
         }
     }
+}
+
+function isModelReasoningEffort(value: unknown): value is ModelReasoningEffort {
+    return value === "off"
+        || value === "low"
+        || value === "medium"
+        || value === "high"
+        || value === "max";
 }

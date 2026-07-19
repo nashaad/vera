@@ -11,6 +11,10 @@ import type {
     PromptCommand,
     UiResponseCommand,
 } from "./protocol.ts";
+import type {
+    ModelSettingsPatch,
+    ModelTurnSettings,
+} from "./model-settings.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 
@@ -43,18 +47,33 @@ interface PendingApproval {
 export interface InboundTurn {
     readonly prompt: PromptCommand;
     readonly signal: AbortSignal;
+    readonly modelSettings?: ModelTurnSettings;
+}
+
+interface QueuedPrompt {
+    readonly prompt: PromptCommand;
+    readonly modelSettings?: ModelTurnSettings;
+}
+
+export interface InboundCommandRouterOptions {
+    readonly readModelSettings?: () => ModelTurnSettings;
+    readonly updateModelSettings?: (
+        patch: ModelSettingsPatch,
+    ) => ModelTurnSettings | undefined;
 }
 
 export class InboundCommandRouter {
-    private readonly prompts = new AsyncQueue<PromptCommand>();
+    private readonly prompts = new AsyncQueue<QueuedPrompt>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
     private waitingForPrompt = false;
     private activeTurn: AbortController | undefined;
     private receiveFailed = false;
+    private pendingPromptCount = 0;
 
     constructor(
         endpoint: MessageChannel<AgentUpdate, ClientCommand>,
         private readonly events: EngineEventBus,
+        private readonly options: InboundCommandRouterOptions = {},
     ) {
         void this.receiveCommands(endpoint);
     }
@@ -65,15 +84,22 @@ export class InboundCommandRouter {
         }
 
         this.waitingForPrompt = true;
-        let prompt: PromptCommand;
+        let queued: QueuedPrompt;
         try {
-            prompt = await this.prompts.receive();
+            queued = await this.prompts.receive();
+            this.pendingPromptCount -= 1;
         } finally {
             this.waitingForPrompt = false;
         }
         const controller = new AbortController();
         this.activeTurn = controller;
-        return { prompt, signal: controller.signal };
+        return {
+            prompt: queued.prompt,
+            signal: controller.signal,
+            ...(queued.modelSettings === undefined
+                ? {}
+                : { modelSettings: queued.modelSettings }),
+        };
     }
 
     finishTurn(): void {
@@ -144,7 +170,14 @@ export class InboundCommandRouter {
             while (true) {
                 const command = await endpoint.receive();
                 if (command.type === "prompt") {
-                    this.prompts.push(command);
+                    const settings = this.options.readModelSettings?.();
+                    this.pendingPromptCount += 1;
+                    this.prompts.push({
+                        prompt: command,
+                        ...(settings === undefined
+                            ? {}
+                            : { modelSettings: copyModelSettings(settings) }),
+                    });
                     if (this.activeTurn !== undefined) {
                         this.events.emit({
                             type: "prompt_queued",
@@ -156,6 +189,16 @@ export class InboundCommandRouter {
 
                 if (command.type === "ui_response") {
                     this.receiveUiResponse(command);
+                    continue;
+                }
+
+                if (command.type === "get_model_settings") {
+                    this.sendModelSettings(command.requestId);
+                    continue;
+                }
+
+                if (command.type === "update_model_settings") {
+                    this.updateModelSettings(command.requestId, command.patch);
                     continue;
                 }
 
@@ -171,6 +214,51 @@ export class InboundCommandRouter {
                 this.finishApproval(requestId, noClientDenial());
             }
         }
+    }
+
+    private sendModelSettings(requestId: string): void {
+        const settings = this.options.readModelSettings?.();
+        if (settings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(settings),
+            pending: this.hasPendingTurn(),
+        });
+    }
+
+    private updateModelSettings(
+        requestId: string,
+        patch: ModelSettingsPatch,
+    ): void {
+        const settings = this.options.updateModelSettings?.(patch);
+        if (settings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: this.options.updateModelSettings === undefined
+                    ? "unavailable"
+                    : "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(settings),
+            pending: this.hasPendingTurn(),
+        });
+    }
+
+    private hasPendingTurn(): boolean {
+        return this.activeTurn !== undefined || this.pendingPromptCount > 0;
     }
 
     private receiveUiResponse(command: UiResponseCommand): void {
@@ -204,6 +292,15 @@ export class InboundCommandRouter {
         this.events.emit({ type: "ui_request_closed", requestId });
         pending.resolve(result);
     }
+}
+
+function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
+    return {
+        model: settings.model,
+        ...(settings.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: settings.reasoningEffort }),
+    };
 }
 
 function approvalResult(
