@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,10 +22,6 @@ import {
 } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
-import {
-    CheckpointStore,
-    sha256Text,
-} from "../../src/store/checkpoint-store.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
@@ -379,66 +375,6 @@ test("subagent uses fresh context, ordinary tools, and a durable session", async
             },
             response,
         ]);
-    } finally {
-        await rm(root, { recursive: true, force: true });
-    }
-});
-
-test("subagent file writes record checkpoints in the child session", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-subagent-checkpoint-"));
-    const sessionPath = join(root, "child.jsonl");
-    const checkpointStore = new CheckpointStore(join(root, "checkpoints"));
-    const writeCall: AssistantMessage = {
-        role: "assistant",
-        content: [{
-            type: "tool_call",
-            id: "child-write",
-            name: "write",
-            input: { path: "child.txt", content: "child output" },
-        }],
-        source: { provider: "faux", api: "scripted", model: "test" },
-        usage: emptyUsage(),
-        stopReason: "tool_use",
-    };
-    const final: AssistantMessage = {
-        role: "assistant",
-        content: [{ type: "text", text: "wrote the file" }],
-        source: { provider: "faux", api: "scripted", model: "test" },
-        usage: emptyUsage(),
-        stopReason: "stop",
-    };
-
-    try {
-        await runSubagent({
-            adapter: new FauxAdapter([writeCall, final]),
-            model: "test",
-            description: "write a child file",
-            workspace: root,
-            approvalMode: "approve_for_me",
-            sessionId: "child-checkpoint",
-            sessionPath,
-            checkpointStore,
-        });
-
-        expect(await readFile(join(root, "child.txt"), "utf8")).toBe(
-            "child output",
-        );
-        const childStore = await SessionStore.open(sessionPath);
-        const checkpoints = childStore.checkpoints();
-        const userMessageId = childStore.entries().find(
-            (entry) => entry.message.role === "user",
-        )?.id;
-        expect(checkpoints).toHaveLength(1);
-        expect(checkpoints[0]).toMatchObject({
-            path: await realpath(join(root, "child.txt")),
-            existedBefore: false,
-            tool: "write",
-            userMessageId,
-            beforeSha256: null,
-            afterSha256: sha256Text("child output"),
-        });
-        expect(await checkpointStore.read(checkpoints[0]!.checkpointId))
-            .toEqual({ existed: false, content: "" });
     } finally {
         await rm(root, { recursive: true, force: true });
     }

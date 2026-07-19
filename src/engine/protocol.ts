@@ -12,8 +12,6 @@ import type {
     ModelTurnSettings,
 } from "./model-settings.ts";
 import { isApprovalMode, type ApprovalMode } from "./permissions.ts";
-import type { SessionCheckpointEntry } from "../store/session-store.ts";
-import type { CheckpointRestoreResult } from "./checkpoints.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -75,17 +73,6 @@ export interface UpdatePermissionsCommand {
     readonly mode: ApprovalMode;
 }
 
-export interface ListCheckpointsCommand {
-    readonly type: "list_checkpoints";
-    readonly requestId: string;
-}
-
-export interface RestoreCheckpointCommand {
-    readonly type: "restore_checkpoint";
-    readonly requestId: string;
-    readonly checkpointId: string;
-}
-
 export type ClientCommand =
     | PromptCommand
     | AbortCommand
@@ -93,9 +80,7 @@ export type ClientCommand =
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
     | GetPermissionsCommand
-    | UpdatePermissionsCommand
-    | ListCheckpointsCommand
-    | RestoreCheckpointCommand;
+    | UpdatePermissionsCommand;
 
 export interface HistoryUpdate {
     readonly type: "history";
@@ -190,27 +175,6 @@ export interface PermissionsRejectedUpdate {
     readonly seq: number;
 }
 
-export interface CheckpointsUpdate {
-    readonly type: "checkpoints";
-    readonly requestId: string;
-    readonly checkpoints: readonly SessionCheckpointEntry[];
-    readonly seq: number;
-}
-
-export interface CheckpointRestoredUpdate {
-    readonly type: "checkpoint_restored";
-    readonly requestId: string;
-    readonly result: CheckpointRestoreResult;
-    readonly seq: number;
-}
-
-export interface CheckpointRejectedUpdate {
-    readonly type: "checkpoint_rejected";
-    readonly requestId: string;
-    readonly reason: "unavailable" | "busy" | "not_found" | "conflict";
-    readonly seq: number;
-}
-
 export type AgentUpdate =
     | HistoryUpdate
     | UserPromptUpdate
@@ -225,10 +189,7 @@ export type AgentUpdate =
     | ModelSettingsUpdate
     | ModelSettingsRejectedUpdate
     | PermissionsUpdate
-    | PermissionsRejectedUpdate
-    | CheckpointsUpdate
-    | CheckpointRestoredUpdate
-    | CheckpointRejectedUpdate;
+    | PermissionsRejectedUpdate;
 
 export interface AgentUpdateSender {
     send(update: AgentUpdate): void;
@@ -307,23 +268,6 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             type: "update_permissions",
             requestId: command.requestId,
             mode: command.mode,
-        };
-    }
-    if (command.type === "list_checkpoints" && isRequestId(command.requestId)) {
-        return {
-            type: "list_checkpoints",
-            requestId: command.requestId,
-        };
-    }
-    if (
-        command.type === "restore_checkpoint"
-        && isRequestId(command.requestId)
-        && isRequestId(command.checkpointId)
-    ) {
-        return {
-            type: "restore_checkpoint",
-            requestId: command.requestId,
-            checkpointId: command.checkpointId,
         };
     }
     return undefined;
@@ -493,39 +437,6 @@ export function createProtocolEncoder(
             seq += 1;
             sender.send({
                 type: "permissions_rejected",
-                requestId: event.requestId,
-                reason: event.reason,
-                seq,
-            });
-            return;
-        }
-
-        if (event.type === "checkpoints_listed") {
-            seq += 1;
-            sender.send({
-                type: "checkpoints",
-                requestId: event.requestId,
-                checkpoints: event.checkpoints,
-                seq,
-            });
-            return;
-        }
-
-        if (event.type === "checkpoint_restored") {
-            seq += 1;
-            sender.send({
-                type: "checkpoint_restored",
-                requestId: event.requestId,
-                result: event.result,
-                seq,
-            });
-            return;
-        }
-
-        if (event.type === "checkpoint_rejected") {
-            seq += 1;
-            sender.send({
-                type: "checkpoint_rejected",
                 requestId: event.requestId,
                 reason: event.reason,
                 seq,

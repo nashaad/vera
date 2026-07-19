@@ -18,8 +18,6 @@ import type {
 import type { MessageChannel } from "./message-channel.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ApprovalMode } from "./permissions.ts";
-import type { CheckpointRestoreResult } from "./checkpoints.ts";
-import type { SessionCheckpointEntry } from "../store/session-store.ts";
 
 const FULL_USER_AUTHORITY_WARNING =
     "If allowed, this command and its child processes run with your full user permissions.";
@@ -60,10 +58,6 @@ interface QueuedPrompt {
     readonly approvalMode?: ApprovalMode;
 }
 
-export type CheckpointRestoreOutcome =
-    | { readonly ok: true; readonly result: CheckpointRestoreResult }
-    | { readonly ok: false; readonly reason: "not_found" | "conflict" };
-
 export interface InboundCommandRouterOptions {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
@@ -73,10 +67,6 @@ export interface InboundCommandRouterOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
-    readonly listCheckpoints?: () => readonly SessionCheckpointEntry[];
-    readonly restoreCheckpoint?: (
-        checkpointId: string,
-    ) => Promise<CheckpointRestoreOutcome>;
 }
 
 export class InboundCommandRouter {
@@ -239,19 +229,6 @@ export class InboundCommandRouter {
                     continue;
                 }
 
-                if (command.type === "list_checkpoints") {
-                    this.sendCheckpoints(command.requestId);
-                    continue;
-                }
-
-                if (command.type === "restore_checkpoint") {
-                    await this.restoreCheckpoint(
-                        command.requestId,
-                        command.checkpointId,
-                    );
-                    continue;
-                }
-
                 if (command.type === "abort" && this.activeTurn !== undefined) {
                     this.events.emit({ type: "abort_requested" });
                     this.activeTurn.abort(new Error("Turn aborted"));
@@ -359,69 +336,6 @@ export class InboundCommandRouter {
             requestId,
             mode: effective,
             pending: this.hasPendingTurn(),
-        });
-    }
-
-    private sendCheckpoints(requestId: string): void {
-        const checkpoints = this.options.listCheckpoints?.();
-        if (checkpoints === undefined) {
-            this.events.emit({
-                type: "checkpoint_rejected",
-                requestId,
-                reason: "unavailable",
-            });
-            return;
-        }
-        this.events.emit({
-            type: "checkpoints_listed",
-            requestId,
-            checkpoints,
-        });
-    }
-
-    private async restoreCheckpoint(
-        requestId: string,
-        checkpointId: string,
-    ): Promise<void> {
-        if (this.options.restoreCheckpoint === undefined) {
-            this.events.emit({
-                type: "checkpoint_rejected",
-                requestId,
-                reason: "unavailable",
-            });
-            return;
-        }
-        if (this.activeTurn !== undefined) {
-            this.events.emit({
-                type: "checkpoint_rejected",
-                requestId,
-                reason: "busy",
-            });
-            return;
-        }
-        let outcome: CheckpointRestoreOutcome;
-        try {
-            outcome = await this.options.restoreCheckpoint(checkpointId);
-        } catch {
-            this.events.emit({
-                type: "checkpoint_rejected",
-                requestId,
-                reason: "conflict",
-            });
-            return;
-        }
-        if (!outcome.ok) {
-            this.events.emit({
-                type: "checkpoint_rejected",
-                requestId,
-                reason: outcome.reason,
-            });
-            return;
-        }
-        this.events.emit({
-            type: "checkpoint_restored",
-            requestId,
-            result: outcome.result,
         });
     }
 

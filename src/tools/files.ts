@@ -48,14 +48,6 @@ export const writeTool: RegisteredTool = {
         const content = requiredString(input, "content", "write");
         return context.enqueueFileMutation(async () => {
             const safePath = await safeWritePath(context.workspace, path);
-            const prior = await readPriorContent(safePath);
-            await context.recordCheckpoint({
-                path: safePath,
-                existedBefore: prior !== null,
-                priorContent: prior ?? "",
-                intendedContent: content,
-                tool: "write",
-            });
             const bytesWritten = await Bun.write(safePath, content);
             context.recordFileSnapshot(safePath, content);
             return {
@@ -66,17 +58,6 @@ export const writeTool: RegisteredTool = {
         });
     },
 };
-
-async function readPriorContent(safePath: string): Promise<string | null> {
-    try {
-        return await Bun.file(safePath).text();
-    } catch (error) {
-        if (isMissingPathError(error)) {
-            return null;
-        }
-        throw error;
-    }
-}
 
 export async function resolveReadPath(
     workspace: string,
