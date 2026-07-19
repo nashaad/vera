@@ -13,6 +13,7 @@ import {
     SESSION_FORMAT_VERSION,
     SessionStore,
 } from "../../src/store/session-store.ts";
+import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 
 const temporaryDirectories: string[] = [];
@@ -130,6 +131,67 @@ test("session store serializes concurrent appends into one chain", async () => {
         "message-1",
     ]);
     expect((await SessionStore.open(path)).messages()).toEqual([first, second]);
+});
+
+test("model settings records restore the latest complete selection", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-17T12:00:00.000Z",
+            "2026-07-17T12:00:01.000Z",
+            "2026-07-17T12:00:02.000Z",
+        ),
+    });
+
+    await store.appendModelSettings({
+        model: "first-model",
+        reasoningEffort: "high",
+    });
+    await store.appendModelSettings({ model: "second-model" });
+
+    expect(store.modelSettings()).toEqual({ model: "second-model" });
+    expect(readLines(path).slice(1)).toEqual([
+        {
+            type: "model_settings",
+            timestamp: "2026-07-17T12:00:01.000Z",
+            settings: {
+                model: "first-model",
+                reasoningEffort: "high",
+            },
+        },
+        {
+            type: "model_settings",
+            timestamp: "2026-07-17T12:00:02.000Z",
+            settings: { model: "second-model" },
+        },
+    ]);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.modelSettings()).toEqual({ model: "second-model" });
+    expect(reopened.messages()).toEqual([]);
+});
+
+test("session store rejects invalid model settings before writing", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+
+    await expect(store.appendModelSettings({ model: "" })).rejects.toThrow(
+        "Cannot append invalid model settings",
+    );
+    await expect(store.appendModelSettings({
+        model: "test",
+        reasoningEffort: "turbo",
+    } as unknown as ModelTurnSettings)).rejects.toThrow(
+        "Cannot append invalid model settings",
+    );
+    expect(readLines(path)).toHaveLength(1);
 });
 
 test("pending deliveries are idempotent and survive restart until acknowledged", async () => {

@@ -134,10 +134,10 @@ export class AgentRegistry {
         return agent?.closed === false ? agent : undefined;
     }
 
-    updateModelSettings(
+    async updateModelSettings(
         id: string,
         patch: ModelSettingsPatch,
-    ): ModelTurnSettings | undefined {
+    ): Promise<ModelTurnSettings | undefined> {
         const entry = this.agents.get(id);
         if (entry === undefined || entry.agent.closed) {
             return undefined;
@@ -157,12 +157,14 @@ export class AgentRegistry {
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
-        entry.modelSettings = {
+        const settings: ModelTurnSettings = {
             model,
             ...(reasoningEffort === undefined
                 ? {}
                 : { reasoningEffort }),
         };
+        await entry.store.appendModelSettings(settings);
+        entry.modelSettings = settings;
         return { ...entry.modelSettings };
     }
 
@@ -208,7 +210,7 @@ export class AgentRegistry {
             store,
             kind,
             events,
-            modelSettings: {
+            modelSettings: store.modelSettings() ?? {
                 model: this.options.model,
                 ...(this.options.reasoningEffort === undefined
                     ? {}

@@ -4,6 +4,7 @@ import {
     mkdtemp,
     readFile,
     realpath,
+    rename,
     rm,
     writeFile,
 } from "node:fs/promises";
@@ -199,7 +200,19 @@ test("a registry resumes the same resident agent from its session", async () => 
         await firstRegistry.close();
     }
 
-    const resumedRegistry = createRegistry(() => [textResponse("second reply")]);
+    const resumedRequests: ModelRequest[] = [];
+    const resumedFaux = new FauxAdapter([textResponse("second reply")]);
+    const resumedRegistry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                resumedRequests.push(request);
+                return resumedFaux.stream(request);
+            },
+        }),
+        model: "resumed-default",
+        reasoningEffort: "medium",
+        approvalMode: "approve_for_me",
+    });
     try {
         const resumed = await resumedRegistry.resume({
             sessionPath,
@@ -219,7 +232,26 @@ test("a registry resumes the same resident agent from its session", async () => 
             { kind: "assistant", text: "first reply" },
         ]);
 
+        attachment.send({
+            type: "get_model_settings",
+            requestId: "read-legacy-settings",
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: {
+                model: "resumed-default",
+                reasoningEffort: "medium",
+            },
+            pending: false,
+        });
+
         await runPrompt(attachment, "second prompt", false);
+        expect(resumedRequests.map((request) => ({
+            model: request.model,
+            reasoningEffort: request.reasoningEffort,
+        }))).toEqual([{
+            model: "resumed-default",
+            reasoningEffort: "medium",
+        }]);
         expect(resumedRegistry.find("durable-agent")).toBe(resumed);
 
         const store = await SessionStore.open(sessionPath);
@@ -231,6 +263,141 @@ test("a registry resumes the same resident agent from its session", async () => 
             .toHaveLength(2);
     } finally {
         await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a resumed agent restores its latest durable model settings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-resume-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const firstRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("unused")]),
+        model: "first-default",
+        reasoningEffort: "low",
+        approvalMode: "approve_for_me",
+    });
+
+    try {
+        const original = await firstRegistry.create({
+            id: "durable-settings-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "first-events.jsonl"),
+        });
+        const attachment = original.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "update_model_settings",
+            requestId: "persist-settings",
+            patch: {
+                model: "chosen-model",
+                reasoningEffort: "high",
+            },
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: {
+                model: "chosen-model",
+                reasoningEffort: "high",
+            },
+            pending: false,
+        });
+    } finally {
+        await firstRegistry.close();
+    }
+
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([textResponse("resumed reply")]);
+    const resumedRegistry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return faux.stream(request);
+            },
+        }),
+        model: "new-global-default",
+        reasoningEffort: "medium",
+        approvalMode: "approve_for_me",
+    });
+    try {
+        const resumed = await resumedRegistry.resume({
+            sessionPath,
+            eventLogPath: join(root, "resumed-events.jsonl"),
+        });
+        const attachment = resumed.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "get_model_settings",
+            requestId: "read-restored-settings",
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: {
+                model: "chosen-model",
+                reasoningEffort: "high",
+            },
+            pending: false,
+        });
+        await runPrompt(attachment, "continue", false);
+        expect(requests.map((request) => ({
+            model: request.model,
+            reasoningEffort: request.reasoningEffort,
+        }))).toEqual([{
+            model: "chosen-model",
+            reasoningEffort: "high",
+        }]);
+    } finally {
+        await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a failed settings append leaves the live selection unchanged", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-failure-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const backupPath = join(root, "agent.backup.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("unused")]),
+        model: "stable-model",
+        reasoningEffort: "low",
+        approvalMode: "approve_for_me",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "settings-failure-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+
+        await rename(sessionPath, backupPath);
+        await mkdir(sessionPath);
+        try {
+            await expect(registry.updateModelSettings(agent.id, {
+                model: "lost-model",
+                reasoningEffort: "high",
+            })).rejects.toThrow();
+        } finally {
+            await rm(sessionPath, { recursive: true, force: true });
+            await rename(backupPath, sessionPath);
+        }
+
+        attachment.send({
+            type: "get_model_settings",
+            requestId: "read-after-failure",
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: {
+                model: "stable-model",
+                reasoningEffort: "low",
+            },
+            pending: false,
+        });
+        expect((await SessionStore.open(sessionPath)).modelSettings())
+            .toBeUndefined();
+    } finally {
+        await registry.close();
         await rm(root, { recursive: true, force: true });
     }
 });

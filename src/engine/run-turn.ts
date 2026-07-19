@@ -97,7 +97,7 @@ export interface RunHeadlessLoopOptions {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
-    ) => ModelTurnSettings | undefined;
+    ) => Promise<ModelTurnSettings | undefined>;
 }
 
 export async function runHeadlessLoop(
