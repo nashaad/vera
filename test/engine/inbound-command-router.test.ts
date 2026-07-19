@@ -450,6 +450,56 @@ test("a failed permissions write rejects without closing the command router", as
     router.finishTurn();
 });
 
+test("timeline commands stay ordered with queued prompts", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const handled: Array<{
+        ownerId: string;
+        type: string;
+        blocked: boolean;
+    }> = [];
+    let notifyHandled: () => void = () => {};
+    let handledNext = new Promise<void>((resolve) => notifyHandled = resolve);
+    let router: InboundCommandRouter;
+    router = new InboundCommandRouter(channel.engine, events, {
+        async handleTimelineCommand(ownerId, command) {
+            handled.push({
+                ownerId,
+                type: command.type,
+                blocked: router.timelineBlocked(),
+            });
+            notifyHandled();
+        },
+    });
+
+    channel.client.send({ type: "list_timeline", requestId: "list-1" });
+    await handledNext;
+    expect(handled.shift()).toEqual({
+        ownerId: "direct-client",
+        type: "list_timeline",
+        blocked: false,
+    });
+
+    handledNext = new Promise<void>((resolve) => notifyHandled = resolve);
+    channel.client.send({ type: "prompt", content: "queued first" });
+    channel.client.send({
+        type: "preview_timeline_action",
+        requestId: "preview-1",
+        boundaryId: "message-1",
+        action: "rewind_conversation",
+    });
+    await handledNext;
+    expect(handled.shift()).toEqual({
+        ownerId: "direct-client",
+        type: "preview_timeline_action",
+        blocked: true,
+    });
+
+    const turn = await router.startTurn();
+    expect(turn.prompt.content).toBe("queued first");
+    router.finishTurn();
+});
+
 function bashToolCall(command: string): HookToolCall {
     return {
         id: "call_1",

@@ -117,6 +117,9 @@ test("detaching one client leaves the resident agent and peers alive", async () 
     first.detach();
     expect(() => first.send({ type: "abort" })).toThrow(AgentDetachedError);
     await expect(first.receive()).rejects.toBeInstanceOf(AgentDetachedError);
+    expect(await agent.engine.receive()).toMatchObject({
+        type: "timeline_owner_detached",
+    });
 
     second.send({ type: "prompt", content: "still here" });
     expect(await agent.engine.receive()).toEqual({
@@ -190,3 +193,110 @@ test("resident agent snapshots commands and isolates attached clients", async ()
         seq: 1,
     });
 });
+
+test("timeline replies stay private without creating shared sequence gaps", async () => {
+    const attachmentIds = values("owner-a", "owner-b", "owner-c");
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        createAttachmentId: attachmentIds,
+    });
+    const first = agent.attach();
+    const second = agent.attach();
+    await first.receive();
+    await second.receive();
+
+    first.send({ type: "list_timeline", requestId: "list-1" });
+    expect(await agent.engine.receive()).toEqual({
+        type: "owned_timeline_command",
+        ownerId: "owner-a",
+        command: { type: "list_timeline", requestId: "list-1" },
+    });
+    const reply = {
+        type: "timeline" as const,
+        requestId: "list-1",
+        boundaries: [],
+    };
+    agent.sendTimelineReply("owner-a", reply);
+    agent.engine.send({ type: "status", state: "idle", seq: 1 });
+
+    expect(await first.receive()).toEqual(reply);
+    expect(await first.receive()).toEqual({
+        type: "status",
+        state: "idle",
+        seq: 1,
+    });
+    expect(await second.receive()).toEqual({
+        type: "status",
+        state: "idle",
+        seq: 1,
+    });
+
+    const later = agent.attach();
+    expect(await later.receive()).toEqual({
+        type: "history",
+        entries: [],
+        seq: 0,
+    });
+    expect(await later.receive()).toEqual({
+        type: "status",
+        state: "idle",
+        seq: 1,
+    });
+    expect(() => agent.engine.send(reply)).toThrow(
+        "Timeline replies must target one attachment",
+    );
+
+    later.detach();
+    expect(await agent.engine.receive()).toEqual({
+        type: "timeline_owner_detached",
+        ownerId: "owner-c",
+    });
+});
+
+test("detached attachment IDs cannot be reused", async () => {
+    const attachmentIds = values("owner-a", "owner-a", "owner-b");
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        createAttachmentId: attachmentIds,
+    });
+    const first = agent.attach();
+    await first.receive();
+
+    first.detach();
+    expect(await agent.engine.receive()).toEqual({
+        type: "timeline_owner_detached",
+        ownerId: "owner-a",
+    });
+    expect(() => agent.attach()).toThrow(
+        "Attachment ID owner-a was already issued",
+    );
+
+    const second = agent.attach();
+    await second.receive();
+    agent.sendTimelineReply("owner-a", {
+        type: "timeline",
+        requestId: "stale-reply",
+        boundaries: [],
+    });
+    agent.engine.send({ type: "status", state: "idle", seq: 2 });
+    expect(await second.receive()).toEqual({
+        type: "status",
+        state: "idle",
+        seq: 2,
+    });
+
+    second.send({ type: "list_timeline", requestId: "list-2" });
+    expect(await agent.engine.receive()).toEqual({
+        type: "owned_timeline_command",
+        ownerId: "owner-b",
+        command: { type: "list_timeline", requestId: "list-2" },
+    });
+});
+
+function values<T>(...items: T[]): () => T {
+    return () => {
+        const item = items.shift();
+        if (item === undefined) {
+            throw new Error("No scripted value remains");
+        }
+        return item;
+    };
+}

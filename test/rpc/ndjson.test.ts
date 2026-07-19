@@ -53,6 +53,30 @@ test("NDJSON writes task notifications as ordinary agent updates", () => {
     });
 });
 
+test("NDJSON carries direct timeline commands and private replies", async () => {
+    const command: ClientCommand = {
+        type: "list_timeline",
+        requestId: "list-1",
+    };
+    let output = "";
+    const endpoint = createNdjsonEngineEndpoint(
+        Readable.from([`${JSON.stringify(command)}\n`]),
+        { write: (text) => output += text },
+    );
+
+    expect(await endpoint.receive()).toEqual(command);
+    endpoint.send({
+        type: "timeline",
+        requestId: "list-1",
+        boundaries: [],
+    });
+    expect(JSON.parse(output)).toEqual({
+        type: "timeline",
+        requestId: "list-1",
+        boundaries: [],
+    });
+});
+
 test("NDJSON frames stream and abort across a process boundary", async () => {
     const child = Bun.spawn(
         [process.execPath, "test/support/ndjson-child.ts"],

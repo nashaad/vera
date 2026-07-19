@@ -745,6 +745,122 @@ test("an adapter construction failure does not register an agent", async () => {
     }
 });
 
+test("resident timeline preview and apply stay with their requesting attachment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-timeline-"));
+    const registry = createRegistry(() => [textResponse("first answer")]);
+
+    try {
+        const agent = await registry.create({
+            id: "timeline-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const first = agent.attach();
+        const second = agent.attach();
+        expect((await first.receive()).type).toBe("history");
+        expect((await second.receive()).type).toBe("history");
+
+        first.send({ type: "prompt", content: "first request" });
+        await Promise.all([
+            receiveTurnFinished(first),
+            receiveTurnFinished(second),
+        ]);
+        expect((await first.receive()).type).toBe("history");
+        expect((await second.receive()).type).toBe("history");
+
+        first.send({ type: "list_timeline", requestId: "list-1" });
+        const timeline = await first.receive();
+        expect(timeline).toMatchObject({
+            type: "timeline",
+            requestId: "list-1",
+            boundaries: [{ prompt: "first request" }],
+        });
+        if (timeline.type !== "timeline") {
+            throw new Error("Expected timeline reply");
+        }
+        const boundaryId = timeline.boundaries[0]?.userMessageId;
+        if (boundaryId === undefined) {
+            throw new Error("Expected a timeline boundary");
+        }
+
+        second.send({ type: "get_permissions", requestId: "permissions-1" });
+        expect((await second.receive()).type).toBe("permissions");
+        expect((await first.receive()).type).toBe("permissions");
+
+        first.send({
+            type: "preview_timeline_action",
+            requestId: "preview-1",
+            boundaryId,
+            action: "rewind_conversation",
+        });
+        const preview = await first.receive();
+        expect(preview).toMatchObject({
+            type: "timeline_action_preview",
+            requestId: "preview-1",
+            plan: { boundary: { userMessageId: boundaryId } },
+        });
+        if (preview.type !== "timeline_action_preview") {
+            throw new Error("Expected timeline preview");
+        }
+
+        second.send({
+            type: "apply_timeline_action",
+            requestId: "wrong-owner",
+            planId: preview.plan.planId,
+        });
+        expect(await second.receive()).toMatchObject({
+            type: "timeline_action_rejected",
+            requestId: "wrong-owner",
+            reason: "not_plan_owner",
+        });
+
+        first.detach();
+        second.send({ type: "get_permissions", requestId: "detach-barrier" });
+        expect((await second.receive()).type).toBe("permissions");
+        second.send({
+            type: "apply_timeline_action",
+            requestId: "detached-plan",
+            planId: preview.plan.planId,
+        });
+        expect(await second.receive()).toMatchObject({
+            type: "timeline_action_rejected",
+            requestId: "detached-plan",
+            reason: "plan_expired",
+        });
+
+        second.send({
+            type: "preview_timeline_action",
+            requestId: "preview-2",
+            boundaryId,
+            action: "rewind_conversation",
+        });
+        const replacementPreview = await second.receive();
+        if (replacementPreview.type !== "timeline_action_preview") {
+            throw new Error("Expected replacement timeline preview");
+        }
+        second.send({
+            type: "apply_timeline_action",
+            requestId: "apply-1",
+            planId: replacementPreview.plan.planId,
+        });
+        expect(await second.receive()).toMatchObject({
+            type: "history",
+            entries: [],
+        });
+        expect(await second.receive()).toMatchObject({
+            type: "timeline_action_applied",
+            requestId: "apply-1",
+        });
+
+        expect((await SessionStore.open(join(root, "agent.jsonl"))).messages())
+            .toEqual([]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 function createRegistry(script: () => AssistantMessage[]): AgentRegistry {
     return new AgentRegistry({
         createAdapter: () => new FauxAdapter(script()),

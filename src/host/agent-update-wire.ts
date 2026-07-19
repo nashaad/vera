@@ -6,7 +6,13 @@ import { isApprovalMode } from "../engine/permissions.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
-    if (update === undefined || !isSequence(update.seq)) {
+    if (update === undefined) {
+        return undefined;
+    }
+    if (isTimelineReplyType(update.type)) {
+        return update.seq === undefined ? parseTimelineReply(value, update) : undefined;
+    }
+    if (!isSequence(update.seq)) {
         return undefined;
     }
     if (update.type === "history") {
@@ -99,6 +105,78 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function parseTimelineReply(
+    value: unknown,
+    update: Record<string, unknown>,
+): AgentUpdate | undefined {
+    if (update.type === "timeline") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && Array.isArray(update.boundaries)
+                && update.boundaries.every(isTimelineBoundary)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "timeline_action_preview") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && isTimelinePlan(update.plan)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "timeline_action_applied") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && typeof update.planId === "string"
+                && update.planId.length > 0
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "timeline_action_rejected") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && (update.operation === "preview" || update.operation === "apply")
+                && (
+                    update.reason === "busy"
+                    || update.reason === "plan_expired"
+                    || update.reason === "not_plan_owner"
+                    || update.reason === "boundary_missing"
+                    || update.reason === "session_changed"
+                    || update.reason === "unavailable"
+                )
+            ? value as AgentUpdate
+            : undefined;
+    }
+    return undefined;
+}
+
+function isTimelineReplyType(value: unknown): boolean {
+    return value === "timeline"
+        || value === "timeline_action_preview"
+        || value === "timeline_action_applied"
+        || value === "timeline_action_rejected";
+}
+
+function isTimelineBoundary(value: unknown): boolean {
+    const boundary = asRecord(value);
+    return typeof boundary?.userMessageId === "string"
+        && boundary.userMessageId.length > 0
+        && typeof boundary.timestamp === "string"
+        && typeof boundary.prompt === "string"
+        && isSequence(boundary.position);
+}
+
+function isTimelinePlan(value: unknown): boolean {
+    const plan = asRecord(value);
+    return typeof plan?.planId === "string"
+        && plan.planId.length > 0
+        && typeof plan.expectedHeadId === "string"
+        && plan.expectedHeadId.length > 0
+        && isTimelineBoundary(plan.boundary)
+        && isSequence(plan.keptMessageCount)
+        && isSequence(plan.setAsideMessageCount);
 }
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {

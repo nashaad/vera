@@ -133,6 +133,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "permissions_rejected") {
         return state;
     }
+    if (
+        update.type === "timeline"
+        || update.type === "timeline_action_preview"
+        || update.type === "timeline_action_applied"
+        || update.type === "timeline_action_rejected"
+    ) {
+        return state;
+    }
     return assertNever(update);
 }
 

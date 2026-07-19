@@ -11,6 +11,7 @@ import {
     renderTuiQueuedPrompt,
     tuiEntryMarginTop,
 } from "../../clients/tui/state.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
 
 function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
@@ -214,4 +215,44 @@ test("TUI queue preview compacts prompts and counts the remainder", () => {
 
     expect(renderTuiQueuedPrompt(state))
         .toBe(`queued · explain ${"x".repeat(39)}… · +1`);
+});
+
+test("TUI state leaves timeline replies for the future picker", () => {
+    const initial = createTuiState();
+    const replies: AgentUpdate[] = [
+        {
+            type: "timeline",
+            requestId: "list-1",
+            boundaries: [],
+        },
+        {
+            type: "timeline_action_preview",
+            requestId: "preview-1",
+            plan: {
+                planId: "plan-1",
+                expectedHeadId: "message-1",
+                boundary: {
+                    userMessageId: "message-1",
+                    timestamp: "2026-07-19T12:00:00.000Z",
+                    prompt: "first request",
+                    position: 0,
+                },
+                keptMessageCount: 0,
+                setAsideMessageCount: 2,
+            },
+        },
+        {
+            type: "timeline_action_applied",
+            requestId: "apply-1",
+            planId: "plan-1",
+        },
+        {
+            type: "timeline_action_rejected",
+            requestId: "apply-2",
+            operation: "apply",
+            reason: "plan_expired",
+        },
+    ];
+
+    expect(replies.reduce(applyAgentUpdate, initial)).toEqual(initial);
 });

@@ -284,6 +284,8 @@ export class AgentRegistry {
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
+                sendTimelineReply: (ownerId, reply) =>
+                    agent.sendTimelineReply(ownerId, reply),
             },
         ).catch((error: unknown) => {
             if (!agent.closed) {
