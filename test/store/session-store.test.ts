@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
     SESSION_FORMAT_VERSION,
     SessionStore,
+    type SessionCheckpointEntry,
 } from "../../src/store/session-store.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
@@ -241,6 +242,83 @@ test("session store rejects invalid permissions before writing", async () => {
         "always_allow" as "full_access",
     )).rejects.toThrow("Cannot append invalid permissions mode");
     expect(readLines(path)).toHaveLength(1);
+});
+
+test("checkpoint records list in order and survive restart", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-17T12:00:00.000Z",
+            "2026-07-17T12:00:01.000Z",
+            "2026-07-17T12:00:02.000Z",
+        ),
+    });
+
+    await store.appendCheckpoint({
+        checkpointId: "checkpoint-1",
+        path: join(directory, "note.txt"),
+        existedBefore: true,
+        tool: "edit",
+    });
+    await store.appendCheckpoint({
+        checkpointId: "checkpoint-2",
+        path: join(directory, "new.txt"),
+        existedBefore: false,
+        tool: "write",
+    });
+
+    const expected: SessionCheckpointEntry[] = [
+        {
+            type: "checkpoint",
+            timestamp: "2026-07-17T12:00:01.000Z",
+            checkpointId: "checkpoint-1",
+            path: join(directory, "note.txt"),
+            existedBefore: true,
+            tool: "edit",
+        },
+        {
+            type: "checkpoint",
+            timestamp: "2026-07-17T12:00:02.000Z",
+            checkpointId: "checkpoint-2",
+            path: join(directory, "new.txt"),
+            existedBefore: false,
+            tool: "write",
+        },
+    ];
+    expect(store.checkpoints()).toEqual(expected);
+    expect(readLines(path).slice(1)).toEqual(
+        expected as unknown as Array<Record<string, unknown>>,
+    );
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.checkpoints()).toEqual(expected);
+    expect(reopened.messages()).toEqual([]);
+});
+
+test("session store rejects a duplicate checkpoint id before writing", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+
+    await store.appendCheckpoint({
+        checkpointId: "checkpoint-1",
+        path: join(directory, "note.txt"),
+        existedBefore: true,
+        tool: "edit",
+    });
+    await expect(store.appendCheckpoint({
+        checkpointId: "checkpoint-1",
+        path: join(directory, "other.txt"),
+        existedBefore: true,
+        tool: "write",
+    })).rejects.toThrow("Checkpoint checkpoint-1 already exists");
+    expect(readLines(path)).toHaveLength(2);
 });
 
 test("pending deliveries are idempotent and survive restart until acknowledged", async () => {

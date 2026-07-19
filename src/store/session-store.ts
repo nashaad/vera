@@ -62,6 +62,17 @@ export interface SessionPermissionsEntry {
     readonly mode: ApprovalMode;
 }
 
+export type CheckpointTool = "write" | "edit";
+
+export interface SessionCheckpointEntry {
+    readonly type: "checkpoint";
+    readonly timestamp: string;
+    readonly checkpointId: string;
+    readonly path: string;
+    readonly existedBefore: boolean;
+    readonly tool: CheckpointTool;
+}
+
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
@@ -90,6 +101,7 @@ interface LoadedSessionFile {
     readonly deliveryReceipts: Set<string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
+    readonly checkpointEntries: SessionCheckpointEntry[];
     readonly leafId: string | null;
 }
 
@@ -104,6 +116,7 @@ export class SessionStore {
     private readonly deliveryReceipts: Set<string>;
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
+    private readonly checkpointEntries: SessionCheckpointEntry[];
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -119,6 +132,7 @@ export class SessionStore {
         this.deliveryReceipts = loaded.deliveryReceipts;
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
+        this.checkpointEntries = loaded.checkpointEntries;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -156,6 +170,7 @@ export class SessionStore {
                 deliveryReceipts: new Set(),
                 modelSettingsEntries: [],
                 permissionsEntries: [],
+                checkpointEntries: [],
                 leafId: null,
             },
             {
@@ -214,6 +229,10 @@ export class SessionStore {
         return this.permissionsEntries.at(-1)?.mode;
     }
 
+    checkpoints(): readonly SessionCheckpointEntry[] {
+        return this.checkpointEntries.slice();
+    }
+
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
         this.pendingAppend = result.then(
@@ -239,6 +258,19 @@ export class SessionStore {
     appendApprovalMode(mode: ApprovalMode): Promise<SessionPermissionsEntry> {
         const result = this.pendingAppend.then(() =>
             this.commitApprovalMode(mode)
+        );
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendCheckpoint(
+        checkpoint: Omit<SessionCheckpointEntry, "type" | "timestamp">,
+    ): Promise<SessionCheckpointEntry> {
+        const result = this.pendingAppend.then(() =>
+            this.commitCheckpoint(checkpoint)
         );
         this.pendingAppend = result.then(
             () => undefined,
@@ -327,6 +359,30 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.permissionsEntries.push(entry);
+        return entry;
+    }
+
+    private async commitCheckpoint(
+        checkpoint: Omit<SessionCheckpointEntry, "type" | "timestamp">,
+    ): Promise<SessionCheckpointEntry> {
+        const checkpointId = nonEmpty(checkpoint.checkpointId, "checkpoint ID");
+        if (
+            this.checkpointEntries.some(
+                (entry) => entry.checkpointId === checkpointId,
+            )
+        ) {
+            throw new Error(`Checkpoint ${checkpointId} already exists`);
+        }
+        const entry: SessionCheckpointEntry = {
+            type: "checkpoint",
+            timestamp: this.now().toISOString(),
+            checkpointId,
+            path: nonEmpty(checkpoint.path, "checkpoint path"),
+            existedBefore: checkpoint.existedBefore,
+            tool: checkpoint.tool,
+        };
+        await this.appendRecord(entry);
+        this.checkpointEntries.push(entry);
         return entry;
     }
 
@@ -429,6 +485,8 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const deliveryReceipts = new Set<string>();
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
+    const checkpointEntries: SessionCheckpointEntry[] = [];
+    const knownCheckpointIds = new Set<string>();
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
 
@@ -497,6 +555,18 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "checkpoint") {
+            const entry = parseCheckpointEntry(path, lineNumber, value);
+            if (knownCheckpointIds.has(entry.checkpointId)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} repeats checkpoint ${entry.checkpointId}`,
+                );
+            }
+            knownCheckpointIds.add(entry.checkpointId);
+            checkpointEntries.push(entry);
+            continue;
+        }
         throw invalidSession(
             path,
             `line ${lineNumber} is not a valid session entry`,
@@ -510,6 +580,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         deliveryReceipts,
         modelSettingsEntries,
         permissionsEntries,
+        checkpointEntries,
         leafId: messageEntries.at(-1)?.id ?? null,
     };
 }
@@ -635,6 +706,35 @@ function parsePermissionsEntry(
         type: "permissions",
         timestamp: value.timestamp,
         mode: value.mode,
+    };
+}
+
+function parseCheckpointEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionCheckpointEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || typeof value.checkpointId !== "string"
+        || value.checkpointId.length === 0
+        || typeof value.path !== "string"
+        || value.path.length === 0
+        || typeof value.existedBefore !== "boolean"
+        || (value.tool !== "write" && value.tool !== "edit")
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid checkpoint entry`,
+        );
+    }
+    return {
+        type: "checkpoint",
+        timestamp: value.timestamp,
+        checkpointId: value.checkpointId,
+        path: value.path,
+        existedBefore: value.existedBefore,
+        tool: value.tool,
     };
 }
 
