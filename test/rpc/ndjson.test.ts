@@ -286,6 +286,46 @@ test("resuming an unpaired tool call produces provider-safe history", async () =
     }
 }, 5_000);
 
+test("NDJSON resume restores durable permissions over current defaults", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-permissions-resume-"));
+    const sessionPath = join(directory, "session.jsonl");
+    let child: ReturnType<typeof spawnSessionChild> | undefined;
+
+    try {
+        const store = await SessionStore.create(sessionPath, {
+            sessionId: "permissions-resume",
+            cwd: process.cwd(),
+        });
+        await store.appendApprovalMode("full_access");
+
+        child = spawnSessionChild(
+            "resume",
+            sessionPath,
+            undefined,
+            process.cwd(),
+            "ask",
+        );
+        const frames = readFrames(child.stdout);
+        expect(await frames.next()).toMatchObject({ type: "history" });
+        sendFrame(child.stdin, {
+            type: "get_permissions",
+            requestId: "read-restored-permissions",
+        });
+        expect(await frames.next()).toMatchObject({
+            type: "permissions",
+            requestId: "read-restored-permissions",
+            mode: "full_access",
+            pending: false,
+        });
+
+        child.stdin.end();
+        expect(await child.exited).toBe(0);
+    } finally {
+        child?.kill();
+        await rm(directory, { recursive: true, force: true });
+    }
+}, 5_000);
+
 function sendFrame(
     input: Bun.FileSink,
     frame: ClientCommand,
@@ -299,6 +339,7 @@ function spawnSessionChild(
     sessionPath: string,
     eventLogPath?: string,
     cwd = process.cwd(),
+    approvalMode?: "ask" | "approve_for_me" | "full_access",
 ) {
     return Bun.spawn(
         [
@@ -310,6 +351,12 @@ function spawnSessionChild(
         ],
         {
             cwd,
+            env: {
+                ...process.env,
+                ...(approvalMode === undefined
+                    ? {}
+                    : { VERA_TEST_APPROVAL_MODE: approvalMode }),
+            },
             stdin: "pipe",
             stdout: "pipe",
             stderr: "pipe",

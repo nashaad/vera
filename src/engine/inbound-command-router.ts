@@ -17,6 +17,7 @@ import type {
 } from "./model-settings.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
+import type { ApprovalMode } from "./permissions.ts";
 
 const FULL_USER_AUTHORITY_WARNING =
     "If allowed, this command and its child processes run with your full user permissions.";
@@ -48,11 +49,13 @@ export interface InboundTurn {
     readonly prompt: PromptCommand;
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
+    readonly approvalMode?: ApprovalMode;
 }
 
 interface QueuedPrompt {
     readonly prompt: PromptCommand;
     readonly modelSettings?: ModelTurnSettings;
+    readonly approvalMode?: ApprovalMode;
 }
 
 export interface InboundCommandRouterOptions {
@@ -60,6 +63,10 @@ export interface InboundCommandRouterOptions {
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly readApprovalMode?: () => ApprovalMode;
+    readonly updateApprovalMode?: (
+        mode: ApprovalMode,
+    ) => Promise<ApprovalMode | undefined>;
 }
 
 export class InboundCommandRouter {
@@ -99,6 +106,9 @@ export class InboundCommandRouter {
             ...(queued.modelSettings === undefined
                 ? {}
                 : { modelSettings: queued.modelSettings }),
+            ...(queued.approvalMode === undefined
+                ? {}
+                : { approvalMode: queued.approvalMode }),
         };
     }
 
@@ -171,12 +181,16 @@ export class InboundCommandRouter {
                 const command = await endpoint.receive();
                 if (command.type === "prompt") {
                     const settings = this.options.readModelSettings?.();
+                    const approvalMode = this.options.readApprovalMode?.();
                     this.pendingPromptCount += 1;
                     this.prompts.push({
                         prompt: command,
                         ...(settings === undefined
                             ? {}
                             : { modelSettings: copyModelSettings(settings) }),
+                        ...(approvalMode === undefined
+                            ? {}
+                            : { approvalMode }),
                     });
                     if (this.activeTurn !== undefined) {
                         this.events.emit({
@@ -202,6 +216,16 @@ export class InboundCommandRouter {
                         command.requestId,
                         command.patch,
                     );
+                    continue;
+                }
+
+                if (command.type === "get_permissions") {
+                    this.sendPermissions(command.requestId);
+                    continue;
+                }
+
+                if (command.type === "update_permissions") {
+                    await this.updatePermissions(command.requestId, command.mode);
                     continue;
                 }
 
@@ -262,6 +286,57 @@ export class InboundCommandRouter {
 
     private hasPendingTurn(): boolean {
         return this.activeTurn !== undefined || this.pendingPromptCount > 0;
+    }
+
+    private sendPermissions(requestId: string): void {
+        const mode = this.options.readApprovalMode?.();
+        if (mode === undefined) {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "permissions_changed",
+            requestId,
+            mode,
+            pending: this.hasPendingTurn(),
+        });
+    }
+
+    private async updatePermissions(
+        requestId: string,
+        mode: ApprovalMode,
+    ): Promise<void> {
+        let effective: ApprovalMode | undefined;
+        try {
+            effective = await this.options.updateApprovalMode?.(mode);
+        } catch {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        if (effective === undefined) {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: this.options.updateApprovalMode === undefined
+                    ? "unavailable"
+                    : "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "permissions_changed",
+            requestId,
+            mode: effective,
+            pending: this.hasPendingTurn(),
+        });
     }
 
     private receiveUiResponse(command: UiResponseCommand): void {

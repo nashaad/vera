@@ -68,7 +68,6 @@ test("two real subagent effects overlap and create separate sessions", async () 
         adapter,
         model: "test",
         workspace: root,
-        approvalMode: "approve_for_me",
         sessionPathForId(id) {
             const path = join(root, `${id}.jsonl`);
             sessionPaths.push(path);
@@ -82,11 +81,11 @@ test("two real subagent effects overlap and create separate sessions", async () 
             applyEffect({
                 type: "spawn_subagent",
                 description: "slow child",
-            }, signal),
+            }, signal, { approvalMode: "approve_for_me" }),
             applyEffect({
                 type: "spawn_subagent",
                 description: "fast child",
-            }, signal),
+            }, signal, { approvalMode: "approve_for_me" }),
         ]);
 
         expect(maximumActiveChildren).toBe(2);
@@ -162,7 +161,6 @@ test("parent receives the real child final text as its tool result", async () =>
             adapter,
             model: "test",
             workspace: root,
-            approvalMode: "approve_for_me",
             sessionPathForId(id) {
                 childSessionPath = join(root, `${id}.jsonl`);
                 return childSessionPath;
@@ -194,6 +192,59 @@ test("parent receives the real child final text as its tool result", async () =>
             },
             childFinal,
         ]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("subagent effects inherit the parent turn permissions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-permissions-"));
+    const sessionPath = join(root, "child.jsonl");
+    const toolCall: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "child-pwd",
+            name: "bash",
+            input: { command: "pwd" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter: new FauxAdapter([toolCall, final]),
+        model: "test",
+        workspace: root,
+        sessionPathForId: () => sessionPath,
+    });
+
+    try {
+        await applyEffect({
+            type: "spawn_subagent",
+            description: "report the workspace",
+        }, new AbortController().signal, {
+            approvalMode: "full_access",
+        });
+
+        const childStore = await SessionStore.open(sessionPath);
+        expect(childStore.approvalMode()).toBe("full_access");
+        const result = childStore.messages().find(
+            (message) => message.role === "tool_result",
+        );
+        expect(result).toMatchObject({
+            role: "tool_result",
+            toolName: "bash",
+            isError: false,
+        });
+        expect(result?.content[0]?.text).toContain(root);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

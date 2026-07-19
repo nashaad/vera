@@ -1,12 +1,15 @@
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import type { ApprovalMode } from "../../src/engine/permissions.ts";
 
 export function renderTuiStatusLine(
     settings: ModelTurnSettings | undefined,
+    approvalMode: ApprovalMode | undefined,
     message: string,
 ): string {
-    if (settings === undefined) {
-        return `model loading · thinking loading · ${message}`;
-    }
-    const thinking = settings.reasoningEffort ?? "default";
-    return `${settings.model} · thinking ${thinking} · ${message}`;
+    const model = settings?.model ?? "loading";
+    const thinking = settings === undefined
+        ? "loading"
+        : settings.reasoningEffort ?? "default";
+    const permissions = approvalMode ?? "loading";
+    return `${model} · thinking ${thinking} · permissions ${permissions} · ${message}`;
 }

@@ -194,6 +194,55 @@ test("session store rejects invalid model settings before writing", async () => 
     expect(readLines(path)).toHaveLength(1);
 });
 
+test("permission records restore the latest mode outside message history", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-17T12:00:00.000Z",
+            "2026-07-17T12:00:01.000Z",
+            "2026-07-17T12:00:02.000Z",
+        ),
+    });
+
+    await store.appendApprovalMode("ask");
+    await store.appendApprovalMode("full_access");
+
+    expect(store.approvalMode()).toBe("full_access");
+    expect(readLines(path).slice(1)).toEqual([
+        {
+            type: "permissions",
+            timestamp: "2026-07-17T12:00:01.000Z",
+            mode: "ask",
+        },
+        {
+            type: "permissions",
+            timestamp: "2026-07-17T12:00:02.000Z",
+            mode: "full_access",
+        },
+    ]);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.approvalMode()).toBe("full_access");
+    expect(reopened.messages()).toEqual([]);
+});
+
+test("session store rejects invalid permissions before writing", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+
+    await expect(store.appendApprovalMode(
+        "always_allow" as "full_access",
+    )).rejects.toThrow("Cannot append invalid permissions mode");
+    expect(readLines(path)).toHaveLength(1);
+});
+
 test("pending deliveries are idempotent and survive restart until acknowledged", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

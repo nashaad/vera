@@ -13,6 +13,7 @@ import {
     isModelTurnSettings,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
+import { isApprovalMode, type ApprovalMode } from "../engine/permissions.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -55,6 +56,12 @@ export interface SessionModelSettingsEntry {
     readonly settings: ModelTurnSettings;
 }
 
+export interface SessionPermissionsEntry {
+    readonly type: "permissions";
+    readonly timestamp: string;
+    readonly mode: ApprovalMode;
+}
+
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
@@ -82,6 +89,7 @@ interface LoadedSessionFile {
     readonly deliveryEntries: SessionDeliveryEntry[];
     readonly deliveryReceipts: Set<string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
+    readonly permissionsEntries: SessionPermissionsEntry[];
     readonly leafId: string | null;
 }
 
@@ -95,6 +103,7 @@ export class SessionStore {
     private readonly deliveryEntries: SessionDeliveryEntry[];
     private readonly deliveryReceipts: Set<string>;
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
+    private readonly permissionsEntries: SessionPermissionsEntry[];
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -109,6 +118,7 @@ export class SessionStore {
         this.deliveryEntries = loaded.deliveryEntries;
         this.deliveryReceipts = loaded.deliveryReceipts;
         this.modelSettingsEntries = loaded.modelSettingsEntries;
+        this.permissionsEntries = loaded.permissionsEntries;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -145,6 +155,7 @@ export class SessionStore {
                 deliveryEntries: [],
                 deliveryReceipts: new Set(),
                 modelSettingsEntries: [],
+                permissionsEntries: [],
                 leafId: null,
             },
             {
@@ -199,6 +210,10 @@ export class SessionStore {
         return settings === undefined ? undefined : { ...settings };
     }
 
+    approvalMode(): ApprovalMode | undefined {
+        return this.permissionsEntries.at(-1)?.mode;
+    }
+
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
         this.pendingAppend = result.then(
@@ -213,6 +228,17 @@ export class SessionStore {
     ): Promise<SessionModelSettingsEntry> {
         const result = this.pendingAppend.then(() =>
             this.commitModelSettings(settings)
+        );
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendApprovalMode(mode: ApprovalMode): Promise<SessionPermissionsEntry> {
+        const result = this.pendingAppend.then(() =>
+            this.commitApprovalMode(mode)
         );
         this.pendingAppend = result.then(
             () => undefined,
@@ -285,6 +311,22 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.modelSettingsEntries.push(entry);
+        return entry;
+    }
+
+    private async commitApprovalMode(
+        mode: ApprovalMode,
+    ): Promise<SessionPermissionsEntry> {
+        if (!isApprovalMode(mode)) {
+            throw new Error("Cannot append invalid permissions mode");
+        }
+        const entry: SessionPermissionsEntry = {
+            type: "permissions",
+            timestamp: this.now().toISOString(),
+            mode,
+        };
+        await this.appendRecord(entry);
+        this.permissionsEntries.push(entry);
         return entry;
     }
 
@@ -386,6 +428,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const deliveryEntries: SessionDeliveryEntry[] = [];
     const deliveryReceipts = new Set<string>();
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
+    const permissionsEntries: SessionPermissionsEntry[] = [];
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
 
@@ -448,6 +491,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "permissions") {
+            permissionsEntries.push(
+                parsePermissionsEntry(path, lineNumber, value),
+            );
+            continue;
+        }
         throw invalidSession(
             path,
             `line ${lineNumber} is not a valid session entry`,
@@ -460,6 +509,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         deliveryEntries,
         deliveryReceipts,
         modelSettingsEntries,
+        permissionsEntries,
         leafId: messageEntries.at(-1)?.id ?? null,
     };
 }
@@ -564,6 +614,27 @@ function parseModelSettingsEntry(
                 ? {}
                 : { reasoningEffort: settings.reasoningEffort }),
         },
+    };
+}
+
+function parsePermissionsEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionPermissionsEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || !isApprovalMode(value.mode)
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid permissions entry`,
+        );
+    }
+    return {
+        type: "permissions",
+        timestamp: value.timestamp,
+        mode: value.mode,
     };
 }
 

@@ -5,6 +5,7 @@ import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 
 test("the inbound router queues prompts and aborts only the active turn", async () => {
@@ -227,6 +228,36 @@ test("model settings commands reject explicitly when no owner is installed", asy
     });
 });
 
+test("permission commands reject explicitly when no owner is installed", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events);
+
+    channel.client.send({
+        type: "get_permissions",
+        requestId: "read-permissions",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "read-permissions",
+        reason: "unavailable",
+        seq: 1,
+    });
+
+    channel.client.send({
+        type: "update_permissions",
+        requestId: "change-permissions",
+        mode: "full_access",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "change-permissions",
+        reason: "unavailable",
+        seq: 2,
+    });
+});
+
 test("a later settings command cannot change an earlier queued prompt", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
@@ -333,6 +364,89 @@ test("a following prompt waits for the durable settings boundary", async () => {
         model: "second-model",
         reasoningEffort: "high",
     });
+    router.finishTurn();
+});
+
+test("permission changes preserve earlier prompts and order later prompts", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let mode: ApprovalMode = "ask";
+    let finishPersistence: () => void = () => {};
+    const persistence = new Promise<void>((resolve) => {
+        finishPersistence = resolve;
+    });
+    let signalPersistenceStarted: () => void = () => {};
+    const persistenceStarted = new Promise<void>((resolve) => {
+        signalPersistenceStarted = resolve;
+    });
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => mode,
+        async updateApprovalMode(nextMode) {
+            signalPersistenceStarted();
+            await persistence;
+            mode = nextMode;
+            return mode;
+        },
+    });
+
+    channel.client.send({ type: "prompt", content: "before change" });
+    channel.client.send({
+        type: "update_permissions",
+        requestId: "durable-permissions",
+        mode: "full_access",
+    });
+    await persistenceStarted;
+    channel.client.send({ type: "prompt", content: "after change" });
+
+    const first = await router.startTurn();
+    expect(first.approvalMode).toBe("ask");
+    router.finishTurn();
+    const secondTurn = router.startTurn();
+    expect(await Promise.race([
+        secondTurn.then(() => "started" as const),
+        Bun.sleep(10).then(() => "waiting" as const),
+    ])).toBe("waiting");
+
+    finishPersistence();
+    expect(await channel.client.receive()).toMatchObject({
+        type: "permissions",
+        requestId: "durable-permissions",
+        mode: "full_access",
+        pending: false,
+    });
+    const second = await secondTurn;
+    expect(second.approvalMode).toBe("full_access");
+    router.finishTurn();
+});
+
+test("a failed permissions write rejects without closing the command router", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+        async updateApprovalMode() {
+            throw new Error("disk unavailable");
+        },
+    });
+
+    channel.client.send({
+        type: "update_permissions",
+        requestId: "failed-permissions",
+        mode: "full_access",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "failed-permissions",
+        reason: "unavailable",
+        seq: 1,
+    });
+
+    channel.client.send({ type: "prompt", content: "still connected" });
+    const turn = await router.startTurn();
+    expect(turn.prompt.content).toBe("still connected");
+    expect(turn.approvalMode).toBe("ask");
     router.finishTurn();
 });
 

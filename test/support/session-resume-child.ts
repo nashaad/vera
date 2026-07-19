@@ -8,10 +8,12 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import type { ApprovalMode } from "../../src/engine/permissions.ts";
 
 const mode = process.argv[2];
 const sessionPath = process.argv[3];
 const eventLogPath = process.argv[4];
+const approvalMode = parseApprovalMode(process.env.VERA_TEST_APPROVAL_MODE);
 
 if ((mode !== "new" && mode !== "resume") || sessionPath === undefined) {
     throw new Error("Usage: session-resume-child.ts <new|resume> <session-path> [log-path]");
@@ -33,13 +35,26 @@ await runNdjsonBridge(
     mode === "new"
         ? {
             sessionPath,
+            ...(approvalMode === undefined ? {} : { approvalMode }),
             ...(eventLogPath === undefined ? {} : { eventLogPath }),
         }
         : {
             resumeSessionPath: sessionPath,
+            ...(approvalMode === undefined ? {} : { approvalMode }),
             ...(eventLogPath === undefined ? {} : { eventLogPath }),
         },
 );
+
+function parseApprovalMode(value: string | undefined): ApprovalMode | undefined {
+    if (
+        value === "ask"
+        || value === "approve_for_me"
+        || value === "full_access"
+    ) {
+        return value;
+    }
+    return undefined;
+}
 
 function contextAdapter(): ModelAdapter {
     return {

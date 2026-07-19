@@ -2,13 +2,18 @@ import { basename, resolve, sep } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
 import {
+    isApprovalMode,
+    type ApprovalMode,
+} from "../sdk/permissions.ts";
+import {
     containsRecursiveForceRm,
     nestedShellCommands,
     simpleCommandExecutableIndex,
     tokenizeSimpleCommands,
 } from "../tools/bash-danger.ts";
 
-export type ApprovalMode = "ask" | "approve_for_me" | "full_access";
+export { isApprovalMode };
+export type { ApprovalMode };
 
 export interface AllowToolPermission {
     readonly behavior: "allow";

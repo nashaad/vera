@@ -23,6 +23,7 @@ import type {
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
+import type { ApprovalMode } from "./permissions.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -83,6 +84,19 @@ export interface ModelSettingsChangedEvent {
 
 export interface ModelSettingsRejectedEvent {
     readonly type: "model_settings_rejected";
+    readonly requestId: string;
+    readonly reason: "invalid" | "unavailable";
+}
+
+export interface PermissionsChangedEvent {
+    readonly type: "permissions_changed";
+    readonly requestId: string;
+    readonly mode: ApprovalMode;
+    readonly pending: boolean;
+}
+
+export interface PermissionsRejectedEvent {
+    readonly type: "permissions_rejected";
     readonly requestId: string;
     readonly reason: "invalid" | "unavailable";
 }
@@ -190,6 +204,8 @@ export type EngineEvent =
     | UiRequestClosedEvent
     | ModelSettingsChangedEvent
     | ModelSettingsRejectedEvent
+    | PermissionsChangedEvent
+    | PermissionsRejectedEvent
     | ModelRequestEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent

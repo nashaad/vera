@@ -1,4 +1,5 @@
 import type { ModelTool } from "../model/types.ts";
+import type { ApprovalMode } from "../sdk/permissions.ts";
 import type { ToolRuntime } from "./runtime.ts";
 
 export interface ToolOutput {
@@ -19,6 +20,10 @@ export interface SpawnBackgroundAgentEffect {
 
 export type ToolEffect = SpawnSubagentEffect | SpawnBackgroundAgentEffect;
 
+export interface ToolEffectContext {
+    readonly approvalMode: ApprovalMode;
+}
+
 export interface ToolEffectRequest {
     readonly kind: "effect";
     readonly effect: ToolEffect;
@@ -27,6 +32,7 @@ export interface ToolEffectRequest {
 export type ApplyToolEffect = (
     effect: ToolEffect,
     signal: AbortSignal,
+    context: ToolEffectContext,
 ) => Promise<ToolOutput>;
 
 // Tools either finish with text or ask the engine owner to apply an effect.

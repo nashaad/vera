@@ -13,6 +13,7 @@ import { join } from "node:path";
 
 import type {
     ModelSettingsUpdate,
+    PermissionsUpdate,
     TaskNotificationUpdate,
 } from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
@@ -350,6 +351,67 @@ test("a resumed agent restores its latest durable model settings", async () => {
     }
 });
 
+test("a resumed agent restores its durable permissions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-permissions-resume-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const firstRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(bashScript("first")),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const original = await firstRegistry.create({
+            id: "durable-permissions-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "first-events.jsonl"),
+        });
+        const attachment = original.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "update_permissions",
+            requestId: "persist-permissions",
+            mode: "full_access",
+        });
+        expect(await receivePermissions(attachment)).toMatchObject({
+            mode: "full_access",
+            pending: false,
+        });
+        await expectPromptFinishesWithoutApproval(attachment, "first turn");
+    } finally {
+        await firstRegistry.close();
+    }
+
+    const resumedRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(bashScript("resumed")),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+    try {
+        const resumed = await resumedRegistry.resume({
+            sessionPath,
+            eventLogPath: join(root, "resumed-events.jsonl"),
+        });
+        const attachment = resumed.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "get_permissions",
+            requestId: "read-restored-permissions",
+        });
+        expect(await receivePermissions(attachment)).toMatchObject({
+            mode: "full_access",
+            pending: false,
+        });
+        await expectPromptFinishesWithoutApproval(attachment, "resumed turn");
+        expect((await SessionStore.open(sessionPath)).approvalMode())
+            .toBe("full_access");
+    } finally {
+        await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a failed settings append leaves the live selection unchanged", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-failure-"));
     const sessionPath = join(root, "agent.jsonl");
@@ -395,6 +457,54 @@ test("a failed settings append leaves the live selection unchanged", async () =>
             pending: false,
         });
         expect((await SessionStore.open(sessionPath)).modelSettings())
+            .toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a failed permissions append leaves the live mode unchanged", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-permissions-failure-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const backupPath = join(root, "agent.backup.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("unused")]),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "permissions-failure-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+
+        await rename(sessionPath, backupPath);
+        await mkdir(sessionPath);
+        try {
+            await expect(registry.updateApprovalMode(
+                agent.id,
+                "full_access",
+            )).rejects.toThrow();
+        } finally {
+            await rm(sessionPath, { recursive: true, force: true });
+            await rename(backupPath, sessionPath);
+        }
+
+        attachment.send({
+            type: "get_permissions",
+            requestId: "read-after-failure",
+        });
+        expect(await receivePermissions(attachment)).toMatchObject({
+            mode: "ask",
+            pending: false,
+        });
+        expect((await SessionStore.open(sessionPath)).approvalMode())
             .toBeUndefined();
     } finally {
         await registry.close();
@@ -489,7 +599,21 @@ test("a background agent returns immediately and delivers its final summary", as
             eventLogPath: join(root, "parent-events.jsonl"),
         });
         const parentAttachment = parent.attach();
-        await runPrompt(parentAttachment, "Run tests in the background");
+        expect((await parentAttachment.receive()).type).toBe("history");
+        parentAttachment.send({
+            type: "update_permissions",
+            requestId: "inherit-permissions",
+            mode: "full_access",
+        });
+        expect(await receivePermissions(parentAttachment)).toMatchObject({
+            mode: "full_access",
+            pending: false,
+        });
+        await runPrompt(
+            parentAttachment,
+            "Run tests in the background",
+            false,
+        );
 
         const agents = registry.list();
         expect(agents).toHaveLength(2);
@@ -534,6 +658,7 @@ test("a background agent returns immediately and delivers its final summary", as
             .toMatchObject({ kind: "background", status: "completed" });
         expect(registry.find(child!.id)).toBeDefined();
         const childStore = await SessionStore.open(child!.session_path);
+        expect(childStore.approvalMode()).toBe("full_access");
         expect(childStore.messages()).toEqual([
             {
                 role: "user",
@@ -646,6 +771,24 @@ function readMarkerScript(): AssistantMessage[] {
     ];
 }
 
+function bashScript(label: string): AssistantMessage[] {
+    return [
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: `bash-${label}`,
+                name: "bash",
+                input: { command: "pwd" },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        textResponse(`${label} done`),
+    ];
+}
+
 function textResponse(text: string): AssistantMessage {
     return {
         role: "assistant",
@@ -687,6 +830,28 @@ async function receiveModelSettings(
             return update;
         }
     }
+}
+
+async function receivePermissions(
+    attachment: AgentAttachment,
+): Promise<PermissionsUpdate> {
+    while (true) {
+        const update = await attachment.receive();
+        if (update.type === "permissions") {
+            return update;
+        }
+    }
+}
+
+async function expectPromptFinishesWithoutApproval(
+    attachment: AgentAttachment,
+    prompt: string,
+): Promise<void> {
+    attachment.send({ type: "prompt", content: prompt });
+    await expect(Promise.race([
+        receiveTurnFinished(attachment).then(() => "finished"),
+        Bun.sleep(500).then(() => "timed out"),
+    ])).resolves.toBe("finished");
 }
 
 async function toolResultText(sessionPath: string): Promise<string | undefined> {

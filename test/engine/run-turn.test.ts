@@ -46,6 +46,7 @@ import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 import type { SessionMessageStore } from "../../src/store/session-store.ts";
+import type { ApprovalMode } from "../../src/engine/permissions.ts";
 
 const temporaryWorkspaces: string[] = [];
 
@@ -233,6 +234,77 @@ test("model settings are snapshotted once when each turn starts", async () => {
     expect(requests[2]?.model).toBe("second-model");
     expect(requests[2]?.reasoningEffort).toBe("high");
     expect(settingsReadCount).toBe(2);
+    await receiveThroughTurnFinished(channel);
+    await secondTurn;
+});
+
+test("permission mode is fixed for one turn and changes on the next", async () => {
+    const toolResponse = (id: string): AssistantMessage => ({
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id,
+            name: "bash",
+            input: { command: "pwd" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    });
+    const finalResponse = (text: string): AssistantMessage => ({
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    });
+    const responses = [
+        toolResponse("first-bash"),
+        finalResponse("first done"),
+        toolResponse("second-bash"),
+        finalResponse("second done"),
+    ];
+    let mode: ApprovalMode = "ask";
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events, {
+            readApprovalMode: () => mode,
+        }),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "ask",
+    };
+    const adapter = new FauxAdapter(responses);
+
+    channel.client.send({ type: "prompt", content: "first turn" });
+    const firstTurn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "first turn", 1);
+    mode = "full_access";
+
+    const approval = await channel.client.receive();
+    expect(approval.type).toBe("ui_request");
+    if (approval.type !== "ui_request") {
+        throw new Error("Expected the first turn to retain ask mode");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: approval.requestId,
+        response: { type: "tool_approval", decision: "allow" },
+    });
+    await receiveThroughTurnFinished(channel);
+    await firstTurn;
+
+    channel.client.send({ type: "prompt", content: "second turn" });
+    const secondTurn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "second turn", 8);
+    expect(await channel.client.receive()).toMatchObject({
+        type: "tool_started",
+        tool: "bash",
+    });
     await receiveThroughTurnFinished(channel);
     await secondTurn;
 });
