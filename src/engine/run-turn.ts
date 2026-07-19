@@ -425,10 +425,9 @@ async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
         return;
     }
     for (const delivery of inbox.pendingDeliveries()) {
-        await commitMessage(state, deliveryMessage(delivery));
-        if (!await inbox.acknowledgeDelivery(delivery.id)) {
-            throw new Error(`Pending delivery ${delivery.id} was not acknowledged`);
-        }
+        const message = deliveryMessage(delivery);
+        await inbox.appendDeliveryMessage(delivery.id, message);
+        state.messages.push(message);
     }
 }
 

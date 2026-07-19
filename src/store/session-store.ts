@@ -30,6 +30,7 @@ export interface SessionMessageEntry {
     readonly id: string;
     readonly parentId: string | null;
     readonly timestamp: string;
+    readonly deliveryId?: string;
     readonly message: ModelMessage;
 }
 
@@ -88,7 +89,10 @@ export interface SessionMessageStore {
 
 export interface SessionDeliveryInbox {
     pendingDeliveries(): readonly SessionDeliveryEntry[];
-    acknowledgeDelivery(deliveryId: string): Promise<boolean>;
+    appendDeliveryMessage(
+        deliveryId: string,
+        message: ModelMessage,
+    ): Promise<SessionMessageEntry>;
 }
 
 interface LoadedSessionFile {
@@ -96,6 +100,7 @@ interface LoadedSessionFile {
     readonly messageEntries: SessionMessageEntry[];
     readonly deliveryEntries: SessionDeliveryEntry[];
     readonly deliveryReceipts: Set<string>;
+    readonly legacyDeliveryMessageIds: Map<string, string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly leafId: string | null;
@@ -110,6 +115,7 @@ export class SessionStore {
     private readonly storedEntries: SessionMessageEntry[];
     private readonly deliveryEntries: SessionDeliveryEntry[];
     private readonly deliveryReceipts: Set<string>;
+    private readonly legacyDeliveryMessageIds: Map<string, string>;
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
     private leafId: string | null;
@@ -125,6 +131,7 @@ export class SessionStore {
         this.storedEntries = loaded.messageEntries;
         this.deliveryEntries = loaded.deliveryEntries;
         this.deliveryReceipts = loaded.deliveryReceipts;
+        this.legacyDeliveryMessageIds = loaded.legacyDeliveryMessageIds;
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
         this.leafId = loaded.leafId;
@@ -162,6 +169,7 @@ export class SessionStore {
                 messageEntries: [],
                 deliveryEntries: [],
                 deliveryReceipts: new Set(),
+                legacyDeliveryMessageIds: new Map(),
                 modelSettingsEntries: [],
                 permissionsEntries: [],
                 leafId: null,
@@ -203,8 +211,29 @@ export class SessionStore {
     }
 
     pendingDeliveries(): readonly SessionDeliveryEntry[] {
+        const activeEntries = this.activeEntries();
+        const activeMessageIds = new Set(
+            activeEntries.map((entry) => entry.id),
+        );
+        const deliveredOnActiveBranch = new Set(
+            activeEntries.flatMap((entry) =>
+                entry.deliveryId === undefined ? [] : [entry.deliveryId]
+            ),
+        );
         return this.deliveryEntries.filter(
-            (delivery) => !this.deliveryReceipts.has(delivery.id),
+            (delivery) => {
+                const legacyMessageId = this.legacyDeliveryMessageIds.get(
+                    delivery.id,
+                );
+                const legacyReceiptIsActive = this.deliveryReceipts.has(
+                    delivery.id,
+                ) && (
+                    legacyMessageId === undefined
+                    || activeMessageIds.has(legacyMessageId)
+                );
+                return !legacyReceiptIsActive
+                    && !deliveredOnActiveBranch.has(delivery.id);
+            },
         );
     }
 
@@ -219,6 +248,20 @@ export class SessionStore {
 
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendDeliveryMessage(
+        deliveryId: string,
+        message: ModelMessage,
+    ): Promise<SessionMessageEntry> {
+        const result = this.pendingAppend.then(() =>
+            this.commitDeliveryMessage(deliveryId, message)
+        );
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -272,19 +315,9 @@ export class SessionStore {
         return result;
     }
 
-    acknowledgeDelivery(deliveryId: string): Promise<boolean> {
-        const result = this.pendingAppend.then(() =>
-            this.commitDeliveryReceipt(deliveryId)
-        );
-        this.pendingAppend = result.then(
-            () => undefined,
-            () => undefined,
-        );
-        return result;
-    }
-
     private async commitMessage(
         message: ModelMessage,
+        deliveryId?: string,
     ): Promise<SessionMessageEntry> {
         if (!isModelMessage(message)) {
             throw new Error("Cannot append an invalid model message");
@@ -294,6 +327,7 @@ export class SessionStore {
             id: nonEmpty(this.createId(), "message entry ID"),
             parentId: this.leafId,
             timestamp: this.now().toISOString(),
+            ...(deliveryId === undefined ? {} : { deliveryId }),
             message,
         };
         if (this.storedEntries.some((candidate) => candidate.id === entry.id)) {
@@ -305,6 +339,27 @@ export class SessionStore {
         this.storedEntries.push(entry);
         this.leafId = entry.id;
         return entry;
+    }
+
+    private async commitDeliveryMessage(
+        requestedDeliveryId: string,
+        message: ModelMessage,
+    ): Promise<SessionMessageEntry> {
+        const deliveryId = nonEmpty(requestedDeliveryId, "delivery ID");
+        if (
+            message.role !== "user"
+            || message.internal !== true
+        ) {
+            throw new Error("A delivery message must be an internal user message");
+        }
+        if (
+            !this.pendingDeliveries().some(
+                (delivery) => delivery.id === deliveryId,
+            )
+        ) {
+            throw new Error(`Delivery ${deliveryId} is not pending`);
+        }
+        return this.commitMessage(message, deliveryId);
     }
 
     private async commitModelSettings(
@@ -409,24 +464,6 @@ export class SessionStore {
         return true;
     }
 
-    private async commitDeliveryReceipt(deliveryId: string): Promise<boolean> {
-        const id = nonEmpty(deliveryId, "delivery ID");
-        if (
-            !this.deliveryEntries.some((delivery) => delivery.id === id)
-            || this.deliveryReceipts.has(id)
-        ) {
-            return false;
-        }
-        const receipt: SessionDeliveryReceiptEntry = {
-            type: "delivery_receipt",
-            deliveryId: id,
-            timestamp: this.now().toISOString(),
-        };
-        await this.appendRecord(receipt);
-        this.deliveryReceipts.add(id);
-        return true;
-    }
-
     private async appendRecord(record: object): Promise<void> {
         const file = await open(this.path, "a", 0o600);
         try {
@@ -475,6 +512,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const messageEntries: SessionMessageEntry[] = [];
     const deliveryEntries: SessionDeliveryEntry[] = [];
     const deliveryReceipts = new Set<string>();
+    const legacyDeliveryMessageIds = new Map<string, string>();
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
     const knownMessageIds = new Set<string>();
@@ -506,6 +544,34 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
                     path,
                     `line ${lineNumber} does not extend the active head`,
                 );
+            }
+            if (entry.deliveryId !== undefined) {
+                if (!knownDeliveryIds.has(entry.deliveryId)) {
+                    throw invalidSession(
+                        path,
+                        `line ${lineNumber} references missing delivery ${entry.deliveryId}`,
+                    );
+                }
+                if (
+                    entry.message.role !== "user"
+                    || entry.message.internal !== true
+                ) {
+                    throw invalidSession(
+                        path,
+                        `line ${lineNumber} has a non-internal delivery message`,
+                    );
+                }
+                if (
+                    activeBranchEntries(messageEntries, leafId).some(
+                        (candidate) =>
+                            candidate.deliveryId === entry.deliveryId,
+                    )
+                ) {
+                    throw invalidSession(
+                        path,
+                        `line ${lineNumber} repeats active delivery ${entry.deliveryId}`,
+                    );
+                }
             }
             knownMessageIds.add(entry.id);
             messageEntries.push(entry);
@@ -539,6 +605,20 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
                 );
             }
             deliveryReceipts.add(receipt.deliveryId);
+            const activeHead = leafId === null
+                ? undefined
+                : messageEntries.find((entry) => entry.id === leafId);
+            if (
+                activeHead !== undefined
+                && activeHead.deliveryId === undefined
+                && activeHead.message.role === "user"
+                && activeHead.message.internal === true
+            ) {
+                legacyDeliveryMessageIds.set(
+                    receipt.deliveryId,
+                    activeHead.id,
+                );
+            }
             continue;
         }
         if (value.type === "model_settings") {
@@ -599,6 +679,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         messageEntries,
         deliveryEntries,
         deliveryReceipts,
+        legacyDeliveryMessageIds,
         modelSettingsEntries,
         permissionsEntries,
         leafId,
@@ -632,6 +713,13 @@ function parseMessageEntry(
         || value.id.length === 0
         || (value.parentId !== null && typeof value.parentId !== "string")
         || typeof value.timestamp !== "string"
+        || (
+            value.deliveryId !== undefined
+            && (
+                typeof value.deliveryId !== "string"
+                || value.deliveryId.length === 0
+            )
+        )
         || !isModelMessage(value.message)
     ) {
         throw invalidSession(
