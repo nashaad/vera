@@ -1,4 +1,4 @@
-import type { ModelTool } from "../model/types.ts";
+import type { ModelReasoningEffort, ModelTool } from "../model/types.ts";
 import type { ApprovalMode } from "../sdk/permissions.ts";
 import type { ToolRuntime } from "./runtime.ts";
 
@@ -22,6 +22,8 @@ export type ToolEffect = SpawnSubagentEffect | SpawnBackgroundAgentEffect;
 
 export interface ToolEffectContext {
     readonly approvalMode: ApprovalMode;
+    readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 export interface ToolEffectRequest {

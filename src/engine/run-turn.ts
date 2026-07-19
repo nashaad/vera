@@ -188,9 +188,7 @@ export async function runHeadlessLoop(
     const applyToolEffect = options.applyToolEffect
         ?? createSubagentEffectApplier({
             adapter,
-            model,
             workspace: store.header.cwd,
-            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),
@@ -391,6 +389,14 @@ export async function runTurn(
                             first,
                             turn.signal,
                             turnApprovalMode,
+                            {
+                                model: activeModel,
+                                ...(turnReasoningEffort === undefined
+                                    ? {}
+                                    : {
+                                        reasoningEffort: turnReasoningEffort,
+                                    }),
+                            },
                         ),
                     ]);
                     toolIndex += 1;
@@ -415,6 +421,14 @@ export async function runTurn(
                             prepared,
                             turn.signal,
                             turnApprovalMode,
+                            {
+                                model: activeModel,
+                                ...(turnReasoningEffort === undefined
+                                    ? {}
+                                    : {
+                                        reasoningEffort: turnReasoningEffort,
+                                    }),
+                            },
                         )
                     ),
                 );
@@ -562,6 +576,7 @@ async function executePreparedTool(
     prepared: PreparedToolCall,
     signal: AbortSignal,
     approvalMode: ApprovalMode,
+    modelSettings: ModelTurnSettings,
 ): Promise<CompletedToolCall> {
     const toolCall = prepared.toolCall;
     const hookCall = hookToolCall(toolCall);
@@ -614,7 +629,13 @@ async function executePreparedTool(
         execution,
         state.applyToolEffect,
         signal,
-        { approvalMode },
+        {
+            approvalMode,
+            model: modelSettings.model,
+            ...(modelSettings.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: modelSettings.reasoningEffort }),
+        },
     );
     const result = toolResultMessage(toolCall, output);
     const durationMs = performance.now() - startedAt;
