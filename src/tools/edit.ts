@@ -69,6 +69,12 @@ async function editFileInWorkspace(
                 + editedContent.slice(match.index + edit.oldString.length);
         }
 
+        await runtime.recordCheckpoint({
+            path,
+            existedBefore: true,
+            priorContent: originalContent,
+            tool: "edit",
+        });
         await Bun.write(path, editedContent);
         runtime.recordFileSnapshot(path, editedContent);
         return {

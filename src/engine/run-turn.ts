@@ -30,6 +30,7 @@ import {
     toolResultMessage,
 } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
+import type { FileCheckpointCapture } from "../tools/runtime.ts";
 import type {
     ApplyToolEffect,
     ToolExecutionResult,
@@ -59,6 +60,10 @@ import {
     type SessionDeliveryInbox,
     type SessionMessageStore,
 } from "../store/session-store.ts";
+import {
+    CheckpointStore,
+    defaultCheckpointDirectory,
+} from "../store/checkpoint-store.ts";
 import type {
     ModelSettingsPatch,
     ModelTurnSettings,
@@ -104,6 +109,7 @@ export interface RunHeadlessLoopOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly checkpointStore?: CheckpointStore;
 }
 
 export async function runHeadlessLoop(
@@ -189,11 +195,28 @@ export async function runHeadlessLoop(
                 ? {}
                 : { modelFallback: options.modelFallback }),
         });
+    const checkpointStore = options.checkpointStore
+        ?? new CheckpointStore(defaultCheckpointDirectory(sessionId));
+    const recordCheckpoint = async (
+        capture: FileCheckpointCapture,
+    ): Promise<void> => {
+        const checkpointId = randomUUID();
+        await checkpointStore.write(checkpointId, {
+            existed: capture.existedBefore,
+            content: capture.priorContent,
+        });
+        await store.appendCheckpoint({
+            checkpointId,
+            path: capture.path,
+            existedBefore: capture.existedBefore,
+            tool: capture.tool,
+        });
+    };
     const state: RunTurnState = {
         messages: [...store.messages()],
         store,
         deliveryInbox: store,
-        toolRuntime: new ToolRuntime(store.header.cwd),
+        toolRuntime: new ToolRuntime(store.header.cwd, { recordCheckpoint }),
         inbound,
         events,
         hooks: new ToolHooks(),
