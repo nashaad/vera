@@ -24,6 +24,7 @@ import {
     type AssistantMessage,
     type ModelAdapter,
     type ModelRequest,
+    type ModelReasoningEffort,
 } from "../../src/model/types.ts";
 import {
     createInProcessChannel,
@@ -126,6 +127,114 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         },
         response,
     ]);
+});
+
+test("model settings are snapshotted once when each turn starts", async () => {
+    const responses: AssistantMessage[] = [
+        {
+            role: "assistant",
+            content: [{ type: "text", text: "continuing" }],
+            source: { provider: "faux", api: "scripted", model: "first-model" },
+            usage: emptyUsage(),
+            stopReason: "length",
+        },
+        {
+            role: "assistant",
+            content: [{ type: "text", text: "first" }],
+            source: { provider: "faux", api: "scripted", model: "first-model" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        },
+        {
+            role: "assistant",
+            content: [{ type: "text", text: "second" }],
+            source: { provider: "faux", api: "scripted", model: "second-model" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        },
+    ];
+    const faux = new FauxAdapter(responses, { chunkSize: 1, delayMs: 10 });
+    const requests: ModelRequest[] = [];
+    let signalRequestStarted: () => void = () => {};
+    let requestStarted = new Promise<void>((resolve) => {
+        signalRequestStarted = resolve;
+    });
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            signalRequestStarted();
+            return faux.stream(request);
+        },
+    };
+    let settings: {
+        readonly model: string;
+        readonly reasoningEffort?: ModelReasoningEffort;
+    } = {
+        model: "first-model",
+        reasoningEffort: "low",
+    };
+    let settingsReadCount = 0;
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState & {
+        readonly readModelSettings: () => typeof settings;
+    } = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        readModelSettings: () => {
+            settingsReadCount += 1;
+            return settings;
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "first turn" });
+    const firstTurn = runTurn(
+        adapter,
+        "startup-model",
+        state,
+        "off",
+    );
+    await expectUserPrompt(channel, "first turn", 1);
+    await requestStarted;
+
+    settings = {
+        model: "second-model",
+        reasoningEffort: "high",
+    };
+    expect(requests[0]?.model).toBe("first-model");
+    expect(requests[0]?.reasoningEffort).toBe("low");
+    await receiveThroughTurnFinished(channel);
+    await firstTurn;
+    expect(requests[1]?.model).toBe("first-model");
+    expect(requests[1]?.reasoningEffort).toBe("low");
+    expect(settingsReadCount).toBe(1);
+
+    requestStarted = new Promise<void>((resolve) => {
+        signalRequestStarted = resolve;
+    });
+    channel.client.send({ type: "prompt", content: "second turn" });
+    const secondTurn = runTurn(
+        adapter,
+        "startup-model",
+        state,
+        "off",
+    );
+    expect(await channel.client.receive()).toMatchObject({
+        type: "user_prompt",
+        content: "second turn",
+    });
+    await requestStarted;
+
+    expect(requests[2]?.model).toBe("second-model");
+    expect(requests[2]?.reasoningEffort).toBe("high");
+    expect(settingsReadCount).toBe(2);
+    await receiveThroughTurnFinished(channel);
+    await secondTurn;
 });
 
 test("turn finished waits for the assistant message append", async () => {
@@ -1414,4 +1523,15 @@ async function expectUserPrompt(
         content,
         seq,
     });
+}
+
+async function receiveThroughTurnFinished(
+    channel: InProcessChannel,
+): Promise<void> {
+    while (true) {
+        const update = await channel.client.receive();
+        if (update.type === "turn_finished") {
+            return;
+        }
+    }
 }

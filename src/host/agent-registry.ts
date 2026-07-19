@@ -4,7 +4,10 @@ import { realpath } from "node:fs/promises";
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
 import type { ApprovalMode } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
-import { runHeadlessLoop } from "../engine/run-turn.ts";
+import {
+    runHeadlessLoop,
+    type ModelTurnSettings,
+} from "../engine/run-turn.ts";
 import { createSubagentEffectApplier } from "../engine/subagent.ts";
 import type {
     ModelAdapter,
@@ -70,6 +73,7 @@ interface RegisteredAgentEntry {
     readonly store: SessionStore;
     readonly kind: RegisteredAgentKind;
     readonly events: EngineEventBus;
+    modelSettings: ModelTurnSettings;
     run: Promise<void>;
     completed: boolean;
     failure?: unknown;
@@ -129,6 +133,23 @@ export class AgentRegistry {
         return agent?.closed === false ? agent : undefined;
     }
 
+    updateModelSettings(id: string, settings: ModelTurnSettings): void {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed) {
+            throw new Error(`Resident agent ${id} is unavailable`);
+        }
+        const model = settings.model.trim();
+        if (model.length === 0) {
+            throw new Error("Agent model must not be empty");
+        }
+        entry.modelSettings = {
+            model,
+            ...(settings.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: settings.reasoningEffort }),
+        };
+    }
+
     list(): RegisteredAgentSummary[] {
         return [...this.agents.values()]
             .map((entry) => ({
@@ -171,6 +192,12 @@ export class AgentRegistry {
             store,
             kind,
             events,
+            modelSettings: {
+                model: this.options.model,
+                ...(this.options.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: this.options.reasoningEffort }),
+            },
             run: Promise.resolve(),
             completed: false,
         };
@@ -207,6 +234,7 @@ export class AgentRegistry {
                     "spawn_subagent",
                     "spawn_background_agent",
                 ],
+                readModelSettings: () => entry.modelSettings,
             },
         ).catch((error: unknown) => {
             if (!agent.closed) {
