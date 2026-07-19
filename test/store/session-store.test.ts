@@ -526,7 +526,7 @@ test("session store rejects invalid permissions before writing", async () => {
     expect(readLines(path)).toHaveLength(1);
 });
 
-test("pending deliveries are idempotent and survive restart until acknowledged", async () => {
+test("pending deliveries are idempotent and survive restart until injected", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
     const delivery = {
@@ -552,13 +552,40 @@ test("pending deliveries are idempotent and survive restart until acknowledged",
         ...delivery,
         timestamp: "2026-07-17T12:00:01.000Z",
     }]);
+    appendFileSync(
+        path,
+        '{"type":"message","id":"torn","deliveryId":"delivery-1"',
+    );
 
     const reopened = await SessionStore.open(path, {
         now: dates("2026-07-17T12:00:02.000Z"),
+        createId: values("message-1"),
     });
     expect(reopened.pendingDeliveries()).toHaveLength(1);
-    expect(await reopened.acknowledgeDelivery(delivery.id)).toBe(true);
-    expect(await reopened.acknowledgeDelivery(delivery.id)).toBe(false);
+    const notification: ModelMessage = {
+        role: "user",
+        internal: true,
+        content: [{ type: "text", text: "background result" }],
+    };
+    await expect(reopened.appendDeliveryMessage(delivery.id, {
+        role: "user",
+        content: [{ type: "text", text: "not internal" }],
+    })).rejects.toThrow("A delivery message must be an internal user message");
+    expect(await reopened.appendDeliveryMessage(
+        delivery.id,
+        notification,
+    )).toEqual({
+        type: "message",
+        id: "message-1",
+        parentId: null,
+        timestamp: "2026-07-17T12:00:02.000Z",
+        deliveryId: "delivery-1",
+        message: notification,
+    });
+    await expect(reopened.appendDeliveryMessage(
+        delivery.id,
+        notification,
+    )).rejects.toThrow("Delivery delivery-1 is not pending");
     expect(await reopened.recordDelivery(delivery)).toBe(false);
     await expect(reopened.recordDelivery({
         ...delivery,
@@ -573,8 +600,207 @@ test("pending deliveries are idempotent and survive restart until acknowledged",
     expect(readLines(path).map((line) => line.type)).toEqual([
         "session",
         "delivery",
-        "delivery_receipt",
+        "message",
     ]);
+});
+
+test("rewind requeues only a delivery abandoned with its message", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const firstUser: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "first request" }],
+    };
+    const secondUser: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "second request" }],
+    };
+    const notification: ModelMessage = {
+        role: "user",
+        internal: true,
+        content: [{ type: "text", text: "background result" }],
+    };
+    const delivery = {
+        id: "delivery-1",
+        sourceAgentId: "background-1",
+        content: "Background agent finished.",
+    };
+    const store = await SessionStore.create(path, {
+        sessionId: "parent-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-19T12:00:00.000Z",
+            "2026-07-19T12:00:01.000Z",
+            "2026-07-19T12:00:02.000Z",
+            "2026-07-19T12:00:03.000Z",
+            "2026-07-19T12:00:04.000Z",
+            "2026-07-19T12:00:05.000Z",
+            "2026-07-19T12:00:06.000Z",
+            "2026-07-19T12:00:07.000Z",
+            "2026-07-19T12:00:08.000Z",
+        ),
+        createId: values(
+            "message-1",
+            "message-2",
+            "message-3",
+            "message-4",
+            "message-5",
+        ),
+    });
+    const firstBoundary = await store.appendMessage(firstUser);
+    await store.appendMessage(assistantMessage("first answer"));
+    await store.recordDelivery(delivery);
+    await store.appendDeliveryMessage(delivery.id, notification);
+    const secondBoundary = await store.appendMessage(secondUser);
+    await store.appendMessage(assistantMessage("second answer"));
+
+    expect(store.pendingDeliveries()).toEqual([]);
+    await store.rewindBefore(secondBoundary.id);
+    expect(store.pendingDeliveries()).toEqual([]);
+
+    await store.rewindBefore(firstBoundary.id);
+    const rewound = await SessionStore.open(path, {
+        now: dates("2026-07-19T12:00:09.000Z"),
+        createId: values("message-6"),
+    });
+    expect(rewound.pendingDeliveries()).toEqual([{
+        type: "delivery",
+        ...delivery,
+        timestamp: "2026-07-19T12:00:03.000Z",
+    }]);
+
+    const reinjected = await rewound.appendDeliveryMessage(
+        delivery.id,
+        notification,
+    );
+    expect(reinjected.parentId).toBeNull();
+    expect(reinjected.deliveryId).toBe(delivery.id);
+    expect(rewound.pendingDeliveries()).toEqual([]);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.pendingDeliveries()).toEqual([]);
+    expect(reopened.activeEntries().map((entry) => entry.id)).toEqual([
+        "message-6",
+    ]);
+    expect(reopened.entries()).toHaveLength(6);
+});
+
+test("session store still reads legacy delivery receipts", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    writeFileSync(path, [
+        JSON.stringify({
+            type: "session",
+            version: SESSION_FORMAT_VERSION,
+            id: "parent-1",
+            timestamp: "2026-07-17T12:00:00.000Z",
+            cwd: directory,
+        }),
+        JSON.stringify({
+            type: "delivery",
+            id: "delivery-1",
+            sourceAgentId: "background-1",
+            content: "Finished.",
+            timestamp: "2026-07-17T12:00:01.000Z",
+        }),
+        JSON.stringify({
+            type: "delivery_receipt",
+            deliveryId: "delivery-1",
+            timestamp: "2026-07-17T12:00:02.000Z",
+        }),
+        "",
+    ].join("\n"));
+
+    expect((await SessionStore.open(path)).pendingDeliveries()).toEqual([]);
+});
+
+test("rewind requeues a legacy receipt linked by its record position", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const notification: ModelMessage = {
+        role: "user",
+        internal: true,
+        content: [{ type: "text", text: "old background result" }],
+    };
+    writeFileSync(path, [
+        JSON.stringify({
+            type: "session",
+            version: SESSION_FORMAT_VERSION,
+            id: "parent-1",
+            timestamp: "2026-07-17T12:00:00.000Z",
+            cwd: directory,
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-1",
+            parentId: null,
+            timestamp: "2026-07-17T12:00:01.000Z",
+            message: {
+                role: "user",
+                content: [{ type: "text", text: "first request" }],
+            },
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-2",
+            parentId: "message-1",
+            timestamp: "2026-07-17T12:00:02.000Z",
+            message: assistantMessage("first answer"),
+        }),
+        JSON.stringify({
+            type: "delivery",
+            id: "delivery-1",
+            sourceAgentId: "background-1",
+            content: "Finished.",
+            timestamp: "2026-07-17T12:00:03.000Z",
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-3",
+            parentId: "message-2",
+            timestamp: "2026-07-17T12:00:04.000Z",
+            message: notification,
+        }),
+        JSON.stringify({
+            type: "delivery_receipt",
+            deliveryId: "delivery-1",
+            timestamp: "2026-07-17T12:00:05.000Z",
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-4",
+            parentId: "message-3",
+            timestamp: "2026-07-17T12:00:06.000Z",
+            message: {
+                role: "user",
+                content: [{ type: "text", text: "second request" }],
+            },
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-5",
+            parentId: "message-4",
+            timestamp: "2026-07-17T12:00:07.000Z",
+            message: assistantMessage("second answer"),
+        }),
+        JSON.stringify({
+            type: "rewind",
+            timestamp: "2026-07-17T12:00:08.000Z",
+            userMessageId: "message-1",
+            previousHeadId: "message-5",
+            headId: null,
+        }),
+        "",
+    ].join("\n"));
+
+    const reopened = await SessionStore.open(path, {
+        now: dates("2026-07-17T12:00:09.000Z"),
+        createId: values("message-6"),
+    });
+    expect(reopened.pendingDeliveries()).toHaveLength(1);
+    await reopened.appendDeliveryMessage("delivery-1", notification);
+    expect(reopened.pendingDeliveries()).toEqual([]);
+    expect((await SessionStore.open(path)).pendingDeliveries()).toEqual([]);
 });
 
 test("session store removes one unterminated crash fragment before appending", async () => {
@@ -638,6 +864,81 @@ test("session store rejects malformed complete entries", async () => {
     await expect(SessionStore.open(path)).rejects.toThrow(
         "line 2 references missing parent missing",
     );
+});
+
+test("session store rejects invalid delivery message links", async () => {
+    const directory = temporaryDirectory();
+    const header = {
+        type: "session",
+        version: SESSION_FORMAT_VERSION,
+        id: "session-1",
+        timestamp: "2026-07-17T12:00:00.000Z",
+        cwd: directory,
+    };
+    const delivery = {
+        type: "delivery",
+        id: "delivery-1",
+        sourceAgentId: "background-1",
+        content: "Finished.",
+        timestamp: "2026-07-17T12:00:01.000Z",
+    };
+    const notification = {
+        type: "message",
+        id: "message-1",
+        parentId: null,
+        timestamp: "2026-07-17T12:00:02.000Z",
+        deliveryId: "delivery-1",
+        message: {
+            role: "user",
+            internal: true,
+            content: [{ type: "text", text: "background result" }],
+        },
+    };
+    const cases = [
+        {
+            name: "missing-delivery",
+            records: [notification],
+            error: "line 2 references missing delivery delivery-1",
+        },
+        {
+            name: "non-internal",
+            records: [
+                delivery,
+                {
+                    ...notification,
+                    message: {
+                        role: "user",
+                        content: [{ type: "text", text: "not internal" }],
+                    },
+                },
+            ],
+            error: "line 3 has a non-internal delivery message",
+        },
+        {
+            name: "active-duplicate",
+            records: [
+                delivery,
+                notification,
+                {
+                    ...notification,
+                    id: "message-2",
+                    parentId: "message-1",
+                    timestamp: "2026-07-17T12:00:03.000Z",
+                },
+            ],
+            error: "line 4 repeats active delivery delivery-1",
+        },
+    ];
+
+    for (const candidate of cases) {
+        const path = join(directory, `${candidate.name}.jsonl`);
+        writeFileSync(path, [
+            JSON.stringify(header),
+            ...candidate.records.map((record) => JSON.stringify(record)),
+            "",
+        ].join("\n"));
+        await expect(SessionStore.open(path)).rejects.toThrow(candidate.error);
+    }
 });
 
 test("session store rejects messages that only resemble engine types", async () => {
