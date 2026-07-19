@@ -1,5 +1,10 @@
 import type { ModelTool } from "../model/types.ts";
 
+// Prompt ordering is a provider KV-cache contract. Treat prefix stability as
+// a gate for every change here: stable content must remain byte-identical and
+// mutable content belongs at the growing edge. The current all-in-one assembly
+// is temporary; staged assembly must add a prefix-stability test before landing.
+
 export interface AssembleSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
