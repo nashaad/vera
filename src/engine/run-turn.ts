@@ -30,7 +30,7 @@ import {
     toolResultMessage,
 } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
-import type { FileCheckpointCapture } from "../tools/runtime.ts";
+import type { BoundFileCheckpointCapture } from "../tools/runtime.ts";
 import type {
     ApplyToolEffect,
     ToolExecutionResult,
@@ -60,10 +60,12 @@ import {
     type SessionDeliveryEntry,
     type SessionDeliveryInbox,
     type SessionMessageStore,
+    type StoredMessageReference,
 } from "../store/session-store.ts";
 import {
     CheckpointStore,
     defaultCheckpointDirectory,
+    sha256Text,
 } from "../store/checkpoint-store.ts";
 import type {
     ModelSettingsPatch,
@@ -218,7 +220,7 @@ export async function runHeadlessLoop(
                 : { modelFallback: options.modelFallback }),
         });
     const recordCheckpoint = async (
-        capture: FileCheckpointCapture,
+        capture: BoundFileCheckpointCapture,
     ): Promise<void> => {
         const checkpointId = randomUUID();
         await checkpointStore.write(checkpointId, {
@@ -230,6 +232,11 @@ export async function runHeadlessLoop(
             path: capture.path,
             existedBefore: capture.existedBefore,
             tool: capture.tool,
+            userMessageId: capture.userMessageId,
+            beforeSha256: capture.existedBefore
+                ? sha256Text(capture.priorContent)
+                : null,
+            afterSha256: sha256Text(capture.intendedContent),
         });
     };
     const state: RunTurnState = {
@@ -267,6 +274,7 @@ export async function runTurn(
 ): Promise<AssistantMessage> {
     const turn = await state.inbound.startTurn();
     let assistantMessage: AssistantMessage;
+    let checkpointBoundaryStarted = false;
 
     try {
         const modelSettings = turn.modelSettings
@@ -292,7 +300,11 @@ export async function runTurn(
             role: "user",
             content: [{ type: "text", text: turn.prompt.content }],
         };
-        await commitMessage(state, userMessage);
+        const userEntry = await commitMessage(state, userMessage);
+        if (userEntry !== undefined) {
+            state.toolRuntime.beginCheckpointBoundary(userEntry.id);
+            checkpointBoundaryStarted = true;
+        }
         state.events.emit({ type: "turn_started", message: userMessage });
 
         while (true) {
@@ -457,6 +469,9 @@ export async function runTurn(
             }
         }
     } finally {
+        if (checkpointBoundaryStarted) {
+            state.toolRuntime.endCheckpointBoundary();
+        }
         state.inbound.finishTurn();
     }
 
@@ -806,9 +821,10 @@ async function applyToolExecution(
 async function commitMessage(
     state: RunTurnState,
     message: ModelMessage,
-): Promise<void> {
-    await state.store.appendMessage(message);
+): Promise<StoredMessageReference | undefined> {
+    const entry = await state.store.appendMessage(message);
     state.messages.push(message);
+    return entry ?? undefined;
 }
 
 function deniedToolResult(

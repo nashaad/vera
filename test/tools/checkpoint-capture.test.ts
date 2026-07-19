@@ -7,12 +7,12 @@ import type { ToolCallContent } from "../../src/model/types.ts";
 import { executeToolCall } from "../../src/tools/execute.ts";
 import {
     ToolRuntime,
-    type FileCheckpointCapture,
+    type BoundFileCheckpointCapture,
 } from "../../src/tools/runtime.ts";
 
 test("write captures a new file as not previously existing", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-capture-"));
-    const captures: FileCheckpointCapture[] = [];
+    const captures: BoundFileCheckpointCapture[] = [];
     const runtime = runtimeWith(workspace, captures);
 
     try {
@@ -28,7 +28,9 @@ test("write captures a new file as not previously existing", async () => {
         expect(captures[0]).toMatchObject({
             existedBefore: false,
             priorContent: "",
+            intendedContent: "fresh",
             tool: "write",
+            userMessageId: "user-message-1",
         });
         expect(captures[0]?.path.endsWith("new.txt")).toBe(true);
     } finally {
@@ -39,7 +41,7 @@ test("write captures a new file as not previously existing", async () => {
 test("write captures the prior contents when overwriting", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-capture-"));
     await writeFile(join(workspace, "note.txt"), "old text");
-    const captures: FileCheckpointCapture[] = [];
+    const captures: BoundFileCheckpointCapture[] = [];
     const runtime = runtimeWith(workspace, captures);
 
     try {
@@ -54,7 +56,9 @@ test("write captures the prior contents when overwriting", async () => {
         expect(captures[0]).toMatchObject({
             existedBefore: true,
             priorContent: "old text",
+            intendedContent: "new text",
             tool: "write",
+            userMessageId: "user-message-1",
         });
     } finally {
         await rm(workspace, { recursive: true, force: true });
@@ -64,7 +68,7 @@ test("write captures the prior contents when overwriting", async () => {
 test("edit captures the file contents as they were read", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-capture-"));
     await writeFile(join(workspace, "note.txt"), "alpha beta");
-    const captures: FileCheckpointCapture[] = [];
+    const captures: BoundFileCheckpointCapture[] = [];
     const runtime = runtimeWith(workspace, captures);
 
     try {
@@ -84,8 +88,29 @@ test("edit captures the file contents as they were read", async () => {
         expect(captures[0]).toMatchObject({
             existedBefore: true,
             priorContent: "alpha beta",
+            intendedContent: "alpha gamma",
             tool: "edit",
+            userMessageId: "user-message-1",
         });
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("checkpoint capture requires an active user-message boundary", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-capture-"));
+    const runtime = new ToolRuntime(workspace, {
+        recordCheckpoint: async () => {},
+    });
+
+    try {
+        await expect(runtime.recordCheckpoint({
+            path: join(workspace, "note.txt"),
+            existedBefore: true,
+            priorContent: "before",
+            intendedContent: "after",
+            tool: "write",
+        })).rejects.toThrow("without a user-message boundary");
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
@@ -93,13 +118,15 @@ test("edit captures the file contents as they were read", async () => {
 
 function runtimeWith(
     workspace: string,
-    captures: FileCheckpointCapture[],
+    captures: BoundFileCheckpointCapture[],
 ): ToolRuntime {
-    return new ToolRuntime(workspace, {
+    const runtime = new ToolRuntime(workspace, {
         recordCheckpoint: async (capture) => {
             captures.push(capture);
         },
     });
+    runtime.beginCheckpointBoundary("user-message-1");
+    return runtime;
 }
 
 function toolCall(

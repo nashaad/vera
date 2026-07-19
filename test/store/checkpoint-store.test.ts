@@ -3,7 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CheckpointStore } from "../../src/store/checkpoint-store.ts";
+import {
+    CheckpointStore,
+    sha256Text,
+} from "../../src/store/checkpoint-store.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -66,6 +69,13 @@ test("checkpoint store rejects an id with path separators", async () => {
     await expect(
         store.write("../escape", { existed: true, content: "x" }),
     ).rejects.toThrow("must not contain path separators");
+});
+
+test("checkpoint content digests are stable SHA-256 values", () => {
+    expect(sha256Text("before")).toBe(
+        "6db7d803e74f1ffa7d8f5adc0bf95b3e15bf4c8373fffadf546227cc6c6742cb",
+    );
+    expect(sha256Text("before")).not.toBe(sha256Text("after"));
 });
 
 function temporaryDirectory(): string {

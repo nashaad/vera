@@ -27,7 +27,10 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
-import { CheckpointStore } from "../../src/store/checkpoint-store.ts";
+import {
+    CheckpointStore,
+    sha256Text,
+} from "../../src/store/checkpoint-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("resident agents keep file tools inside their fixed workspaces", async () => {
@@ -127,11 +130,18 @@ test("resident checkpoint control lists and restores a file edit", async () => {
             requestId: "list-checkpoints",
         });
         const listed = await receiveCheckpoints(attachment);
+        const stored = await SessionStore.open(join(root, "agent.jsonl"));
+        const userMessageId = stored.entries().find(
+            (entry) => entry.message.role === "user",
+        )?.id;
         expect(listed.checkpoints).toHaveLength(1);
         expect(listed.checkpoints[0]).toMatchObject({
             path: await realpath(filePath),
             existedBefore: true,
             tool: "write",
+            userMessageId,
+            beforeSha256: sha256Text("before"),
+            afterSha256: sha256Text("after"),
         });
         const checkpointId = listed.checkpoints[0]!.checkpointId;
 
