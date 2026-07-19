@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,6 +22,7 @@ import {
 } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
+import { CheckpointStore } from "../../src/store/checkpoint-store.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
@@ -66,7 +67,6 @@ test("two real subagent effects overlap and create separate sessions", async () 
     };
     const applyEffect = createSubagentEffectApplier({
         adapter,
-        model: "test",
         workspace: root,
         sessionPathForId(id) {
             const path = join(root, `${id}.jsonl`);
@@ -81,11 +81,17 @@ test("two real subagent effects overlap and create separate sessions", async () 
             applyEffect({
                 type: "spawn_subagent",
                 description: "slow child",
-            }, signal, { approvalMode: "approve_for_me" }),
+            }, signal, {
+                approvalMode: "approve_for_me",
+                model: "test",
+            }),
             applyEffect({
                 type: "spawn_subagent",
                 description: "fast child",
-            }, signal, { approvalMode: "approve_for_me" }),
+            }, signal, {
+                approvalMode: "approve_for_me",
+                model: "test",
+            }),
         ]);
 
         expect(maximumActiveChildren).toBe(2);
@@ -105,6 +111,47 @@ test("two real subagent effects overlap and create separate sessions", async () 
                 "subagent",
             );
         }
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("subagent inherits the parent turn model and reasoning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-model-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "selected" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "use the selected model",
+        }, new AbortController().signal, {
+            approvalMode: "approve_for_me",
+            model: "selected",
+            reasoningEffort: "high",
+        });
+
+        expect(request?.model).toBe("selected");
+        expect(request?.reasoningEffort).toBe("high");
+        expect(result.isError).toBe(false);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -159,7 +206,6 @@ test("parent receives the real child final text as its tool result", async () =>
         enabledToolEffects: ["spawn_subagent"],
         applyToolEffect: createSubagentEffectApplier({
             adapter,
-            model: "test",
             workspace: root,
             sessionPathForId(id) {
                 childSessionPath = join(root, `${id}.jsonl`);
@@ -197,6 +243,33 @@ test("parent receives the real child final text as its tool result", async () =>
     }
 });
 
+test("a failed child model request returns an error tool result", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-error-"));
+    const applyEffect = createSubagentEffectApplier({
+        adapter: new FauxAdapter([]),
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "fail before responding",
+        }, new AbortController().signal, {
+            approvalMode: "approve_for_me",
+            model: "test",
+        });
+
+        expect(result).toEqual({
+            kind: "output",
+            output: "Faux adapter has no scripted response left",
+            isError: true,
+        });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("subagent effects inherit the parent turn permissions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-permissions-"));
     const sessionPath = join(root, "child.jsonl");
@@ -221,7 +294,6 @@ test("subagent effects inherit the parent turn permissions", async () => {
     };
     const applyEffect = createSubagentEffectApplier({
         adapter: new FauxAdapter([toolCall, final]),
-        model: "test",
         workspace: root,
         sessionPathForId: () => sessionPath,
     });
@@ -232,6 +304,7 @@ test("subagent effects inherit the parent turn permissions", async () => {
             description: "report the workspace",
         }, new AbortController().signal, {
             approvalMode: "full_access",
+            model: "test",
         });
 
         const childStore = await SessionStore.open(sessionPath);
@@ -285,6 +358,7 @@ test("subagent uses fresh context, ordinary tools, and a durable session", async
 
         expect(result).toEqual({
             text: "The request enters through the socket.",
+            isError: false,
             sessionId: "child-1",
             sessionPath,
         });
@@ -302,6 +376,98 @@ test("subagent uses fresh context, ordinary tools, and a durable session", async
             },
             response,
         ]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("subagent file writes record checkpoints in the child session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-checkpoint-"));
+    const sessionPath = join(root, "child.jsonl");
+    const checkpointStore = new CheckpointStore(join(root, "checkpoints"));
+    const writeCall: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "child-write",
+            name: "write",
+            input: { path: "child.txt", content: "child output" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "wrote the file" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+
+    try {
+        await runSubagent({
+            adapter: new FauxAdapter([writeCall, final]),
+            model: "test",
+            description: "write a child file",
+            workspace: root,
+            approvalMode: "approve_for_me",
+            sessionId: "child-checkpoint",
+            sessionPath,
+            checkpointStore,
+        });
+
+        expect(await readFile(join(root, "child.txt"), "utf8")).toBe(
+            "child output",
+        );
+        const checkpoints = (await SessionStore.open(sessionPath)).checkpoints();
+        expect(checkpoints).toHaveLength(1);
+        expect(checkpoints[0]).toMatchObject({
+            path: await realpath(join(root, "child.txt")),
+            existedBefore: false,
+            tool: "write",
+        });
+        expect(await checkpointStore.read(checkpoints[0]!.checkpointId))
+            .toEqual({ existed: false, content: "" });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an immediate parent abort stops before the child model call", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-early-abort-"));
+    const controller = new AbortController();
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "should not run" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let modelCalls = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            modelCalls += 1;
+            return faux.stream(request);
+        },
+    };
+
+    try {
+        const child = runSubagent({
+            adapter,
+            model: "test",
+            description: "do not start",
+            workspace: root,
+            approvalMode: "approve_for_me",
+            sessionId: "child-early-abort",
+            sessionPath: join(root, "child.jsonl"),
+            signal: controller.signal,
+        });
+        controller.abort(new Error("Parent turn aborted immediately"));
+
+        await expect(child).rejects.toThrow("Parent turn aborted immediately");
+        expect(modelCalls).toBe(0);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

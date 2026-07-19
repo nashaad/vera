@@ -9,6 +9,10 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
+import {
+    CheckpointStore,
+    defaultCheckpointDirectory,
+} from "../store/checkpoint-store.ts";
 import { EngineEventBus } from "./events.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
@@ -20,16 +24,18 @@ import type { ApprovalMode } from "./permissions.ts";
 import { createProtocolEncoder } from "./protocol.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
-import { ToolRuntime } from "../tools/runtime.ts";
+import {
+    ToolRuntime,
+    type FileCheckpointCapture,
+} from "../tools/runtime.ts";
 import type { ApplyToolEffect } from "../tools/types.ts";
 
 export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
-    readonly model: string;
     readonly workspace: string;
-    readonly reasoningEffort?: ModelReasoningEffort;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (sessionId: string) => string;
+    readonly checkpointStoreForId?: (sessionId: string) => CheckpointStore;
 }
 
 export interface RunSubagentOptions {
@@ -42,11 +48,13 @@ export interface RunSubagentOptions {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionId?: string;
     readonly sessionPath?: string;
+    readonly checkpointStore?: CheckpointStore;
     readonly signal?: AbortSignal;
 }
 
 export interface SubagentResult {
     readonly text: string;
+    readonly isError: boolean;
     readonly sessionId: string;
     readonly sessionPath: string;
 }
@@ -61,26 +69,31 @@ export function createSubagentEffectApplier(
         const sessionId = randomUUID();
         const result = await runSubagent({
             adapter: options.adapter,
-            model: options.model,
+            model: context.model,
             description: effect.description,
             workspace: options.workspace,
             approvalMode: context.approvalMode,
             signal,
             sessionId,
-            ...(options.reasoningEffort === undefined
+            ...(context.reasoningEffort === undefined
                 ? {}
-                : { reasoningEffort: options.reasoningEffort }),
+                : { reasoningEffort: context.reasoningEffort }),
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),
             ...(options.sessionPathForId === undefined
                 ? {}
                 : { sessionPath: options.sessionPathForId(sessionId) }),
+            ...(options.checkpointStoreForId === undefined
+                ? {}
+                : {
+                    checkpointStore: options.checkpointStoreForId(sessionId),
+                }),
         });
         return {
             kind: "output",
             output: result.text,
-            isError: false,
+            isError: result.isError,
         };
     };
 }
@@ -88,39 +101,59 @@ export function createSubagentEffectApplier(
 export async function runSubagent(
     options: RunSubagentOptions,
 ): Promise<SubagentResult> {
-    options.signal?.throwIfAborted();
-    const sessionId = options.sessionId ?? randomUUID();
-    const store = await SessionStore.create(
-        options.sessionPath ?? defaultSessionPath(sessionId),
-        { sessionId, cwd: options.workspace },
-    );
-    await store.appendApprovalMode(options.approvalMode);
     const channel = createInProcessChannel();
-    const events = new EngineEventBus();
-    const protocol = createProtocolEncoder(channel.engine);
-    events.subscribe(protocol);
-    const state: RunTurnState = {
-        messages: [],
-        store,
-        toolRuntime: new ToolRuntime(options.workspace),
-        inbound: new InboundCommandRouter(channel.engine, events),
-        events,
-        hooks: new ToolHooks(),
-        approvalMode: options.approvalMode,
-        ...(options.modelFallback === undefined
-            ? {}
-            : { modelFallback: options.modelFallback }),
-    };
-    protocol.checkpoint(state.messages);
-
-    channel.client.send({
-        type: "prompt",
-        content: options.description,
-    });
     const onAbort = (): void => channel.client.send({ type: "abort" });
     options.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
+        options.signal?.throwIfAborted();
+        const sessionId = options.sessionId ?? randomUUID();
+        const store = await SessionStore.create(
+            options.sessionPath ?? defaultSessionPath(sessionId),
+            { sessionId, cwd: options.workspace },
+        );
+        options.signal?.throwIfAborted();
+        await store.appendApprovalMode(options.approvalMode);
+        options.signal?.throwIfAborted();
+        const checkpointStore = options.checkpointStore
+            ?? new CheckpointStore(defaultCheckpointDirectory(sessionId));
+        const recordCheckpoint = async (
+            capture: FileCheckpointCapture,
+        ): Promise<void> => {
+            const checkpointId = randomUUID();
+            await checkpointStore.write(checkpointId, {
+                existed: capture.existedBefore,
+                content: capture.priorContent,
+            });
+            await store.appendCheckpoint({
+                checkpointId,
+                path: capture.path,
+                existedBefore: capture.existedBefore,
+                tool: capture.tool,
+            });
+        };
+        const events = new EngineEventBus();
+        const protocol = createProtocolEncoder(channel.engine);
+        events.subscribe(protocol);
+        const state: RunTurnState = {
+            messages: [],
+            store,
+            toolRuntime: new ToolRuntime(options.workspace, {
+                recordCheckpoint,
+            }),
+            inbound: new InboundCommandRouter(channel.engine, events),
+            events,
+            hooks: new ToolHooks(),
+            approvalMode: options.approvalMode,
+            ...(options.modelFallback === undefined
+                ? {}
+                : { modelFallback: options.modelFallback }),
+        };
+        protocol.checkpoint(state.messages);
+        channel.client.send({
+            type: "prompt",
+            content: options.description,
+        });
         const updates = drainChildUpdates(channel.client);
         const finalMessage = await runTurn(
             options.adapter,
@@ -132,6 +165,7 @@ export async function runSubagent(
         options.signal?.throwIfAborted();
         return {
             text: finalText(finalMessage),
+            isError: finalMessage.stopReason !== "stop",
             sessionId,
             sessionPath: store.path,
         };
@@ -166,5 +200,10 @@ function finalText(message: AssistantMessage): string {
         .map((block) => block.text)
         .join("\n")
         .trim();
-    return text || "Subagent finished without a text summary.";
+    if (message.stopReason === "stop") {
+        return text || "Subagent finished without a text summary.";
+    }
+    const error = message.errorMessage?.trim() ?? "";
+    return [text, error].filter((value) => value.length > 0).join("\n")
+        || `Subagent stopped with ${message.stopReason}.`;
 }

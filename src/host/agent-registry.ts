@@ -249,11 +249,7 @@ export class AgentRegistry {
         this.agents.set(agent.id, entry);
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
-            model: this.options.model,
             workspace: store.header.cwd,
-            ...(this.options.reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: this.options.reasoningEffort }),
             ...(this.options.modelFallback === undefined
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
