@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { TaskNotificationUpdate } from "../../src/engine/protocol.ts";
+import type {
+    ModelSettingsUpdate,
+    TaskNotificationUpdate,
+} from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import {
@@ -108,19 +111,58 @@ test("a resident agent applies new model settings at the next turn", async () =>
             sessionPath: join(root, "agent.jsonl"),
             eventLogPath: join(root, "events.jsonl"),
         });
-        const attachment = agent.attach();
-        expect((await attachment.receive()).type).toBe("history");
+        const firstAttachment = agent.attach();
+        const secondAttachment = agent.attach();
+        expect((await firstAttachment.receive()).type).toBe("history");
+        expect((await secondAttachment.receive()).type).toBe("history");
 
-        attachment.send({ type: "prompt", content: "first turn" });
+        firstAttachment.send({ type: "prompt", content: "first turn" });
         await requestStarted;
-        registry.updateModelSettings(agent.id, {
-            model: "second-model",
-            reasoningEffort: "high",
+        secondAttachment.send({
+            type: "update_model_settings",
+            requestId: "change-settings",
+            patch: {
+                model: "second-model",
+                reasoningEffort: "high",
+            },
         });
-        await receiveTurnFinished(attachment);
+        const expectedPendingSettings = {
+            type: "model_settings",
+            requestId: "change-settings",
+            settings: {
+                model: "second-model",
+                reasoningEffort: "high",
+            },
+            pending: true,
+        };
+        expect(await receiveModelSettings(firstAttachment))
+            .toMatchObject(expectedPendingSettings);
+        expect(await receiveModelSettings(secondAttachment))
+            .toMatchObject(expectedPendingSettings);
+        await receiveTurnFinished(firstAttachment);
+        await receiveTurnFinished(secondAttachment);
 
-        attachment.send({ type: "prompt", content: "second turn" });
-        await receiveTurnFinished(attachment);
+        firstAttachment.send({
+            type: "get_model_settings",
+            requestId: "read-settings",
+        });
+        const expectedEffectiveSettings = {
+            type: "model_settings",
+            requestId: "read-settings",
+            settings: {
+                model: "second-model",
+                reasoningEffort: "high",
+            },
+            pending: false,
+        };
+        expect(await receiveModelSettings(firstAttachment))
+            .toMatchObject(expectedEffectiveSettings);
+        expect(await receiveModelSettings(secondAttachment))
+            .toMatchObject(expectedEffectiveSettings);
+
+        firstAttachment.send({ type: "prompt", content: "second turn" });
+        await receiveTurnFinished(firstAttachment);
+        await receiveTurnFinished(secondAttachment);
 
         expect(requests.map((request) => ({
             model: request.model,
@@ -129,6 +171,9 @@ test("a resident agent applies new model settings at the next turn", async () =>
             { model: "first-model", reasoningEffort: "low" },
             { model: "second-model", reasoningEffort: "high" },
         ]);
+        const store = await SessionStore.open(join(root, "agent.jsonl"));
+        expect(store.messages().filter((message) => message.role === "user"))
+            .toHaveLength(2);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -463,6 +508,17 @@ async function receiveTurnFinished(
 ): Promise<void> {
     while ((await attachment.receive()).type !== "turn_finished") {
         // A client consumes the ordered update stream until the turn boundary.
+    }
+}
+
+async function receiveModelSettings(
+    attachment: AgentAttachment,
+): Promise<ModelSettingsUpdate> {
+    while (true) {
+        const update = await attachment.receive();
+        if (update.type === "model_settings") {
+            return update;
+        }
     }
 }
 

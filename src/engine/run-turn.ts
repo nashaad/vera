@@ -58,15 +58,14 @@ import {
     type SessionDeliveryInbox,
     type SessionMessageStore,
 } from "../store/session-store.ts";
+import type {
+    ModelSettingsPatch,
+    ModelTurnSettings,
+} from "./model-settings.ts";
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
-
-export interface ModelTurnSettings {
-    readonly model: string;
-    readonly reasoningEffort?: ModelReasoningEffort;
-}
 
 export interface RunTurnState {
     readonly messages: ModelMessage[];
@@ -96,6 +95,9 @@ export interface RunHeadlessLoopOptions {
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly readModelSettings?: () => ModelTurnSettings;
+    readonly updateModelSettings?: (
+        patch: ModelSettingsPatch,
+    ) => ModelTurnSettings | undefined;
 }
 
 export async function runHeadlessLoop(
@@ -142,7 +144,14 @@ export async function runHeadlessLoop(
         path: options.eventLogPath ?? defaultEventLogPath(sessionId),
         sessionId,
     }));
-    const inbound = new InboundCommandRouter(endpoint, events);
+    const inbound = new InboundCommandRouter(endpoint, events, {
+        ...(options.readModelSettings === undefined
+            ? {}
+            : { readModelSettings: options.readModelSettings }),
+        ...(options.updateModelSettings === undefined
+            ? {}
+            : { updateModelSettings: options.updateModelSettings }),
+    });
     const applyToolEffect = options.applyToolEffect
         ?? createSubagentEffectApplier({
             adapter,
@@ -190,10 +199,12 @@ export async function runTurn(
     let assistantMessage: AssistantMessage;
 
     try {
-        const modelSettings = state.readModelSettings?.() ?? {
-            model,
-            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-        };
+        const modelSettings = turn.modelSettings
+            ?? state.readModelSettings?.()
+            ?? {
+                model,
+                ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+            };
         let activeModel = modelSettings.model;
         const turnReasoningEffort = modelSettings.reasoningEffort;
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;

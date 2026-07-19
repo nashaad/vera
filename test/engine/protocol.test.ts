@@ -141,3 +141,40 @@ test("task notifications share the ordered agent update sequence", () => {
         { type: "history", entries: [], seq: 1 },
     ]);
 });
+
+test("model settings results share the ordered agent update sequence", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "model_settings_changed",
+        requestId: "settings-1",
+        settings: { model: "next-model", reasoningEffort: "high" },
+        pending: true,
+    });
+    protocol({
+        type: "model_settings_rejected",
+        requestId: "settings-2",
+        reason: "invalid",
+    });
+
+    expect(updates).toEqual([
+        {
+            type: "model_settings",
+            requestId: "settings-1",
+            settings: { model: "next-model", reasoningEffort: "high" },
+            pending: true,
+            seq: 1,
+        },
+        {
+            type: "model_settings_rejected",
+            requestId: "settings-2",
+            reason: "invalid",
+            seq: 2,
+        },
+    ]);
+});

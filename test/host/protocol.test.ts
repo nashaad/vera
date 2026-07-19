@@ -73,6 +73,41 @@ test("host protocol parses messages after attach", () => {
         type: "detach",
     });
     expect(parseAttachedClientMessage(JSON.stringify({
+        type: "get_model_settings",
+        requestId: "settings-1",
+    }))).toEqual({
+        type: "get_model_settings",
+        requestId: "settings-1",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "update_model_settings",
+        requestId: "settings-2",
+        patch: { model: "next-model", reasoningEffort: "high" },
+    }))).toEqual({
+        type: "update_model_settings",
+        requestId: "settings-2",
+        patch: { model: "next-model", reasoningEffort: "high" },
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "update_model_settings",
+        requestId: "settings-3",
+        patch: { reasoningEffort: null },
+    }))).toEqual({
+        type: "update_model_settings",
+        requestId: "settings-3",
+        patch: { reasoningEffort: null },
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "update_model_settings",
+        requestId: "settings-4",
+        patch: {},
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "update_model_settings",
+        requestId: "settings-5",
+        patch: { reasoningEffort: "turbo" },
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",
         requestId: "request-1",
         response: { type: "tool_approval", decision: "allow" },

@@ -107,6 +107,22 @@ test("TUI renders a background completion without starting a turn", () => {
     expect(working.working).toBe(true);
 });
 
+test("TUI state keeps host-reported model settings", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "model_settings",
+        requestId: "settings-1",
+        settings: { model: "next-model", reasoningEffort: "high" },
+        pending: false,
+        seq: 1,
+    });
+
+    expect(state.modelSettings).toEqual({
+        model: "next-model",
+        reasoningEffort: "high",
+    });
+    expect(state.entries).toEqual([]);
+});
+
 test("TUI does not duplicate its optimistic user prompt", () => {
     const state = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "inspect"),

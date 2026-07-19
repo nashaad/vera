@@ -3,7 +3,14 @@ import type {
     ToolApprovalUiRequest,
     ToolApprovalUiResponse,
 } from "./events.ts";
-import type { ModelMessage } from "../model/types.ts";
+import type {
+    ModelMessage,
+    ModelReasoningEffort,
+} from "../model/types.ts";
+import type {
+    ModelSettingsPatch,
+    ModelTurnSettings,
+} from "./model-settings.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -43,7 +50,23 @@ export interface UiResponseCommand {
     readonly response: ToolApprovalUiResponse;
 }
 
-export type ClientCommand = PromptCommand | AbortCommand | UiResponseCommand;
+export interface GetModelSettingsCommand {
+    readonly type: "get_model_settings";
+    readonly requestId: string;
+}
+
+export interface UpdateModelSettingsCommand {
+    readonly type: "update_model_settings";
+    readonly requestId: string;
+    readonly patch: ModelSettingsPatch;
+}
+
+export type ClientCommand =
+    | PromptCommand
+    | AbortCommand
+    | UiResponseCommand
+    | GetModelSettingsCommand
+    | UpdateModelSettingsCommand;
 
 export interface HistoryUpdate {
     readonly type: "history";
@@ -108,6 +131,21 @@ export interface UiRequestClosedUpdate {
     readonly seq: number;
 }
 
+export interface ModelSettingsUpdate {
+    readonly type: "model_settings";
+    readonly requestId: string;
+    readonly settings: ModelTurnSettings;
+    readonly pending: boolean;
+    readonly seq: number;
+}
+
+export interface ModelSettingsRejectedUpdate {
+    readonly type: "model_settings_rejected";
+    readonly requestId: string;
+    readonly reason: "invalid" | "unavailable";
+    readonly seq: number;
+}
+
 export type AgentUpdate =
     | HistoryUpdate
     | UserPromptUpdate
@@ -118,7 +156,9 @@ export type AgentUpdate =
     | StatusUpdate
     | TaskNotificationUpdate
     | UiRequestUpdate
-    | UiRequestClosedUpdate;
+    | UiRequestClosedUpdate
+    | ModelSettingsUpdate
+    | ModelSettingsRejectedUpdate;
 
 export interface AgentUpdateSender {
     send(update: AgentUpdate): void;
@@ -126,6 +166,107 @@ export interface AgentUpdateSender {
 
 export interface ProtocolEncoder extends EngineEventSubscriber {
     checkpoint(messages: readonly ModelMessage[]): void;
+}
+
+export function parseClientCommand(value: unknown): ClientCommand | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const command = value as Record<string, unknown>;
+    if (command.type === "prompt" && typeof command.content === "string") {
+        return { type: "prompt", content: command.content };
+    }
+    if (command.type === "abort") {
+        return { type: "abort" };
+    }
+    if (
+        command.type === "ui_response"
+        && typeof command.requestId === "string"
+        && typeof command.response === "object"
+        && command.response !== null
+    ) {
+        const response = command.response as Record<string, unknown>;
+        if (
+            response.type === "tool_approval"
+            && (response.decision === "allow" || response.decision === "deny")
+        ) {
+            return {
+                type: "ui_response",
+                requestId: command.requestId,
+                response: {
+                    type: "tool_approval",
+                    decision: response.decision,
+                },
+            };
+        }
+    }
+    if (
+        command.type === "get_model_settings"
+        && isRequestId(command.requestId)
+    ) {
+        return {
+            type: "get_model_settings",
+            requestId: command.requestId,
+        };
+    }
+    if (
+        command.type === "update_model_settings"
+        && isRequestId(command.requestId)
+    ) {
+        const patch = parseModelSettingsPatch(command.patch);
+        if (patch !== undefined) {
+            return {
+                type: "update_model_settings",
+                requestId: command.requestId,
+                patch,
+            };
+        }
+    }
+    return undefined;
+}
+
+function parseModelSettingsPatch(
+    value: unknown,
+): ModelSettingsPatch | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const source = value as Record<string, unknown>;
+    const hasModel = Object.hasOwn(source, "model");
+    const hasReasoningEffort = Object.hasOwn(source, "reasoningEffort");
+    if (
+        (!hasModel && !hasReasoningEffort)
+        || (hasModel
+            && (typeof source.model !== "string"
+                || source.model.trim().length === 0))
+        || (hasReasoningEffort
+            && source.reasoningEffort !== null
+            && !isModelReasoningEffort(source.reasoningEffort))
+    ) {
+        return undefined;
+    }
+    const model = hasModel ? source.model as string : undefined;
+    const reasoningEffort = hasReasoningEffort
+        ? source.reasoningEffort as ModelReasoningEffort | null
+        : undefined;
+    return {
+        ...(model === undefined ? {} : { model }),
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    };
+}
+
+function isRequestId(value: unknown): value is string {
+    return typeof value === "string" && value.length > 0;
+}
+
+function isModelReasoningEffort(
+    value: unknown,
+): value is ModelReasoningEffort {
+    return value === "off"
+        || value === "low"
+        || value === "medium"
+        || value === "high"
+        || value === "max";
 }
 
 export function createProtocolEncoder(
@@ -204,6 +345,29 @@ export function createProtocolEncoder(
             sender.send({
                 type: "ui_request_closed",
                 requestId: event.requestId,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "model_settings_changed") {
+            seq += 1;
+            sender.send({
+                type: "model_settings",
+                requestId: event.requestId,
+                settings: event.settings,
+                pending: event.pending,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "model_settings_rejected") {
+            seq += 1;
+            sender.send({
+                type: "model_settings_rejected",
+                requestId: event.requestId,
+                reason: event.reason,
                 seq,
             });
             return;

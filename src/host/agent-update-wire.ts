@@ -50,6 +50,25 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (update.type === "ui_request_closed") {
         return typeof update.requestId === "string" ? value as AgentUpdate : undefined;
     }
+    if (update.type === "model_settings") {
+        const settings = asRecord(update.settings);
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && typeof update.pending === "boolean"
+                && typeof settings?.model === "string"
+                && settings.model.length > 0
+                && (settings.reasoningEffort === undefined
+                    || isModelReasoningEffort(settings.reasoningEffort))
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "model_settings_rejected") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && (update.reason === "invalid" || update.reason === "unavailable")
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "ui_request") {
         const request = asRecord(update.request);
         const toolCall = asRecord(request?.toolCall);
@@ -84,4 +103,12 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function isSequence(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isModelReasoningEffort(value: unknown): boolean {
+    return value === "off"
+        || value === "low"
+        || value === "medium"
+        || value === "high"
+        || value === "max";
 }

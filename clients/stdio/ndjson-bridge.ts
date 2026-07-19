@@ -5,7 +5,11 @@ import type {
     ModelReasoningEffort,
 } from "../../src/model/types.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AgentUpdate, ClientCommand } from "../../src/engine/protocol.ts";
+import {
+    parseClientCommand as parseEngineClientCommand,
+    type AgentUpdate,
+    type ClientCommand,
+} from "../../src/engine/protocol.ts";
 import type { MessageChannel } from "../../src/engine/message-channel.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../../src/engine/recovery.ts";
@@ -88,37 +92,9 @@ export async function runNdjsonBridge(
 
 function parseClientCommand(line: string): ClientCommand {
     const value: unknown = JSON.parse(line);
-    if (typeof value !== "object" || value === null) {
-        throw new Error("NDJSON client command must be an object");
-    }
-
-    const command = value as Record<string, unknown>;
-    if (command.type === "prompt" && typeof command.content === "string") {
-        return { type: "prompt", content: command.content };
-    }
-    if (command.type === "abort") {
-        return { type: "abort" };
-    }
-    if (
-        command.type === "ui_response"
-        && typeof command.requestId === "string"
-        && typeof command.response === "object"
-        && command.response !== null
-    ) {
-        const response = command.response as Record<string, unknown>;
-        if (
-            response.type === "tool_approval"
-            && (response.decision === "allow" || response.decision === "deny")
-        ) {
-            return {
-                type: "ui_response",
-                requestId: command.requestId,
-                response: {
-                    type: "tool_approval",
-                    decision: response.decision,
-                },
-            };
-        }
+    const command = parseEngineClientCommand(value);
+    if (command !== undefined) {
+        return command;
     }
 
     throw new Error("Unknown NDJSON client command");
