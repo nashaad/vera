@@ -73,6 +73,29 @@ export interface UpdatePermissionsCommand {
     readonly mode: ApprovalMode;
 }
 
+export interface ListTimelineCommand {
+    readonly type: "list_timeline";
+    readonly requestId: string;
+}
+
+export interface PreviewTimelineActionCommand {
+    readonly type: "preview_timeline_action";
+    readonly requestId: string;
+    readonly boundaryId: string;
+    readonly action: "rewind_conversation";
+}
+
+export interface ApplyTimelineActionCommand {
+    readonly type: "apply_timeline_action";
+    readonly requestId: string;
+    readonly planId: string;
+}
+
+export type TimelineCommand =
+    | ListTimelineCommand
+    | PreviewTimelineActionCommand
+    | ApplyTimelineActionCommand;
+
 export type ClientCommand =
     | PromptCommand
     | AbortCommand
@@ -80,7 +103,8 @@ export type ClientCommand =
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
     | GetPermissionsCommand
-    | UpdatePermissionsCommand;
+    | UpdatePermissionsCommand
+    | TimelineCommand;
 
 export interface HistoryUpdate {
     readonly type: "history";
@@ -175,6 +199,62 @@ export interface PermissionsRejectedUpdate {
     readonly seq: number;
 }
 
+export interface TimelineBoundary {
+    readonly userMessageId: string;
+    readonly timestamp: string;
+    readonly prompt: string;
+    readonly position: number;
+}
+
+export interface TimelineUpdate {
+    readonly type: "timeline";
+    readonly requestId: string;
+    readonly boundaries: readonly TimelineBoundary[];
+}
+
+export interface TimelineActionPlan {
+    readonly planId: string;
+    readonly expectedHeadId: string;
+    readonly boundary: TimelineBoundary;
+    readonly keptMessageCount: number;
+    readonly setAsideMessageCount: number;
+}
+
+export interface TimelineActionPreviewUpdate {
+    readonly type: "timeline_action_preview";
+    readonly requestId: string;
+    readonly plan: TimelineActionPlan;
+}
+
+export interface TimelineActionAppliedUpdate {
+    readonly type: "timeline_action_applied";
+    readonly requestId: string;
+    readonly planId: string;
+}
+
+export type TimelineActionOperation = "preview" | "apply";
+
+export type TimelineActionRejectionReason =
+    | "busy"
+    | "plan_expired"
+    | "not_plan_owner"
+    | "boundary_missing"
+    | "session_changed"
+    | "unavailable";
+
+export interface TimelineActionRejectedUpdate {
+    readonly type: "timeline_action_rejected";
+    readonly requestId: string;
+    readonly operation: TimelineActionOperation;
+    readonly reason: TimelineActionRejectionReason;
+}
+
+export type TimelineReplyUpdate =
+    | TimelineUpdate
+    | TimelineActionPreviewUpdate
+    | TimelineActionAppliedUpdate
+    | TimelineActionRejectedUpdate;
+
 export type AgentUpdate =
     | HistoryUpdate
     | UserPromptUpdate
@@ -189,7 +269,8 @@ export type AgentUpdate =
     | ModelSettingsUpdate
     | ModelSettingsRejectedUpdate
     | PermissionsUpdate
-    | PermissionsRejectedUpdate;
+    | PermissionsRejectedUpdate
+    | TimelineReplyUpdate;
 
 export interface AgentUpdateSender {
     send(update: AgentUpdate): void;
@@ -270,7 +351,54 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             mode: command.mode,
         };
     }
+    if (command.type === "list_timeline" && isRequestId(command.requestId)) {
+        return {
+            type: "list_timeline",
+            requestId: command.requestId,
+        };
+    }
+    if (
+        command.type === "preview_timeline_action"
+        && isRequestId(command.requestId)
+        && isRequestId(command.boundaryId)
+        && command.action === "rewind_conversation"
+    ) {
+        return {
+            type: "preview_timeline_action",
+            requestId: command.requestId,
+            boundaryId: command.boundaryId,
+            action: "rewind_conversation",
+        };
+    }
+    if (
+        command.type === "apply_timeline_action"
+        && isRequestId(command.requestId)
+        && isRequestId(command.planId)
+    ) {
+        return {
+            type: "apply_timeline_action",
+            requestId: command.requestId,
+            planId: command.planId,
+        };
+    }
     return undefined;
+}
+
+export function isTimelineCommand(
+    command: ClientCommand,
+): command is TimelineCommand {
+    return command.type === "list_timeline"
+        || command.type === "preview_timeline_action"
+        || command.type === "apply_timeline_action";
+}
+
+export function isTimelineReplyUpdate(
+    update: AgentUpdate,
+): update is TimelineReplyUpdate {
+    return update.type === "timeline"
+        || update.type === "timeline_action_preview"
+        || update.type === "timeline_action_applied"
+        || update.type === "timeline_action_rejected";
 }
 
 function parseModelSettingsPatch(

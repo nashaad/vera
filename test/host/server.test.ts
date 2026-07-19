@@ -385,6 +385,41 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "socket loss detaches the timeline owner",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one", {
+            createAttachmentId: () => "owner-a",
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.receive();
+            await connection.receive();
+            connection.close();
+
+            expect(await Promise.race([
+                agent.engine.receive(),
+                Bun.sleep(500).then(() => ({ type: "timed_out" as const })),
+            ])).toEqual({
+                type: "timeline_owner_detached",
+                ownerId: "owner-a",
+            });
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host reports a closed resident agent as unavailable",
     async () => {
         const directory = temporaryHostDirectory();
@@ -441,6 +476,10 @@ afterEach(() => {
             const survivingClient = agent.attach();
             await survivingClient.receive();
             survivingClient.send({ type: "prompt", content: "still alive" });
+            expect(await agent.engine.receive()).toEqual({
+                type: "timeline_owner_detached",
+                ownerId: expect.any(String),
+            });
             expect(await agent.engine.receive()).toEqual({
                 type: "prompt",
                 content: "still alive",

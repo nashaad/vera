@@ -240,3 +240,49 @@ test("permission results share the ordered agent update sequence", () => {
         },
     ]);
 });
+
+test("timeline commands parse only complete rewind requests", () => {
+    expect(parseClientCommand({
+        type: "list_timeline",
+        requestId: "list-1",
+    })).toEqual({
+        type: "list_timeline",
+        requestId: "list-1",
+    });
+    expect(parseClientCommand({
+        type: "preview_timeline_action",
+        requestId: "preview-1",
+        boundaryId: "message-3",
+        action: "rewind_conversation",
+    })).toEqual({
+        type: "preview_timeline_action",
+        requestId: "preview-1",
+        boundaryId: "message-3",
+        action: "rewind_conversation",
+    });
+    expect(parseClientCommand({
+        type: "apply_timeline_action",
+        requestId: "apply-1",
+        planId: "plan-1",
+    })).toEqual({
+        type: "apply_timeline_action",
+        requestId: "apply-1",
+        planId: "plan-1",
+    });
+
+    expect(parseClientCommand({
+        type: "preview_timeline_action",
+        requestId: "preview-1",
+        boundaryId: "message-3",
+        action: "restore_files",
+    })).toBeUndefined();
+    expect(parseClientCommand({
+        type: "apply_timeline_action",
+        requestId: "apply-1",
+        planId: "",
+    })).toBeUndefined();
+    expect(parseClientCommand({
+        type: "list_timeline",
+        requestId: "",
+    })).toBeUndefined();
+});

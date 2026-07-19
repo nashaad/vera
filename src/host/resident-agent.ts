@@ -1,11 +1,19 @@
+import { randomUUID } from "node:crypto";
+
 import { AsyncQueue } from "../engine/async-queue.ts";
 import type {
     AgentStatus,
     AgentUpdate,
     ClientCommand,
     HistoryUpdate,
+    TimelineReplyUpdate,
+} from "../engine/protocol.ts";
+import {
+    isTimelineCommand,
+    isTimelineReplyUpdate,
 } from "../engine/protocol.ts";
 import type { MessageChannel } from "../engine/message-channel.ts";
+import type { EngineCommand } from "../engine/timeline-control.ts";
 
 export class AgentDetachedError extends Error {
     constructor() {
@@ -30,10 +38,11 @@ export class AgentCommandQueueFullError extends Error {
 
 export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
+    readonly createAttachmentId?: () => string;
 }
 
 interface QueuedCommand {
-    readonly command: ClientCommand;
+    readonly command: EngineCommand;
     readonly countsTowardLimit: boolean;
 }
 
@@ -45,10 +54,11 @@ export interface AgentAttachment
 export class ResidentAgent {
     readonly id: string;
     readonly workspace: string;
-    readonly engine: MessageChannel<AgentUpdate, ClientCommand>;
+    readonly engine: MessageChannel<AgentUpdate, EngineCommand>;
 
     private readonly inbound = new AsyncQueue<QueuedCommand>();
-    private readonly attachments = new Set<AsyncQueue<AgentUpdate>>();
+    private readonly attachments = new Map<string, AsyncQueue<AgentUpdate>>();
+    private readonly issuedAttachmentIds = new Set<string>();
     private checkpoint: HistoryUpdate = {
         type: "history",
         entries: [],
@@ -59,6 +69,7 @@ export class ResidentAgent {
     private isClosed = false;
     private pendingCommandCount = 0;
     private readonly maxPendingCommands: number;
+    private readonly createAttachmentId: () => string;
 
     constructor(
         id: string,
@@ -71,9 +82,10 @@ export class ResidentAgent {
             options.maxPendingCommands ?? 1_024,
             "maximum pending commands",
         );
+        this.createAttachmentId = options.createAttachmentId ?? randomUUID;
         this.engine = {
             send: (update): void => this.broadcast(update),
-            receive: (signal): Promise<ClientCommand> => {
+            receive: (signal): Promise<EngineCommand> => {
                 if (this.isClosed) {
                     return Promise.reject(new ResidentAgentClosedError());
                 }
@@ -93,8 +105,16 @@ export class ResidentAgent {
         }
 
         const outgoing = new AsyncQueue<AgentUpdate>();
+        const attachmentId = nonEmpty(
+            this.createAttachmentId(),
+            "attachment ID",
+        );
+        if (this.issuedAttachmentIds.has(attachmentId)) {
+            throw new Error(`Attachment ID ${attachmentId} was already issued`);
+        }
         let attached = true;
-        this.attachments.add(outgoing);
+        this.issuedAttachmentIds.add(attachmentId);
+        this.attachments.set(attachmentId, outgoing);
         outgoing.push(clone(this.checkpoint));
         for (const update of this.updatesAfterCheckpoint) {
             outgoing.push(clone(update));
@@ -114,7 +134,13 @@ export class ResidentAgent {
                 this.pendingCommandCount += 1;
                 try {
                     this.inbound.push({
-                        command: clone(command),
+                        command: isTimelineCommand(command)
+                            ? {
+                                type: "owned_timeline_command",
+                                ownerId: attachmentId,
+                                command: clone(command),
+                            }
+                            : clone(command),
                         countsTowardLimit: true,
                     });
                 } catch (error) {
@@ -136,12 +162,31 @@ export class ResidentAgent {
                     return;
                 }
                 attached = false;
-                this.attachments.delete(outgoing);
+                this.attachments.delete(attachmentId);
                 outgoing.fail(new AgentDetachedError(), {
                     discardBuffered: true,
                 });
+                if (!this.isClosed) {
+                    this.inbound.push({
+                        command: {
+                            type: "timeline_owner_detached",
+                            ownerId: attachmentId,
+                        },
+                        countsTowardLimit: false,
+                    });
+                }
             },
         };
+    }
+
+    sendTimelineReply(
+        ownerId: string,
+        reply: TimelineReplyUpdate,
+    ): void {
+        const outgoing = this.attachments.get(ownerId);
+        if (outgoing !== undefined && !this.isClosed) {
+            outgoing.push(clone(reply));
+        }
     }
 
     close(): void {
@@ -158,7 +203,7 @@ export class ResidentAgent {
         this.pendingCommandCount = 0;
         const error = new ResidentAgentClosedError();
         this.inbound.fail(error, { discardBuffered: true });
-        for (const outgoing of this.attachments) {
+        for (const outgoing of this.attachments.values()) {
             outgoing.fail(error, { discardBuffered: true });
         }
         this.attachments.clear();
@@ -167,6 +212,9 @@ export class ResidentAgent {
     private broadcast(update: AgentUpdate): void {
         if (this.isClosed) {
             throw new ResidentAgentClosedError();
+        }
+        if (isTimelineReplyUpdate(update)) {
+            throw new Error("Timeline replies must target one attachment");
         }
         const snapshot = clone(update);
         if (snapshot.type === "status") {
@@ -186,7 +234,7 @@ export class ResidentAgent {
         } else {
             this.updatesAfterCheckpoint.push(snapshot);
         }
-        for (const outgoing of this.attachments) {
+        for (const outgoing of this.attachments.values()) {
             outgoing.push(clone(snapshot));
         }
     }

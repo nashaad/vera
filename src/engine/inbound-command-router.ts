@@ -7,10 +7,11 @@ import type {
 } from "./events.ts";
 import type {
     AgentUpdate,
-    ClientCommand,
     PromptCommand,
     UiResponseCommand,
 } from "./protocol.ts";
+import { isTimelineCommand, type TimelineCommand } from "./protocol.ts";
+import type { EngineCommand } from "./timeline-control.ts";
 import type {
     ModelSettingsPatch,
     ModelTurnSettings,
@@ -67,6 +68,11 @@ export interface InboundCommandRouterOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly handleTimelineCommand?: (
+        ownerId: string,
+        command: TimelineCommand,
+    ) => Promise<void>;
+    readonly detachTimelineOwner?: (ownerId: string) => void;
 }
 
 export class InboundCommandRouter {
@@ -78,7 +84,7 @@ export class InboundCommandRouter {
     private pendingPromptCount = 0;
 
     constructor(
-        endpoint: MessageChannel<AgentUpdate, ClientCommand>,
+        endpoint: MessageChannel<AgentUpdate, EngineCommand>,
         private readonly events: EngineEventBus,
         private readonly options: InboundCommandRouterOptions = {},
     ) {
@@ -117,6 +123,12 @@ export class InboundCommandRouter {
             throw new Error("No turn is active");
         }
         this.activeTurn = undefined;
+    }
+
+    timelineBlocked(): boolean {
+        return this.activeTurn !== undefined
+            || this.pendingPromptCount > 0
+            || this.pendingApprovals.size > 0;
     }
 
     requestToolApproval(
@@ -174,11 +186,29 @@ export class InboundCommandRouter {
     }
 
     private async receiveCommands(
-        endpoint: MessageChannel<AgentUpdate, ClientCommand>,
+        endpoint: MessageChannel<AgentUpdate, EngineCommand>,
     ): Promise<void> {
         try {
             while (true) {
                 const command = await endpoint.receive();
+                if (command.type === "owned_timeline_command") {
+                    await this.options.handleTimelineCommand?.(
+                        command.ownerId,
+                        command.command,
+                    );
+                    continue;
+                }
+                if (command.type === "timeline_owner_detached") {
+                    this.options.detachTimelineOwner?.(command.ownerId);
+                    continue;
+                }
+                if (isTimelineCommand(command)) {
+                    await this.options.handleTimelineCommand?.(
+                        "direct-client",
+                        command,
+                    );
+                    continue;
+                }
                 if (command.type === "prompt") {
                     const settings = this.options.readModelSettings?.();
                     const approvalMode = this.options.readApprovalMode?.();

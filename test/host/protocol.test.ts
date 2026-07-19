@@ -116,6 +116,33 @@ test("host protocol parses messages after attach", () => {
         requestId: "request-1",
         response: { type: "tool_approval", decision: "allow" },
     });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "list_timeline",
+        requestId: "list-1",
+    }))).toEqual({
+        type: "list_timeline",
+        requestId: "list-1",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "preview_timeline_action",
+        requestId: "preview-1",
+        boundaryId: "message-1",
+        action: "rewind_conversation",
+    }))).toEqual({
+        type: "preview_timeline_action",
+        requestId: "preview-1",
+        boundaryId: "message-1",
+        action: "rewind_conversation",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "apply_timeline_action",
+        requestId: "apply-1",
+        planId: "plan-1",
+    }))).toEqual({
+        type: "apply_timeline_action",
+        requestId: "apply-1",
+        planId: "plan-1",
+    });
     expect(parseAttachedClientMessage('{"type":"unknown"}')).toBeUndefined();
 });
 

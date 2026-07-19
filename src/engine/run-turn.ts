@@ -16,8 +16,12 @@ import type {
     PreToolUseHookResult,
 } from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
-import type { AgentUpdate, ClientCommand } from "./protocol.ts";
+import type { AgentUpdate, TimelineReplyUpdate } from "./protocol.ts";
 import { createProtocolEncoder } from "./protocol.ts";
+import {
+    TimelineController,
+    type EngineCommand,
+} from "./timeline-control.ts";
 import {
     EngineEventBus,
     createJsonlEventLogger,
@@ -104,10 +108,14 @@ export interface RunHeadlessLoopOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly sendTimelineReply?: (
+        ownerId: string,
+        reply: TimelineReplyUpdate,
+    ) => void;
 }
 
 export async function runHeadlessLoop(
-    endpoint: MessageChannel<AgentUpdate, ClientCommand>,
+    endpoint: MessageChannel<AgentUpdate, EngineCommand>,
     adapter: ModelAdapter,
     model: string,
     reasoningEffort?: ModelReasoningEffort,
@@ -169,7 +177,16 @@ export async function runHeadlessLoop(
         path: options.eventLogPath ?? defaultEventLogPath(sessionId),
         sessionId,
     }));
-    const inbound = new InboundCommandRouter(endpoint, events, {
+    const messages = [...store.messages()];
+    let inbound: InboundCommandRouter;
+    const timeline = new TimelineController({
+        state: { messages, store },
+        protocol,
+        isBlocked: () => inbound.timelineBlocked(),
+        sendReply: options.sendTimelineReply
+            ?? ((_ownerId, reply): void => endpoint.send(reply)),
+    });
+    inbound = new InboundCommandRouter(endpoint, events, {
         ...(options.readModelSettings === undefined
             ? {}
             : { readModelSettings: options.readModelSettings }),
@@ -178,6 +195,9 @@ export async function runHeadlessLoop(
             : { updateModelSettings: options.updateModelSettings }),
         readApprovalMode,
         updateApprovalMode,
+        handleTimelineCommand: (ownerId, command) =>
+            timeline.handle(ownerId, command),
+        detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),
     });
     const applyToolEffect = options.applyToolEffect
         ?? createSubagentEffectApplier({
@@ -188,7 +208,7 @@ export async function runHeadlessLoop(
                 : { modelFallback: options.modelFallback }),
         });
     const state: RunTurnState = {
-        messages: [...store.messages()],
+        messages,
         store,
         deliveryInbox: store,
         toolRuntime: new ToolRuntime(store.header.cwd),

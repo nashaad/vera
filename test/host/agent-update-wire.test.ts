@@ -92,3 +92,73 @@ test("host wire validates permission results", () => {
         seq: 13,
     });
 });
+
+test("host wire validates targeted timeline replies", () => {
+    const boundary = {
+        userMessageId: "message-1",
+        timestamp: "2026-07-19T12:00:00.000Z",
+        prompt: "first request",
+        position: 0,
+    };
+    expect(parseAgentUpdate({
+        type: "timeline",
+        requestId: "list-1",
+        boundaries: [boundary],
+    })).toEqual({
+        type: "timeline",
+        requestId: "list-1",
+        boundaries: [boundary],
+    });
+    expect(parseAgentUpdate({
+        type: "timeline_action_preview",
+        requestId: "preview-1",
+        plan: {
+            planId: "plan-1",
+            expectedHeadId: "message-2",
+            boundary,
+            keptMessageCount: 0,
+            setAsideMessageCount: 2,
+        },
+    })?.type).toBe("timeline_action_preview");
+    expect(parseAgentUpdate({
+        type: "timeline_action_applied",
+        requestId: "apply-1",
+        planId: "plan-1",
+    })?.type).toBe("timeline_action_applied");
+    expect(parseAgentUpdate({
+        type: "timeline_action_rejected",
+        requestId: "apply-2",
+        operation: "apply",
+        reason: "session_changed",
+    })?.type).toBe("timeline_action_rejected");
+
+    expect(parseAgentUpdate({
+        type: "timeline",
+        requestId: "list-1",
+        boundaries: [boundary],
+        seq: 14,
+    })).toBeUndefined();
+
+    expect(parseAgentUpdate({
+        type: "timeline",
+        requestId: "list-1",
+        boundaries: [{ ...boundary, position: -1 }],
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "timeline_action_preview",
+        requestId: "preview-1",
+        plan: {
+            planId: "plan-1",
+            expectedHeadId: "",
+            boundary,
+            keptMessageCount: 0,
+            setAsideMessageCount: 2,
+        },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "timeline_action_rejected",
+        requestId: "apply-2",
+        operation: "apply",
+        reason: "overwrite_files",
+    })).toBeUndefined();
+});
