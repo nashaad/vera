@@ -24,6 +24,8 @@ import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
 import type { ApprovalMode } from "./permissions.ts";
+import type { SessionCheckpointEntry } from "../store/session-store.ts";
+import type { CheckpointRestoreResult } from "./checkpoints.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -99,6 +101,24 @@ export interface PermissionsRejectedEvent {
     readonly type: "permissions_rejected";
     readonly requestId: string;
     readonly reason: "invalid" | "unavailable";
+}
+
+export interface CheckpointsListedEvent {
+    readonly type: "checkpoints_listed";
+    readonly requestId: string;
+    readonly checkpoints: readonly SessionCheckpointEntry[];
+}
+
+export interface CheckpointRestoredEvent {
+    readonly type: "checkpoint_restored";
+    readonly requestId: string;
+    readonly result: CheckpointRestoreResult;
+}
+
+export interface CheckpointRejectedEvent {
+    readonly type: "checkpoint_rejected";
+    readonly requestId: string;
+    readonly reason: "unavailable" | "busy" | "not_found" | "conflict";
 }
 
 export interface ModelRequestEvent {
@@ -206,6 +226,9 @@ export type EngineEvent =
     | ModelSettingsRejectedEvent
     | PermissionsChangedEvent
     | PermissionsRejectedEvent
+    | CheckpointsListedEvent
+    | CheckpointRestoredEvent
+    | CheckpointRejectedEvent
     | ModelRequestEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent

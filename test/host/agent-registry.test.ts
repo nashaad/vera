@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type {
+    CheckpointRestoredUpdate,
+    CheckpointsUpdate,
     ModelSettingsUpdate,
     PermissionsUpdate,
     TaskNotificationUpdate,
@@ -25,6 +27,7 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
+import { CheckpointStore } from "../../src/store/checkpoint-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("resident agents keep file tools inside their fixed workspaces", async () => {
@@ -75,6 +78,77 @@ test("resident agents keep file tools inside their fixed workspaces", async () =
                 status: "idle",
             },
         ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("resident checkpoint control lists and restores a file edit", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-checkpoint-"));
+    const filePath = join(root, "note.txt");
+    await writeFile(filePath, "before");
+    const writeResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "write-note",
+            name: "write",
+            input: { path: "note.txt", content: "after" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            writeResponse,
+            textResponse("updated the note"),
+        ]),
+        model: "faux/test",
+        approvalMode: "approve_for_me",
+        checkpointStoreForId: (id) =>
+            new CheckpointStore(join(root, "checkpoints", id)),
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "checkpoint-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const attachment = agent.attach();
+        await runPrompt(attachment, "update the note");
+        expect(await readFile(filePath, "utf8")).toBe("after");
+
+        attachment.send({
+            type: "list_checkpoints",
+            requestId: "list-checkpoints",
+        });
+        const listed = await receiveCheckpoints(attachment);
+        expect(listed.checkpoints).toHaveLength(1);
+        expect(listed.checkpoints[0]).toMatchObject({
+            path: await realpath(filePath),
+            existedBefore: true,
+            tool: "write",
+        });
+        const checkpointId = listed.checkpoints[0]!.checkpointId;
+
+        attachment.send({
+            type: "restore_checkpoint",
+            requestId: "restore-checkpoint",
+            checkpointId,
+        });
+        expect(await receiveCheckpointRestored(attachment)).toMatchObject({
+            requestId: "restore-checkpoint",
+            result: {
+                checkpointId,
+                path: await realpath(filePath),
+                action: "restored",
+            },
+        });
+        expect(await readFile(filePath, "utf8")).toBe("before");
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -838,6 +912,28 @@ async function receivePermissions(
     while (true) {
         const update = await attachment.receive();
         if (update.type === "permissions") {
+            return update;
+        }
+    }
+}
+
+async function receiveCheckpoints(
+    attachment: AgentAttachment,
+): Promise<CheckpointsUpdate> {
+    while (true) {
+        const update = await attachment.receive();
+        if (update.type === "checkpoints") {
+            return update;
+        }
+    }
+}
+
+async function receiveCheckpointRestored(
+    attachment: AgentAttachment,
+): Promise<CheckpointRestoredUpdate> {
+    while (true) {
+        const update = await attachment.receive();
+        if (update.type === "checkpoint_restored") {
             return update;
         }
     }

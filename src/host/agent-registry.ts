@@ -23,6 +23,7 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
+import type { CheckpointStore } from "../store/checkpoint-store.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import {
     type AgentAttachment,
@@ -55,6 +56,7 @@ export interface AgentRegistryOptions {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
+    readonly checkpointStoreForId?: (agentId: string) => CheckpointStore;
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -253,6 +255,11 @@ export class AgentRegistry {
             ...(this.options.modelFallback === undefined
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
+            ...(this.options.checkpointStoreForId === undefined
+                ? {}
+                : {
+                    checkpointStoreForId: this.options.checkpointStoreForId,
+                }),
         });
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) =>
             effect.type === "spawn_background_agent"
@@ -271,6 +278,13 @@ export class AgentRegistry {
                 sessionStore: store,
                 eventLogPath,
                 eventBus: events,
+                ...(this.options.checkpointStoreForId === undefined
+                    ? {}
+                    : {
+                        checkpointStore: this.options.checkpointStoreForId(
+                            agent.id,
+                        ),
+                    }),
                 approvalMode: entry.approvalMode,
                 modelFallback: this.options.modelFallback,
                 applyToolEffect,

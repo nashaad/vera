@@ -92,3 +92,88 @@ test("host wire validates permission results", () => {
         seq: 13,
     });
 });
+
+test("host wire validates checkpoint results", () => {
+    const entry = {
+        type: "checkpoint",
+        timestamp: "2026-07-19T00:00:00.000Z",
+        checkpointId: "cp-abc",
+        path: "/work/file.ts",
+        existedBefore: true,
+        tool: "edit",
+    } as const;
+    expect(parseAgentUpdate({
+        type: "checkpoints",
+        requestId: "checkpoints-1",
+        checkpoints: [entry],
+        seq: 14,
+    })).toEqual({
+        type: "checkpoints",
+        requestId: "checkpoints-1",
+        checkpoints: [entry],
+        seq: 14,
+    });
+    expect(parseAgentUpdate({
+        type: "checkpoints",
+        requestId: "checkpoints-2",
+        checkpoints: [{ ...entry, tool: "bash" }],
+        seq: 15,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "checkpoint_restored",
+        requestId: "checkpoints-3",
+        result: {
+            checkpointId: "cp-abc",
+            path: "/work/file.ts",
+            action: "restored",
+        },
+        seq: 16,
+    })).toEqual({
+        type: "checkpoint_restored",
+        requestId: "checkpoints-3",
+        result: {
+            checkpointId: "cp-abc",
+            path: "/work/file.ts",
+            action: "restored",
+        },
+        seq: 16,
+    });
+    expect(parseAgentUpdate({
+        type: "checkpoint_restored",
+        requestId: "checkpoints-4",
+        result: {
+            checkpointId: "cp-abc",
+            path: "/work/file.ts",
+            action: "deleted",
+        },
+        seq: 17,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "checkpoint_rejected",
+        requestId: "checkpoints-5",
+        reason: "conflict",
+        seq: 18,
+    })).toEqual({
+        type: "checkpoint_rejected",
+        requestId: "checkpoints-5",
+        reason: "conflict",
+        seq: 18,
+    });
+    expect(parseAgentUpdate({
+        type: "checkpoint_rejected",
+        requestId: "checkpoints-6",
+        reason: "busy",
+        seq: 19,
+    })).toEqual({
+        type: "checkpoint_rejected",
+        requestId: "checkpoints-6",
+        reason: "busy",
+        seq: 19,
+    });
+    expect(parseAgentUpdate({
+        type: "checkpoint_rejected",
+        requestId: "checkpoints-7",
+        reason: "invalid",
+        seq: 20,
+    })).toBeUndefined();
+});

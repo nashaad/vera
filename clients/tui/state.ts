@@ -133,6 +133,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "permissions_rejected") {
         return state;
     }
+    if (
+        update.type === "checkpoints"
+        || update.type === "checkpoint_restored"
+        || update.type === "checkpoint_rejected"
+    ) {
+        // No checkpoint surface in the TUI yet; the RPC exists for a later picker.
+        return state;
+    }
     return assertNever(update);
 }
 
