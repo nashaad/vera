@@ -213,6 +213,209 @@ test("session store serializes concurrent appends into one chain", async () => {
     expect((await SessionStore.open(path)).messages()).toEqual([first, second]);
 });
 
+test("conversation rewind keeps the physical tail and survives restart", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const firstUser: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "first request" }],
+    };
+    const firstAssistant = assistantMessage("first answer");
+    const secondUser: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "second request" }],
+    };
+    const secondAssistant = assistantMessage("second answer");
+    const replacementUser: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "replacement request" }],
+    };
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-19T12:00:00.000Z",
+            "2026-07-19T12:00:01.000Z",
+            "2026-07-19T12:00:02.000Z",
+            "2026-07-19T12:00:03.000Z",
+            "2026-07-19T12:00:04.000Z",
+            "2026-07-19T12:00:05.000Z",
+            "2026-07-19T12:00:06.000Z",
+        ),
+        createId: values(
+            "message-1",
+            "message-2",
+            "message-3",
+            "message-4",
+            "message-5",
+        ),
+    });
+    await store.appendMessage(firstUser);
+    await store.appendMessage(firstAssistant);
+    const secondBoundary = await store.appendMessage(secondUser);
+    await store.appendMessage(secondAssistant);
+
+    const rewind = await store.rewindBefore(secondBoundary.id);
+
+    expect(rewind).toEqual({
+        type: "rewind",
+        timestamp: "2026-07-19T12:00:05.000Z",
+        userMessageId: "message-3",
+        previousHeadId: "message-4",
+        headId: "message-2",
+    });
+    expect(store.activeHeadId()).toBe("message-2");
+    expect(store.activeEntries().map((entry) => entry.id)).toEqual([
+        "message-1",
+        "message-2",
+    ]);
+    expect(store.messages()).toEqual([firstUser, firstAssistant]);
+    expect(store.entries()).toHaveLength(4);
+    expect(readLines(path).map((line) => line.type)).toEqual([
+        "session",
+        "message",
+        "message",
+        "message",
+        "message",
+        "rewind",
+    ]);
+    await expect(store.rewindBefore(secondBoundary.id)).rejects.toThrow(
+        "Rewind boundary message-3 is not an active user message",
+    );
+
+    const replacement = await store.appendMessage(replacementUser);
+
+    expect(replacement.parentId).toBe("message-2");
+    expect(store.messages()).toEqual([
+        firstUser,
+        firstAssistant,
+        replacementUser,
+    ]);
+
+    const reopened = await SessionStore.open(path, {
+        now: dates("2026-07-19T12:00:07.000Z"),
+    });
+    expect(reopened.header.id).toBe("session-1");
+    expect(reopened.activeHeadId()).toBe("message-5");
+    expect(reopened.messages()).toEqual([
+        firstUser,
+        firstAssistant,
+        replacementUser,
+    ]);
+    expect(reopened.entries().map((entry) => entry.id)).toEqual([
+        "message-1",
+        "message-2",
+        "message-3",
+        "message-4",
+        "message-5",
+    ]);
+
+    expect(await reopened.rewindBefore("message-1")).toEqual({
+        type: "rewind",
+        timestamp: "2026-07-19T12:00:07.000Z",
+        userMessageId: "message-1",
+        previousHeadId: "message-5",
+        headId: null,
+    });
+    const rewoundAgain = await SessionStore.open(path);
+    expect(rewoundAgain.activeHeadId()).toBeNull();
+    expect(rewoundAgain.messages()).toEqual([]);
+    expect(rewoundAgain.entries()).toHaveLength(5);
+});
+
+test("session store rejects a rewind record from an inactive head", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    writeFileSync(path, [
+        JSON.stringify({
+            type: "session",
+            version: SESSION_FORMAT_VERSION,
+            id: "session-1",
+            timestamp: "2026-07-19T12:00:00.000Z",
+            cwd: directory,
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-1",
+            parentId: null,
+            timestamp: "2026-07-19T12:00:01.000Z",
+            message: {
+                role: "user",
+                content: [{ type: "text", text: "first request" }],
+            },
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-2",
+            parentId: "message-1",
+            timestamp: "2026-07-19T12:00:02.000Z",
+            message: assistantMessage("answer"),
+        }),
+        JSON.stringify({
+            type: "rewind",
+            timestamp: "2026-07-19T12:00:03.000Z",
+            userMessageId: "message-1",
+            previousHeadId: "message-1",
+            headId: null,
+        }),
+        "",
+    ].join("\n"));
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 4 rewinds from inactive head message-1",
+    );
+});
+
+test("session store rejects a message that jumps onto an abandoned tail", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    writeFileSync(path, [
+        JSON.stringify({
+            type: "session",
+            version: SESSION_FORMAT_VERSION,
+            id: "session-1",
+            timestamp: "2026-07-19T12:00:00.000Z",
+            cwd: directory,
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-1",
+            parentId: null,
+            timestamp: "2026-07-19T12:00:01.000Z",
+            message: {
+                role: "user",
+                content: [{ type: "text", text: "first request" }],
+            },
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-2",
+            parentId: "message-1",
+            timestamp: "2026-07-19T12:00:02.000Z",
+            message: assistantMessage("answer"),
+        }),
+        JSON.stringify({
+            type: "rewind",
+            timestamp: "2026-07-19T12:00:03.000Z",
+            userMessageId: "message-1",
+            previousHeadId: "message-2",
+            headId: null,
+        }),
+        JSON.stringify({
+            type: "message",
+            id: "message-3",
+            parentId: "message-2",
+            timestamp: "2026-07-19T12:00:04.000Z",
+            message: assistantMessage("jumped back"),
+        }),
+        "",
+    ].join("\n"));
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 5 does not extend the active head",
+    );
+});
+
 test("model settings records restore the latest complete selection", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
@@ -494,6 +697,16 @@ function temporaryDirectory(): string {
     const directory = mkdtempSync(join(tmpdir(), "vera-session-store-"));
     temporaryDirectories.push(directory);
     return directory;
+}
+
+function assistantMessage(text: string): ModelMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
 }
 
 function readLines(path: string): Array<Record<string, unknown>> {

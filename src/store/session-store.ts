@@ -62,6 +62,14 @@ export interface SessionPermissionsEntry {
     readonly mode: ApprovalMode;
 }
 
+export interface SessionRewindEntry {
+    readonly type: "rewind";
+    readonly timestamp: string;
+    readonly userMessageId: string;
+    readonly previousHeadId: string;
+    readonly headId: string | null;
+}
+
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
@@ -182,21 +190,16 @@ export class SessionStore {
         return this.storedEntries.slice();
     }
 
+    activeEntries(): readonly SessionMessageEntry[] {
+        return activeBranchEntries(this.storedEntries, this.leafId);
+    }
+
     messages(): readonly ModelMessage[] {
-        const byId = new Map(this.storedEntries.map((entry) => [entry.id, entry]));
-        const branch: ModelMessage[] = [];
-        let currentId = this.leafId;
+        return this.activeEntries().map((entry) => entry.message);
+    }
 
-        while (currentId !== null) {
-            const entry = byId.get(currentId);
-            if (entry === undefined) {
-                throw new Error(`Session entry ${currentId} is missing`);
-            }
-            branch.push(entry.message);
-            currentId = entry.parentId;
-        }
-
-        return branch.reverse();
+    activeHeadId(): string | null {
+        return this.leafId;
     }
 
     pendingDeliveries(): readonly SessionDeliveryEntry[] {
@@ -239,6 +242,17 @@ export class SessionStore {
     appendApprovalMode(mode: ApprovalMode): Promise<SessionPermissionsEntry> {
         const result = this.pendingAppend.then(() =>
             this.commitApprovalMode(mode)
+        );
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    rewindBefore(userMessageId: string): Promise<SessionRewindEntry> {
+        const result = this.pendingAppend.then(() =>
+            this.commitRewind(userMessageId)
         );
         this.pendingAppend = result.then(
             () => undefined,
@@ -327,6 +341,40 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.permissionsEntries.push(entry);
+        return entry;
+    }
+
+    private async commitRewind(
+        requestedUserMessageId: string,
+    ): Promise<SessionRewindEntry> {
+        const userMessageId = nonEmpty(
+            requestedUserMessageId,
+            "rewind user-message ID",
+        );
+        const boundary = this.activeEntries().find(
+            (entry) => entry.id === userMessageId,
+        );
+        if (
+            boundary === undefined
+            || boundary.message.role !== "user"
+            || boundary.message.internal === true
+        ) {
+            throw new Error(
+                `Rewind boundary ${userMessageId} is not an active user message`,
+            );
+        }
+        if (this.leafId === null) {
+            throw new Error("Cannot rewind an empty session");
+        }
+        const entry: SessionRewindEntry = {
+            type: "rewind",
+            timestamp: this.now().toISOString(),
+            userMessageId,
+            previousHeadId: this.leafId,
+            headId: boundary.parentId,
+        };
+        await this.appendRecord(entry);
+        this.leafId = entry.headId;
         return entry;
     }
 
@@ -431,6 +479,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const permissionsEntries: SessionPermissionsEntry[] = [];
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
+    let leafId: string | null = null;
 
     for (let index = 1; index < lines.length; index += 1) {
         const lineNumber = index + 1;
@@ -452,8 +501,15 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
                     `line ${lineNumber} references missing parent ${entry.parentId}`,
                 );
             }
+            if (entry.parentId !== leafId) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} does not extend the active head`,
+                );
+            }
             knownMessageIds.add(entry.id);
             messageEntries.push(entry);
+            leafId = entry.id;
             continue;
         }
         if (value.type === "delivery") {
@@ -497,6 +553,37 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "rewind") {
+            const rewind = parseRewindEntry(path, lineNumber, value);
+            if (rewind.previousHeadId !== leafId) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} rewinds from inactive head ${rewind.previousHeadId}`,
+                );
+            }
+            const boundary: SessionMessageEntry | undefined =
+                activeBranchEntries(messageEntries, leafId).find(
+                    (entry) => entry.id === rewind.userMessageId,
+                );
+            if (
+                boundary === undefined
+                || boundary.message.role !== "user"
+                || boundary.message.internal === true
+            ) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} does not reference an active user message ${rewind.userMessageId}`,
+                );
+            }
+            if (rewind.headId !== boundary.parentId) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} has the wrong rewind target`,
+                );
+            }
+            leafId = rewind.headId;
+            continue;
+        }
         if (value.type === "checkpoint") {
             parseRemovedFileCheckpointEntry(path, lineNumber, value);
             continue;
@@ -514,7 +601,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         deliveryReceipts,
         modelSettingsEntries,
         permissionsEntries,
-        leafId: messageEntries.at(-1)?.id ?? null,
+        leafId,
     };
 }
 
@@ -640,6 +727,51 @@ function parsePermissionsEntry(
         timestamp: value.timestamp,
         mode: value.mode,
     };
+}
+
+function parseRewindEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionRewindEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || typeof value.userMessageId !== "string"
+        || value.userMessageId.length === 0
+        || typeof value.previousHeadId !== "string"
+        || value.previousHeadId.length === 0
+        || (value.headId !== null && typeof value.headId !== "string")
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid rewind entry`,
+        );
+    }
+    return {
+        type: "rewind",
+        timestamp: value.timestamp,
+        userMessageId: value.userMessageId,
+        previousHeadId: value.previousHeadId,
+        headId: value.headId,
+    };
+}
+
+function activeBranchEntries(
+    entries: readonly SessionMessageEntry[],
+    leafId: string | null,
+): readonly SessionMessageEntry[] {
+    const byId = new Map(entries.map((entry) => [entry.id, entry]));
+    const branch: SessionMessageEntry[] = [];
+    let currentId = leafId;
+    while (currentId !== null) {
+        const entry = byId.get(currentId);
+        if (entry === undefined) {
+            throw new Error(`Session entry ${currentId} is missing`);
+        }
+        branch.push(entry);
+        currentId = entry.parentId;
+    }
+    return branch.reverse();
 }
 
 /**
