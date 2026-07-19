@@ -22,7 +22,10 @@ import {
 } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
-import { CheckpointStore } from "../../src/store/checkpoint-store.ts";
+import {
+    CheckpointStore,
+    sha256Text,
+} from "../../src/store/checkpoint-store.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
@@ -420,12 +423,19 @@ test("subagent file writes record checkpoints in the child session", async () =>
         expect(await readFile(join(root, "child.txt"), "utf8")).toBe(
             "child output",
         );
-        const checkpoints = (await SessionStore.open(sessionPath)).checkpoints();
+        const childStore = await SessionStore.open(sessionPath);
+        const checkpoints = childStore.checkpoints();
+        const userMessageId = childStore.entries().find(
+            (entry) => entry.message.role === "user",
+        )?.id;
         expect(checkpoints).toHaveLength(1);
         expect(checkpoints[0]).toMatchObject({
             path: await realpath(join(root, "child.txt")),
             existedBefore: false,
             tool: "write",
+            userMessageId,
+            beforeSha256: null,
+            afterSha256: sha256Text("child output"),
         });
         expect(await checkpointStore.read(checkpoints[0]!.checkpointId))
             .toEqual({ existed: false, content: "" });

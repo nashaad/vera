@@ -119,6 +119,29 @@ test("host wire validates checkpoint results", () => {
         checkpoints: [{ ...entry, tool: "bash" }],
         seq: 15,
     })).toBeUndefined();
+    const verified = {
+        ...entry,
+        userMessageId: "user-message-1",
+        beforeSha256: "a".repeat(64),
+        afterSha256: "b".repeat(64),
+    };
+    expect(parseAgentUpdate({
+        type: "checkpoints",
+        requestId: "checkpoints-verified",
+        checkpoints: [verified],
+        seq: 15,
+    })).toEqual({
+        type: "checkpoints",
+        requestId: "checkpoints-verified",
+        checkpoints: [verified],
+        seq: 15,
+    });
+    expect(parseAgentUpdate({
+        type: "checkpoints",
+        requestId: "checkpoints-partial",
+        checkpoints: [{ ...entry, userMessageId: "user-message-1" }],
+        seq: 15,
+    })).toBeUndefined();
     expect(parseAgentUpdate({
         type: "checkpoint_restored",
         requestId: "checkpoints-3",

@@ -16,6 +16,7 @@ import {
 } from "../../src/store/session-store.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+import { sha256Text } from "../../src/store/checkpoint-store.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -254,7 +255,14 @@ test("checkpoint records list in order and survive restart", async () => {
             "2026-07-17T12:00:00.000Z",
             "2026-07-17T12:00:01.000Z",
             "2026-07-17T12:00:02.000Z",
+            "2026-07-17T12:00:03.000Z",
         ),
+        createId: values("user-message-1"),
+    });
+
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "change the files" }],
     });
 
     await store.appendCheckpoint({
@@ -262,40 +270,55 @@ test("checkpoint records list in order and survive restart", async () => {
         path: join(directory, "note.txt"),
         existedBefore: true,
         tool: "edit",
+        userMessageId: "user-message-1",
+        beforeSha256: sha256Text("old note"),
+        afterSha256: sha256Text("new note"),
     });
     await store.appendCheckpoint({
         checkpointId: "checkpoint-2",
         path: join(directory, "new.txt"),
         existedBefore: false,
         tool: "write",
+        userMessageId: "user-message-1",
+        beforeSha256: null,
+        afterSha256: sha256Text("new file"),
     });
 
     const expected: SessionCheckpointEntry[] = [
         {
             type: "checkpoint",
-            timestamp: "2026-07-17T12:00:01.000Z",
+            timestamp: "2026-07-17T12:00:02.000Z",
             checkpointId: "checkpoint-1",
             path: join(directory, "note.txt"),
             existedBefore: true,
             tool: "edit",
+            userMessageId: "user-message-1",
+            beforeSha256: sha256Text("old note"),
+            afterSha256: sha256Text("new note"),
         },
         {
             type: "checkpoint",
-            timestamp: "2026-07-17T12:00:02.000Z",
+            timestamp: "2026-07-17T12:00:03.000Z",
             checkpointId: "checkpoint-2",
             path: join(directory, "new.txt"),
             existedBefore: false,
             tool: "write",
+            userMessageId: "user-message-1",
+            beforeSha256: null,
+            afterSha256: sha256Text("new file"),
         },
     ];
     expect(store.checkpoints()).toEqual(expected);
-    expect(readLines(path).slice(1)).toEqual(
+    expect(readLines(path).slice(2)).toEqual(
         expected as unknown as Array<Record<string, unknown>>,
     );
 
     const reopened = await SessionStore.open(path);
     expect(reopened.checkpoints()).toEqual(expected);
-    expect(reopened.messages()).toEqual([]);
+    expect(reopened.messages()).toEqual([{
+        role: "user",
+        content: [{ type: "text", text: "change the files" }],
+    }]);
 });
 
 test("session store rejects a duplicate checkpoint id before writing", async () => {
@@ -304,6 +327,12 @@ test("session store rejects a duplicate checkpoint id before writing", async () 
     const store = await SessionStore.create(path, {
         sessionId: "session-1",
         cwd: directory,
+        createId: values("user-message-1"),
+    });
+
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "change the file" }],
     });
 
     await store.appendCheckpoint({
@@ -311,14 +340,130 @@ test("session store rejects a duplicate checkpoint id before writing", async () 
         path: join(directory, "note.txt"),
         existedBefore: true,
         tool: "edit",
+        userMessageId: "user-message-1",
+        beforeSha256: sha256Text("before"),
+        afterSha256: sha256Text("after"),
     });
     await expect(store.appendCheckpoint({
         checkpointId: "checkpoint-1",
         path: join(directory, "other.txt"),
         existedBefore: true,
         tool: "write",
+        userMessageId: "user-message-1",
+        beforeSha256: sha256Text("before"),
+        afterSha256: sha256Text("after"),
     })).rejects.toThrow("Checkpoint checkpoint-1 already exists");
-    expect(readLines(path)).toHaveLength(2);
+    expect(readLines(path)).toHaveLength(3);
+});
+
+test("session store keeps legacy checkpoints readable but unverifiable", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    writeFileSync(path, [
+        JSON.stringify({
+            type: "session",
+            version: SESSION_FORMAT_VERSION,
+            id: "session-1",
+            timestamp: "2026-07-17T12:00:00.000Z",
+            cwd: directory,
+        }),
+        JSON.stringify({
+            type: "checkpoint",
+            timestamp: "2026-07-17T12:00:01.000Z",
+            checkpointId: "legacy-checkpoint",
+            path: join(directory, "note.txt"),
+            existedBefore: true,
+            tool: "edit",
+        }),
+        "",
+    ].join("\n"));
+
+    expect((await SessionStore.open(path)).checkpoints()).toEqual([{
+        type: "checkpoint",
+        timestamp: "2026-07-17T12:00:01.000Z",
+        checkpointId: "legacy-checkpoint",
+        path: join(directory, "note.txt"),
+        existedBefore: true,
+        tool: "edit",
+    }]);
+});
+
+test("session store rejects a checkpoint without the latest user boundary", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+
+    await expect(store.appendCheckpoint({
+        checkpointId: "checkpoint-1",
+        path: join(directory, "note.txt"),
+        existedBefore: true,
+        tool: "edit",
+        userMessageId: "missing-user-message",
+        beforeSha256: sha256Text("before"),
+        afterSha256: sha256Text("after"),
+    })).rejects.toThrow("does not reference the latest user message");
+    expect(readLines(path)).toHaveLength(1);
+});
+
+test("session store rejects a stale user boundary", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        createId: values("user-message-1", "user-message-2"),
+    });
+
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "first turn" }],
+    });
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "second turn" }],
+    });
+
+    await expect(store.appendCheckpoint({
+        checkpointId: "checkpoint-1",
+        path: join(directory, "note.txt"),
+        existedBefore: true,
+        tool: "edit",
+        userMessageId: "user-message-1",
+        beforeSha256: sha256Text("before"),
+        afterSha256: sha256Text("after"),
+    })).rejects.toThrow("does not reference the latest user message");
+    expect(readLines(path)).toHaveLength(3);
+});
+
+test("session store rejects partial checkpoint boundary metadata", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    writeFileSync(path, [
+        JSON.stringify({
+            type: "session",
+            version: SESSION_FORMAT_VERSION,
+            id: "session-1",
+            timestamp: "2026-07-17T12:00:00.000Z",
+            cwd: directory,
+        }),
+        JSON.stringify({
+            type: "checkpoint",
+            timestamp: "2026-07-17T12:00:01.000Z",
+            checkpointId: "broken-checkpoint",
+            path: join(directory, "note.txt"),
+            existedBefore: true,
+            tool: "edit",
+            userMessageId: "user-message-1",
+        }),
+        "",
+    ].join("\n"));
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 2 is not a valid checkpoint entry",
+    );
 });
 
 test("pending deliveries are idempotent and survive restart until acknowledged", async () => {

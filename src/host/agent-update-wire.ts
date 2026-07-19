@@ -128,12 +128,28 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
 
 function isCheckpointEntry(value: unknown): boolean {
     const entry = asRecord(value);
-    return entry?.type === "checkpoint"
+    if (!(entry?.type === "checkpoint"
         && typeof entry.timestamp === "string"
         && typeof entry.checkpointId === "string"
         && typeof entry.path === "string"
         && typeof entry.existedBefore === "boolean"
-        && (entry.tool === "write" || entry.tool === "edit");
+        && (entry.tool === "write" || entry.tool === "edit"))) {
+        return false;
+    }
+    const hasBoundaryMetadata = entry.userMessageId !== undefined
+        || entry.beforeSha256 !== undefined
+        || entry.afterSha256 !== undefined;
+    return !hasBoundaryMetadata
+        || (typeof entry.userMessageId === "string"
+            && entry.userMessageId.length > 0
+            && (entry.existedBefore
+                ? isSha256(entry.beforeSha256)
+                : entry.beforeSha256 === null)
+            && isSha256(entry.afterSha256));
+}
+
+function isSha256(value: unknown): value is string {
+    return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
 
 function isCheckpointRestoreResult(value: unknown): boolean {

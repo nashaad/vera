@@ -53,6 +53,7 @@ export const writeTool: RegisteredTool = {
                 path: safePath,
                 existedBefore: prior !== null,
                 priorContent: prior ?? "",
+                intendedContent: content,
                 tool: "write",
             });
             const bytesWritten = await Bun.write(safePath, content);

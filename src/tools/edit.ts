@@ -73,6 +73,7 @@ async function editFileInWorkspace(
             path,
             existedBefore: true,
             priorContent: originalContent,
+            intendedContent: editedContent,
             tool: "edit",
         });
         await Bun.write(path, editedContent);

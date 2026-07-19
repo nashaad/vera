@@ -14,6 +14,44 @@ export interface CheckpointRestoreResult {
     readonly action: CheckpointRestoreAction;
 }
 
+export type CheckpointChainStatus =
+    | "continuous"
+    | "intervening_change"
+    | "unverifiable";
+
+/**
+ * Check whether one file's chronological checkpoints form an exact chain.
+ * Legacy checkpoints have no digests and are safe to inspect but not safe to
+ * use for a boundary restore without an explicit legacy policy.
+ */
+export function checkpointChainStatus(
+    checkpoints: readonly SessionCheckpointEntry[],
+): CheckpointChainStatus {
+    if (checkpoints.length === 0) {
+        throw new Error("A checkpoint chain must not be empty");
+    }
+    const path = checkpoints[0]!.path;
+    if (checkpoints.some((checkpoint) => checkpoint.path !== path)) {
+        throw new Error("A checkpoint chain must contain exactly one path");
+    }
+    if (checkpoints.some((checkpoint) =>
+        checkpoint.userMessageId === undefined
+        || checkpoint.beforeSha256 === undefined
+        || checkpoint.afterSha256 === undefined
+    )) {
+        return "unverifiable";
+    }
+
+    for (let index = 1; index < checkpoints.length; index += 1) {
+        const previous = checkpoints[index - 1]!;
+        const current = checkpoints[index]!;
+        if (previous.afterSha256 !== current.beforeSha256) {
+            return "intervening_change";
+        }
+    }
+    return "continuous";
+}
+
 /**
  * The direct file mutations this session can restore, oldest first. This is the
  * engine-owned seam a later interactive picker or RPC surface calls; it does not

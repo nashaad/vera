@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, open, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,10 @@ import { join } from "node:path";
 export interface CheckpointBlob {
     readonly existed: boolean;
     readonly content: string;
+}
+
+export function sha256Text(content: string): string {
+    return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
 /**

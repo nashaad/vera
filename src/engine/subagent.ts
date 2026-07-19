@@ -12,6 +12,7 @@ import {
 import {
     CheckpointStore,
     defaultCheckpointDirectory,
+    sha256Text,
 } from "../store/checkpoint-store.ts";
 import { EngineEventBus } from "./events.ts";
 import { ToolHooks } from "./hooks.ts";
@@ -26,7 +27,7 @@ import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
 import {
     ToolRuntime,
-    type FileCheckpointCapture,
+    type BoundFileCheckpointCapture,
 } from "../tools/runtime.ts";
 import type { ApplyToolEffect } from "../tools/types.ts";
 
@@ -118,7 +119,7 @@ export async function runSubagent(
         const checkpointStore = options.checkpointStore
             ?? new CheckpointStore(defaultCheckpointDirectory(sessionId));
         const recordCheckpoint = async (
-            capture: FileCheckpointCapture,
+            capture: BoundFileCheckpointCapture,
         ): Promise<void> => {
             const checkpointId = randomUUID();
             await checkpointStore.write(checkpointId, {
@@ -130,6 +131,11 @@ export async function runSubagent(
                 path: capture.path,
                 existedBefore: capture.existedBefore,
                 tool: capture.tool,
+                userMessageId: capture.userMessageId,
+                beforeSha256: capture.existedBefore
+                    ? sha256Text(capture.priorContent)
+                    : null,
+                afterSha256: sha256Text(capture.intendedContent),
             });
         };
         const events = new EngineEventBus();
