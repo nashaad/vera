@@ -85,6 +85,31 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "checkpoints") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && Array.isArray(update.checkpoints)
+                && update.checkpoints.every(isCheckpointEntry)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "checkpoint_restored") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && isCheckpointRestoreResult(update.result)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "checkpoint_rejected") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && (update.reason === "unavailable"
+                    || update.reason === "busy"
+                    || update.reason === "not_found"
+                    || update.reason === "conflict")
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "ui_request") {
         const request = asRecord(update.request);
         const toolCall = asRecord(request?.toolCall);
@@ -99,6 +124,24 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function isCheckpointEntry(value: unknown): boolean {
+    const entry = asRecord(value);
+    return entry?.type === "checkpoint"
+        && typeof entry.timestamp === "string"
+        && typeof entry.checkpointId === "string"
+        && typeof entry.path === "string"
+        && typeof entry.existedBefore === "boolean"
+        && (entry.tool === "write" || entry.tool === "edit");
+}
+
+function isCheckpointRestoreResult(value: unknown): boolean {
+    const result = asRecord(value);
+    return result !== undefined
+        && typeof result.checkpointId === "string"
+        && typeof result.path === "string"
+        && (result.action === "restored" || result.action === "removed");
 }
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {

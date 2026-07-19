@@ -41,6 +41,7 @@ import type {
 import { assembleSystemPrompt } from "./assemble.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
+import { listCheckpoints, restoreCheckpoint } from "./checkpoints.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     decideToolPermission,
@@ -175,6 +176,8 @@ export async function runHeadlessLoop(
         path: options.eventLogPath ?? defaultEventLogPath(sessionId),
         sessionId,
     }));
+    const checkpointStore = options.checkpointStore
+        ?? new CheckpointStore(defaultCheckpointDirectory(sessionId));
     const inbound = new InboundCommandRouter(endpoint, events, {
         ...(options.readModelSettings === undefined
             ? {}
@@ -184,6 +187,27 @@ export async function runHeadlessLoop(
             : { updateModelSettings: options.updateModelSettings }),
         readApprovalMode,
         updateApprovalMode,
+        listCheckpoints: () => listCheckpoints(store),
+        restoreCheckpoint: async (checkpointId) => {
+            const known = listCheckpoints(store).some(
+                (entry) => entry.checkpointId === checkpointId,
+            );
+            if (!known) {
+                return { ok: false, reason: "not_found" };
+            }
+            try {
+                return {
+                    ok: true,
+                    result: await restoreCheckpoint(
+                        store,
+                        checkpointStore,
+                        checkpointId,
+                    ),
+                };
+            } catch {
+                return { ok: false, reason: "conflict" };
+            }
+        },
     });
     const applyToolEffect = options.applyToolEffect
         ?? createSubagentEffectApplier({
@@ -193,8 +217,6 @@ export async function runHeadlessLoop(
                 ? {}
                 : { modelFallback: options.modelFallback }),
         });
-    const checkpointStore = options.checkpointStore
-        ?? new CheckpointStore(defaultCheckpointDirectory(sessionId));
     const recordCheckpoint = async (
         capture: FileCheckpointCapture,
     ): Promise<void> => {

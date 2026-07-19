@@ -240,3 +240,99 @@ test("permission results share the ordered agent update sequence", () => {
         },
     ]);
 });
+
+test("checkpoint commands parse only with a request and target id", () => {
+    expect(parseClientCommand({
+        type: "list_checkpoints",
+        requestId: "checkpoints-1",
+    })).toEqual({
+        type: "list_checkpoints",
+        requestId: "checkpoints-1",
+    });
+    expect(parseClientCommand({
+        type: "restore_checkpoint",
+        requestId: "checkpoints-2",
+        checkpointId: "cp-abc",
+    })).toEqual({
+        type: "restore_checkpoint",
+        requestId: "checkpoints-2",
+        checkpointId: "cp-abc",
+    });
+    expect(parseClientCommand({
+        type: "restore_checkpoint",
+        requestId: "checkpoints-3",
+        checkpointId: "",
+    })).toBeUndefined();
+});
+
+test("checkpoint results share the ordered agent update sequence", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "checkpoints_listed",
+        requestId: "checkpoints-1",
+        checkpoints: [
+            {
+                type: "checkpoint",
+                timestamp: "2026-07-19T00:00:00.000Z",
+                checkpointId: "cp-abc",
+                path: "/work/file.ts",
+                existedBefore: true,
+                tool: "edit",
+            },
+        ],
+    });
+    protocol({
+        type: "checkpoint_restored",
+        requestId: "checkpoints-2",
+        result: {
+            checkpointId: "cp-abc",
+            path: "/work/file.ts",
+            action: "restored",
+        },
+    });
+    protocol({
+        type: "checkpoint_rejected",
+        requestId: "checkpoints-3",
+        reason: "not_found",
+    });
+
+    expect(updates).toEqual([
+        {
+            type: "checkpoints",
+            requestId: "checkpoints-1",
+            checkpoints: [
+                {
+                    type: "checkpoint",
+                    timestamp: "2026-07-19T00:00:00.000Z",
+                    checkpointId: "cp-abc",
+                    path: "/work/file.ts",
+                    existedBefore: true,
+                    tool: "edit",
+                },
+            ],
+            seq: 1,
+        },
+        {
+            type: "checkpoint_restored",
+            requestId: "checkpoints-2",
+            result: {
+                checkpointId: "cp-abc",
+                path: "/work/file.ts",
+                action: "restored",
+            },
+            seq: 2,
+        },
+        {
+            type: "checkpoint_rejected",
+            requestId: "checkpoints-3",
+            reason: "not_found",
+            seq: 3,
+        },
+    ]);
+});
