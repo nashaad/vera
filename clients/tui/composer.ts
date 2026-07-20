@@ -17,6 +17,20 @@ interface CollapsedPaste {
 export class TuiComposer extends TextareaRenderable {
     private collapsedPastes: CollapsedPaste[] = [];
 
+    override handleKeyPress(key: Parameters<TextareaRenderable["handleKeyPress"]>[0]): boolean {
+        if (
+            key.name === "enter"
+            && !key.shift
+            && !key.ctrl
+            && !key.meta
+            && !key.super
+            && !key.hyper
+        ) {
+            return this.submit();
+        }
+        return super.handleKeyPress(key);
+    }
+
     override handlePaste(event: PasteEvent): void {
         const text = normalizeLineEndings(
             stripAnsiSequences(decodePasteBytes(event.bytes)),
@@ -54,6 +68,10 @@ export class TuiComposer extends TextareaRenderable {
     setComposerText(text: string): void {
         this.collapsedPastes = [];
         this.setText(text);
+        // OpenTUI resets the editor cursor to offset 0 after setText(). Keep
+        // completion and picker-driven text edits natural by placing it at
+        // the end of the inserted value.
+        this.cursorOffset = text.length;
     }
 }
 
@@ -73,8 +91,10 @@ export function createTuiComposer(
         cursorColor: "#7AA2F7",
         keyBindings: [
             { name: "return", action: "submit" },
+            { name: "enter", action: "submit" },
             { name: "kpenter", action: "submit" },
             { name: "return", shift: true, action: "newline" },
+            { name: "enter", shift: true, action: "newline" },
             { name: "kpenter", shift: true, action: "newline" },
         ],
         onSubmit,

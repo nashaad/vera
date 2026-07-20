@@ -28,22 +28,13 @@ export function isTranscriptSelection(
         return false;
     }
 
-    return pointIsInsideEntry(selection.anchor, entries)
-        && pointIsInsideEntry(selection.focus, entries)
-        && selection.selectedRenderables.every((node) =>
-            belongsToEntry(node, entries)
-        );
-}
-
-function pointIsInsideEntry(
-    point: SelectionPoint,
-    entries: readonly SelectionEntryNode[],
-): boolean {
-    return entries.some((entry) =>
-        point.x >= entry.x
-        && point.x < entry.x + entry.width
-        && point.y >= entry.y
-        && point.y < entry.y + entry.height
+    // The terminal selection can finish one row outside the transcript (for
+    // example, after dragging from the first line down to the composer). The
+    // selected renderables are the authoritative boundary: copy is safe when
+    // every selected node belongs to a transcript entry, regardless of the
+    // exact mouse-up coordinate or drag direction.
+    return selection.selectedRenderables.every((node) =>
+        belongsToEntry(node, entries)
     );
 }
 

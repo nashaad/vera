@@ -140,6 +140,7 @@ export interface ToolFinishedUpdate {
 
 export interface TurnFinishedUpdate {
     readonly type: "turn_finished";
+    readonly error?: string;
     readonly seq: number;
 }
 
@@ -639,7 +640,13 @@ export function createProtocolEncoder(
 
         if (event.type === "turn_finished") {
             seq += 1;
-            sender.send({ type: "turn_finished", seq });
+            sender.send({
+                type: "turn_finished",
+                ...(event.message.errorMessage === undefined
+                    ? {}
+                    : { error: event.message.errorMessage }),
+                seq,
+            });
         }
     };
 

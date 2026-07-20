@@ -14,6 +14,59 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
+    "settings picker restores the composer and the next Enter submits",
+    async () => {
+        const socket = `vera-settings-${process.pid}-${randomUUID()}`;
+        const session = "settings";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-settings-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-settings-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/reasoning");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Reasoning");
+            expect(pane).toContain("High");
+
+            sendKey(socket, session, "Down");
+            await waitForVisiblePane(socket, session, "› Max");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "reasoning change requested: max",
+            );
+
+            sendText(socket, session, "testing");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "SETTINGS TURN WORKED",
+            );
+            expect(pane).toContain("testing");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "real TUI queues a prompt and Escape steers to it",
     async () => {
         const socket = `vera-test-${process.pid}-${randomUUID()}`;
@@ -39,9 +92,12 @@ test.skipIf(!tmuxAvailable)(
             ]);
 
             pane = await waitForPane(socket, session, "Start a conversation");
-            expect(pane).toContain("test · thinking high");
+            expect(pane).toContain("test · reasoning high");
             sendText(socket, session, "start streaming");
             sendKey(socket, session, "Enter");
+
+            pane = await waitForPane(socket, session, "enter queue");
+            expect(pane).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (thinking|responding) · \d+s/);
 
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             sendText(socket, session, "redirect now");

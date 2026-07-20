@@ -7,7 +7,7 @@ test("TUI status line shows host-reported model and reasoning", () => {
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
     }, "approve_for_me", "ready")).toBe(
-        "gpt-5.6-sol · thinking high · permissions approve_for_me · ready",
+        "ready · gpt-5.6-sol · reasoning high · permissions approve_for_me",
     );
 });
 
@@ -16,7 +16,7 @@ test("TUI status line shows host-reported reasoning off", () => {
         model: "gpt-5.6-sol",
         reasoningEffort: "off",
     }, "ask", "ready")).toBe(
-        "gpt-5.6-sol · thinking off · permissions ask · ready",
+        "ready · gpt-5.6-sol · reasoning off · permissions ask",
     );
 });
 
@@ -26,12 +26,12 @@ test("TUI status line identifies host-reported provider-default reasoning", () =
         "full_access",
         "working…",
     )).toBe(
-        "gpt-5.6-sol · thinking default · permissions full_access · working…",
+        "working… · gpt-5.6-sol · reasoning default · permissions full_access",
     );
 });
 
 test("TUI status does not guess settings while the host query is pending", () => {
     expect(renderTuiStatusLine(undefined, undefined, "ready")).toBe(
-        "loading · thinking loading · permissions loading · ready",
+        "ready · loading · reasoning loading · permissions loading",
     );
 });

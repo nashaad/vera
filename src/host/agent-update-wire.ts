@@ -39,7 +39,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
         return typeof update.tool === "string" ? value as AgentUpdate : undefined;
     }
     if (update.type === "turn_finished") {
-        return value as AgentUpdate;
+        return update.error === undefined || typeof update.error === "string"
+            ? value as AgentUpdate
+            : undefined;
     }
     if (update.type === "status") {
         return update.state === "idle"
@@ -69,6 +71,11 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && settings.model.length > 0
                 && (settings.reasoningEffort === undefined
                     || isModelReasoningEffort(settings.reasoningEffort))
+                && (settings.availableReasoningEfforts === undefined
+                    || (Array.isArray(settings.availableReasoningEfforts)
+                        && settings.availableReasoningEfforts.every(
+                            isModelReasoningEffort,
+                        )))
             ? value as AgentUpdate
             : undefined;
     }

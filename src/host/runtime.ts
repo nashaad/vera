@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
     configuredModelFallback,
+    updateVeraConfigDefaults,
     type VeraConfig,
 } from "../config.ts";
 import type { ModelAdapter } from "../model/types.ts";
@@ -41,6 +42,17 @@ export async function startResidentHost(
             ?? (() => createConfiguredModelAdapter(options.config)),
         model: options.config.model,
         approvalMode: options.config.approval_mode,
+        updateModelDefaults: (settings) => {
+            updateVeraConfigDefaults({
+                model: settings.model,
+                ...(settings.reasoningEffort === undefined
+                    ? {}
+                    : { reasoning_effort: settings.reasoningEffort }),
+            });
+        },
+        updateApprovalDefault: (mode) => {
+            updateVeraConfigDefaults({ approval_mode: mode });
+        },
         ...(options.config.reasoning_effort === undefined
             ? {}
             : { reasoningEffort: options.config.reasoning_effort }),

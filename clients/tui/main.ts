@@ -46,6 +46,13 @@ import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import { renderTuiStatusLine } from "./status.ts";
 import {
+    createTuiSettingsPickerView,
+    handleTuiSettingsPickerKey,
+    startTuiSettingsPicker,
+    type TuiSettingsPickerState,
+    type TuiSettingsPickerTransition,
+} from "./settings-picker.ts";
+import {
     applyTuiTimelineReply,
     createTuiTimelinePickerView,
     handleTuiTimelineKey,
@@ -74,6 +81,7 @@ const APPROVAL_HINT =
     "approval required · 1 once · 2 session prefix · 3/esc deny · ctrl+c stop";
 const QUESTION_HINT = "question waiting · 1-9 choose · esc cancel · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
+const PROGRESS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
@@ -158,6 +166,8 @@ export async function startTui(
     let abortRequested = false;
     let pendingUiRequest: UiRequestUpdate | undefined;
     let timelinePicker: TuiTimelinePickerState | undefined;
+    let settingsPicker: TuiSettingsPickerState | undefined;
+    let commandSuggestionIndex = 0;
     let workingSince: number | undefined;
     let activity = "thinking";
     const commandRegistry = createBuiltinTuiCommandRegistry();
@@ -211,6 +221,10 @@ export async function startTui(
         width: "100%",
         height: 1,
         paddingLeft: 2,
+        position: "absolute",
+        bottom: 0,
+        zIndex: 30,
+        bg: "#0F1016",
     });
 
     const queuedPromptText = new TextRenderable(renderer, {
@@ -225,6 +239,7 @@ export async function startTui(
 
     const composer = createTuiComposer(renderer, submitPrompt);
     const timelinePickerView = createTuiTimelinePickerView(renderer);
+    const settingsPickerView = createTuiSettingsPickerView(renderer);
     const approvalView = createTuiApprovalView(renderer);
     const questionView = createTuiQuestionView(renderer);
 
@@ -257,6 +272,7 @@ export async function startTui(
         width: "100%",
         height: 3,
         paddingX: 1,
+        marginBottom: 1,
     });
     composerBox.add(composer);
 
@@ -274,6 +290,7 @@ export async function startTui(
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
+    app.add(settingsPickerView.box);
     app.add(commandSuggestionsBox);
     app.add(composerBox);
     app.add(statusText);
@@ -289,7 +306,7 @@ export async function startTui(
 
     const statusTimer = setInterval(() => {
         renderStatus();
-    }, 1_000);
+    }, 200);
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
         const copyableNodes = pendingUiRequest !== undefined
@@ -354,9 +371,57 @@ export async function startTui(
             }
         }
 
+        if (settingsPicker !== undefined) {
+            const transition = handleTuiSettingsPickerKey(settingsPicker, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                applySettingsPickerTransition(transition);
+                return;
+            }
+        }
+
+        if (
+            composer.plainText === "/"
+            && commandSuggestionsBox.visible
+            && !key.ctrl
+            && !key.meta
+            && !key.super
+            && !key.hyper
+            && !key.shift
+        ) {
+            const suggestions = commandRegistry.suggestions("/");
+            if (key.name === "up" || key.name === "k") {
+                key.preventDefault();
+                key.stopPropagation();
+                commandSuggestionIndex = Math.max(0, commandSuggestionIndex - 1);
+                renderCommandSuggestions();
+                return;
+            }
+            if (key.name === "down" || key.name === "j") {
+                key.preventDefault();
+                key.stopPropagation();
+                commandSuggestionIndex = Math.min(
+                    suggestions.length - 1,
+                    commandSuggestionIndex + 1,
+                );
+                renderCommandSuggestions();
+                return;
+            }
+            if (key.name === "return" || key.name === "enter") {
+                const selected = suggestions[commandSuggestionIndex];
+                if (selected !== undefined) {
+                    key.preventDefault();
+                    key.stopPropagation();
+                    composer.setComposerText(`/${selected.name}`);
+                    submitPrompt();
+                    return;
+                }
+            }
+        }
+
         if (
             key.name === "tab"
-            && renderer.currentFocusedRenderable === composer
             && !key.ctrl
             && !key.shift
             && !key.meta
@@ -370,6 +435,14 @@ export async function startTui(
                 key.stopPropagation();
                 composer.setComposerText(completion);
                 renderCommandSuggestions();
+                return;
+            }
+            if (commandRegistry.suggestions(composer.plainText).length > 0) {
+                // A complete slash command has nothing left to complete. Do
+                // not let the textarea's default Tab behavior move the
+                // cursor or change focus.
+                key.preventDefault();
+                key.stopPropagation();
                 return;
             }
         }
@@ -427,6 +500,19 @@ export async function startTui(
             renderState();
             return;
         }
+        if (commandAction?.type === "open_model_picker") {
+            composer.clearComposer();
+            settingsPicker = startTuiSettingsPicker(
+                "model",
+                state.modelSettings?.model,
+                state.modelSettings?.reasoningEffort,
+                state.approvalMode,
+                state.modelSettings?.availableReasoningEfforts,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         if (commandAction?.type === "update_reasoning") {
             composer.clearComposer();
             sendCommand({
@@ -441,6 +527,19 @@ export async function startTui(
             renderState();
             return;
         }
+        if (commandAction?.type === "open_reasoning_picker") {
+            composer.clearComposer();
+            settingsPicker = startTuiSettingsPicker(
+                "reasoning",
+                state.modelSettings?.model,
+                state.modelSettings?.reasoningEffort,
+                state.approvalMode,
+                state.modelSettings?.availableReasoningEfforts,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         if (commandAction?.type === "update_permissions") {
             composer.clearComposer();
             sendCommand({
@@ -453,6 +552,19 @@ export async function startTui(
                 `permissions change requested: ${commandAction.mode}`,
             );
             renderState();
+            return;
+        }
+        if (commandAction?.type === "open_permissions_picker") {
+            composer.clearComposer();
+            settingsPicker = startTuiSettingsPicker(
+                "permissions",
+                state.modelSettings?.model,
+                state.modelSettings?.reasoningEffort,
+                state.approvalMode,
+                state.modelSettings?.availableReasoningEfforts,
+            );
+            renderState();
+            focusActiveSurface();
             return;
         }
         if (commandAction?.type === "open_rewind") {
@@ -525,6 +637,9 @@ export async function startTui(
                 }
                 observeActivity(update);
                 state = applyAgentUpdate(state, update);
+                if (update.type === "history") {
+                    clearTranscriptNodes();
+                }
                 if (update.type === "turn_finished") {
                     abortRequested = false;
                     finishStreamingAssistant();
@@ -576,6 +691,10 @@ export async function startTui(
             timelinePickerView.box.focus();
             return;
         }
+        if (settingsPicker !== undefined) {
+            settingsPickerView.box.focus();
+            return;
+        }
         composer.focus();
     }
 
@@ -611,6 +730,7 @@ export async function startTui(
         const message = error instanceof Error ? error.message : String(error);
         pendingUiRequest = undefined;
         timelinePicker = undefined;
+        settingsPicker = undefined;
         state = appendTuiNotice(state, `Connection error: ${message}`);
         renderState();
         composer.focus();
@@ -630,13 +750,18 @@ export async function startTui(
             === "user_question";
         timelinePickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker !== undefined;
+        settingsPickerView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && settingsPicker !== undefined;
         transcript.opacity = approvalView.box.visible
                 || questionView.box.visible
                 || timelinePickerView.box.visible
+                || settingsPickerView.box.visible
             ? 0.35
             : 1;
         composerBox.visible = pendingUiRequest === undefined
-            && timelinePicker === undefined;
+            && timelinePicker === undefined
+            && settingsPicker === undefined;
         renderCommandSuggestions();
         if (
             pendingUiRequest !== undefined
@@ -652,6 +777,9 @@ export async function startTui(
         }
         if (timelinePicker !== undefined) {
             timelinePickerView.update(timelinePicker);
+        }
+        if (settingsPicker !== undefined) {
+            settingsPickerView.update(settingsPicker);
         }
 
         while (entryNodes.length > state.entries.length) {
@@ -696,14 +824,78 @@ export async function startTui(
         renderStatus();
     }
 
+    function clearTranscriptNodes(): void {
+        while (entryNodes.length > 0) {
+            entryNodes.pop()?.destroy();
+        }
+    }
+
+    function applySettingsPickerTransition(
+        transition: TuiSettingsPickerTransition,
+    ): void {
+        settingsPicker = transition.state;
+        if (transition.selection !== undefined) {
+            const selection = transition.selection;
+            if (selection.kind === "model") {
+                sendCommand({
+                    type: "update_model_settings",
+                    requestId: randomUUID(),
+                    patch: { model: selection.model },
+                });
+                state = appendTuiNotice(state, `model change requested: ${selection.model}`);
+            } else if (selection.kind === "reasoning") {
+                sendCommand({
+                    type: "update_model_settings",
+                    requestId: randomUUID(),
+                    patch: { reasoningEffort: selection.reasoningEffort },
+                });
+                state = appendTuiNotice(state, `reasoning change requested: ${selection.reasoningEffort}`);
+            } else {
+                sendCommand({
+                    type: "update_permissions",
+                    requestId: randomUUID(),
+                    mode: selection.mode,
+                });
+                state = appendTuiNotice(state, `permissions change requested: ${selection.mode}`);
+            }
+            settingsPicker = undefined;
+        }
+        if (settingsPicker === undefined) {
+            settingsPickerView.box.visible = false;
+            if (pendingUiRequest === undefined) {
+                composer.focus();
+            }
+        } else {
+            composer.blur();
+            settingsPickerView.update(settingsPicker);
+            settingsPickerView.box.focus();
+        }
+        renderState();
+    }
+
     function renderCommandSuggestions(): void {
+        if (composer.plainText.length === 0) {
+            commandSuggestionIndex = 0;
+        }
         const suggestions = commandRegistry.suggestions(composer.plainText);
+        commandSuggestionIndex = Math.min(
+            commandSuggestionIndex,
+            Math.max(0, suggestions.length - 1),
+        );
         commandSuggestionsText.content = renderTuiCommandSuggestions(
             suggestions,
+            composer.plainText === "/" ? commandSuggestionIndex : -1,
         );
+        // Leave room for every matching command. The old fixed three-row box
+        // clipped the catalog to its first entry, which made the other slash
+        // commands appear to be missing.
+        commandSuggestionsBox.height = suggestions.length > 0
+            ? suggestions.length + 2
+            : 3;
         commandSuggestionsBox.visible = suggestions.length > 0
             && pendingUiRequest === undefined
-            && timelinePicker === undefined;
+            && timelinePicker === undefined
+            && settingsPicker === undefined;
     }
 
     function finishStreamingAssistant(): void {
@@ -763,10 +955,14 @@ export async function startTui(
         } else if (pendingUiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
-            lifecycleHint = `working · ${elapsedWorkingTime()} · ${activity} · ${WORKING_HINT}`;
+            lifecycleHint = `${progressFrame()} ${activity} · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
         }
 
-        statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
+        statusText.fg = statusNotice !== undefined
+            ? TUI_NOTICE
+            : state.working || pendingUiRequest !== undefined
+                ? TUI_ACCENT
+                : "#565B66";
         statusText.content = renderTuiStatusLine(
             state.modelSettings,
             state.approvalMode,
@@ -802,6 +998,11 @@ export async function startTui(
         return minutes === 0
             ? `${seconds}s`
             : `${minutes}m${String(seconds).padStart(2, "0")}s`;
+    }
+
+    function progressFrame(): string {
+        const index = Math.floor(Date.now() / 200) % PROGRESS_FRAMES.length;
+        return PROGRESS_FRAMES[index] ?? "⠋";
     }
 }
 

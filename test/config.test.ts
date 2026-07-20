@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     loadVeraConfig,
+    updateVeraConfigDefaults,
 } from "../src/config.ts";
 
 test("Vera config loads the shared model choice", () => {
@@ -154,6 +155,32 @@ test("Vera config reports its missing path", () => {
     expect(() => loadVeraConfig({ path })).toThrow(
         `Vera config not found at ${path}`,
     );
+});
+
+test("settings changes become defaults for newly created chats", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        reasoning_effort: "max",
+        approval_mode: "approve_for_me",
+    }));
+
+    expect(updateVeraConfigDefaults({
+        model: "z-ai/glm-5.2",
+        reasoning_effort: "high",
+        approval_mode: "ask",
+    }, { path })).toMatchObject({
+        model: "z-ai/glm-5.2",
+        reasoning_effort: "high",
+        approval_mode: "ask",
+    });
+    expect(loadVeraConfig({ path })).toMatchObject({
+        model: "z-ai/glm-5.2",
+        reasoning_effort: "high",
+        approval_mode: "ask",
+    });
 });
 
 function temporaryConfigPath(): string {

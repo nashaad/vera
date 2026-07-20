@@ -11,5 +11,5 @@ export function renderTuiStatusLine(
         ? "loading"
         : settings.reasoningEffort ?? "default";
     const permissions = approvalMode ?? "loading";
-    return `${model} · thinking ${thinking} · permissions ${permissions} · ${message}`;
+    return `${message} · ${model} · reasoning ${thinking} · permissions ${permissions}`;
 }
