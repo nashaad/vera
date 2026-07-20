@@ -9,6 +9,7 @@ import {
     parseAttachedClientMessage,
     parseHostRequest,
     requestHostIdentity,
+    requestHostShutdownIfIdle,
 } from "../../src/host/protocol.ts";
 
 test("host protocol parses identity requests and encodes responses", () => {
@@ -18,6 +19,20 @@ test("host protocol parses identity requests and encodes responses", () => {
     expect(parseHostRequest('{"type":"list_agents"}')).toEqual({
         type: "list_agents",
     });
+    expect(parseHostRequest(JSON.stringify({
+        type: "shutdown_if_idle",
+        pid: 101,
+        started_at: "2026-07-17T12:00:00.000Z",
+    }))).toEqual({
+        type: "shutdown_if_idle",
+        pid: 101,
+        started_at: "2026-07-17T12:00:00.000Z",
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "shutdown_if_idle",
+        pid: 0,
+        started_at: "not-a-date",
+    }))).toBeUndefined();
     expect(parseHostRequest(
         '{"type":"create_agent","workspace":"/work/one"}',
     )).toEqual({ type: "create_agent", workspace: "/work/one" });
@@ -64,6 +79,46 @@ test("host protocol parses identity requests and encodes responses", () => {
         + '"status":"working"}]}\n',
     );
 });
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "shutdown-if-idle client returns only typed host responses",
+    async () => {
+    const directory = mkdtempSync(join("/private/tmp", "vera-shutdown-client-"));
+    const socketPath = join(directory, "host.sock");
+    const server = createServer((socket) => {
+        socket.once("data", () => {
+            socket.end(`${JSON.stringify({
+                type: "shutdown_if_idle_accepted",
+                pid: 101,
+                started_at: "2026-07-17T12:00:00.000Z",
+            })}\n`);
+        });
+    });
+    await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(socketPath, resolve);
+    });
+
+    try {
+        expect(await requestHostShutdownIfIdle(socketPath, {
+            pid: 101,
+            started_at: "2026-07-17T12:00:00.000Z",
+            protocol_version: HOST_PROTOCOL_VERSION,
+        })).toEqual({
+            type: "shutdown_if_idle_accepted",
+            pid: 101,
+            started_at: "2026-07-17T12:00:00.000Z",
+        });
+    } finally {
+        await new Promise<void>((resolve, reject) => {
+            server.close((error) => error === undefined
+                ? resolve()
+                : reject(error));
+        });
+        rmSync(directory, { recursive: true, force: true });
+    }
+    },
+);
 
 test("host protocol parses messages after attach", () => {
     expect(parseAttachedClientMessage(

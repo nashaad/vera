@@ -14,6 +14,7 @@ import {
     parseHostRequest,
     requestHostIdentity,
     type HostIdentity,
+    type ShutdownIfIdleResponse,
 } from "./protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
@@ -32,6 +33,8 @@ export interface StartHostServerOptions {
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
     readonly createAgent?: (workspace: string) => Promise<ResidentAgent>;
     readonly resumeAgent?: (sessionPath: string) => Promise<ResidentAgent>;
+    readonly canShutdown?: () => boolean;
+    readonly onShutdownAccepted?: () => void | Promise<void>;
 }
 
 export interface HostServer {
@@ -55,6 +58,61 @@ export async function startHostServer(
         pid: identity.pid,
     });
     const sockets = new Set<Socket>();
+    let shutdownFenced = false;
+    let activeAttachments = 0;
+    let shutdownNotified = false;
+    const requestShutdown = (
+        requested: HostIdentity,
+    ): ShutdownIfIdleResponse => {
+        if (
+            requested.pid !== identity.pid
+            || requested.started_at !== identity.started_at
+        ) {
+            return {
+                type: "shutdown_if_idle_refused",
+                reason: "identity_mismatch",
+            };
+        }
+        if (shutdownFenced) {
+            return { type: "shutdown_if_idle_refused", reason: "busy" };
+        }
+
+        shutdownFenced = true;
+        let idle = false;
+        try {
+            idle = activeAttachments === 0
+                && (options.canShutdown?.() ?? true);
+        } catch {
+            idle = false;
+        }
+        if (!idle) {
+            shutdownFenced = false;
+            return { type: "shutdown_if_idle_refused", reason: "busy" };
+        }
+        return {
+            type: "shutdown_if_idle_accepted",
+            pid: identity.pid,
+            started_at: identity.started_at,
+        };
+    };
+    const attachmentOpened = (): (() => void) => {
+        activeAttachments += 1;
+        let closed = false;
+        return (): void => {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            activeAttachments -= 1;
+        };
+    };
+    const notifyShutdownAccepted = (): void => {
+        if (shutdownNotified) {
+            return;
+        }
+        shutdownNotified = true;
+        void options.onShutdownAccepted?.();
+    };
     const server = createServer((socket) => {
         sockets.add(socket);
         socket.once("close", () => sockets.delete(socket));
@@ -69,6 +127,10 @@ export async function startHostServer(
             options.resumeAgent ?? (() => Promise.reject(
                 new Error("Agent resume is unavailable"),
             )),
+            () => shutdownFenced,
+            requestShutdown,
+            attachmentOpened,
+            notifyShutdownAccepted,
         );
     });
     try {
@@ -115,6 +177,10 @@ function receiveConnection(
     listAgents: () => readonly RegisteredAgentSummary[],
     createAgent: (workspace: string) => Promise<ResidentAgent>,
     resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
+    isShutdownFenced: () => boolean,
+    requestShutdown: (identity: HostIdentity) => ShutdownIfIdleResponse,
+    attachmentOpened: () => () => void,
+    notifyShutdownAccepted: () => void,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     const deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
@@ -122,6 +188,7 @@ function receiveConnection(
     let buffered = Buffer.alloc(0);
     let finished = false;
     let writes: Promise<void> = Promise.resolve();
+    let attachmentClosed: (() => void) | undefined;
 
     const send = (message: object): Promise<void> => {
         const next = writes.then(() => writeSocketMessage(socket, message));
@@ -133,6 +200,8 @@ function receiveConnection(
         clearTimeout(deadline);
         attachment?.detach();
         attachment = undefined;
+        attachmentClosed?.();
+        attachmentClosed = undefined;
     });
     socket.once("error", () => socket.destroy());
     socket.on("data", (chunk: Buffer) => {
@@ -213,6 +282,22 @@ function receiveConnection(
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (request?.type === "shutdown_if_idle") {
+            clearTimeout(deadline);
+            finished = true;
+            const response = requestShutdown({
+                pid: request.pid,
+                started_at: request.started_at,
+                protocol_version: HOST_PROTOCOL_VERSION,
+            });
+            void send(response).then(() => {
+                if (response.type === "shutdown_if_idle_accepted") {
+                    socket.once("close", notifyShutdownAccepted);
+                }
+                socket.end();
+            }, () => socket.destroy());
+            return;
+        }
         if (request?.type === "list_agents") {
             clearTimeout(deadline);
             let agents: readonly RegisteredAgentSummary[];
@@ -227,6 +312,10 @@ function receiveConnection(
                 () => socket.end(),
                 () => socket.destroy(),
             );
+            return;
+        }
+        if (isShutdownFenced()) {
+            socket.destroy();
             return;
         }
         if (request?.type === "create_agent") {
@@ -286,6 +375,7 @@ function receiveConnection(
             return;
         }
         attachment = attached;
+        attachmentClosed = attachmentOpened();
         void send({
             type: "attached",
             agent_id: agent.id,

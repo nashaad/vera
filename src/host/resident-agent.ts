@@ -68,6 +68,7 @@ export class ResidentAgent {
     private currentStatus: AgentStatus = "idle";
     private isClosed = false;
     private pendingCommandCount = 0;
+    private promptStarting = false;
     private readonly maxPendingCommands: number;
     private readonly createAttachmentId: () => string;
 
@@ -92,6 +93,9 @@ export class ResidentAgent {
                 return this.inbound.receive(signal).then((queued) => {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
+                    }
+                    if (queued.command.type === "prompt") {
+                        this.promptStarting = true;
                     }
                     return queued.command;
                 });
@@ -220,6 +224,7 @@ export class ResidentAgent {
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
         } else if (snapshot.type === "user_prompt") {
+            this.promptStarting = false;
             this.currentStatus = "working";
         } else if (snapshot.type === "ui_request") {
             this.currentStatus = "waiting";
@@ -245,6 +250,15 @@ export class ResidentAgent {
 
     get status(): AgentStatus {
         return this.currentStatus;
+    }
+
+    idleForShutdown(): boolean {
+        return this.isClosed || (
+            this.currentStatus === "idle"
+            && !this.promptStarting
+            && this.pendingCommandCount === 0
+            && this.attachments.size === 0
+        );
     }
 }
 

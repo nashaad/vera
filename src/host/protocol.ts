@@ -22,6 +22,12 @@ export interface ListAgentsRequest {
     readonly type: "list_agents";
 }
 
+export interface ShutdownIfIdleRequest {
+    readonly type: "shutdown_if_idle";
+    readonly pid: number;
+    readonly started_at: string;
+}
+
 export interface CreateAgentRequest {
     readonly type: "create_agent";
     readonly workspace: string;
@@ -80,6 +86,21 @@ export interface AgentStartFailedResponse {
     readonly operation: "create" | "resume";
 }
 
+export interface ShutdownIfIdleAcceptedResponse {
+    readonly type: "shutdown_if_idle_accepted";
+    readonly pid: number;
+    readonly started_at: string;
+}
+
+export interface ShutdownIfIdleRefusedResponse {
+    readonly type: "shutdown_if_idle_refused";
+    readonly reason: "busy" | "identity_mismatch";
+}
+
+export type ShutdownIfIdleResponse =
+    | ShutdownIfIdleAcceptedResponse
+    | ShutdownIfIdleRefusedResponse;
+
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
     readonly reason: "unsupported_or_invalid_command";
@@ -88,6 +109,7 @@ export interface ProtocolErrorResponse {
 export type HostRequest =
     | HostIdentityRequest
     | ListAgentsRequest
+    | ShutdownIfIdleRequest
     | CreateAgentRequest
     | ResumeAgentRequest
     | AttachRequest;
@@ -97,6 +119,7 @@ export type HostResponse =
     | AgentListResponse
     | AgentReadyResponse
     | AgentStartFailedResponse
+    | ShutdownIfIdleResponse
     | AttachedResponse
     | AttachFailedResponse
     | DetachedResponse
@@ -109,6 +132,19 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "list_agents") {
         return { type: "list_agents" };
+    }
+    if (
+        value?.type === "shutdown_if_idle"
+        && Number.isInteger(value.pid)
+        && (value.pid as number) > 0
+        && typeof value.started_at === "string"
+        && !Number.isNaN(Date.parse(value.started_at))
+    ) {
+        return {
+            type: "shutdown_if_idle",
+            pid: value.pid as number,
+            started_at: value.started_at,
+        };
     }
     if (
         value?.type === "create_agent"
@@ -192,6 +228,55 @@ export function requestHostIdentity(
     });
 }
 
+export function requestHostShutdownIfIdle(
+    socketPath: string,
+    identity: HostIdentity,
+): Promise<ShutdownIfIdleResponse | undefined> {
+    return new Promise((resolve) => {
+        let socket: Socket;
+        try {
+            socket = createConnection(socketPath);
+        } catch {
+            resolve(undefined);
+            return;
+        }
+        let finished = false;
+        let buffered = "";
+        const deadline = setTimeout(() => finish(undefined), 1_000);
+        const finish = (response: ShutdownIfIdleResponse | undefined): void => {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            clearTimeout(deadline);
+            socket.destroy();
+            resolve(response);
+        };
+        socket.setEncoding("utf8");
+        socket.once("connect", () => {
+            socket.write(`${JSON.stringify({
+                type: "shutdown_if_idle",
+                pid: identity.pid,
+                started_at: identity.started_at,
+            })}\n`);
+        });
+        socket.on("data", (chunk: string) => {
+            buffered += chunk;
+            if (buffered.length > 4_096) {
+                finish(undefined);
+                return;
+            }
+            const newline = buffered.indexOf("\n");
+            if (newline !== -1) {
+                finish(parseShutdownIfIdleResponse(buffered.slice(0, newline)));
+            }
+        });
+        socket.once("error", () => finish(undefined));
+        socket.once("end", () => finish(undefined));
+        socket.once("close", () => finish(undefined));
+    });
+}
+
 function parseHostIdentity(source: string): HostIdentity | undefined {
     const response = parseJsonObject(source);
     if (
@@ -211,6 +296,38 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
             ? { protocol_version: response.protocol_version as number }
             : {}),
     };
+}
+
+function parseShutdownIfIdleResponse(
+    source: string,
+): ShutdownIfIdleResponse | undefined {
+    const response = parseJsonObject(source);
+    if (
+        response?.type === "shutdown_if_idle_accepted"
+        && Number.isInteger(response.pid)
+        && (response.pid as number) > 0
+        && typeof response.started_at === "string"
+        && !Number.isNaN(Date.parse(response.started_at))
+    ) {
+        return {
+            type: "shutdown_if_idle_accepted",
+            pid: response.pid as number,
+            started_at: response.started_at,
+        };
+    }
+    if (
+        response?.type === "shutdown_if_idle_refused"
+        && (
+            response.reason === "busy"
+            || response.reason === "identity_mismatch"
+        )
+    ) {
+        return {
+            type: "shutdown_if_idle_refused",
+            reason: response.reason,
+        };
+    }
+    return undefined;
 }
 
 function parseJsonObject(source: string): Record<string, unknown> | undefined {
