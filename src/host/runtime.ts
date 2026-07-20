@@ -40,6 +40,7 @@ export async function startResidentHost(
     const registry = new AgentRegistry({
         createAdapter: options.createAdapter
             ?? (() => createConfiguredModelAdapter(options.config)),
+        provider: options.config.provider,
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         updateModelDefaults: (settings) => {

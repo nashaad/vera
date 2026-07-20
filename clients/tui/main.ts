@@ -64,6 +64,7 @@ import {
     TUI_NOTICE,
     TUI_TEXT,
     appendTuiNotice,
+    appendTuiThought,
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
     beginTuiTurn,
@@ -169,6 +170,7 @@ export async function startTui(
     let settingsPicker: TuiSettingsPickerState | undefined;
     let commandSuggestionIndex = 0;
     let workingSince: number | undefined;
+    let phaseSince: number | undefined;
     let activity = "thinking";
     const commandRegistry = createBuiltinTuiCommandRegistry();
 
@@ -237,6 +239,27 @@ export async function startTui(
         visible: false,
     });
 
+    const activityText = new TextRenderable(renderer, {
+        id: "activity-text",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: "auto",
+    });
+    const activityBox = new BoxRenderable(renderer, {
+        id: "activity-box",
+        border: ["left"],
+        borderStyle: "heavy",
+        borderColor: "#E8D94A",
+        backgroundColor: "#1D1F2A",
+        width: "100%",
+        height: 0,
+        paddingX: 2,
+        paddingY: 1,
+        visible: false,
+    });
+    activityBox.add(activityText);
+
     const composer = createTuiComposer(renderer, submitPrompt);
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
@@ -286,6 +309,7 @@ export async function startTui(
         paddingBottom: 0,
     });
     app.add(transcript);
+    app.add(activityBox);
     app.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
@@ -306,6 +330,7 @@ export async function startTui(
 
     const statusTimer = setInterval(() => {
         renderStatus();
+        renderActivity();
     }, 200);
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
@@ -508,6 +533,7 @@ export async function startTui(
                 state.modelSettings?.reasoningEffort,
                 state.approvalMode,
                 state.modelSettings?.availableReasoningEfforts,
+                state.modelSettings?.availableModels,
             );
             renderState();
             focusActiveSurface();
@@ -535,6 +561,7 @@ export async function startTui(
                 state.modelSettings?.reasoningEffort,
                 state.approvalMode,
                 state.modelSettings?.availableReasoningEfforts,
+                state.modelSettings?.availableModels,
             );
             renderState();
             focusActiveSurface();
@@ -562,6 +589,7 @@ export async function startTui(
                 state.modelSettings?.reasoningEffort,
                 state.approvalMode,
                 state.modelSettings?.availableReasoningEfforts,
+                state.modelSettings?.availableModels,
             );
             renderState();
             focusActiveSurface();
@@ -592,6 +620,7 @@ export async function startTui(
             : beginTuiTurn(state, prompt);
         if (workingSince === undefined) {
             workingSince = Date.now();
+            phaseSince = workingSince;
             activity = "thinking";
         }
         renderState();
@@ -609,9 +638,16 @@ export async function startTui(
                     update.type === "ui_request"
                     || update.type === "ui_request_closed"
                 ) {
-                    activity = update.type === "ui_request"
-                        ? "waiting for approval"
-                        : "thinking";
+                    if (update.type === "ui_request") {
+                        finishThoughtPhase();
+                        phaseSince = undefined;
+                        activity = update.request.type === "tool_approval"
+                            ? "waiting for approval"
+                            : "waiting for answer";
+                    } else {
+                        phaseSince = undefined;
+                        activity = "resuming";
+                    }
                     const previousRequest = pendingUiRequest;
                     pendingUiRequest = applyTuiUiRequestUpdate(
                         pendingUiRequest,
@@ -646,9 +682,11 @@ export async function startTui(
                     state = beginNextQueuedTuiTurn(state);
                     if (state.working) {
                         workingSince = Date.now();
+                        phaseSince = workingSince;
                         activity = "thinking";
                     } else {
                         workingSince = undefined;
+                        phaseSince = undefined;
                         activity = "ready";
                     }
                 }
@@ -744,6 +782,7 @@ export async function startTui(
         placeholder.visible = state.entries.length === 0;
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
+        activityBox.visible = state.working;
         approvalView.box.visible = pendingUiRequest?.request.type
             === "tool_approval";
         questionView.box.visible = pendingUiRequest?.request.type
@@ -822,6 +861,7 @@ export async function startTui(
         });
 
         renderStatus();
+        renderActivity();
     }
 
     function clearTranscriptNodes(): void {
@@ -973,16 +1013,49 @@ export async function startTui(
     function observeActivity(update: AgentUpdate): void {
         if (update.type === "user_prompt") {
             workingSince ??= Date.now();
+            phaseSince = Date.now();
             activity = "thinking";
         } else if (update.type === "assistant_delta") {
+            finishThoughtPhase();
             workingSince ??= Date.now();
             activity = "responding";
         } else if (update.type === "tool_started") {
+            finishThoughtPhase();
             workingSince ??= Date.now();
             activity = `running ${update.tool}`;
         } else if (update.type === "tool_finished") {
             activity = "thinking";
+            phaseSince = Date.now();
+        } else if (update.type === "turn_finished") {
+            finishThoughtPhase();
         }
+    }
+
+    function finishThoughtPhase(): void {
+        if (activity !== "thinking" || phaseSince === undefined) {
+            return;
+        }
+        const seconds = Math.max(0, Date.now() - phaseSince) / 1_000;
+        state = appendTuiThought(state, seconds);
+        phaseSince = undefined;
+    }
+
+    function renderActivity(): void {
+        if (!state.working) {
+            activityBox.visible = false;
+            activityBox.height = 0;
+            return;
+        }
+        const model = state.modelSettings?.model ?? "loading";
+        const supported = state.modelSettings?.availableModels
+            ?.find((candidate) => candidate.model === model);
+        const label = supported?.label ?? model;
+        const provider = supported?.provider ?? "provider loading";
+        const phase = activity.charAt(0).toUpperCase() + activity.slice(1);
+        activityBox.visible = true;
+        activityBox.height = 5;
+        activityBox.borderColor = activityAccentFrame();
+        activityText.content = `${progressFrame()} ${phase} · ${label} · ${provider}\n\nesc interrupt`;
     }
 
     function elapsedWorkingTime(): string {
@@ -1003,6 +1076,12 @@ export async function startTui(
     function progressFrame(): string {
         const index = Math.floor(Date.now() / 200) % PROGRESS_FRAMES.length;
         return PROGRESS_FRAMES[index] ?? "⠋";
+    }
+
+    function activityAccentFrame(): string {
+        const colors = ["#E8D94A", "#C7C94F", "#9FAF5C", "#C7C94F"];
+        const index = Math.floor(Date.now() / 200) % colors.length;
+        return colors[index] ?? "#E8D94A";
     }
 }
 

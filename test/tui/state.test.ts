@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { StyledText } from "@opentui/core";
 
 import {
+    appendTuiThought,
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
     beginTuiTurn,
@@ -16,6 +17,16 @@ import type { AgentUpdate } from "../../src/engine/protocol.ts";
 function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
 }
+
+test("TUI renders a compact completed thought duration", () => {
+    const state = appendTuiThought(createTuiState(), 3.04);
+
+    expect(state.entries).toEqual([{
+        kind: "thought",
+        text: "+ Thought: 3.0s",
+    }]);
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("+ Thought: 3.0s");
+});
 
 test("TUI state tracks a streamed turn and tool activity", () => {
     let state = beginTuiTurn(createTuiState(), "inspect the project");

@@ -188,6 +188,7 @@ test("accepted settings become defaults for new agents in the live host", async 
     const root = await mkdtemp(join(tmpdir(), "vera-agent-live-defaults-"));
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
         model: "first-model",
         reasoningEffort: "low",
         approvalMode: "approve_for_me",
@@ -222,6 +223,33 @@ test("accepted settings become defaults for new agents in the live host", async 
         });
         attachment.send({ type: "get_permissions", requestId: "permissions" });
         expect(await receivePermissions(attachment)).toMatchObject({ mode: "ask" });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("switching models chooses the strongest supported reasoning fallback", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-reasoning-fallback-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: "first-model",
+        reasoningEffort: "medium",
+        approvalMode: "approve_for_me",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        expect(await registry.updateModelSettings(agent.id, {
+            model: "moonshotai/kimi-k3",
+        })).toMatchObject({
+            model: "moonshotai/kimi-k3",
+            reasoningEffort: "max",
+        });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

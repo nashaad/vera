@@ -11,6 +11,8 @@
     "host": "bun run clients/host/main.ts",
     "tui": "bun run clients/tui/main.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
+    "models:discover": "bun run scripts/verify-model-catalog.ts --discover",
+    "models:verify": "bun run scripts/verify-model-catalog.ts",
     "smoke:codex": "bun run scripts/codex-smoke.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"

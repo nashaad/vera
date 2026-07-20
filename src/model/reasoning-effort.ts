@@ -1,4 +1,5 @@
 import type { ModelReasoningEffort } from "./types.ts";
+import { verifiedModel } from "./supported-models.ts";
 
 export type ReasoningProvider = "openrouter" | "openai-codex";
 export type ProviderReasoningEffort = string;
@@ -67,6 +68,18 @@ export async function resolveReasoningSelection(
     requested: ModelReasoningEffort,
     options: ResolveReasoningOptions = {},
 ): Promise<ReasoningSelection> {
+    if (provider === "openrouter") {
+        const verified = verifiedModel(provider, model)?.reasoning.find(
+            (combination) => combination.vera_effort === requested,
+        );
+        if (verified !== undefined) {
+            return {
+                requested,
+                providerEffort: verified.provider_effort,
+                inferred: false,
+            };
+        }
+    }
     const profile = MODEL_REASONING_PROFILES.find((candidate) => (
         candidate.provider === provider && candidate.model === model
     ));
