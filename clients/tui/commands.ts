@@ -39,6 +39,10 @@ export interface OpenThemePickerTuiCommandAction {
     readonly type: "open_theme_picker";
 }
 
+export interface OpenResumePickerTuiCommandAction {
+    readonly type: "open_resume_picker";
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -53,13 +57,16 @@ export type TuiCommandAction =
     | OpenReasoningPickerTuiCommandAction
     | OpenPermissionsPickerTuiCommandAction
     | OpenThemePickerTuiCommandAction
+    | OpenResumePickerTuiCommandAction
     | TuiCommandErrorAction;
 
 export interface TuiCommandDefinition {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
-    readonly action?: OpenRewindTuiCommandAction | OpenThemePickerTuiCommandAction;
+    readonly action?: OpenRewindTuiCommandAction
+        | OpenThemePickerTuiCommandAction
+        | OpenResumePickerTuiCommandAction;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
 
@@ -93,12 +100,19 @@ const THEMES_COMMAND = {
     usage: "/themes",
 } as const satisfies TuiCommandCatalogEntry;
 
+const RESUME_COMMAND = {
+    name: "resume",
+    description: "Switch to another conversation",
+    usage: "/resume",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     MODEL_COMMAND,
     REASONING_COMMAND,
     PERMISSIONS_COMMAND,
     THEMES_COMMAND,
+    RESUME_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
 export class TuiCommandRegistry {
@@ -241,6 +255,10 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
     registry.registerCommand({
         ...THEMES_COMMAND,
         action: { type: "open_theme_picker" },
+    });
+    registry.registerCommand({
+        ...RESUME_COMMAND,
+        action: { type: "open_resume_picker" },
     });
     return registry;
 }

@@ -14,6 +14,55 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
+    "resume picker selects another durable conversation",
+    async () => {
+        const socket = `vera-resume-${process.pid}-${randomUUID()}`;
+        const session = "resume";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-resume-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Continue the theme picker",
+            );
+            expect(pane).toContain("idle · /work/vera");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "RESUMED HISTORY LOADED",
+            );
+            expect(pane).not.toContain("Continue the theme picker");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+            expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+                .toBe("/sessions/target.jsonl");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "settings picker restores the composer and the next Enter submits",
     async () => {
         const socket = `vera-settings-${process.pid}-${randomUUID()}`;

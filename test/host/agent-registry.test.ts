@@ -61,13 +61,15 @@ test("resident agents keep file tools inside their fixed workspaces", async () =
 
         expect(await toolResultText(firstSession)).toBe("first workspace");
         expect(await toolResultText(secondSession)).toBe("second workspace");
-        expect(registry.list()).toEqual([
+        expect(registry.list()).toMatchObject([
             {
                 id: "first",
                 workspace: await realpath(firstWorkspace),
                 session_path: firstSession,
                 kind: "interactive",
                 status: "idle",
+                title: "read your marker",
+                updated_at: expect.any(String),
             },
             {
                 id: "second",
@@ -75,6 +77,8 @@ test("resident agents keep file tools inside their fixed workspaces", async () =
                 session_path: secondSession,
                 kind: "interactive",
                 status: "idle",
+                title: "read your marker",
+                updated_at: expect.any(String),
             },
         ]);
     } finally {

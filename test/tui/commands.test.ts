@@ -112,6 +112,12 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/them")).toEqual({
         type: "open_theme_picker",
     });
+    expect(registry.dispatch("/resume")).toEqual({
+        type: "open_resume_picker",
+    });
+    expect(registry.dispatch("/res")).toEqual({
+        type: "open_resume_picker",
+    });
 });
 
 test("ordinary and unknown slash input remain ordinary prompts", () => {

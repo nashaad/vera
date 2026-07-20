@@ -20,6 +20,8 @@ import { startHostServer } from "../../src/host/server.ts";
                 session_path: "/sessions/agent-1.jsonl",
                 kind: "background",
                 status: "working",
+                title: "Background audit",
+                updated_at: "2026-07-20T20:00:00.000Z",
             }],
         });
         try {
@@ -29,6 +31,8 @@ import { startHostServer } from "../../src/host/server.ts";
                 session_path: "/sessions/agent-1.jsonl",
                 kind: "background",
                 status: "working",
+                title: "Background audit",
+                updated_at: "2026-07-20T20:00:00.000Z",
             }]);
         } finally {
             await host.close();
