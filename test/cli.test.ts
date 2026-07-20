@@ -1,8 +1,73 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 
 import { runCli, runCliMain } from "../clients/cli/main.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { HostProtocolMismatchError } from "../src/host/lockfile.ts";
+
+test("vera help and version are available without starting a client", async () => {
+    let output = "";
+    let started = false;
+    const dependencies = {
+        runTui: async () => {
+            started = true;
+        },
+        stdout: { write: (text: string) => output += text },
+        version: "source abc1234",
+    };
+
+    expect(await runCli(["--help"], dependencies)).toBe(0);
+    expect(output).toContain("Vera coding agent");
+    expect(output).toContain("vera attach <agent-id>");
+    expect(output).toContain("vera login [openai-codex]");
+    expect(output).toContain("-v, --version");
+
+    output = "";
+    expect(await runCli(["--version"], dependencies)).toBe(0);
+    expect(output).toBe("vera source abc1234\n");
+    expect(started).toBe(false);
+});
+
+test("the package bin runs help from outside the checkout", () => {
+    const packagePath = resolve(import.meta.dir, "..", "package.json");
+    const packageJson = JSON.parse(readFileSync(packagePath, "utf8")) as {
+        readonly bin?: { readonly vera?: string };
+    };
+    const bin = packageJson.bin?.vera;
+    expect(bin).toBeDefined();
+    const directory = mkdtempSync(join(tmpdir(), "vera-bin-smoke-"));
+
+    try {
+        const executable = resolve(dirname(packagePath), bin!);
+        const result = Bun.spawnSync(
+            [executable, "--help"],
+            { cwd: directory, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout.toString()).toContain("vera send <agent-id> <message>");
+        expect(result.stderr.toString()).toBe("");
+
+        const version = Bun.spawnSync(
+            [executable, "--version"],
+            {
+                cwd: directory,
+                env: {
+                    HOME: directory,
+                    PATH: process.env.PATH ?? "",
+                },
+                stdout: "pipe",
+                stderr: "pipe",
+            },
+        );
+        expect(version.exitCode).toBe(0);
+        expect(version.stdout.toString()).toMatch(/^vera source [0-9a-f]+(?:\+dirty)?\n$/);
+        expect(version.stderr.toString()).toBe("");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
 
 test("vera ls renders resident agents from the host", async () => {
     const agents: RegisteredAgentSummary[] = [
