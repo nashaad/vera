@@ -212,6 +212,14 @@ export class AgentRegistry {
             .sort((left, right) => left.id.localeCompare(right.id));
     }
 
+    idleForShutdown(): boolean {
+        return this.startingIds.size === 0
+            && this.deliveryTasks.size === 0
+            && [...this.agents.values()].every(
+                (entry) => entry.agent.idleForShutdown(),
+            );
+    }
+
     async close(): Promise<void> {
         this.isClosed = true;
         const entries = [...this.agents.values()];

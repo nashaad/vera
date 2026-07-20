@@ -7,6 +7,10 @@ import { connectHost } from "../../src/host/connection.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import {
+    requestHostIdentity,
+    requestHostShutdownIfIdle,
+} from "../../src/host/protocol.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import {
     emptyUsage,
@@ -15,6 +19,47 @@ import {
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "an accepted idle shutdown closes that exact resident host",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-shutdown-"));
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "approve_for_me",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+        });
+        try {
+            expect(await requestHostShutdownIfIdle(
+                socketPath,
+                host.server.identity,
+            )).toMatchObject({
+                type: "shutdown_if_idle_accepted",
+                pid: host.server.identity.pid,
+                started_at: host.server.identity.started_at,
+            });
+
+            const deadline = Date.now() + 1_000;
+            while (await requestHostIdentity(socketPath) !== undefined) {
+                if (Date.now() >= deadline) {
+                    throw new Error("Accepted resident host did not shut down");
+                }
+                await Bun.sleep(10);
+            }
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "resident host wires its registry to list and attach requests",

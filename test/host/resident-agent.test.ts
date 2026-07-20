@@ -252,6 +252,34 @@ test("timeline replies stay private without creating shared sequence gaps", asyn
     });
 });
 
+test("shutdown idleness includes attachments, queued prompts, and starting turns", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    expect(agent.idleForShutdown()).toBeTrue();
+
+    const attachment = agent.attach();
+    await attachment.receive();
+    expect(agent.idleForShutdown()).toBeFalse();
+
+    attachment.send({ type: "prompt", content: "hello" });
+    attachment.detach();
+    expect(agent.idleForShutdown()).toBeFalse();
+    expect(await agent.engine.receive()).toEqual({
+        type: "prompt",
+        content: "hello",
+    });
+    expect(agent.idleForShutdown()).toBeFalse();
+
+    agent.engine.send({
+        type: "user_prompt",
+        content: "hello",
+        seq: 1,
+    });
+    expect(agent.idleForShutdown()).toBeFalse();
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    expect(agent.idleForShutdown()).toBeTrue();
+    agent.close();
+});
+
 test("detached attachment IDs cannot be reused", async () => {
     const attachmentIds = values("owner-a", "owner-a", "owner-b");
     const agent = new ResidentAgent("agent-1", "/work/one", {

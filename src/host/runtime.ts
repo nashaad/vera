@@ -76,6 +76,8 @@ export async function startResidentHost(
             listAgents: () => registry.list(),
             createAgent: (workspace) => registry.create({ workspace }),
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
+            canShutdown: () => registry.idleForShutdown(),
+            onShutdownAccepted: () => closeResidentHost(server, registry),
         });
     } catch (error) {
         await registry.close();

@@ -13,7 +13,10 @@ import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
-import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
+import {
+    HOST_PROTOCOL_VERSION,
+    requestHostShutdownIfIdle,
+} from "../../src/host/protocol.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -22,6 +25,108 @@ afterEach(() => {
         rmSync(directory, { recursive: true, force: true });
     }
 });
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "shutdown-if-idle is identity-bound, fences work, and refuses busy hosts",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        let idle = false;
+        let shutdownAccepted = false;
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            pid: 101,
+            startedAt: "2026-07-17T12:00:00.123Z",
+            canShutdown: () => idle,
+            onShutdownAccepted: () => {
+                shutdownAccepted = true;
+            },
+        });
+        try {
+            expect(await requestHostShutdownIfIdle(socketPath, {
+                pid: 999,
+                started_at: server.identity.started_at,
+            })).toEqual({
+                type: "shutdown_if_idle_refused",
+                reason: "identity_mismatch",
+            });
+            expect(await requestHostShutdownIfIdle(
+                socketPath,
+                server.identity,
+            )).toEqual({
+                type: "shutdown_if_idle_refused",
+                reason: "busy",
+            });
+
+            idle = true;
+            expect(await requestHostShutdownIfIdle(
+                socketPath,
+                server.identity,
+            )).toEqual({
+                type: "shutdown_if_idle_accepted",
+                pid: 101,
+                started_at: server.identity.started_at,
+            });
+            await Bun.sleep(0);
+            expect(shutdownAccepted).toBeTrue();
+
+            const blocked = await connectHost({ socketPath });
+            try {
+                await blocked.send({
+                    type: "create_agent",
+                    workspace: "/work/blocked",
+                });
+                await expect(blocked.receive()).rejects.toThrow();
+            } finally {
+                blocked.close();
+            }
+        } finally {
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "shutdown-if-idle refuses while a client is attached",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            canShutdown: () => true,
+        });
+        const attached = await connectHost({ socketPath });
+        try {
+            await attached.send({ type: "attach", agent_id: agent.id });
+            await attached.receive();
+            await attached.receive();
+            expect(await requestHostShutdownIfIdle(
+                socketPath,
+                server.identity,
+            )).toEqual({
+                type: "shutdown_if_idle_refused",
+                reason: "busy",
+            });
+
+            await attached.send({ type: "detach" });
+            await attached.receive();
+            attached.close();
+            await Bun.sleep(0);
+            expect(await requestHostShutdownIfIdle(
+                socketPath,
+                server.identity,
+            )).toMatchObject({ type: "shutdown_if_idle_accepted" });
+        } finally {
+            attached.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host listens privately, publishes its identity, and becomes stale on close",
