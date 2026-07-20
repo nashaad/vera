@@ -1,0 +1,552 @@
+import {
+    BoxRenderable,
+    TextRenderable,
+    type KeyEvent,
+    type RenderContext,
+} from "@opentui/core";
+
+import type {
+    ClientCommand,
+    TimelineActionPlan,
+    TimelineBoundary,
+    TimelineReplyUpdate,
+} from "../../src/engine/protocol.ts";
+import { TUI_MUTED, TUI_NOTICE, TUI_TEXT } from "./state.ts";
+
+interface TimelinePickerBase {
+    readonly boundaries: readonly TimelineBoundary[];
+    readonly query: string;
+    readonly selectedIndex: number;
+    readonly notice?: string;
+}
+
+export interface TimelinePickerLoadingState {
+    readonly screen: "loading";
+    readonly requestId: string;
+    readonly notice?: string;
+}
+
+export interface TimelinePickerSelectState extends TimelinePickerBase {
+    readonly screen: "select";
+}
+
+export interface TimelinePickerActionsState extends TimelinePickerBase {
+    readonly screen: "actions";
+    readonly selectedAction: "rewind" | "cancel";
+}
+
+export interface TimelinePickerPreviewingState extends TimelinePickerBase {
+    readonly screen: "previewing";
+    readonly requestId: string;
+}
+
+export interface TimelinePickerConfirmState extends TimelinePickerBase {
+    readonly screen: "confirm";
+    readonly plan: TimelineActionPlan;
+}
+
+export interface TimelinePickerApplyingState extends TimelinePickerBase {
+    readonly screen: "applying";
+    readonly requestId: string;
+    readonly plan: TimelineActionPlan;
+}
+
+export type TuiTimelinePickerState =
+    | TimelinePickerLoadingState
+    | TimelinePickerSelectState
+    | TimelinePickerActionsState
+    | TimelinePickerPreviewingState
+    | TimelinePickerConfirmState
+    | TimelinePickerApplyingState;
+
+export interface TuiTimelinePickerTransition {
+    readonly state?: TuiTimelinePickerState;
+    readonly command?: ClientCommand;
+    readonly composerText?: string;
+    readonly handled: boolean;
+}
+
+export interface TuiTimelinePickerView {
+    readonly box: BoxRenderable;
+    update(state: TuiTimelinePickerState): void;
+}
+
+export function startTuiTimelinePicker(
+    requestId: string,
+): TuiTimelinePickerTransition {
+    return {
+        state: { screen: "loading", requestId },
+        command: { type: "list_timeline", requestId },
+        handled: true,
+    };
+}
+
+export function applyTuiTimelineReply(
+    state: TuiTimelinePickerState,
+    update: TimelineReplyUpdate,
+    createRequestId: () => string,
+): TuiTimelinePickerTransition {
+    if (state.screen === "loading") {
+        if (update.type !== "timeline" || update.requestId !== state.requestId) {
+            return unchanged(state);
+        }
+        const boundaries = [...update.boundaries].reverse();
+        return {
+            state: {
+                screen: "select",
+                boundaries,
+                query: "",
+                selectedIndex: 0,
+            },
+            handled: true,
+        };
+    }
+
+    if (state.screen === "previewing") {
+        if (update.requestId !== state.requestId) {
+            return unchanged(state);
+        }
+        if (update.type === "timeline_action_preview") {
+            return {
+                state: {
+                    ...baseState(state),
+                    screen: "confirm",
+                    plan: update.plan,
+                },
+                handled: true,
+            };
+        }
+        if (
+            update.type === "timeline_action_rejected"
+            && update.operation === "preview"
+        ) {
+            if (requiresRefresh(update.reason)) {
+                return refreshTimeline(update.reason, createRequestId);
+            }
+            return {
+                state: {
+                    ...baseState(state),
+                    screen: "actions",
+                    selectedAction: "rewind",
+                    notice: rejectionNotice(update.reason),
+                },
+                handled: true,
+            };
+        }
+        return unchanged(state);
+    }
+
+    if (state.screen === "applying") {
+        if (update.requestId !== state.requestId) {
+            return unchanged(state);
+        }
+        if (
+            update.type === "timeline_action_applied"
+            && update.planId === state.plan.planId
+        ) {
+            return {
+                composerText: state.plan.boundary.prompt,
+                handled: true,
+            };
+        }
+        if (
+            update.type === "timeline_action_rejected"
+            && update.operation === "apply"
+        ) {
+            if (requiresRefresh(update.reason)) {
+                return refreshTimeline(update.reason, createRequestId);
+            }
+            return {
+                state: {
+                    ...baseState(state),
+                    screen: "confirm",
+                    plan: state.plan,
+                    notice: rejectionNotice(update.reason),
+                },
+                handled: true,
+            };
+        }
+    }
+
+    return unchanged(state);
+}
+
+export function handleTuiTimelineKey(
+    state: TuiTimelinePickerState,
+    key: Pick<
+        KeyEvent,
+        "name" | "sequence" | "ctrl" | "meta" | "super" | "hyper"
+    >,
+    createRequestId: () => string,
+): TuiTimelinePickerTransition {
+    if (hasCommandModifier(key)) {
+        return unchanged(state, false);
+    }
+    if (key.name === "escape") {
+        return escapeTimelineScreen(state);
+    }
+    if (state.screen === "loading" || state.screen === "previewing"
+        || state.screen === "applying") {
+        return unchanged(state, false);
+    }
+    if (state.screen === "select") {
+        return handleSelectKey(state, key);
+    }
+    if (state.screen === "actions") {
+        return handleActionsKey(state, key, createRequestId);
+    }
+    return handleConfirmKey(state, key, createRequestId);
+}
+
+export function createTuiTimelinePickerView(
+    renderer: RenderContext,
+): TuiTimelinePickerView {
+    const content = new TextRenderable(renderer, {
+        id: "timeline-picker-text",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: "auto",
+        wrapMode: "word",
+    });
+    const box = new BoxRenderable(renderer, {
+        id: "timeline-picker",
+        title: " Rewind ",
+        border: true,
+        borderColor: TUI_NOTICE,
+        backgroundColor: "#16161E",
+        position: "absolute",
+        top: 1,
+        left: "5%",
+        width: "90%",
+        height: 16,
+        zIndex: 10,
+        paddingX: 1,
+        focusable: true,
+        visible: false,
+    });
+    box.add(content);
+
+    return {
+        box,
+        update(state): void {
+            box.title = timelineTitle(state);
+            content.content = renderTuiTimelinePicker(state);
+        },
+    };
+}
+
+export function renderTuiTimelinePicker(
+    state: TuiTimelinePickerState,
+    width = 80,
+): string {
+    if (state.screen === "loading") {
+        const notice = state.notice === undefined ? "" : `${state.notice}\n\n`;
+        return `${notice}Loading conversation timeline…\n\nEsc close`;
+    }
+
+    const selected = selectedBoundary(state);
+    const notice = state.notice === undefined ? "" : `${state.notice}\n\n`;
+    if (state.screen === "select") {
+        const filtered = filteredBoundaries(state);
+        const selectedIndex = clampedIndex(state, filtered);
+        const visibleStart = Math.max(
+            0,
+            Math.min(selectedIndex - 2, Math.max(0, filtered.length - 6)),
+        );
+        const visibleBoundaries = filtered.slice(visibleStart, visibleStart + 6);
+        const rows = filtered.length === 0
+            ? "  No matching user messages."
+            : visibleBoundaries.map((boundary, index) => {
+                const marker = index + visibleStart === selectedIndex ? "›" : " ";
+                return `${marker} ${boundaryTime(boundary.timestamp)}  ${
+                    truncate(oneLine(boundary.prompt), Math.max(12, width - 14))
+                }`;
+            }).join("\n");
+        const preview = selected === undefined
+            ? "No conversation boundary selected."
+            : `Rewind to before: “${truncate(oneLine(selected.prompt), 72)}”\n`
+                + "Workspace files and external effects will not change.";
+        return `${notice}Search  ${state.query}\n\n${rows}\n\n${preview}\n\n`
+            + "↑↓ move · type to search · enter actions · esc close";
+    }
+
+    if (selected === undefined) {
+        return `${notice}No conversation boundary selected.\n\nEsc back`;
+    }
+    const selectedText = `To before: “${truncate(oneLine(selected.prompt), 72)}”`;
+    if (state.screen === "actions") {
+        const rewindMarker = state.selectedAction === "rewind" ? "›" : " ";
+        const cancelMarker = state.selectedAction === "cancel" ? "›" : " ";
+        return `${notice}${selectedText}\n\n`
+            + `${rewindMarker} [1] Rewind conversation…\n`
+            + `${cancelMarker} [2] Cancel\n\n`
+            + "↑↓ move · enter select · esc back";
+    }
+    if (state.screen === "previewing") {
+        return `${selectedText}\n\nPreparing conversation preview…`;
+    }
+    const plan = state.plan;
+    const confirmation = `${notice}To before: “${
+        truncate(oneLine(plan.boundary.prompt), 72)
+    }”\n\nConversation  keep ${plan.keptMessageCount} messages; set aside ${
+        plan.setAsideMessageCount
+    } later messages\nFiles         unchanged\nExternal work unchanged`;
+    if (state.screen === "applying") {
+        return `${confirmation}\n\nRewinding conversation…`;
+    }
+    return `${confirmation}\n\n[1] Rewind now · [Esc] Back`;
+}
+
+function handleSelectKey(
+    state: TimelinePickerSelectState,
+    key: Pick<KeyEvent, "name" | "sequence">,
+): TuiTimelinePickerTransition {
+    const filtered = filteredBoundaries(state);
+    if (key.name === "up" || key.name === "down") {
+        const delta = key.name === "up" ? -1 : 1;
+        const selectedIndex = filtered.length === 0
+            ? 0
+            : (clampedIndex(state, filtered) + delta + filtered.length)
+                % filtered.length;
+        return changed({ ...state, selectedIndex, notice: undefined });
+    }
+    if (key.name === "return" || key.name === "kpenter") {
+        return filtered.length === 0
+            ? unchanged(state)
+            : changed({
+                ...state,
+                screen: "actions",
+                selectedIndex: clampedIndex(state, filtered),
+                selectedAction: "rewind",
+                notice: undefined,
+            });
+    }
+    if (key.name === "backspace") {
+        return changed({
+            ...state,
+            query: state.query.slice(0, -1),
+            selectedIndex: 0,
+            notice: undefined,
+        });
+    }
+    const text = printableText(key);
+    return text === undefined
+        ? unchanged(state, false)
+        : changed({
+            ...state,
+            query: state.query + text,
+            selectedIndex: 0,
+            notice: undefined,
+        });
+}
+
+function handleActionsKey(
+    state: TimelinePickerActionsState,
+    key: Pick<KeyEvent, "name" | "sequence">,
+    createRequestId: () => string,
+): TuiTimelinePickerTransition {
+    if (key.name === "up" || key.name === "down") {
+        return changed({
+            ...state,
+            selectedAction: state.selectedAction === "rewind"
+                ? "cancel"
+                : "rewind",
+            notice: undefined,
+        });
+    }
+    if (key.sequence === "1" || key.name === "1") {
+        return previewTransition(state, createRequestId);
+    }
+    if (key.sequence === "2" || key.name === "2") {
+        return { handled: true };
+    }
+    if (key.name === "return" || key.name === "kpenter") {
+        return state.selectedAction === "cancel"
+            ? { handled: true }
+            : previewTransition(state, createRequestId);
+    }
+    return unchanged(state, false);
+}
+
+function handleConfirmKey(
+    state: TimelinePickerConfirmState,
+    key: Pick<KeyEvent, "name" | "sequence">,
+    createRequestId: () => string,
+): TuiTimelinePickerTransition {
+    if (key.sequence !== "1" && key.name !== "1") {
+        return unchanged(state, key.name === "return" || key.name === "kpenter");
+    }
+    const requestId = createRequestId();
+    return {
+        state: { ...baseState(state), screen: "applying", requestId, plan: state.plan },
+        command: {
+            type: "apply_timeline_action",
+            requestId,
+            planId: state.plan.planId,
+        },
+        handled: true,
+    };
+}
+
+function previewTransition(
+    state: TimelinePickerActionsState,
+    createRequestId: () => string,
+): TuiTimelinePickerTransition {
+    const boundary = selectedBoundary(state);
+    if (boundary === undefined) {
+        return unchanged(state);
+    }
+    const requestId = createRequestId();
+    return {
+        state: { ...baseState(state), screen: "previewing", requestId },
+        command: {
+            type: "preview_timeline_action",
+            requestId,
+            boundaryId: boundary.userMessageId,
+            action: "rewind_conversation",
+        },
+        handled: true,
+    };
+}
+
+function escapeTimelineScreen(
+    state: TuiTimelinePickerState,
+): TuiTimelinePickerTransition {
+    if (state.screen === "applying") {
+        return unchanged(state);
+    }
+    if (state.screen === "loading" || state.screen === "select") {
+        return { handled: true };
+    }
+    if (state.screen === "actions" || state.screen === "previewing") {
+        return changed({ ...baseState(state), screen: "select" });
+    }
+    return changed({
+        ...baseState(state),
+        screen: "actions",
+        selectedAction: "rewind",
+    });
+}
+
+function filteredBoundaries(
+    state: TimelinePickerBase,
+): readonly TimelineBoundary[] {
+    const query = state.query.trim().toLocaleLowerCase();
+    if (query.length === 0) {
+        return state.boundaries;
+    }
+    return state.boundaries.filter((boundary) =>
+        boundary.prompt.toLocaleLowerCase().includes(query)
+        || boundary.timestamp.toLocaleLowerCase().includes(query)
+    );
+}
+
+function selectedBoundary(
+    state: TimelinePickerBase,
+): TimelineBoundary | undefined {
+    const filtered = filteredBoundaries(state);
+    return filtered[clampedIndex(state, filtered)];
+}
+
+function clampedIndex(
+    state: TimelinePickerBase,
+    boundaries: readonly TimelineBoundary[],
+): number {
+    return Math.min(state.selectedIndex, Math.max(0, boundaries.length - 1));
+}
+
+function baseState(state: TimelinePickerBase): TimelinePickerBase {
+    return {
+        boundaries: state.boundaries,
+        query: state.query,
+        selectedIndex: state.selectedIndex,
+    };
+}
+
+function changed(state: TuiTimelinePickerState): TuiTimelinePickerTransition {
+    return { state, handled: true };
+}
+
+function unchanged(
+    state: TuiTimelinePickerState,
+    handled = true,
+): TuiTimelinePickerTransition {
+    return { state, handled };
+}
+
+function printableText(key: Pick<KeyEvent, "name" | "sequence">): string | undefined {
+    const value = key.sequence.length === 1 ? key.sequence : key.name;
+    return value.length === 1 && value >= " " && value !== "\u007f"
+        ? value
+        : undefined;
+}
+
+function hasCommandModifier(
+    key: Pick<KeyEvent, "ctrl" | "meta" | "super" | "hyper">,
+): boolean {
+    return key.ctrl === true
+        || key.meta === true
+        || key.super === true
+        || key.hyper === true;
+}
+
+function rejectionNotice(reason: string): string {
+    if (reason === "busy") {
+        return "Rewind is available when the agent is idle.";
+    }
+    if (reason === "session_changed" || reason === "plan_expired") {
+        return "The conversation changed. Refreshing the timeline.";
+    }
+    if (reason === "not_plan_owner") {
+        return "This preview belongs to another attached client.";
+    }
+    if (reason === "boundary_missing") {
+        return "That conversation point is no longer available. Refreshing the timeline.";
+    }
+    return "Rewind is temporarily unavailable.";
+}
+
+function requiresRefresh(reason: string): boolean {
+    return reason === "session_changed"
+        || reason === "plan_expired"
+        || reason === "boundary_missing";
+}
+
+function refreshTimeline(
+    reason: string,
+    createRequestId: () => string,
+): TuiTimelinePickerTransition {
+    const requestId = createRequestId();
+    return {
+        state: {
+            screen: "loading",
+            requestId,
+            notice: rejectionNotice(reason),
+        },
+        command: { type: "list_timeline", requestId },
+        handled: true,
+    };
+}
+
+function timelineTitle(state: TuiTimelinePickerState): string {
+    if (state.screen === "select" || state.screen === "loading") {
+        return " Rewind — select a point ";
+    }
+    if (state.screen === "confirm" || state.screen === "applying") {
+        return " Confirm rewind ";
+    }
+    return " Rewind — choose an action ";
+}
+
+function boundaryTime(timestamp: string): string {
+    return timestamp.length >= 16 ? timestamp.slice(11, 16) : timestamp;
+}
+
+function oneLine(text: string): string {
+    return text.replaceAll(/\s+/g, " ").trim();
+}
+
+function truncate(text: string, limit: number): string {
+    return text.length <= limit ? text : `${text.slice(0, Math.max(0, limit - 1))}…`;
+}

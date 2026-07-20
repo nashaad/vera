@@ -7,12 +7,24 @@ export interface TuiInterruptKey {
     readonly meta?: boolean;
 }
 
+export interface TuiRawInterruptEvent {
+    readonly type: "interrupt";
+}
+
+export function parseRawInputEvent(
+    key: TuiInterruptKey,
+): TuiRawInterruptEvent | undefined {
+    return key.name === "c" && key.ctrl
+        ? { type: "interrupt" }
+        : undefined;
+}
+
 export function tuiInterruptAction(
     key: TuiInterruptKey,
     working: boolean,
     abortRequested: boolean,
 ): TuiInterruptAction {
-    const ctrlC = key.name === "c" && key.ctrl;
+    const ctrlC = parseRawInputEvent(key)?.type === "interrupt";
     const plainEscape = key.name === "escape" &&
         !key.ctrl &&
         !key.shift &&

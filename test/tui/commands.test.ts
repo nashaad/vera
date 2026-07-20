@@ -1,0 +1,94 @@
+import { expect, test } from "bun:test";
+
+import {
+    BUILTIN_COMMANDS,
+    createBuiltinTuiCommandRegistry,
+    renderTuiCommandSuggestions,
+    TuiCommandRegistry,
+} from "../../clients/tui/commands.ts";
+
+test("built-in TUI commands match the public command catalog", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.registeredCommands()).toEqual(BUILTIN_COMMANDS);
+    for (const command of BUILTIN_COMMANDS) {
+        expect(registry.dispatch(`/${command.name}`)).toBeDefined();
+    }
+});
+
+test("the rewind command returns a client-owned action", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/rewind")).toEqual({ type: "open_rewind" });
+    expect(registry.dispatch("  /rewind  ")).toEqual({ type: "open_rewind" });
+});
+
+test("typing slash exposes the built-in rewind command", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.suggestions("/")).toEqual(BUILTIN_COMMANDS);
+    expect(registry.suggestions("/rew")).toEqual(BUILTIN_COMMANDS);
+    expect(registry.suggestions("/unknown")).toEqual([]);
+    expect(registry.suggestions("message /rew")).toEqual([]);
+    expect(registry.suggestions("/rewind now")).toEqual([]);
+    expect(renderTuiCommandSuggestions(registry.suggestions("/")))
+        .toBe("/rewind  Rewind the active conversation");
+    expect(registry.completion("/rew")).toBe("/rewind");
+    expect(registry.completion("  /rew")).toBe("  /rewind");
+    expect(registry.completion("/rewind")).toBeUndefined();
+    expect(registry.completion("/wat")).toBeUndefined();
+    expect(registry.completion("/rew now")).toBeUndefined();
+    expect(registry.completion("rew")).toBeUndefined();
+});
+
+test("completion automatically includes every registered command", () => {
+    const registry = new TuiCommandRegistry();
+    for (const name of ["rewind", "rewrite"]) {
+        registry.registerCommand({
+            name,
+            description: `${name} something`,
+            usage: `/${name}`,
+            action: { type: "open_rewind" },
+        });
+    }
+
+    expect(registry.completion("/re")).toBe("/rew");
+    expect(registry.completion("/rew")).toBeUndefined();
+    expect(registry.completion("/rewri")).toBe("/rewrite");
+});
+
+test("the rewind command rejects arguments locally", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/rewind now")).toEqual({
+        type: "command_error",
+        message: "Usage: /rewind",
+    });
+    expect(registry.dispatch("/rewind\nlater")).toEqual({
+        type: "command_error",
+        message: "Usage: /rewind",
+    });
+});
+
+test("ordinary and unknown slash input remain ordinary prompts", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("inspect /rewind handling")).toBeUndefined();
+    expect(registry.dispatch("/unknown")).toBeUndefined();
+    expect(registry.dispatch("/rewind-later")).toBeUndefined();
+    expect(registry.dispatch("/Rewind")).toBeUndefined();
+});
+
+test("TUI command registration rejects duplicate names", () => {
+    const registry = new TuiCommandRegistry();
+    const command = {
+        name: "test",
+        description: "Test the command registry",
+        usage: "/test",
+        action: { type: "open_rewind" } as const,
+    };
+
+    registry.registerCommand(command);
+    expect(() => registry.registerCommand(command))
+        .toThrow("Duplicate TUI command: /test");
+});

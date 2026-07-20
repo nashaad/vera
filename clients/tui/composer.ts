@@ -48,8 +48,12 @@ export class TuiComposer extends TextareaRenderable {
     }
 
     clearComposer(): void {
+        this.setComposerText("");
+    }
+
+    setComposerText(text: string): void {
         this.collapsedPastes = [];
-        this.setText("");
+        this.setText(text);
     }
 }
 

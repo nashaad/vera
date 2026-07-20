@@ -10,11 +10,16 @@ import {
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 
-import type {
-    AgentUpdate,
-    ClientCommand,
-    UiRequestUpdate,
+import {
+    isTimelineReplyUpdate,
+    type AgentUpdate,
+    type ClientCommand,
+    type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
+import type {
+    TuiTimelinePickerState,
+    TuiTimelinePickerTransition,
+} from "./timeline-picker.ts";
 import {
     createAgentThroughHost,
     resumeAgentThroughHost,
@@ -27,10 +32,20 @@ import {
     renderTuiApproval,
 } from "./approval.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
+import {
+    createBuiltinTuiCommandRegistry,
+    renderTuiCommandSuggestions,
+} from "./commands.ts";
 import { createTuiComposer } from "./composer.ts";
-import { tuiInterruptAction } from "./interrupt.ts";
+import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import { renderTuiStatusLine } from "./status.ts";
+import {
+    applyTuiTimelineReply,
+    createTuiTimelinePickerView,
+    handleTuiTimelineKey,
+    startTuiTimelinePicker,
+} from "./timeline-picker.ts";
 import {
     TUI_ACCENT,
     TUI_MUTED,
@@ -132,6 +147,8 @@ export async function startTui(
     let shuttingDown = false;
     let abortRequested = false;
     let pendingApproval: UiRequestUpdate | undefined;
+    let timelinePicker: TuiTimelinePickerState | undefined;
+    const commandRegistry = createBuiltinTuiCommandRegistry();
 
     const markdownStyle = SyntaxStyle.fromStyles({
         default: { fg: TUI_TEXT },
@@ -195,6 +212,27 @@ export async function startTui(
     });
 
     const composer = createTuiComposer(renderer, submitPrompt);
+    const timelinePickerView = createTuiTimelinePickerView(renderer);
+
+    const commandSuggestionsText = new TextRenderable(renderer, {
+        id: "command-suggestions-text",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: "auto",
+    });
+    const commandSuggestionsBox = new BoxRenderable(renderer, {
+        id: "command-suggestions",
+        title: " Commands ",
+        border: true,
+        borderColor: TUI_MUTED,
+        width: "100%",
+        height: 3,
+        paddingX: 1,
+        visible: false,
+    });
+    commandSuggestionsBox.add(commandSuggestionsText);
+    composer.onContentChange = renderCommandSuggestions;
 
     const approvalText = new TextRenderable(renderer, {
         id: "approval-text",
@@ -242,6 +280,8 @@ export async function startTui(
     app.add(transcript);
     app.add(queuedPromptText);
     app.add(approvalBox);
+    app.add(timelinePickerView.box);
+    app.add(commandSuggestionsBox);
     app.add(composerBox);
     app.add(statusText);
     renderer.root.add(app);
@@ -260,6 +300,24 @@ export async function startTui(
     });
 
     renderer.keyInput.on("keypress", (key) => {
+        if (parseRawInputEvent(key)?.type === "interrupt") {
+            const action = tuiInterruptAction(
+                key,
+                state.working,
+                abortRequested,
+            );
+            key.preventDefault();
+            key.stopPropagation();
+            if (action === "quit") {
+                renderer.destroy();
+            } else if (action === "abort") {
+                abortRequested = true;
+                sendCommand({ type: "abort" });
+                renderStatus();
+            }
+            return;
+        }
+
         if (pendingApproval !== undefined) {
             const response = createTuiApprovalResponse(pendingApproval, key);
             if (response !== undefined) {
@@ -267,8 +325,46 @@ export async function startTui(
                 key.stopPropagation();
                 sendCommand(response);
                 pendingApproval = undefined;
-                composer.focus();
+                if (timelinePicker === undefined) {
+                    composer.focus();
+                } else {
+                    timelinePickerView.box.focus();
+                }
                 renderState();
+                return;
+            }
+        }
+
+        if (timelinePicker !== undefined) {
+            const transition = handleTuiTimelineKey(
+                timelinePicker,
+                key,
+                randomUUID,
+            );
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                applyTimelineTransition(transition);
+                return;
+            }
+        }
+
+        if (
+            key.name === "tab"
+            && renderer.currentFocusedRenderable === composer
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && !key.option
+            && !key.super
+            && !key.hyper
+        ) {
+            const completion = commandRegistry.completion(composer.plainText);
+            if (completion !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                composer.setComposerText(completion);
+                renderCommandSuggestions();
                 return;
             }
         }
@@ -308,6 +404,31 @@ export async function startTui(
             return;
         }
 
+        const commandAction = commandRegistry.dispatch(prompt);
+        if (commandAction?.type === "command_error") {
+            state = appendTuiNotice(state, commandAction.message);
+            renderState();
+            return;
+        }
+        if (commandAction?.type === "open_rewind") {
+            if (
+                state.working
+                || state.queuedPrompts.length > 0
+                || pendingApproval !== undefined
+                || timelinePicker !== undefined
+            ) {
+                state = appendTuiNotice(
+                    state,
+                    "Rewind is available when the agent is idle.",
+                );
+                renderState();
+                return;
+            }
+            composer.clearComposer();
+            applyTimelineTransition(startTuiTimelinePicker(randomUUID()));
+            return;
+        }
+
         composer.clearComposer();
         state = state.working
             ? queueTuiPrompt(state, prompt)
@@ -335,10 +456,26 @@ export async function startTui(
                     if (pendingApproval !== undefined) {
                         composer.blur();
                     } else if (previousApproval !== undefined) {
-                        composer.focus();
+                        if (timelinePicker === undefined) {
+                            composer.focus();
+                        } else {
+                            timelinePickerView.box.focus();
+                        }
                     }
                     if (pendingApproval !== previousApproval) {
                         renderState();
+                    }
+                    continue;
+                }
+                if (isTimelineReplyUpdate(update)) {
+                    if (timelinePicker !== undefined) {
+                        applyTimelineTransition(
+                            applyTuiTimelineReply(
+                                timelinePicker,
+                                update,
+                                randomUUID,
+                            ),
+                        );
                     }
                     continue;
                 }
@@ -350,7 +487,7 @@ export async function startTui(
                 }
                 renderState();
 
-                if (!state.working) {
+                if (!state.working && timelinePicker === undefined) {
                     composer.focus();
                 }
             }
@@ -363,14 +500,41 @@ export async function startTui(
         void client.send(command).catch(reportConnectionError);
     }
 
+    function applyTimelineTransition(
+        transition: TuiTimelinePickerTransition,
+    ): void {
+        timelinePicker = transition.state;
+        if (transition.composerText !== undefined) {
+            composer.setComposerText(transition.composerText);
+        }
+        if (transition.command !== undefined) {
+            sendCommand(transition.command);
+        }
+        if (timelinePicker === undefined) {
+            timelinePickerView.box.visible = false;
+            if (pendingApproval === undefined) {
+                composer.focus();
+            }
+        } else {
+            composer.blur();
+            timelinePickerView.update(timelinePicker);
+            if (pendingApproval === undefined) {
+                timelinePickerView.box.focus();
+            }
+        }
+        renderState();
+    }
+
     function reportConnectionError(error: unknown): void {
         if (shuttingDown) {
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
         pendingApproval = undefined;
+        timelinePicker = undefined;
         state = appendTuiNotice(state, `Connection error: ${message}`);
         renderState();
+        composer.focus();
     }
 
     function renderState(): void {
@@ -382,9 +546,21 @@ export async function startTui(
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
         approvalBox.visible = pendingApproval !== undefined;
-        composerBox.visible = pendingApproval === undefined;
+        timelinePickerView.box.visible = pendingApproval === undefined
+            && timelinePicker !== undefined;
+        transcript.opacity = timelinePickerView.box.visible ? 0.35 : 1;
+        composerBox.visible = pendingApproval === undefined
+            && timelinePicker === undefined;
+        renderCommandSuggestions();
         if (pendingApproval !== undefined) {
             approvalText.content = renderTuiApproval(pendingApproval);
+        }
+        if (timelinePicker !== undefined) {
+            timelinePickerView.update(timelinePicker);
+        }
+
+        while (entryNodes.length > state.entries.length) {
+            entryNodes.pop()?.destroy();
         }
 
         state.entries.forEach((entry, index) => {
@@ -423,6 +599,16 @@ export async function startTui(
         });
 
         renderStatus();
+    }
+
+    function renderCommandSuggestions(): void {
+        const suggestions = commandRegistry.suggestions(composer.plainText);
+        commandSuggestionsText.content = renderTuiCommandSuggestions(
+            suggestions,
+        );
+        commandSuggestionsBox.visible = suggestions.length > 0
+            && pendingApproval === undefined
+            && timelinePicker === undefined;
     }
 
     function finishStreamingAssistant(): void {
