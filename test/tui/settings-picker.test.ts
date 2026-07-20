@@ -5,8 +5,63 @@ import {
     handleTuiSettingsPickerKey,
     renderTuiSettingsPicker,
     startTuiSettingsPicker,
+    startTuiSessionPicker,
     createTuiSettingsPickerView,
 } from "../../clients/tui/settings-picker.ts";
+
+test("session picker filters durable interactive conversations and selects an agent", () => {
+    const state = startTuiSessionPicker([
+        {
+            id: "11111111-first-session",
+            workspace: "/work/alpha",
+            session_path: "/sessions/first.jsonl",
+            kind: "interactive",
+            status: "idle",
+            title: "Fix the deployment race",
+            updated_at: "2026-07-20T20:00:00.000Z",
+        },
+        {
+            id: "22222222-background",
+            workspace: "/work/beta",
+            session_path: "/sessions/background.jsonl",
+            kind: "background",
+            status: "completed",
+        },
+    ]);
+
+    expect(renderTuiSettingsPicker(state)).toContain("Fix the deployment race");
+    expect(renderTuiSettingsPicker(state)).toContain("/work/alpha");
+    expect(renderTuiSettingsPicker(state)).not.toContain("22222222");
+    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+        .toEqual({ kind: "session", sessionPath: "/sessions/first.jsonl" });
+});
+
+test("session picker excludes the current and unavailable conversations", () => {
+    const state = startTuiSessionPicker([
+        session("current", "idle"),
+        session("failed", "failed"),
+        session("closed", "closed"),
+    ], "current");
+
+    expect(renderTuiSettingsPicker(state)).toContain("No conversations found");
+    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+        .toBeUndefined();
+    expect(renderTuiSettingsPicker(startTuiSessionPicker([], undefined, true)))
+        .toContain("Loading conversations…");
+});
+
+function session(
+    id: string,
+    status: "idle" | "failed" | "closed",
+) {
+    return {
+        id,
+        workspace: "/work/alpha",
+        session_path: `/sessions/${id}.jsonl`,
+        kind: "interactive" as const,
+        status,
+    };
+}
 
 const availableModels = [
     {

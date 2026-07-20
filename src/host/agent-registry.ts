@@ -48,6 +48,8 @@ export interface RegisteredAgentSummary {
     readonly session_path: string;
     readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
+    readonly title?: string;
+    readonly updated_at?: string;
 }
 
 export interface AgentRegistryOptions {
@@ -235,19 +237,39 @@ export class AgentRegistry {
 
     list(): RegisteredAgentSummary[] {
         return [...this.agents.values()]
-            .map((entry) => ({
-                id: entry.agent.id,
-                workspace: entry.agent.workspace,
-                session_path: entry.store.path,
-                kind: entry.kind,
-                status: entry.failure !== undefined
-                    ? "failed" as const
-                    : entry.agent.closed
-                        ? "closed" as const
-                        : entry.completed && entry.agent.status === "idle"
-                            ? "completed" as const
-                            : entry.agent.status,
-            }))
+            .map((entry) => {
+                const activeEntries = entry.store.activeEntries();
+                const firstUserEntry = activeEntries.find(
+                    (candidate) => candidate.message.role === "user"
+                        && candidate.message.internal !== true,
+                );
+                const firstUserMessage = firstUserEntry?.message;
+                const title = firstUserMessage?.role === "user"
+                    ? firstUserMessage.content
+                        .map((content) => content.text)
+                        .join(" ")
+                        .replaceAll(/\s+/g, " ")
+                        .trim()
+                    : undefined;
+                return {
+                    id: entry.agent.id,
+                    workspace: entry.agent.workspace,
+                    session_path: entry.store.path,
+                    kind: entry.kind,
+                    status: entry.failure !== undefined
+                        ? "failed" as const
+                        : entry.agent.closed
+                            ? "closed" as const
+                            : entry.completed && entry.agent.status === "idle"
+                                ? "completed" as const
+                                : entry.agent.status,
+                    ...(title === undefined || title.length === 0
+                        ? {}
+                        : { title: title.slice(0, 80) }),
+                    updated_at: activeEntries.at(-1)?.timestamp
+                        ?? entry.store.header.timestamp,
+                };
+            })
             .sort((left, right) => left.id.localeCompare(right.id));
     }
 

@@ -11,6 +11,7 @@ import {
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     TUI_ACCENT,
     TUI_ELEMENT,
@@ -21,7 +22,12 @@ import {
 } from "./state.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 
-export type TuiSettingsPickerKind = "model" | "reasoning" | "permissions" | "theme";
+export type TuiSettingsPickerKind =
+    | "model"
+    | "reasoning"
+    | "permissions"
+    | "theme"
+    | "session";
 
 export interface TuiSettingsPickerOption {
     readonly value: string;
@@ -36,6 +42,7 @@ export interface TuiSettingsPickerState {
     readonly selectedIndex: number;
     readonly query: string;
     readonly initialTheme?: TuiThemeName;
+    readonly loading?: boolean;
 }
 
 export interface TuiSettingsPickerKey {
@@ -54,7 +61,8 @@ export type TuiSettingsPickerSelection =
         readonly reasoningEffort: ModelReasoningEffort;
     }
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
-    | { readonly kind: "theme"; readonly theme: TuiThemeName };
+    | { readonly kind: "theme"; readonly theme: TuiThemeName }
+    | { readonly kind: "session"; readonly sessionPath: string };
 
 export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
@@ -134,6 +142,34 @@ export function startTuiSettingsPicker(
         selectedIndex,
         query: "",
         ...(kind === "theme" ? { initialTheme: currentTheme } : {}),
+    };
+}
+
+export function startTuiSessionPicker(
+    agents: readonly RegisteredAgentSummary[],
+    currentAgentId?: string,
+    loading = false,
+): TuiSettingsPickerState {
+    const options = agents
+        .filter((agent) => agent.kind === "interactive"
+            && agent.id !== currentAgentId
+            && agent.status !== "closed"
+            && agent.status !== "failed")
+        .toSorted((left, right) =>
+            (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
+        )
+        .map((agent) => ({
+            value: agent.session_path,
+            label: agent.title ?? agent.id.slice(0, 8),
+            description: `${agent.status} · ${agent.workspace}`,
+        }));
+    return {
+        kind: "session",
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        loading,
     };
 }
 
@@ -388,7 +424,12 @@ export function renderTuiSettingsPicker(
     const search = `Search  ${state.query}\n\n${
         state.kind === "model" && state.query.length === 0 ? "Recent\n" : ""
     }`;
-    return `${search}${rows.join("\n")}\n\n↑↓ move · enter select · esc close`;
+    const empty = state.kind === "session" && rows.length === 0
+        ? state.loading
+            ? "Loading conversations…"
+            : "No conversations found"
+        : rows.join("\n");
+    return `${search}${empty}\n\n↑↓ move · enter select · esc close`;
 }
 
 function searched(
@@ -454,6 +495,9 @@ function pickerSelection(
     if (kind === "permissions") {
         return { kind, mode: value as ApprovalMode };
     }
+    if (kind === "session") {
+        return { kind, sessionPath: value };
+    }
     return { kind, theme: value as TuiThemeName };
 }
 
@@ -464,7 +508,9 @@ function pickerTitle(kind: TuiSettingsPickerKind): string {
             ? " Reasoning "
             : kind === "permissions"
                 ? " Permissions "
-                : " Themes ";
+                : kind === "session"
+                    ? " Resume "
+                    : " Themes ";
 }
 
 function unchanged(

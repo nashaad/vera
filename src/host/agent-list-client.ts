@@ -37,6 +37,14 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
             || agent.status === "completed"
             || agent.status === "closed"
             || agent.status === "failed"
+        )
+        && (agent.title === undefined || typeof agent.title === "string")
+        && (
+            agent.updated_at === undefined
+            || (
+                typeof agent.updated_at === "string"
+                && !Number.isNaN(Date.parse(agent.updated_at))
+            )
         );
 }
 

@@ -27,6 +27,8 @@ import {
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
+import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import {
     createTuiApprovalView,
@@ -49,6 +51,7 @@ import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerKey,
     startTuiSettingsPicker,
+    startTuiSessionPicker,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
 } from "./settings-picker.ts";
@@ -93,9 +96,15 @@ const PROGRESS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧",
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
+    readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+}
+
+export interface TuiExit {
+    readonly resumeSessionPath?: string;
 }
 
 export interface TuiAgentClient {
+    readonly agentId?: string;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     detach(): Promise<void>;
@@ -131,7 +140,7 @@ if (import.meta.main) {
 
 export async function startConfiguredTui(target: TuiStartTarget): Promise<void> {
     const host = await findOrStartResidentHost();
-    const agentId = target.type === "create"
+    let agentId = target.type === "create"
         ? (await createAgentThroughHost(
             host.socket_path,
             target.workspace,
@@ -142,21 +151,33 @@ export async function startConfiguredTui(target: TuiStartTarget): Promise<void> 
                 target.sessionPath,
             )).id
             : target.agentId;
-    const client = await attachAgent({
-        socketPath: host.socket_path,
-        agentId,
-    });
-    try {
-        await startTui({ client });
-    } catch (error) {
-        client.close();
-        throw error;
+    while (true) {
+        const client = await attachAgent({
+            socketPath: host.socket_path,
+            agentId,
+        });
+        try {
+            const exit = await startTui({
+                client,
+                listAgents: () => listAgentsThroughHost(host.socket_path),
+            });
+            if (exit.resumeSessionPath === undefined) {
+                return;
+            }
+            agentId = (await resumeAgentThroughHost(
+                host.socket_path,
+                exit.resumeSessionPath,
+            )).id;
+        } catch (error) {
+            client.close();
+            throw error;
+        }
     }
 }
 
 export async function startTui(
     dependencies: TuiDependencies,
-): Promise<void> {
+): Promise<TuiExit> {
     const { client } = dependencies;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
@@ -183,6 +204,9 @@ export async function startTui(
     let phaseSince: number | undefined;
     let activity = "thinking";
     let themeApplicationVersion = 0;
+    let resumeSessionPath: string | undefined;
+    let resumeListVersion = 0;
+    const finished = Promise.withResolvers<TuiExit>();
     const commandRegistry = createBuiltinTuiCommandRegistry();
 
     let markdownStyle = createMarkdownStyle(theme);
@@ -328,7 +352,13 @@ export async function startTui(
     renderer.on(CliRenderEvents.DESTROY, () => {
         shuttingDown = true;
         clearInterval(statusTimer);
-        void client.detach().catch(() => client.close());
+        void client.detach().catch(() => client.close()).then(() => {
+            finished.resolve({
+                ...(resumeSessionPath === undefined
+                    ? {}
+                    : { resumeSessionPath }),
+            });
+        });
     });
 
     const statusTimer = setInterval(() => {
@@ -611,6 +641,53 @@ export async function startTui(
             );
             renderState();
             focusActiveSurface();
+            return;
+        }
+        if (commandAction?.type === "open_resume_picker") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            if (dependencies.listAgents === undefined) {
+                state = appendTuiNotice(state, "Session listing is unavailable");
+                renderState();
+                return;
+            }
+            const version = ++resumeListVersion;
+            settingsPicker = startTuiSessionPicker(
+                [],
+                client.agentId,
+                true,
+            );
+            focusActiveSurface();
+            renderState();
+            void dependencies.listAgents().then((agents) => {
+                if (
+                    shuttingDown
+                    || version !== resumeListVersion
+                    || settingsPicker?.kind !== "session"
+                ) {
+                    return;
+                }
+                settingsPicker = startTuiSessionPicker(agents, client.agentId);
+                focusActiveSurface();
+                renderState();
+            }).catch((error) => {
+                if (
+                    !shuttingDown
+                    && version === resumeListVersion
+                    && settingsPicker?.kind === "session"
+                ) {
+                    const message = error instanceof Error
+                        ? error.message
+                        : String(error);
+                    state = appendTuiNotice(
+                        state,
+                        `Could not list sessions: ${message}`,
+                    );
+                    settingsPicker = undefined;
+                    focusActiveSurface();
+                    renderState();
+                }
+            });
             return;
         }
         if (commandAction?.type === "open_rewind") {
@@ -918,10 +995,14 @@ export async function startTui(
                     mode: selection.mode,
                 });
                 state = appendTuiNotice(state, `permissions change requested: ${selection.mode}`);
-            } else {
+            } else if (selection.kind === "theme") {
                 themeName = selection.theme;
                 saveTuiThemePreference(themeName);
                 void applySelectedTheme(themeName, true);
+            } else {
+                resumeSessionPath = selection.sessionPath;
+                renderer.destroy();
+                return;
             }
             settingsPicker = undefined;
         }
@@ -1024,6 +1105,8 @@ export async function startTui(
             }
         }
     }
+
+    return finished.promise;
 
     async function copyTranscriptSelection(selection: Selection): Promise<void> {
         const text = selection.getSelectedText();
