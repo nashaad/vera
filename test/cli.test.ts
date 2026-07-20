@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { runCli, runCliMain } from "../clients/cli/main.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { HostProtocolMismatchError } from "../src/host/lockfile.ts";
+import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 
 test("vera help and version are available without starting a client", async () => {
     let output = "";
@@ -196,7 +197,7 @@ test("vera reports host upgrades without a runtime stack trace", async () => {
     expect(exitCode).toBe(1);
     expect(errorOutput).toBe(
         "Vera host upgrade required: Resident Vera host PID 49372 uses protocol 1; "
-        + "stop it and relaunch Vera to use protocol 3.\n",
+        + `stop it and relaunch Vera to use protocol ${HOST_PROTOCOL_VERSION}.\n`,
     );
     expect(errorOutput).not.toContain("clients/tui/main.ts");
     expect(errorOutput).not.toContain("HostProtocolMismatchError:");
