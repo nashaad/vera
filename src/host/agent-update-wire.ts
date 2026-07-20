@@ -93,9 +93,20 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     }
     if (update.type === "ui_request") {
         const request = asRecord(update.request);
+        if (
+            typeof update.requestId !== "string"
+            || update.requestId.length === 0
+        ) {
+            return undefined;
+        }
+        if (request?.type === "user_question") {
+            return hasExactKeys(update, ["type", "requestId", "request", "seq"])
+                    && isUserQuestionRequest(request)
+                ? value as AgentUpdate
+                : undefined;
+        }
         const toolCall = asRecord(request?.toolCall);
-        return typeof update.requestId === "string"
-                && request?.type === "tool_approval"
+        return request?.type === "tool_approval"
                 && typeof request.reason === "string"
                 && typeof request.warning === "string"
                 && typeof toolCall?.id === "string"
@@ -105,6 +116,45 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function isUserQuestionRequest(request: Record<string, unknown>): boolean {
+    if (
+        !hasExactKeys(request, ["type", "question", "choices"])
+        || typeof request.question !== "string"
+        || request.question.trim().length === 0
+        || !Array.isArray(request.choices)
+        || request.choices.length < 2
+        || request.choices.length > 9
+    ) {
+        return false;
+    }
+    const ids = new Set<string>();
+    for (const value of request.choices) {
+        const choice = asRecord(value);
+        if (
+            choice === undefined
+            || !hasExactKeys(choice, ["id", "label"])
+            || typeof choice.id !== "string"
+            || choice.id.trim().length === 0
+            || typeof choice.label !== "string"
+            || choice.label.trim().length === 0
+            || ids.has(choice.id)
+        ) {
+            return false;
+        }
+        ids.add(choice.id);
+    }
+    return true;
+}
+
+function hasExactKeys(
+    value: Record<string, unknown>,
+    expected: readonly string[],
+): boolean {
+    const keys = Object.keys(value);
+    return keys.length === expected.length
+        && expected.every((key) => Object.hasOwn(value, key));
 }
 
 function parseTimelineReply(

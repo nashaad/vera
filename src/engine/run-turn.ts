@@ -29,7 +29,7 @@ import {
 } from "./events.ts";
 import {
     executeToolHandler,
-    toolDefinitionsForEffects,
+    toolDefinitionsForCapabilities,
     toolMayRunInParallel,
     toolResultMessage,
 } from "../tools/execute.ts";
@@ -83,6 +83,7 @@ export interface RunTurnState {
     readonly approvalMode: ApprovalMode;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
+    readonly enableUserInteraction?: boolean;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
@@ -100,6 +101,7 @@ export interface RunHeadlessLoopOptions {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
+    readonly enableUserInteraction?: boolean;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
@@ -218,6 +220,7 @@ export async function runHeadlessLoop(
         approvalMode: localApprovalMode,
         applyToolEffect,
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
+        enableUserInteraction: options.enableUserInteraction ?? true,
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
@@ -257,10 +260,11 @@ export async function runTurn(
             ?? state.approvalMode;
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
-        const tools = toolDefinitionsForEffects(
+        const tools = toolDefinitionsForCapabilities(
             state.applyToolEffect === undefined
                 ? []
                 : state.enabledToolEffects ?? [],
+            state.enableUserInteraction === true,
         );
         await drainPendingDeliveries(state);
         const userMessage: UserMessage = {
@@ -621,18 +625,20 @@ async function executePreparedTool(
         state.toolRuntime,
         signal,
     );
-    const output = await applyToolExecution(
-        execution,
-        state.applyToolEffect,
-        signal,
-        {
-            approvalMode,
-            model: modelSettings.model,
-            ...(modelSettings.reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: modelSettings.reasoningEffort }),
-        },
-    );
+    const output = execution.kind === "interaction"
+        ? await resolveToolInteraction(state, execution.interaction, signal)
+        : await applyToolExecution(
+            execution,
+            state.applyToolEffect,
+            signal,
+            {
+                approvalMode,
+                model: modelSettings.model,
+                ...(modelSettings.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: modelSettings.reasoningEffort }),
+            },
+        );
     const result = toolResultMessage(toolCall, output);
     const durationMs = performance.now() - startedAt;
     return finishExecutedTool(state, toolCall, hookCall, result, durationMs);
@@ -750,7 +756,7 @@ async function finishToolCalls(
 }
 
 async function applyToolExecution(
-    execution: ToolExecutionResult,
+    execution: Exclude<ToolExecutionResult, { readonly kind: "interaction" }>,
     applyEffect: ApplyToolEffect | undefined,
     signal: AbortSignal,
     context: ToolEffectContext,
@@ -775,6 +781,42 @@ async function applyToolExecution(
             isError: true,
         };
     }
+}
+
+async function resolveToolInteraction(
+    state: RunTurnState,
+    interaction: Extract<
+        ToolExecutionResult,
+        { readonly kind: "interaction" }
+    >["interaction"],
+    signal: AbortSignal,
+): Promise<ToolOutput> {
+    if (interaction.type !== "ask_user") {
+        return {
+            kind: "output",
+            output: `Unsupported tool interaction: ${interaction.type}`,
+            isError: true,
+        };
+    }
+    const result = await state.inbound.requestUserQuestion({
+        question: interaction.question,
+        choices: interaction.choices,
+    }, { signal });
+    if (result.outcome === "cancelled") {
+        return {
+            kind: "output",
+            output: JSON.stringify({ cancelled: true }),
+            isError: false,
+        };
+    }
+    return {
+        kind: "output",
+        output: JSON.stringify({
+            choice_id: result.choice.id,
+            label: result.choice.label,
+        }),
+        isError: false,
+    };
 }
 
 async function commitMessage(

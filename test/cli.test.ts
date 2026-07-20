@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { runCli } from "../clients/cli/main.ts";
+import { runCli, runCliMain } from "../clients/cli/main.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
+import { HostProtocolMismatchError } from "../src/host/lockfile.ts";
 
 test("vera ls renders resident agents from the host", async () => {
     const agents: RegisteredAgentSummary[] = [
@@ -118,4 +119,20 @@ test("vera login runs OpenAI Codex OAuth and prints the authorization URL", asyn
     expect(loggedIn).toBe(true);
     expect(output).toContain("https://auth.openai.test/authorize");
     expect(output).toContain("Logged in to OpenAI Codex");
+});
+
+test("vera reports host upgrades without a runtime stack trace", async () => {
+    let errorOutput = "";
+    const exitCode = await runCliMain([], {
+        runTui: () => Promise.reject(new HostProtocolMismatchError(49372, 1)),
+        stderr: { write: (text) => errorOutput += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toBe(
+        "Vera host upgrade required: Resident Vera host PID 49372 uses protocol 1; "
+        + "stop it and relaunch Vera to use protocol 2.\n",
+    );
+    expect(errorOutput).not.toContain("clients/tui/main.ts");
+    expect(errorOutput).not.toContain("HostProtocolMismatchError:");
 });

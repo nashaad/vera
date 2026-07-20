@@ -8,6 +8,7 @@ import { editTool } from "./edit.ts";
 import { readTool, writeTool } from "./files.ts";
 import type { ToolRuntime } from "./runtime.ts";
 import { subagentTool } from "./subagent.ts";
+import { askUserTool } from "./ask-user.ts";
 import type {
     RegisteredTool,
     ToolEffect,
@@ -24,6 +25,7 @@ const ordinaryTools: readonly RegisteredTool[] = [
 ];
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
+    askUserTool,
     subagentTool,
     backgroundAgentTool,
 ];
@@ -31,13 +33,18 @@ const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
 );
 
-export function toolDefinitionsForEffects(
+export function toolDefinitionsForCapabilities(
     enabledEffects: readonly ToolEffect["type"][],
+    enableUserInteraction = false,
 ): readonly ModelTool[] {
     const enabled = new Set(enabledEffects);
     return registeredTools
         .filter((tool) =>
-            tool.effectType === undefined || enabled.has(tool.effectType)
+            (tool.effectType === undefined || enabled.has(tool.effectType))
+            && (
+                tool.requiresUserInteraction !== true
+                || enableUserInteraction
+            )
         )
         .map((tool) => tool.definition);
 }
@@ -54,7 +61,9 @@ export async function executeToolCall(
     const execution = await executeToolHandler(toolCall, runtime, signal);
     const output = execution.kind === "output"
         ? execution
-        : errorOutput("Tool effects are not enabled in this agent");
+        : execution.kind === "interaction"
+            ? errorOutput("User interaction is not enabled in this agent")
+            : errorOutput("Tool effects are not enabled in this agent");
     return toolResultMessage(toolCall, output);
 }
 

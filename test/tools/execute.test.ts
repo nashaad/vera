@@ -14,16 +14,16 @@ import type { ToolCallContent } from "../../src/model/types.ts";
 import {
     executeToolCall,
     executeToolHandler,
-    toolDefinitionsForEffects,
+    toolDefinitionsForCapabilities,
 } from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
 test("subagent is exposed only when the engine can apply effects", async () => {
-    const ordinary = toolDefinitionsForEffects([]).map((tool) => tool.name);
-    const withSubagent = toolDefinitionsForEffects([
+    const ordinary = toolDefinitionsForCapabilities([]).map((tool) => tool.name);
+    const withSubagent = toolDefinitionsForCapabilities([
         "spawn_subagent",
     ]).map((tool) => tool.name);
-    const withAllEffects = toolDefinitionsForEffects([
+    const withAllEffects = toolDefinitionsForCapabilities([
         "spawn_subagent",
         "spawn_background_agent",
     ]).map((tool) => tool.name);

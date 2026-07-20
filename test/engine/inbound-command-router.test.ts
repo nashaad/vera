@@ -198,6 +198,249 @@ test("a disconnected client denies approval without waiting for timeout", async 
     });
 });
 
+test("the inbound router returns selected and cancelled user questions", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const selected = router.requestUserQuestion({
+        question: "Which environment?",
+        choices: [
+            { id: "staging", label: "Staging" },
+            { id: "production", label: "Production" },
+        ],
+    });
+    const selectedRequest = await channel.client.receive();
+    expect(selectedRequest).toMatchObject({
+        type: "ui_request",
+        request: {
+            type: "user_question",
+            question: "Which environment?",
+        },
+        seq: 1,
+    });
+    if (selectedRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: selectedRequest.requestId,
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "production",
+        },
+    });
+
+    expect(await selected).toEqual({
+        outcome: "selected",
+        choice: { id: "production", label: "Production" },
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: selectedRequest.requestId,
+        seq: 2,
+    });
+
+    const cancelled = router.requestUserQuestion({
+        question: "Continue?",
+        choices: [{ id: "yes", label: "Yes" }],
+    });
+    const cancelledRequest = await channel.client.receive();
+    if (cancelledRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: cancelledRequest.requestId,
+        response: { type: "user_question", outcome: "cancelled" },
+    });
+
+    expect(await cancelled).toEqual({ outcome: "cancelled" });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: cancelledRequest.requestId,
+        seq: 4,
+    });
+});
+
+test("user questions ignore mismatched and stale responses; first valid wins", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const first = router.requestUserQuestion({
+        question: "Pick one",
+        choices: [
+            { id: "one", label: "One" },
+            { id: "two", label: "Two" },
+        ],
+    });
+    const firstRequest = await channel.client.receive();
+    if (firstRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: { type: "tool_approval", decision: "allow" },
+    });
+    channel.client.send({
+        type: "ui_response",
+        requestId: "unknown-request",
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "one",
+        },
+    });
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "unknown-choice",
+        },
+    });
+    expect(await Promise.race([
+        first.then(() => "resolved" as const),
+        Bun.sleep(10).then(() => "waiting" as const),
+    ])).toBe("waiting");
+
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "one",
+        },
+    });
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: { type: "user_question", outcome: "cancelled" },
+    });
+    expect(await first).toEqual({
+        outcome: "selected",
+        choice: { id: "one", label: "One" },
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: firstRequest.requestId,
+        seq: 2,
+    });
+
+    const second = router.requestUserQuestion({
+        question: "Pick again",
+        choices: [{ id: "one", label: "One" }],
+    });
+    const secondRequest = await channel.client.receive();
+    if (secondRequest.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    expect(secondRequest.seq).toBe(3);
+    channel.client.send({
+        type: "ui_response",
+        requestId: firstRequest.requestId,
+        response: { type: "user_question", outcome: "cancelled" },
+    });
+    expect(await Promise.race([
+        second.then(() => "resolved" as const),
+        Bun.sleep(10).then(() => "waiting" as const),
+    ])).toBe("waiting");
+    channel.client.send({
+        type: "ui_response",
+        requestId: secondRequest.requestId,
+        response: { type: "user_question", outcome: "cancelled" },
+    });
+    expect(await second).toEqual({ outcome: "cancelled" });
+});
+
+test("turn abort and endpoint failure cancel pending user questions", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const turn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "ask me" });
+    const active = await turn;
+
+    const aborted = router.requestUserQuestion({
+        question: "Continue?",
+        choices: [{ id: "yes", label: "Yes" }],
+    }, { signal: active.signal });
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({ type: "abort" });
+    expect(await aborted).toEqual({ outcome: "cancelled" });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: request.requestId,
+        seq: 2,
+    });
+    expect(active.signal.aborted).toBe(true);
+    router.finishTurn();
+
+    const disconnected = new InboundCommandRouter({
+        send(): void {},
+        receive(): Promise<never> {
+            return Promise.reject(new Error("client disconnected"));
+        },
+    }, new EngineEventBus());
+    await Bun.sleep(0);
+    expect(await disconnected.requestUserQuestion({
+        question: "Continue?",
+        choices: [{ id: "yes", label: "Yes" }],
+    })).toEqual({ outcome: "cancelled" });
+});
+
+test("timeline operations are blocked while a user question is pending", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const handled: boolean[] = [];
+    let notifyHandled: () => void = () => {};
+    const commandHandled = new Promise<void>((resolve) => {
+        notifyHandled = resolve;
+    });
+    let router: InboundCommandRouter;
+    router = new InboundCommandRouter(channel.engine, events, {
+        async handleTimelineCommand() {
+            handled.push(router.timelineBlocked());
+            notifyHandled();
+        },
+    });
+
+    const question = router.requestUserQuestion({
+        question: "Continue?",
+        choices: [{ id: "yes", label: "Yes" }],
+    });
+    expect(router.timelineBlocked()).toBe(true);
+    channel.client.send({ type: "list_timeline", requestId: "list-1" });
+    await commandHandled;
+    expect(handled).toEqual([true]);
+
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "user_question", outcome: "cancelled" },
+    });
+    expect(await question).toEqual({ outcome: "cancelled" });
+    expect(router.timelineBlocked()).toBe(false);
+});
+
 test("model settings commands reject explicitly when no owner is installed", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

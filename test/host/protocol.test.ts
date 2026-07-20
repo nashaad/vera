@@ -45,7 +45,7 @@ test("host protocol parses identity requests and encodes responses", () => {
     })).toBe(
         '{"type":"host_identity","pid":101,'
         + '"started_at":"2026-07-17T12:00:00.000Z",'
-        + '"protocol_version":1}\n',
+        + `"protocol_version":${HOST_PROTOCOL_VERSION}}\n`,
     );
     expect(encodeHostResponse({
         type: "agent_list",

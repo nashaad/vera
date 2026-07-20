@@ -8,9 +8,11 @@ import {
     renderTuiApproval,
     tuiApprovalDecision,
 } from "../../clients/tui/approval.ts";
-import type { UiRequestUpdate } from "../../src/engine/protocol.ts";
+import type {
+    ToolApprovalUiRequestUpdate,
+} from "../../src/engine/protocol.ts";
 
-const request: UiRequestUpdate = {
+const request: ToolApprovalUiRequestUpdate = {
     type: "ui_request",
     requestId: "request-1",
     request: {
@@ -158,7 +160,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
     }
 });
 
-function longRequest(): UiRequestUpdate {
+function longRequest(): ToolApprovalUiRequestUpdate {
     return requestWithCommand(
         `grep -rli -i "${"prompt.assembly|".repeat(20)}" /a/very/long/project/path --include="*.md"`,
         "long-request",
@@ -168,7 +170,7 @@ function longRequest(): UiRequestUpdate {
 function requestWithCommand(
     command: string,
     requestId: string,
-): UiRequestUpdate {
+): ToolApprovalUiRequestUpdate {
     return {
         ...request,
         requestId,

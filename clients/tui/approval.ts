@@ -7,9 +7,10 @@ import {
 
 import type {
     AgentUpdate,
-    UiRequestUpdate,
+    ToolApprovalUiRequestUpdate,
     UiResponseCommand,
 } from "../../src/engine/protocol.ts";
+import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { TUI_NOTICE, TUI_TEXT } from "./state.ts";
 
 const APPROVAL_ACTIONS = "[y] allow [n/esc] deny";
@@ -26,9 +27,10 @@ export interface TuiApprovalKey {
 export interface TuiApprovalView {
     readonly box: BoxRenderable;
     readonly details: ScrollBoxRenderable;
+    readonly detailsText: TextRenderable;
     readonly actions: TextRenderable;
     focus(): void;
-    update(update: UiRequestUpdate): void;
+    update(update: ToolApprovalUiRequestUpdate): void;
 }
 
 export function createTuiApprovalView(
@@ -93,6 +95,7 @@ export function createTuiApprovalView(
     return {
         box,
         details,
+        detailsText,
         actions,
         focus(): void {
             details.focus();
@@ -108,7 +111,7 @@ export function createTuiApprovalView(
     };
 }
 
-export function renderTuiApproval(update: UiRequestUpdate): string {
+export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
     return [
         renderTuiApprovalDetails(update),
         "",
@@ -116,7 +119,9 @@ export function renderTuiApproval(update: UiRequestUpdate): string {
     ].join("\n");
 }
 
-export function renderTuiApprovalDetails(update: UiRequestUpdate): string {
+export function renderTuiApprovalDetails(
+    update: ToolApprovalUiRequestUpdate,
+): string {
     return [
         formatToolCall(update),
         "",
@@ -141,7 +146,7 @@ export function tuiApprovalDecision(
 }
 
 export function createTuiApprovalResponse(
-    update: UiRequestUpdate,
+    update: ToolApprovalUiRequestUpdate,
     key: TuiApprovalKey,
 ): UiResponseCommand | undefined {
     const decision = tuiApprovalDecision(key);
@@ -156,10 +161,13 @@ export function createTuiApprovalResponse(
 }
 
 export function applyTuiApprovalUpdate(
-    current: UiRequestUpdate | undefined,
+    current: ToolApprovalUiRequestUpdate | undefined,
     update: AgentUpdate,
-): UiRequestUpdate | undefined {
-    if (update.type === "ui_request") {
+): ToolApprovalUiRequestUpdate | undefined {
+    if (
+        update.type === "ui_request"
+        && isToolApprovalUiRequestUpdate(update)
+    ) {
         return update;
     }
     if (
@@ -171,7 +179,7 @@ export function applyTuiApprovalUpdate(
     return current;
 }
 
-function formatToolCall(update: UiRequestUpdate): string {
+function formatToolCall(update: ToolApprovalUiRequestUpdate): string {
     const command = update.request.toolCall.input.command;
     if (update.request.toolCall.name === "bash" && typeof command === "string") {
         return `$ ${command}`;

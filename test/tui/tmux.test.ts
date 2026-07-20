@@ -171,6 +171,58 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "user question accepts a digit immediately and restores composer focus",
+    async () => {
+        const socket = `vera-question-${process.pid}-${randomUUID()}`;
+        const session = "question";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-question-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-question-child.ts",
+                42,
+                10,
+            );
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "[1-3] choose · [esc] cancel",
+            );
+            expect(pane).toContain("Which release channel");
+            expect(pane).toContain("[1] Stable");
+            expect(pane).toContain("[2] Preview");
+            expect(pane).toContain("[3] Nightly");
+
+            sendText(socket, session, "2");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Selection received: preview-channel",
+            );
+            expect(pane).not.toContain("[1-3] choose");
+
+            sendText(socket, session, "focus restored");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "FOCUS RESTORED");
+            expect(pane).toContain("focus restored");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "real TUI mouse drag copies transcript text and keeps it highlighted",
     async () => {
         const socket = `vera-selection-${process.pid}-${randomUUID()}`;

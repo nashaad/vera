@@ -8,7 +8,10 @@ import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { sendPromptThroughHost } from "../../src/host/agent-send-client.ts";
-import { createHostLockfile } from "../../src/host/lockfile.ts";
+import {
+    createHostLockfile,
+    HostProtocolMismatchError,
+} from "../../src/host/lockfile.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 import type { TuiStartTarget } from "../tui/main.ts";
@@ -128,6 +131,28 @@ export async function runCli(
     return 1;
 }
 
+export async function runCliMain(
+    args: readonly string[],
+    dependencies: CliDependencies = {},
+): Promise<number> {
+    try {
+        return await runCli(args, dependencies);
+    } catch (error) {
+        const output = dependencies.stderr ?? stderr;
+        output.write(`${renderCliFailure(error)}\n`);
+        return 1;
+    }
+}
+
+export function renderCliFailure(error: unknown): string {
+    if (error instanceof HostProtocolMismatchError) {
+        return `Vera host upgrade required: ${error.message}`;
+    }
+    return `Vera failed: ${
+        error instanceof Error ? error.message : String(error)
+    }`;
+}
+
 export function renderAgentList(
     agents: readonly RegisteredAgentSummary[],
 ): string {
@@ -187,5 +212,5 @@ async function runConfiguredTui(target: TuiStartTarget): Promise<void> {
 }
 
 if (import.meta.main) {
-    process.exitCode = await runCli(process.argv.slice(2));
+    process.exitCode = await runCliMain(process.argv.slice(2));
 }

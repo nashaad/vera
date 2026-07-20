@@ -11,7 +11,9 @@ import {
 import { randomUUID } from "node:crypto";
 
 import {
+    isToolApprovalUiRequestUpdate,
     isTimelineReplyUpdate,
+    isUserQuestionUiRequestUpdate,
     type AgentUpdate,
     type ClientCommand,
     type UiRequestUpdate,
@@ -27,10 +29,13 @@ import {
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import {
-    applyTuiApprovalUpdate,
     createTuiApprovalView,
     createTuiApprovalResponse,
 } from "./approval.ts";
+import {
+    createTuiQuestionResponse,
+    createTuiQuestionView,
+} from "./question.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createBuiltinTuiCommandRegistry,
@@ -66,6 +71,7 @@ const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
 const WORKING_HINT = "working… · enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
 const APPROVAL_HINT = "approval required · y allow · n/esc deny · ctrl+c stop";
+const QUESTION_HINT = "question waiting · 1-9 choose · esc cancel · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
 
 export interface TuiDependencies {
@@ -149,7 +155,7 @@ export async function startTui(
     let statusNoticeVersion = 0;
     let shuttingDown = false;
     let abortRequested = false;
-    let pendingApproval: UiRequestUpdate | undefined;
+    let pendingUiRequest: UiRequestUpdate | undefined;
     let timelinePicker: TuiTimelinePickerState | undefined;
     const commandRegistry = createBuiltinTuiCommandRegistry();
 
@@ -217,6 +223,7 @@ export async function startTui(
     const composer = createTuiComposer(renderer, submitPrompt);
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const approvalView = createTuiApprovalView(renderer);
+    const questionView = createTuiQuestionView(renderer);
 
     const commandSuggestionsText = new TextRenderable(renderer, {
         id: "command-suggestions-text",
@@ -262,6 +269,7 @@ export async function startTui(
     app.add(transcript);
     app.add(queuedPromptText);
     app.add(approvalView.box);
+    app.add(questionView.box);
     app.add(timelinePickerView.box);
     app.add(commandSuggestionsBox);
     app.add(composerBox);
@@ -276,7 +284,14 @@ export async function startTui(
     });
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
-        if (isTranscriptSelection(selection, entryNodes)) {
+        const copyableNodes = pendingUiRequest !== undefined
+                && isToolApprovalUiRequestUpdate(pendingUiRequest)
+            ? [approvalView.detailsText]
+            : pendingUiRequest !== undefined
+                    && isUserQuestionUiRequestUpdate(pendingUiRequest)
+                ? [questionView.detailsText]
+                : entryNodes;
+        if (isTranscriptSelection(selection, copyableNodes)) {
             void copyTranscriptSelection(selection);
         }
     });
@@ -300,18 +315,16 @@ export async function startTui(
             return;
         }
 
-        if (pendingApproval !== undefined) {
-            const response = createTuiApprovalResponse(pendingApproval, key);
+        if (pendingUiRequest !== undefined) {
+            const response = isToolApprovalUiRequestUpdate(pendingUiRequest)
+                ? createTuiApprovalResponse(pendingUiRequest, key)
+                : createTuiQuestionResponse(pendingUiRequest, key);
             if (response !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 sendCommand(response);
-                pendingApproval = undefined;
-                if (timelinePicker === undefined) {
-                    composer.focus();
-                } else {
-                    timelinePickerView.box.focus();
-                }
+                pendingUiRequest = undefined;
+                focusActiveSurface();
                 renderState();
                 return;
             }
@@ -396,7 +409,7 @@ export async function startTui(
             if (
                 state.working
                 || state.queuedPrompts.length > 0
-                || pendingApproval !== undefined
+                || pendingUiRequest !== undefined
                 || timelinePicker !== undefined
             ) {
                 state = appendTuiNotice(
@@ -430,23 +443,14 @@ export async function startTui(
                     update.type === "ui_request"
                     || update.type === "ui_request_closed"
                 ) {
-                    const previousApproval = pendingApproval;
-                    pendingApproval = applyTuiApprovalUpdate(
-                        pendingApproval,
+                    const previousRequest = pendingUiRequest;
+                    pendingUiRequest = applyTuiUiRequestUpdate(
+                        pendingUiRequest,
                         update,
                     );
-                    if (pendingApproval !== undefined) {
-                        composer.blur();
-                        approvalView.focus();
-                    } else if (previousApproval !== undefined) {
-                        if (timelinePicker === undefined) {
-                            composer.focus();
-                        } else {
-                            timelinePickerView.box.focus();
-                        }
-                    }
-                    if (pendingApproval !== previousApproval) {
+                    if (pendingUiRequest !== previousRequest) {
                         renderState();
+                        focusActiveSurface();
                     }
                     continue;
                 }
@@ -472,7 +476,7 @@ export async function startTui(
 
                 if (
                     !state.working
-                    && pendingApproval === undefined
+                    && pendingUiRequest === undefined
                     && timelinePicker === undefined
                 ) {
                     composer.focus();
@@ -487,6 +491,29 @@ export async function startTui(
         void client.send(command).catch(reportConnectionError);
     }
 
+    function focusActiveSurface(): void {
+        composer.blur();
+        if (
+            pendingUiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+        ) {
+            approvalView.focus();
+            return;
+        }
+        if (
+            pendingUiRequest !== undefined
+            && isUserQuestionUiRequestUpdate(pendingUiRequest)
+        ) {
+            questionView.focus();
+            return;
+        }
+        if (timelinePicker !== undefined) {
+            timelinePickerView.box.focus();
+            return;
+        }
+        composer.focus();
+    }
+
     function applyTimelineTransition(
         transition: TuiTimelinePickerTransition,
     ): void {
@@ -499,13 +526,13 @@ export async function startTui(
         }
         if (timelinePicker === undefined) {
             timelinePickerView.box.visible = false;
-            if (pendingApproval === undefined) {
+            if (pendingUiRequest === undefined) {
                 composer.focus();
             }
         } else {
             composer.blur();
             timelinePickerView.update(timelinePicker);
-            if (pendingApproval === undefined) {
+            if (pendingUiRequest === undefined) {
                 timelinePickerView.box.focus();
             }
         }
@@ -517,7 +544,7 @@ export async function startTui(
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
-        pendingApproval = undefined;
+        pendingUiRequest = undefined;
         timelinePicker = undefined;
         state = appendTuiNotice(state, `Connection error: ${message}`);
         renderState();
@@ -532,18 +559,31 @@ export async function startTui(
         placeholder.visible = state.entries.length === 0;
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
-        approvalView.box.visible = pendingApproval !== undefined;
-        timelinePickerView.box.visible = pendingApproval === undefined
+        approvalView.box.visible = pendingUiRequest?.request.type
+            === "tool_approval";
+        questionView.box.visible = pendingUiRequest?.request.type
+            === "user_question";
+        timelinePickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker !== undefined;
         transcript.opacity = approvalView.box.visible
+                || questionView.box.visible
                 || timelinePickerView.box.visible
             ? 0.35
             : 1;
-        composerBox.visible = pendingApproval === undefined
+        composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined;
         renderCommandSuggestions();
-        if (pendingApproval !== undefined) {
-            approvalView.update(pendingApproval);
+        if (
+            pendingUiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+        ) {
+            approvalView.update(pendingUiRequest);
+        }
+        if (
+            pendingUiRequest !== undefined
+            && isUserQuestionUiRequestUpdate(pendingUiRequest)
+        ) {
+            questionView.update(pendingUiRequest);
         }
         if (timelinePicker !== undefined) {
             timelinePickerView.update(timelinePicker);
@@ -597,7 +637,7 @@ export async function startTui(
             suggestions,
         );
         commandSuggestionsBox.visible = suggestions.length > 0
-            && pendingApproval === undefined
+            && pendingUiRequest === undefined
             && timelinePicker === undefined;
     }
 
@@ -653,8 +693,10 @@ export async function startTui(
         let lifecycleHint = READY_HINT;
         if (abortRequested) {
             lifecycleHint = STOPPING_HINT;
-        } else if (pendingApproval !== undefined) {
+        } else if (pendingUiRequest?.request.type === "tool_approval") {
             lifecycleHint = APPROVAL_HINT;
+        } else if (pendingUiRequest?.request.type === "user_question") {
+            lifecycleHint = QUESTION_HINT;
         } else if (state.working) {
             lifecycleHint = WORKING_HINT;
         }
@@ -666,4 +708,20 @@ export async function startTui(
             statusNotice ?? lifecycleHint,
         );
     }
+}
+
+function applyTuiUiRequestUpdate(
+    current: UiRequestUpdate | undefined,
+    update: AgentUpdate,
+): UiRequestUpdate | undefined {
+    if (update.type === "ui_request") {
+        return update;
+    }
+    if (
+        update.type === "ui_request_closed"
+        && current?.requestId === update.requestId
+    ) {
+        return undefined;
+    }
+    return current;
 }

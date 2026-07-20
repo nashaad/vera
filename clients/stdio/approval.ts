@@ -1,9 +1,11 @@
 import type {
-    UiRequestUpdate,
+    ToolApprovalUiRequestUpdate,
     UiResponseCommand,
 } from "../../src/engine/protocol.ts";
 
-export function renderStdioApproval(update: UiRequestUpdate): string {
+export function renderStdioApproval(
+    update: ToolApprovalUiRequestUpdate,
+): string {
     const command = update.request.toolCall.input.command;
     const tool = update.request.toolCall.name === "bash"
         && typeof command === "string"
@@ -13,7 +15,7 @@ export function renderStdioApproval(update: UiRequestUpdate): string {
 }
 
 export function createStdioApprovalResponse(
-    update: UiRequestUpdate,
+    update: ToolApprovalUiRequestUpdate,
     answer: string | undefined,
 ): UiResponseCommand {
     const normalized = answer?.trim().toLowerCase();

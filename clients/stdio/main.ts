@@ -14,6 +14,10 @@ import {
     createStdioApprovalResponse,
     renderStdioApproval,
 } from "./approval.ts";
+import {
+    createStdioQuestionResponse,
+    renderStdioQuestion,
+} from "./question.ts";
 import { renderStdioTaskNotification } from "./notification.ts";
 
 interface StdioLineInput {
@@ -86,32 +90,77 @@ try {
             }
 
             if (update.type === "ui_request") {
-                stdout.write(`\n${renderStdioApproval(update)}\n`);
-                lines.setPrompt("Allow? [y/N] ");
-                lines.prompt();
-                const waiting = new AbortController();
-                const answerOrUpdate = await Promise.race([
-                    inputLines.receive(waiting.signal).then((answer) => ({
-                        type: "answer" as const,
-                        answer,
-                    })),
-                    channel.client.receive(waiting.signal).then((nextUpdate) => ({
-                        type: "update" as const,
-                        update: nextUpdate,
-                    })),
-                ]);
-                waiting.abort();
+                if (update.request.type === "tool_approval") {
+                    stdout.write(`\n${renderStdioApproval(update)}\n`);
+                    lines.setPrompt("Allow? [y/N] ");
+                    lines.prompt();
+                    const waiting = new AbortController();
+                    const answerOrUpdate = await Promise.race([
+                        inputLines.receive(waiting.signal).then((answer) => ({
+                            type: "answer" as const,
+                            answer,
+                        })),
+                        channel.client.receive(waiting.signal).then(
+                            (nextUpdate) => ({
+                                type: "update" as const,
+                                update: nextUpdate,
+                            }),
+                        ),
+                    ]);
+                    waiting.abort();
 
-                if (answerOrUpdate.type === "answer") {
-                    const answer = answerOrUpdate.answer;
-                    inputEnded = answer.type === "end";
-                    channel.client.send(createStdioApprovalResponse(
-                        update,
-                        answer.type === "line" ? answer.value : undefined,
-                    ));
+                    if (answerOrUpdate.type === "answer") {
+                        const answer = answerOrUpdate.answer;
+                        inputEnded = answer.type === "end";
+                        channel.client.send(createStdioApprovalResponse(
+                            update,
+                            answer.type === "line" ? answer.value : undefined,
+                        ));
+                    } else {
+                        stdout.write("\nApproval request closed.\n");
+                        bufferedUpdate = answerOrUpdate.update;
+                    }
                 } else {
-                    stdout.write("\nApproval request closed.\n");
-                    bufferedUpdate = answerOrUpdate.update;
+                    stdout.write(`\n${renderStdioQuestion(update)}\n`);
+                    lines.setPrompt(
+                        `Choose [1-${update.request.choices.length}] or c: `,
+                    );
+                    let answered = false;
+                    while (!answered) {
+                        lines.prompt();
+                        const waiting = new AbortController();
+                        const answerOrUpdate = await Promise.race([
+                            inputLines.receive(waiting.signal).then((answer) => ({
+                                type: "answer" as const,
+                                answer,
+                            })),
+                            channel.client.receive(waiting.signal).then(
+                                (nextUpdate) => ({
+                                    type: "update" as const,
+                                    update: nextUpdate,
+                                }),
+                            ),
+                        ]);
+                        waiting.abort();
+                        if (answerOrUpdate.type === "update") {
+                            stdout.write("\nQuestion closed.\n");
+                            bufferedUpdate = answerOrUpdate.update;
+                            answered = true;
+                            continue;
+                        }
+                        const answer = answerOrUpdate.answer;
+                        inputEnded = answer.type === "end";
+                        const response = createStdioQuestionResponse(
+                            update,
+                            answer.type === "line" ? answer.value : undefined,
+                        );
+                        if (response === undefined) {
+                            stdout.write("Choose a displayed number or c.\n");
+                            continue;
+                        }
+                        channel.client.send(response);
+                        answered = true;
+                    }
                 }
                 lines.setPrompt("vera> ");
             }
