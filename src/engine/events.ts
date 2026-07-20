@@ -58,16 +58,45 @@ export interface ToolApprovalUiResponse {
     readonly decision: "allow" | "deny";
 }
 
+export interface UserQuestionChoice {
+    readonly id: string;
+    readonly label: string;
+}
+
+export interface UserQuestionUiRequest {
+    readonly type: "user_question";
+    readonly question: string;
+    readonly choices: readonly UserQuestionChoice[];
+}
+
+export interface UserQuestionSelectedUiResponse {
+    readonly type: "user_question";
+    readonly outcome: "selected";
+    readonly choiceId: string;
+}
+
+export interface UserQuestionCancelledUiResponse {
+    readonly type: "user_question";
+    readonly outcome: "cancelled";
+}
+
+export type UserQuestionUiResponse =
+    | UserQuestionSelectedUiResponse
+    | UserQuestionCancelledUiResponse;
+
+export type UiRequest = ToolApprovalUiRequest | UserQuestionUiRequest;
+export type UiResponse = ToolApprovalUiResponse | UserQuestionUiResponse;
+
 export interface UiRequestEvent {
     readonly type: "ui_request";
     readonly requestId: string;
-    readonly request: ToolApprovalUiRequest;
+    readonly request: UiRequest;
 }
 
 export interface UiResponseEvent {
     readonly type: "ui_response";
     readonly requestId: string;
-    readonly response: ToolApprovalUiResponse;
+    readonly response: UiResponse;
 }
 
 export interface UiRequestClosedEvent {

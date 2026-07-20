@@ -1,7 +1,8 @@
 import type {
     EngineEventSubscriber,
     ToolApprovalUiRequest,
-    ToolApprovalUiResponse,
+    UiResponse,
+    UserQuestionUiRequest,
 } from "./events.ts";
 import type {
     ModelMessage,
@@ -48,7 +49,7 @@ export interface AbortCommand {
 export interface UiResponseCommand {
     readonly type: "ui_response";
     readonly requestId: string;
-    readonly response: ToolApprovalUiResponse;
+    readonly response: UiResponse;
 }
 
 export interface GetModelSettingsCommand {
@@ -156,11 +157,34 @@ export interface TaskNotificationUpdate {
     readonly seq: number;
 }
 
-export interface UiRequestUpdate {
+export interface ToolApprovalUiRequestUpdate {
     readonly type: "ui_request";
     readonly requestId: string;
     readonly request: ToolApprovalUiRequest;
     readonly seq: number;
+}
+
+export interface UserQuestionUiRequestUpdate {
+    readonly type: "ui_request";
+    readonly requestId: string;
+    readonly request: UserQuestionUiRequest;
+    readonly seq: number;
+}
+
+export type UiRequestUpdate =
+    | ToolApprovalUiRequestUpdate
+    | UserQuestionUiRequestUpdate;
+
+export function isToolApprovalUiRequestUpdate(
+    update: UiRequestUpdate,
+): update is ToolApprovalUiRequestUpdate {
+    return update.request.type === "tool_approval";
+}
+
+export function isUserQuestionUiRequestUpdate(
+    update: UiRequestUpdate,
+): update is UserQuestionUiRequestUpdate {
+    return update.request.type === "user_question";
 }
 
 export interface UiRequestClosedUpdate {
@@ -293,7 +317,7 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
     }
     if (
         command.type === "ui_response"
-        && typeof command.requestId === "string"
+        && isRequestId(command.requestId)
         && typeof command.response === "object"
         && command.response !== null
     ) {
@@ -308,6 +332,34 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                 response: {
                     type: "tool_approval",
                     decision: response.decision,
+                },
+            };
+        }
+        if (
+            response.type === "user_question"
+            && response.outcome === "selected"
+            && isRequestId(response.choiceId)
+        ) {
+            return {
+                type: "ui_response",
+                requestId: command.requestId,
+                response: {
+                    type: "user_question",
+                    outcome: "selected",
+                    choiceId: response.choiceId,
+                },
+            };
+        }
+        if (
+            response.type === "user_question"
+            && response.outcome === "cancelled"
+        ) {
+            return {
+                type: "ui_response",
+                requestId: command.requestId,
+                response: {
+                    type: "user_question",
+                    outcome: "cancelled",
                 },
             };
         }
@@ -507,12 +559,21 @@ export function createProtocolEncoder(
 
         if (event.type === "ui_request") {
             seq += 1;
-            sender.send({
-                type: "ui_request",
-                requestId: event.requestId,
-                request: event.request,
-                seq,
-            });
+            if (event.request.type === "tool_approval") {
+                sender.send({
+                    type: "ui_request",
+                    requestId: event.requestId,
+                    request: event.request,
+                    seq,
+                });
+            } else {
+                sender.send({
+                    type: "ui_request",
+                    requestId: event.requestId,
+                    request: event.request,
+                    seq,
+                });
+            }
             return;
         }
 

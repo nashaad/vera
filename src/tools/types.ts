@@ -20,6 +20,17 @@ export interface SpawnBackgroundAgentEffect {
 
 export type ToolEffect = SpawnSubagentEffect | SpawnBackgroundAgentEffect;
 
+export interface AskUserChoice {
+    readonly id: string;
+    readonly label: string;
+}
+
+export interface AskUserInteraction {
+    readonly type: "ask_user";
+    readonly question: string;
+    readonly choices: readonly AskUserChoice[];
+}
+
 export interface ToolEffectContext {
     readonly approvalMode: ApprovalMode;
     readonly model: string;
@@ -31,21 +42,30 @@ export interface ToolEffectRequest {
     readonly effect: ToolEffect;
 }
 
+export interface ToolInteractionRequest {
+    readonly kind: "interaction";
+    readonly interaction: AskUserInteraction;
+}
+
 export type ApplyToolEffect = (
     effect: ToolEffect,
     signal: AbortSignal,
     context: ToolEffectContext,
 ) => Promise<ToolOutput>;
 
-// Tools either finish with text or ask the engine owner to apply an effect.
-// Effects stay plain data: live loops, stores, and AbortControllers never cross
-// this boundary.
-export type ToolExecutionResult = ToolOutput | ToolEffectRequest;
+// Tools either finish with text or return a plain-data request for the engine
+// owner to resolve. Live loops, stores, UI objects, and AbortControllers never
+// cross this boundary.
+export type ToolExecutionResult =
+    | ToolOutput
+    | ToolEffectRequest
+    | ToolInteractionRequest;
 
 export interface RegisteredTool {
     readonly definition: ModelTool;
     readonly parallel?: boolean;
     readonly effectType?: ToolEffect["type"];
+    readonly requiresUserInteraction?: boolean;
     execute(
         input: Readonly<Record<string, unknown>>,
         context: ToolRuntime,

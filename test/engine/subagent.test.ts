@@ -109,6 +109,9 @@ test("two real subagent effects overlap and create separate sessions", async () 
             expect(request.tools?.map((tool) => tool.name)).not.toContain(
                 "subagent",
             );
+            expect(request.tools?.map((tool) => tool.name)).not.toContain(
+                "ask_user",
+            );
         }
     } finally {
         await rm(root, { recursive: true, force: true });

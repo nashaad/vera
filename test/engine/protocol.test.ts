@@ -241,6 +241,128 @@ test("permission results share the ordered agent update sequence", () => {
     ]);
 });
 
+test("user question responses parse selected choices and cancellation", () => {
+    expect(parseClientCommand({
+        type: "ui_response",
+        requestId: "question-1",
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "choice-2",
+        },
+    })).toEqual({
+        type: "ui_response",
+        requestId: "question-1",
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "choice-2",
+        },
+    });
+    expect(parseClientCommand({
+        type: "ui_response",
+        requestId: "question-2",
+        response: {
+            type: "user_question",
+            outcome: "cancelled",
+        },
+    })).toEqual({
+        type: "ui_response",
+        requestId: "question-2",
+        response: {
+            type: "user_question",
+            outcome: "cancelled",
+        },
+    });
+});
+
+test("malformed user question responses are rejected", () => {
+    const malformed = [
+        {
+            type: "ui_response",
+            requestId: "question-1",
+            response: {
+                type: "user_question",
+                outcome: "selected",
+            },
+        },
+        {
+            type: "ui_response",
+            requestId: "question-1",
+            response: {
+                type: "user_question",
+                outcome: "selected",
+                choiceId: "",
+            },
+        },
+        {
+            type: "ui_response",
+            requestId: "question-1",
+            response: {
+                type: "user_question",
+                outcome: "other",
+                choiceId: "choice-1",
+            },
+        },
+        {
+            type: "ui_response",
+            requestId: "",
+            response: {
+                type: "user_question",
+                outcome: "cancelled",
+            },
+        },
+    ];
+
+    for (const command of malformed) {
+        expect(parseClientCommand(command)).toBeUndefined();
+    }
+});
+
+test("user question requests share the ordered agent update sequence", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "ui_request",
+        requestId: "question-1",
+        request: {
+            type: "user_question",
+            question: "Which environment?",
+            choices: [
+                { id: "staging", label: "Staging" },
+                { id: "production", label: "Production" },
+            ],
+        },
+    });
+    protocol({ type: "ui_request_closed", requestId: "question-1" });
+
+    expect(updates).toEqual([
+        {
+            type: "ui_request",
+            requestId: "question-1",
+            request: {
+                type: "user_question",
+                question: "Which environment?",
+                choices: [
+                    { id: "staging", label: "Staging" },
+                    { id: "production", label: "Production" },
+                ],
+            },
+            seq: 1,
+        },
+        {
+            type: "ui_request_closed",
+            requestId: "question-1",
+            seq: 2,
+        },
+    ]);
+});
+
 test("timeline commands parse only complete rewind requests", () => {
     expect(parseClientCommand({
         type: "list_timeline",

@@ -147,12 +147,12 @@ async function drainChildUpdates(
     while (true) {
         const update = await client.receive();
         if (update.type === "ui_request") {
-            // The child has no attached UI, so it may never upgrade its
-            // inherited permissions on its own.
             client.send({
                 type: "ui_response",
                 requestId: update.requestId,
-                response: { type: "tool_approval", decision: "deny" },
+                response: update.request.type === "tool_approval"
+                    ? { type: "tool_approval", decision: "deny" }
+                    : { type: "user_question", outcome: "cancelled" },
             });
         }
         if (update.type === "turn_finished") {

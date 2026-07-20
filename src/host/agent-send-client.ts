@@ -25,7 +25,7 @@ export async function sendPromptThroughHost(
             }
             if (update.type === "ui_request") {
                 throw new Error(
-                    "Agent needs interactive approval; use vera attach instead",
+                    "Agent needs an interactive response; use vera attach instead",
                 );
             }
             if (update.type === "turn_finished") {

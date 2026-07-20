@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ToolApprovalUiResponse } from "../../src/engine/events.ts";
+import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import {
     attachAgent,
@@ -190,7 +191,10 @@ async function receiveApproval(
 ): Promise<ApprovalRequestUpdate> {
     expect((await client.receive()).type).toBe("user_prompt");
     const update = await client.receive();
-    if (update.type !== "ui_request") {
+    if (
+        update.type !== "ui_request"
+        || !isToolApprovalUiRequestUpdate(update)
+    ) {
         throw new Error(`Expected approval request, received ${update.type}`);
     }
     return update;

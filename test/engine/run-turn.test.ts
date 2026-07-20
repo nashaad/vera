@@ -826,6 +826,120 @@ test("a bash tool call runs and continues the model turn", async () => {
     expect(postHookTool).toBe("bash");
 });
 
+test("ask_user waits for a semantic choice and returns its stable ID", async () => {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_question",
+            name: "ask_user",
+            input: {
+                question: "Which release channel should Vera use?",
+                choices: [
+                    { id: "stable-channel", label: "Stable" },
+                    { id: "preview-channel", label: "Preview" },
+                ],
+            },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "Preview selected" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        enableUserInteraction: true,
+    };
+
+    channel.client.send({ type: "prompt", content: "choose a channel" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+    await expectUserPrompt(channel, "choose a channel", 1);
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_started",
+        tool: "ask_user",
+        args: toolCallResponse.content[0]?.type === "tool_call"
+            ? toolCallResponse.content[0].input
+            : {},
+        seq: 2,
+    });
+    const question = await channel.client.receive();
+    expect(question).toMatchObject({
+        type: "ui_request",
+        request: {
+            type: "user_question",
+            question: "Which release channel should Vera use?",
+            choices: [
+                { id: "stable-channel", label: "Stable" },
+                { id: "preview-channel", label: "Preview" },
+            ],
+        },
+        seq: 3,
+    });
+    if (question.type !== "ui_request") {
+        throw new Error("Expected a user question update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: question.requestId,
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "preview-channel",
+        },
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: question.requestId,
+        seq: 4,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "tool_finished",
+        tool: "ask_user",
+        seq: 5,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "Preview selected",
+        seq: 6,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 7,
+    });
+    expect(await turn).toEqual(finalResponse);
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        toolCallId: "call_question",
+        toolName: "ask_user",
+        content: [{
+            type: "text",
+            text: JSON.stringify({
+                choice_id: "preview-channel",
+                label: "Preview",
+            }),
+        }],
+        isError: false,
+    });
+});
+
 test("a failed tool-result append still closes the tool lifecycle", async () => {
     const toolCallResponse: AssistantMessage = {
         role: "assistant",

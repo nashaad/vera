@@ -4,6 +4,9 @@ import { AsyncQueue } from "./async-queue.ts";
 import type {
     EngineEventBus,
     ToolApprovalUiResponse,
+    UserQuestionChoice,
+    UserQuestionUiRequest,
+    UserQuestionUiResponse,
 } from "./events.ts";
 import type {
     AgentUpdate,
@@ -46,6 +49,30 @@ interface PendingApproval {
     readonly onAbort?: () => void;
 }
 
+export interface UserQuestionOptions {
+    readonly signal?: AbortSignal;
+}
+
+export interface UserQuestionSelected {
+    readonly outcome: "selected";
+    readonly choice: UserQuestionChoice;
+}
+
+export interface UserQuestionCancelled {
+    readonly outcome: "cancelled";
+}
+
+export type UserQuestionResult =
+    | UserQuestionSelected
+    | UserQuestionCancelled;
+
+interface PendingQuestion {
+    readonly request: UserQuestionUiRequest;
+    readonly resolve: (result: UserQuestionResult) => void;
+    readonly signal?: AbortSignal;
+    readonly onAbort?: () => void;
+}
+
 export interface InboundTurn {
     readonly prompt: PromptCommand;
     readonly signal: AbortSignal;
@@ -78,6 +105,7 @@ export interface InboundCommandRouterOptions {
 export class InboundCommandRouter {
     private readonly prompts = new AsyncQueue<QueuedPrompt>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
+    private readonly pendingQuestions = new Map<string, PendingQuestion>();
     private waitingForPrompt = false;
     private activeTurn: AbortController | undefined;
     private receiveFailed = false;
@@ -128,7 +156,8 @@ export class InboundCommandRouter {
     timelineBlocked(): boolean {
         return this.activeTurn !== undefined
             || this.pendingPromptCount > 0
-            || this.pendingApprovals.size > 0;
+            || this.pendingApprovals.size > 0
+            || this.pendingQuestions.size > 0;
     }
 
     requestToolApproval(
@@ -181,6 +210,49 @@ export class InboundCommandRouter {
                 reason,
                 warning: FULL_USER_AUTHORITY_WARNING,
             },
+        });
+        return result;
+    }
+
+    requestUserQuestion(
+        request: Omit<UserQuestionUiRequest, "type">,
+        options: UserQuestionOptions = {},
+    ): Promise<UserQuestionResult> {
+        if (this.receiveFailed || options.signal?.aborted) {
+            return Promise.resolve({ outcome: "cancelled" });
+        }
+
+        const semanticRequest: UserQuestionUiRequest = {
+            type: "user_question",
+            question: request.question,
+            choices: request.choices.map((choice) => ({ ...choice })),
+        };
+        const requestId = randomUUID();
+        const result = new Promise<UserQuestionResult>((resolve) => {
+            const pending: PendingQuestion = {
+                request: semanticRequest,
+                resolve,
+                ...(options.signal === undefined
+                    ? {}
+                    : {
+                        signal: options.signal,
+                        onAbort: () => {
+                            this.finishQuestion(requestId, {
+                                outcome: "cancelled",
+                            });
+                        },
+                    }),
+            };
+            this.pendingQuestions.set(requestId, pending);
+            pending.signal?.addEventListener("abort", pending.onAbort!, {
+                once: true,
+            });
+        });
+
+        this.events.emit({
+            type: "ui_request",
+            requestId,
+            request: semanticRequest,
         });
         return result;
     }
@@ -269,6 +341,9 @@ export class InboundCommandRouter {
             this.prompts.fail(error);
             for (const requestId of this.pendingApprovals.keys()) {
                 this.finishApproval(requestId, noClientDenial());
+            }
+            for (const requestId of this.pendingQuestions.keys()) {
+                this.finishQuestion(requestId, { outcome: "cancelled" });
             }
         }
     }
@@ -370,18 +445,24 @@ export class InboundCommandRouter {
     }
 
     private receiveUiResponse(command: UiResponseCommand): void {
-        if (!this.pendingApprovals.has(command.requestId)) {
+        if (
+            command.response.type === "tool_approval"
+            && this.pendingApprovals.has(command.requestId)
+        ) {
+            this.events.emit({
+                type: "ui_response",
+                requestId: command.requestId,
+                response: command.response,
+            });
+            this.finishApproval(
+                command.requestId,
+                approvalResult(command.response),
+            );
             return;
         }
-        this.events.emit({
-            type: "ui_response",
-            requestId: command.requestId,
-            response: command.response,
-        });
-        this.finishApproval(
-            command.requestId,
-            approvalResult(command.response),
-        );
+        if (command.response.type === "user_question") {
+            this.receiveQuestionResponse(command.requestId, command.response);
+        }
     }
 
     private finishApproval(
@@ -394,6 +475,42 @@ export class InboundCommandRouter {
         }
         this.pendingApprovals.delete(requestId);
         clearTimeout(pending.timer);
+        if (pending.signal !== undefined && pending.onAbort !== undefined) {
+            pending.signal.removeEventListener("abort", pending.onAbort);
+        }
+        this.events.emit({ type: "ui_request_closed", requestId });
+        pending.resolve(result);
+    }
+
+    private receiveQuestionResponse(
+        requestId: string,
+        response: UserQuestionUiResponse,
+    ): void {
+        const pending = this.pendingQuestions.get(requestId);
+        if (pending === undefined) {
+            return;
+        }
+        const result = questionResult(pending.request, response);
+        if (result === undefined) {
+            return;
+        }
+        this.events.emit({
+            type: "ui_response",
+            requestId,
+            response,
+        });
+        this.finishQuestion(requestId, result);
+    }
+
+    private finishQuestion(
+        requestId: string,
+        result: UserQuestionResult,
+    ): void {
+        const pending = this.pendingQuestions.get(requestId);
+        if (pending === undefined) {
+            return;
+        }
+        this.pendingQuestions.delete(requestId);
         if (pending.signal !== undefined && pending.onAbort !== undefined) {
             pending.signal.removeEventListener("abort", pending.onAbort);
         }
@@ -417,6 +534,21 @@ function approvalResult(
     return response.decision === "allow"
         ? { behavior: "allow" }
         : { behavior: "deny", reason: "Tool use was denied by the user." };
+}
+
+function questionResult(
+    request: UserQuestionUiRequest,
+    response: UserQuestionUiResponse,
+): UserQuestionResult | undefined {
+    if (response.outcome === "cancelled") {
+        return { outcome: "cancelled" };
+    }
+    const choice = request.choices.find(
+        (candidate) => candidate.id === response.choiceId,
+    );
+    return choice === undefined
+        ? undefined
+        : { outcome: "selected", choice: { ...choice } };
 }
 
 function abortedDenial(): ToolApprovalDenied {

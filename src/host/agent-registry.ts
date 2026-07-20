@@ -278,6 +278,7 @@ export class AgentRegistry {
                     "spawn_subagent",
                     "spawn_background_agent",
                 ],
+                enableUserInteraction: kind === "interactive",
                 readModelSettings: () => entry.modelSettings,
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
