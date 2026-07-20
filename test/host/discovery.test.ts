@@ -5,6 +5,7 @@ import type {
     HostLockfile,
     HostLockRecord,
 } from "../../src/host/lockfile.ts";
+import { HostProtocolMismatchError } from "../../src/host/lockfile.ts";
 
 const runningHost: HostLockRecord = {
     schema_version: 1,
@@ -47,6 +48,27 @@ test("host discovery starts once and waits for a verified lock record", async ()
     expect(host).toEqual(runningHost);
     expect(starts).toBe(1);
     expect(waits).toEqual([25]);
+});
+
+test("host discovery does not start over an incompatible live host", async () => {
+    let starts = 0;
+    const mismatch = new HostProtocolMismatchError(101);
+    const lockfile: HostLockfile = {
+        publish(): Promise<HostLockRecord> {
+            throw new Error("not used");
+        },
+        read(): Promise<HostLockRecord | undefined> {
+            return Promise.reject(mismatch);
+        },
+    };
+
+    await expect(ensureResidentHost({
+        lockfile,
+        startHost: () => {
+            starts += 1;
+        },
+    })).rejects.toBe(mismatch);
+    expect(starts).toBe(0);
 });
 
 test("host discovery stops at one fixed startup deadline", async () => {

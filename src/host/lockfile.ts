@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import {
+    HOST_PROTOCOL_VERSION,
     requestHostIdentity,
     type HostIdentity,
 } from "./protocol.ts";
@@ -37,6 +38,21 @@ export interface HostLockfileOptions {
     readonly inspectSocket?: (
         socketPath: string,
     ) => Promise<HostIdentity | undefined>;
+}
+
+export class HostProtocolMismatchError extends Error {
+    constructor(
+        readonly pid: number,
+        readonly actualVersion?: number,
+    ) {
+        const actual = actualVersion === undefined
+            ? "a legacy protocol"
+            : `protocol ${actualVersion}`;
+        super(
+            `Resident Vera host PID ${pid} uses ${actual}; stop it and relaunch Vera to use protocol ${HOST_PROTOCOL_VERSION}.`,
+        );
+        this.name = "HostProtocolMismatchError";
+    }
 }
 
 export function defaultHostLockPath(): string {
@@ -112,6 +128,12 @@ export function createHostLockfile(
                 || identity.started_at !== record.started_at
             ) {
                 return undefined;
+            }
+            if (identity.protocol_version !== HOST_PROTOCOL_VERSION) {
+                throw new HostProtocolMismatchError(
+                    identity.pid,
+                    identity.protocol_version,
+                );
             }
             return record;
         },

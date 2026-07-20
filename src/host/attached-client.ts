@@ -152,6 +152,11 @@ function createAttachedClient(
                     resolveDetached?.();
                     return;
                 }
+                if (isProtocolError(value)) {
+                    throw new Error(
+                        "Host rejected an unsupported or invalid client command",
+                    );
+                }
                 const update = parseAgentUpdate(value);
                 if (update === undefined) {
                     throw new Error("Host sent an invalid agent update");
@@ -209,6 +214,12 @@ function isAttachFailure(
 
 function isDetached(value: unknown): boolean {
     return asRecord(value)?.type === "detached";
+}
+
+function isProtocolError(value: unknown): boolean {
+    const response = asRecord(value);
+    return response?.type === "protocol_error"
+        && response.reason === "unsupported_or_invalid_command";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

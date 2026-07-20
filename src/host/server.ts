@@ -9,6 +9,7 @@ import {
     type HostLockRecord,
 } from "./lockfile.ts";
 import {
+    HOST_PROTOCOL_VERSION,
     parseAttachedClientMessage,
     parseHostRequest,
     requestHostIdentity,
@@ -47,6 +48,7 @@ export async function startHostServer(
     const identity: HostIdentity = {
         pid: options.pid ?? process.pid,
         started_at: options.startedAt ?? currentProcessStartedAt(),
+        protocol_version: HOST_PROTOCOL_VERSION,
     };
     const startupClaim = await acquireHostStartupClaim({
         path: options.startupClaimPath ?? `${socketPath}.starting`,
@@ -172,7 +174,13 @@ function receiveConnection(
 
         const message = parseAttachedClientMessage(line);
         if (message === undefined) {
-            socket.destroy();
+            finished = true;
+            attachment.detach();
+            attachment = undefined;
+            void send({
+                type: "protocol_error",
+                reason: "unsupported_or_invalid_command",
+            }).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (message.type === "detach") {
@@ -201,6 +209,7 @@ function receiveConnection(
                 type: "host_identity",
                 pid: identity.pid,
                 started_at: identity.started_at,
+                protocol_version: HOST_PROTOCOL_VERSION,
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }

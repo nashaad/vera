@@ -6,9 +6,12 @@ import {
 } from "../engine/protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 
+export const HOST_PROTOCOL_VERSION = 1;
+
 export interface HostIdentity {
     readonly pid: number;
     readonly started_at: string;
+    readonly protocol_version?: number;
 }
 
 export interface HostIdentityRequest {
@@ -33,6 +36,7 @@ export interface HostIdentityResponse {
     readonly type: "host_identity";
     readonly pid: number;
     readonly started_at: string;
+    readonly protocol_version: typeof HOST_PROTOCOL_VERSION;
 }
 
 export interface AttachRequest {
@@ -76,6 +80,11 @@ export interface AgentStartFailedResponse {
     readonly operation: "create" | "resume";
 }
 
+export interface ProtocolErrorResponse {
+    readonly type: "protocol_error";
+    readonly reason: "unsupported_or_invalid_command";
+}
+
 export type HostRequest =
     | HostIdentityRequest
     | ListAgentsRequest
@@ -90,7 +99,8 @@ export type HostResponse =
     | AgentStartFailedResponse
     | AttachedResponse
     | AttachFailedResponse
-    | DetachedResponse;
+    | DetachedResponse
+    | ProtocolErrorResponse;
 
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
@@ -196,6 +206,10 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
     return {
         pid: response.pid as number,
         started_at: response.started_at,
+        ...(Number.isSafeInteger(response.protocol_version)
+            && (response.protocol_version as number) > 0
+            ? { protocol_version: response.protocol_version as number }
+            : {}),
     };
 }
 
