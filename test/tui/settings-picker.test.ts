@@ -27,13 +27,20 @@ test("session picker filters durable interactive conversations and selects an ag
             kind: "background",
             status: "completed",
         },
-    ]);
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
 
     expect(renderTuiSettingsPicker(state)).toContain("Fix the deployment race");
-    expect(renderTuiSettingsPicker(state)).toContain("/work/alpha");
+    expect(renderTuiSettingsPicker(state)).toContain("1h ago · alpha");
     expect(renderTuiSettingsPicker(state)).not.toContain("22222222");
     expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
         .toEqual({ kind: "session", sessionPath: "/sessions/first.jsonl" });
+
+    let searched = state;
+    for (const name of "11111111-first-session") {
+        searched = handleTuiSettingsPickerKey(searched, { name }).state
+            ?? searched;
+    }
+    expect(searched.options).toHaveLength(1);
 });
 
 test("session picker excludes the current and unavailable conversations", () => {
@@ -50,9 +57,69 @@ test("session picker excludes the current and unavailable conversations", () => 
         .toContain("Loading conversations…");
 });
 
+test("session picker hides empty chats and shows only meaningful live state", () => {
+    const state = startTuiSessionPicker([
+        {
+            ...session("empty", "idle"),
+            updated_at: "2026-07-20T20:00:00.000Z",
+        },
+        {
+            ...session("working", "working"),
+            title: "Investigate the host",
+            updated_at: "2026-07-20T20:00:00.000Z",
+        },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    const rendered = renderTuiSettingsPicker(state);
+    expect(rendered).not.toContain("empty");
+    expect(rendered).toContain("Investigate the host");
+    expect(rendered).toContain("working · alpha");
+});
+
+test("session rows stay on one line at 80 columns", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(startTuiSessionPicker([{
+        id: "long-session",
+        workspace: "/work/a-very-long-workspace-name",
+        session_path: "/sessions/long.jsonl",
+        kind: "interactive",
+        status: "idle",
+        title: "This is a deliberately long first prompt title that must fit",
+        updated_at: "2026-07-20T20:00:00.000Z",
+    }], undefined, false, new Date("2026-07-20T21:00:00.000Z")));
+
+    try {
+        await setup.flush();
+        const row = setup.captureCharFrame().split("\n").find(
+            (line) => line.includes("This is a deliberately long"),
+        );
+        expect(row).toContain("1h ago · a-very-long-w…");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("session title truncation keeps Unicode characters intact", () => {
+    const state = startTuiSessionPicker([{
+        id: "unicode",
+        workspace: "/work/vera",
+        session_path: "/sessions/unicode.jsonl",
+        kind: "interactive",
+        status: "idle",
+        title: `${"a".repeat(28)}😀tail`,
+        updated_at: "2026-07-20T20:00:00.000Z",
+    }]);
+
+    expect(state.options[0]?.label).toBe(`${"a".repeat(28)}😀…`);
+    expect(state.options[0]?.label).not.toContain("�");
+});
+
 function session(
     id: string,
-    status: "idle" | "failed" | "closed",
+    status: "idle" | "working" | "failed" | "closed",
 ) {
     return {
         id,

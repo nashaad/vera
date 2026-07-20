@@ -36,7 +36,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Continue the theme picker",
             );
-            expect(pane).toContain("idle · /work/vera");
+            expect(pane).toContain("1h ago · vera");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
                 socket,

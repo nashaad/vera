@@ -33,6 +33,7 @@ export interface TuiSettingsPickerOption {
     readonly value: string;
     readonly label: string;
     readonly description: string;
+    readonly searchText?: string;
 }
 
 export interface TuiSettingsPickerState {
@@ -149,19 +150,22 @@ export function startTuiSessionPicker(
     agents: readonly RegisteredAgentSummary[],
     currentAgentId?: string,
     loading = false,
+    now: Date = new Date(),
 ): TuiSettingsPickerState {
     const options = agents
         .filter((agent) => agent.kind === "interactive"
             && agent.id !== currentAgentId
             && agent.status !== "closed"
-            && agent.status !== "failed")
+            && agent.status !== "failed"
+            && agent.title !== undefined)
         .toSorted((left, right) =>
             (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
         )
         .map((agent) => ({
             value: agent.session_path,
-            label: agent.title ?? agent.id.slice(0, 8),
-            description: `${agent.status} · ${agent.workspace}`,
+            label: truncateSessionTitle(agent.title!),
+            description: sessionDescription(agent, now),
+            searchText: `${agent.id} ${agent.workspace}`,
         }));
     return {
         kind: "session",
@@ -171,6 +175,57 @@ export function startTuiSessionPicker(
         query: "",
         loading,
     };
+}
+
+function truncateSessionTitle(title: string): string {
+    const normalized = title.replaceAll(/\s+/g, " ").trim();
+    const characters = [...normalized];
+    return characters.length <= 30
+        ? normalized
+        : `${characters.slice(0, 29).join("")}…`;
+}
+
+function sessionDescription(
+    agent: RegisteredAgentSummary,
+    now: Date,
+): string {
+    const workspaceName = agent.workspace.split("/").filter(Boolean).at(-1)
+        ?? agent.workspace;
+    const workspace = workspaceName.length <= 14
+        ? workspaceName
+        : `${workspaceName.slice(0, 13)}…`;
+    const activity = agent.status === "working" || agent.status === "waiting"
+        ? agent.status
+        : relativeSessionTime(agent.updated_at, now);
+    return `${activity} · ${workspace}`;
+}
+
+function relativeSessionTime(value: string | undefined, now: Date): string {
+    const timestamp = value === undefined ? Number.NaN : Date.parse(value);
+    if (!Number.isFinite(timestamp)) {
+        return "saved";
+    }
+    const elapsedMinutes = Math.max(
+        0,
+        Math.floor((now.getTime() - timestamp) / 60_000),
+    );
+    if (elapsedMinutes < 1) {
+        return "just now";
+    }
+    if (elapsedMinutes < 60) {
+        return `${elapsedMinutes}m ago`;
+    }
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) {
+        return `${elapsedHours}h ago`;
+    }
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    return elapsedDays < 7
+        ? `${elapsedDays}d ago`
+        : new Date(timestamp).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+        });
 }
 
 function reasoningOptions(
@@ -438,7 +493,9 @@ function searched(
 ): TuiSettingsPickerTransition {
     const normalized = query.toLowerCase();
     const options = state.allOptions.filter((option) =>
-        `${option.label} ${option.value} ${option.description}`
+        `${option.label} ${option.value} ${option.description} ${
+            option.searchText ?? ""
+        }`
             .toLowerCase()
             .includes(normalized)
     );
