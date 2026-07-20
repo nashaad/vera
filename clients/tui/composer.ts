@@ -1,4 +1,5 @@
 import {
+    BoxRenderable,
     decodePasteBytes,
     stripAnsiSequences,
     TextareaRenderable,
@@ -100,6 +101,29 @@ export function createTuiComposer(
         ],
         onSubmit,
     });
+}
+
+export function createTuiComposerPanel(
+    renderer: RenderContext,
+    composer: TuiComposer,
+): BoxRenderable {
+    const panel = new BoxRenderable(renderer, {
+        id: "composer-box",
+        border: ["left"],
+        borderStyle: "heavy",
+        borderColor: TUI_ACCENT,
+        backgroundColor: TUI_PANEL,
+        width: "100%",
+        height: 5,
+        paddingX: 2,
+        paddingY: 1,
+        marginBottom: 1,
+        // OpenCode focuses its textarea from mouse-down. Vera extends that
+        // mechanic to the padded panel because the whole panel reads as input.
+        onMouseDown: () => composer.focus(),
+    });
+    panel.add(composer);
+    return panel;
 }
 
 function shouldCollapsePaste(text: string): boolean {
