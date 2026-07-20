@@ -136,18 +136,17 @@ export function handleTuiSettingsPickerKey(
     if (key.name === "escape") {
         return { handled: true };
     }
-    if (state.kind === "model" && key.name === "backspace") {
+    if (key.name === "backspace") {
         return searched(state, state.query.slice(0, -1));
     }
     if (
-        state.kind === "model"
-        && key.name.length === 1
+        key.name.length === 1
         && !key.ctrl
         && !key.meta
     ) {
         return searched(state, state.query + key.name);
     }
-    if (key.name === "up" || key.name === "k") {
+    if (key.name === "up") {
         return {
             state: {
                 ...state,
@@ -156,7 +155,7 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
-    if (key.name === "down" || key.name === "j") {
+    if (key.name === "down") {
         return {
             state: {
                 ...state,
@@ -216,7 +215,7 @@ export function createTuiSettingsPickerView(
             box.title = pickerTitle(state.kind);
             box.height = Math.min(
                 18,
-                state.options.length + (state.kind === "model" ? 9 : 6),
+                state.options.length + 9,
             );
             content.content = renderTuiSettingsPicker(state);
         },
@@ -230,9 +229,9 @@ export function renderTuiSettingsPicker(
         const marker = index === state.selectedIndex ? "›" : " ";
         return `${marker} ${option.label.padEnd(18)} ${option.description}`;
     });
-    const search = state.kind === "model"
-        ? `Search  ${state.query}\n\n${state.query.length === 0 ? "Recent\n" : ""}`
-        : "";
+    const search = `Search  ${state.query}\n\n${
+        state.kind === "model" && state.query.length === 0 ? "Recent\n" : ""
+    }`;
     return `${search}${rows.join("\n")}\n\n↑↓ move · enter select · esc close`;
 }
 

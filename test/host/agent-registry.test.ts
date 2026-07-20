@@ -184,6 +184,46 @@ test("a resident agent applies new model settings at the next turn", async () =>
     }
 });
 
+test("accepted settings become defaults for new agents in the live host", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-live-defaults-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "first-model",
+        reasoningEffort: "low",
+        approvalMode: "approve_for_me",
+    });
+
+    try {
+        const first = await registry.create({
+            id: "first-agent",
+            workspace: root,
+            sessionPath: join(root, "first.jsonl"),
+        });
+        expect(await registry.updateModelSettings(first.id, {
+            model: "second-model",
+            reasoningEffort: "high",
+        })).toMatchObject({ model: "second-model", reasoningEffort: "high" });
+        expect(await registry.updateApprovalMode(first.id, "ask")).toBe("ask");
+
+        const second = await registry.create({
+            id: "second-agent",
+            workspace: root,
+            sessionPath: join(root, "second.jsonl"),
+        });
+        const attachment = second.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "get_model_settings", requestId: "settings" });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: { model: "second-model", reasoningEffort: "high" },
+        });
+        attachment.send({ type: "get_permissions", requestId: "permissions" });
+        expect(await receivePermissions(attachment)).toMatchObject({ mode: "ask" });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a registry resumes the same resident agent from its session", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-resume-"));
     const workspace = join(root, "workspace");
