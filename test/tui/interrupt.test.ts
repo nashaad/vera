@@ -2,7 +2,18 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import { createTuiComposer } from "../../clients/tui/composer.ts";
-import { tuiInterruptAction } from "../../clients/tui/interrupt.ts";
+import {
+    parseRawInputEvent,
+    tuiInterruptAction,
+} from "../../clients/tui/interrupt.ts";
+
+test("raw TUI input identifies Ctrl+C before overlay handling", () => {
+    expect(parseRawInputEvent({ name: "c", ctrl: true })).toEqual({
+        type: "interrupt",
+    });
+    expect(parseRawInputEvent({ name: "c", ctrl: false })).toBeUndefined();
+    expect(parseRawInputEvent({ name: "escape", ctrl: false })).toBeUndefined();
+});
 
 test("Ctrl+C aborts a working TUI turn once", () => {
     const key = { name: "c", ctrl: true };
