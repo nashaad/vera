@@ -35,6 +35,10 @@ export interface OpenPermissionsPickerTuiCommandAction {
     readonly type: "open_permissions_picker";
 }
 
+export interface OpenThemePickerTuiCommandAction {
+    readonly type: "open_theme_picker";
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -48,13 +52,14 @@ export type TuiCommandAction =
     | OpenModelPickerTuiCommandAction
     | OpenReasoningPickerTuiCommandAction
     | OpenPermissionsPickerTuiCommandAction
+    | OpenThemePickerTuiCommandAction
     | TuiCommandErrorAction;
 
 export interface TuiCommandDefinition {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
-    readonly action?: OpenRewindTuiCommandAction;
+    readonly action?: OpenRewindTuiCommandAction | OpenThemePickerTuiCommandAction;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
 
@@ -82,11 +87,18 @@ const PERMISSIONS_COMMAND = {
     usage: "/permissions <ask|approve_for_me|full_access>",
 } as const satisfies TuiCommandCatalogEntry;
 
+const THEMES_COMMAND = {
+    name: "themes",
+    description: "Change the TUI theme",
+    usage: "/themes",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     MODEL_COMMAND,
     REASONING_COMMAND,
     PERMISSIONS_COMMAND,
+    THEMES_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
 export class TuiCommandRegistry {
@@ -225,6 +237,10 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
             : argumentsText.length === 0
                 ? { type: "open_permissions_picker" }
                 : { type: "command_error", message: `Usage: ${PERMISSIONS_COMMAND.usage}` },
+    });
+    registry.registerCommand({
+        ...THEMES_COMMAND,
+        action: { type: "open_theme_picker" },
     });
     return registry;
 }

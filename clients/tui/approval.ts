@@ -11,7 +11,7 @@ import type {
     UiResponseCommand,
 } from "../../src/engine/protocol.ts";
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
-import { TUI_NOTICE, TUI_TEXT } from "./state.ts";
+import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
 
 const APPROVAL_ACTIONS = "[1]once [2]prefix [3/esc]deny";
 const APPROVAL_ACTIONS_WITHOUT_PREFIX =
@@ -78,7 +78,7 @@ export function createTuiApprovalView(
         title: " Tool approval ",
         border: true,
         borderColor: TUI_NOTICE,
-        backgroundColor: "#16161E",
+        backgroundColor: TUI_PANEL,
         position: "absolute",
         bottom: 1,
         left: "5%",

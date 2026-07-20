@@ -1,0 +1,39 @@
+{
+  "themes": {
+    "vera": {
+      "accent": "#7AA2F7",
+      "text": "#D5DAE2",
+      "muted": "#5C6370",
+      "notice": "#E0AF68",
+      "success": "#9ECE6A",
+      "background": "#0F1016",
+      "panel": "#16161E",
+      "element": "#1D1F2A"
+    },
+    "orng": {
+      "accent": "#EC5B2B", "text": "#eeeeee", "muted": "#808080",
+      "notice": "#EC5B2B", "success": "#6ba1e6", "background": "#0a0a0a",
+      "panel": "#141414", "element": "#1e1e1e"
+    },
+    "palenight": {
+      "accent": "#82aaff", "text": "#a6accd", "muted": "#676e95",
+      "notice": "#ffcb6b", "success": "#c3e88d", "background": "#292d3e",
+      "panel": "#1e2132", "element": "#32364a"
+    },
+    "synthwave": {
+      "accent": "#36f9f6", "text": "#ffffff", "muted": "#848bbd",
+      "notice": "#fede5d", "success": "#72f1b8", "background": "#262335",
+      "panel": "#1e1a29", "element": "#2a2139"
+    },
+    "nightowl": {
+      "accent": "#82AAFF", "text": "#d6deeb", "muted": "#5f7e97",
+      "notice": "#ecc48d", "success": "#c5e478", "background": "#011627",
+      "panel": "#0b253a", "element": "#0b253a"
+    },
+    "github": {
+      "accent": "#58a6ff", "text": "#c9d1d9", "muted": "#8b949e",
+      "notice": "#e3b341", "success": "#3fb950", "background": "#0d1117",
+      "panel": "#010409", "element": "#161b22"
+    }
+  }
+}

@@ -1,7 +1,28 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import { createTuiComposer } from "../../clients/tui/composer.ts";
+import { applyTuiTheme } from "../../clients/tui/state.ts";
+import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
+
+test("TUI composer uses one theme color across its padded surface", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const theme = { ...VERA_TUI_THEME, panel: "#123456" };
+    applyTuiTheme(theme);
+    const composer = createTuiComposer(setup.renderer, () => {});
+
+    try {
+        const expected = RGBA.fromHex("#123456").toInts();
+        expect(composer.backgroundColor.toInts()).toEqual(expected);
+        composer.focusedBackgroundColor = "#123456";
+        composer.focus();
+        expect(composer.backgroundColor.toInts()).toEqual(expected);
+    } finally {
+        applyTuiTheme(VERA_TUI_THEME);
+        setup.renderer.destroy();
+    }
+});
 
 test("TUI composer edits, pastes, submits, and survives resize", async () => {
     const setup = await createTestRenderer({

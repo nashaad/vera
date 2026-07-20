@@ -5,6 +5,8 @@ import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type { TuiTheme } from "./theme.ts";
+import { VERA_TUI_THEME } from "./theme.ts";
 
 export type TuiTranscriptEntryKind =
     | "user"
@@ -26,10 +28,25 @@ export interface TuiState {
     readonly approvalMode?: ApprovalMode;
 }
 
-export const TUI_ACCENT = "#7AA2F7";
-export const TUI_TEXT = "#D5DAE2";
-export const TUI_MUTED = "#5C6370";
-export const TUI_NOTICE = "#E0AF68";
+export let TUI_ACCENT = VERA_TUI_THEME.accent;
+export let TUI_TEXT = VERA_TUI_THEME.text;
+export let TUI_MUTED = VERA_TUI_THEME.muted;
+export let TUI_NOTICE = VERA_TUI_THEME.notice;
+export let TUI_SUCCESS = VERA_TUI_THEME.success;
+export let TUI_BACKGROUND = VERA_TUI_THEME.background;
+export let TUI_PANEL = VERA_TUI_THEME.panel;
+export let TUI_ELEMENT = VERA_TUI_THEME.element;
+
+export function applyTuiTheme(theme: TuiTheme): void {
+    TUI_ACCENT = theme.accent;
+    TUI_TEXT = theme.text;
+    TUI_MUTED = theme.muted;
+    TUI_NOTICE = theme.notice;
+    TUI_SUCCESS = theme.success;
+    TUI_BACKGROUND = theme.background;
+    TUI_PANEL = theme.panel;
+    TUI_ELEMENT = theme.element;
+}
 
 export function createTuiState(): TuiState {
     return {
@@ -183,7 +200,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
     }
     if (entry.kind === "thought") {
-        return new StyledText([fg("#E8D94A")(entry.text)]);
+        return new StyledText([fg(TUI_NOTICE)(entry.text)]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
