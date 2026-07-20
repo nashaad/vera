@@ -70,6 +70,7 @@ const COPY_NOTICE_DURATION_MS = 1_500;
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
+    readonly copyText?: (text: string) => Promise<void>;
 }
 
 export interface TuiAgentClient {
@@ -139,6 +140,8 @@ export async function startTui(
         exitOnCtrlC: false,
         targetFps: 30,
     });
+    const copyText = dependencies.copyText
+        ?? ((text: string) => copyTuiText(text, renderer));
     renderer.setTerminalTitle("Vera");
 
     let state = createTuiState();
@@ -615,12 +618,9 @@ export async function startTui(
         }
 
         try {
-            await copyTuiText(text, renderer);
+            await copyText(text);
             if (shuttingDown) {
                 return;
-            }
-            if (renderer.getSelection() === selection) {
-                renderer.clearSelection();
             }
             const count = countTuiCharacters(text);
             showStatusNotice(`copied ${count} character${count === 1 ? "" : "s"}`);
