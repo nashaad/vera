@@ -11,7 +11,11 @@ import {
 import { join } from "node:path";
 import { createServer } from "node:net";
 
-import { createHostLockfile } from "../../src/host/lockfile.ts";
+import {
+    createHostLockfile,
+    HostProtocolMismatchError,
+} from "../../src/host/lockfile.ts";
+import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 
 const temporaryDirectories: string[] = [];
 const startedAt = "2026-07-17T12:00:00.000Z";
@@ -47,6 +51,7 @@ test("host atomically publishes one private lockfile", async () => {
                 type: "host_identity",
                 pid: 101,
                 started_at: startedAt,
+                protocol_version: HOST_PROTOCOL_VERSION,
             })}\n`);
         });
     });
@@ -91,6 +96,7 @@ test("a reused pid with a subsecond start mismatch makes the lock stale", async 
         inspectSocket: async () => ({
             pid: 101,
             started_at: "2026-07-17T12:00:00.001Z",
+            protocol_version: HOST_PROTOCOL_VERSION,
         }),
     });
 
@@ -106,7 +112,11 @@ test("a transient socket failure does not delete the lock", async () => {
         inspectSocket: async () => {
             attempts += 1;
             return attempts > 1
-                ? { pid: record.pid, started_at: record.started_at }
+                ? {
+                    pid: record.pid,
+                    started_at: record.started_at,
+                    protocol_version: HOST_PROTOCOL_VERSION,
+                }
                 : undefined;
         },
     });
@@ -134,6 +144,64 @@ test("a record for another socket is not accepted", async () => {
     expect(await reader.read()).toBeUndefined();
     expect(inspected).toBe(false);
 });
+
+test("a live legacy host is incompatible rather than stale", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+    const reader = createTestLockfile(path, {
+        inspectSocket: async () => ({
+            pid: record.pid,
+            started_at: record.started_at,
+        }),
+    });
+
+    await expect(reader.read()).rejects.toBeInstanceOf(
+        HostProtocolMismatchError,
+    );
+    await expect(reader.read()).rejects.toThrow(
+        "stop it and relaunch Vera",
+    );
+});
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "reader recognizes a legacy identity over a real Unix socket",
+    async () => {
+        const path = temporaryLockPath();
+        const socketPath = join(path, "..", "..", "legacy.sock");
+        const server = createServer((socket) => {
+            socket.once("data", () => {
+                socket.end(`${JSON.stringify({
+                    type: "host_identity",
+                    pid: 101,
+                    started_at: startedAt,
+                })}\n`);
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+
+        try {
+            const lockfile = createHostLockfile({
+                path,
+                socketPath,
+                pid: 101,
+                startedAt,
+            });
+            await lockfile.publish();
+            await expect(lockfile.read()).rejects.toBeInstanceOf(
+                HostProtocolMismatchError,
+            );
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => error === undefined
+                    ? resolve()
+                    : reject(error));
+            });
+        }
+    },
+);
 
 test("the socket owner replaces a stale lockfile", async () => {
     const path = temporaryLockPath();
@@ -167,6 +235,7 @@ interface TestLockfileOverrides {
     readonly inspectSocket?: () => Promise<{
         readonly pid: number;
         readonly started_at: string;
+        readonly protocol_version?: number;
     } | undefined>;
 }
 
@@ -182,6 +251,7 @@ function createTestLockfile(
         inspectSocket: overrides.inspectSocket ?? (async () => ({
             pid: overrides.pid ?? 101,
             started_at: overrides.startedAt ?? startedAt,
+            protocol_version: HOST_PROTOCOL_VERSION,
         })),
     });
 }

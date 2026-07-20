@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { connectHost } from "../../src/host/connection.ts";
+import { attachAgent } from "../../src/host/attached-client.ts";
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
@@ -99,6 +100,105 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                 "assistant",
             ]);
         } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident rewind stays attached across the Unix socket",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-rewind-"));
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "approve_for_me",
+            },
+            createAdapter: () => new FauxAdapter([
+                textResponse("first answer"),
+                textResponse("second answer"),
+            ]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+        });
+        const agent = await host.registry.create({
+            id: "rewind-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+        });
+
+        try {
+            expect((await client.receive()).type).toBe("history");
+            for (const prompt of ["first request", "second request"]) {
+                await client.send({ type: "prompt", content: prompt });
+                await receiveUntilType(client, "turn_finished");
+                await receiveUntilType(client, "history");
+            }
+
+            await client.send({
+                type: "list_timeline",
+                requestId: "list-1",
+            });
+            const timeline = await client.receive();
+            if (timeline.type !== "timeline") {
+                throw new Error("Expected timeline reply");
+            }
+            const boundary = timeline.boundaries.find(
+                (candidate) => candidate.prompt === "second request",
+            );
+            if (boundary === undefined) {
+                throw new Error("Expected second timeline boundary");
+            }
+
+            await client.send({
+                type: "preview_timeline_action",
+                requestId: "preview-1",
+                boundaryId: boundary.userMessageId,
+                action: "rewind_conversation",
+            });
+            const preview = await client.receive();
+            if (preview.type !== "timeline_action_preview") {
+                throw new Error("Expected timeline preview");
+            }
+            await client.send({
+                type: "apply_timeline_action",
+                requestId: "apply-1",
+                planId: preview.plan.planId,
+            });
+            const history = await client.receive();
+            expect(history).toMatchObject({
+                type: "history",
+                entries: [
+                    { kind: "user", text: "first request" },
+                    { kind: "assistant", text: "first answer" },
+                ],
+            });
+            expect(await client.receive()).toMatchObject({
+                type: "timeline_action_applied",
+                requestId: "apply-1",
+                planId: preview.plan.planId,
+            });
+
+            await client.send({
+                type: "get_permissions",
+                requestId: "permissions-after-rewind",
+            });
+            expect(await client.receive()).toMatchObject({
+                type: "permissions",
+                requestId: "permissions-after-rewind",
+            });
+        } finally {
+            await client.detach().catch(() => undefined);
             await host.close();
             await rm(root, { recursive: true, force: true });
         }
@@ -251,4 +351,13 @@ function messageType(value: unknown): unknown {
     return typeof value === "object" && value !== null && "type" in value
         ? value.type
         : undefined;
+}
+
+async function receiveUntilType(
+    client: { receive(): Promise<{ readonly type: string }> },
+    type: string,
+): Promise<void> {
+    while ((await client.receive()).type !== type) {
+        // Drain ordered updates until the requested boundary.
+    }
 }

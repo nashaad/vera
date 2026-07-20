@@ -13,6 +13,7 @@ import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -66,9 +67,39 @@ afterEach(() => {
                 type: "host_identity",
                 pid: server.identity.pid,
                 started_at: server.identity.started_at,
+                protocol_version: HOST_PROTOCOL_VERSION,
             });
             connection.close();
         } finally {
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host reports an invalid attached command before closing",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.receive();
+            await connection.receive();
+            await connection.send({ type: "future_command" });
+            expect(await connection.receive()).toEqual({
+                type: "protocol_error",
+                reason: "unsupported_or_invalid_command",
+            });
+        } finally {
+            connection.close();
+            agent.close();
             await server.close();
         }
     },
