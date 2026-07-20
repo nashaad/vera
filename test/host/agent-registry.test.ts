@@ -200,6 +200,10 @@ test("accepted settings become defaults for new agents in the live host", async 
             sessionPath: join(root, "first.jsonl"),
         });
         expect(await registry.updateModelSettings(first.id, {
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "off",
+        })).toBeUndefined();
+        expect(await registry.updateModelSettings(first.id, {
             model: "second-model",
             reasoningEffort: "high",
         })).toMatchObject({ model: "second-model", reasoningEffort: "high" });
