@@ -114,11 +114,69 @@ test.skipIf(!tmuxAvailable)(
     15_000,
 );
 
+test.skipIf(!tmuxAvailable)(
+    "approval actions stay visible above long details",
+    async () => {
+        const socket = `vera-approval-layout-${process.pid}-${randomUUID()}`;
+        const session = "approval";
+        const home = mkdtempSync(join(tmpdir(), "vera-approval-layout-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-approval-child.ts",
+                42,
+                10,
+            );
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "[y] allow [n/esc] deny",
+            );
+            expect(pane).toContain("Tool approval");
+            expect(pane).toContain("$ grep");
+
+            for (let index = 0; index < 20; index += 1) {
+                sendKey(socket, session, "Down");
+            }
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "full user permissions",
+            );
+            expect(pane).toContain("[y] allow [n/esc] deny");
+            expect(pane).not.toContain("$ grep");
+
+            sendKey(socket, session, "n");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => !current.includes("[y] allow"),
+                "closed approval",
+            );
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
 function startTuiSession(
     socket: string,
     session: string,
     home: string,
     childPath: string,
+    width = 100,
+    height = 30,
 ): void {
     runTmux(socket, [
         "-f",
@@ -128,9 +186,9 @@ function startTuiSession(
         "-s",
         session,
         "-x",
-        "100",
+        String(width),
         "-y",
-        "30",
+        String(height),
         `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
             shellQuote(process.execPath)
         } run ${shellQuote(childPath)}`,
@@ -417,6 +475,39 @@ async function waitForPaneWhere(
     throw new Error(`Timed out waiting for ${description}`);
 }
 
+async function waitForVisiblePane(
+    socket: string,
+    session: string,
+    expected: string,
+): Promise<string> {
+    return waitForVisiblePaneWhere(
+        socket,
+        session,
+        (pane) => pane.includes(expected),
+        JSON.stringify(expected),
+    );
+}
+
+async function waitForVisiblePaneWhere(
+    socket: string,
+    session: string,
+    predicate: (pane: string) => boolean,
+    description: string,
+): Promise<string> {
+    const deadline = Date.now() + 5_000;
+    let pane = "";
+
+    while (Date.now() < deadline) {
+        pane = captureVisiblePane(socket, session);
+        if (predicate(pane)) {
+            return pane;
+        }
+        await Bun.sleep(50);
+    }
+
+    throw new Error(`Timed out waiting for visible ${description}`);
+}
+
 async function waitForSessionExit(
     socket: string,
     session: string,
@@ -451,6 +542,10 @@ function capturePane(socket: string, session: string): string {
         "-S",
         "-",
     ]);
+}
+
+function captureVisiblePane(socket: string, session: string): string {
+    return runTmux(socket, ["capture-pane", "-p", "-t", session]);
 }
 
 function runTmux(socket: string, args: readonly string[]): string {

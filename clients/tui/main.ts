@@ -28,8 +28,8 @@ import { attachAgent } from "../../src/host/attached-client.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import {
     applyTuiApprovalUpdate,
+    createTuiApprovalView,
     createTuiApprovalResponse,
-    renderTuiApproval,
 } from "./approval.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
@@ -213,6 +213,7 @@ export async function startTui(
 
     const composer = createTuiComposer(renderer, submitPrompt);
     const timelinePickerView = createTuiTimelinePickerView(renderer);
+    const approvalView = createTuiApprovalView(renderer);
 
     const commandSuggestionsText = new TextRenderable(renderer, {
         id: "command-suggestions-text",
@@ -233,28 +234,6 @@ export async function startTui(
     });
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
-
-    const approvalText = new TextRenderable(renderer, {
-        id: "approval-text",
-        content: "",
-        fg: TUI_TEXT,
-        width: "100%",
-        height: "auto",
-        wrapMode: "word",
-        selectable: true,
-    });
-
-    const approvalBox = new BoxRenderable(renderer, {
-        id: "approval-box",
-        title: " Tool approval ",
-        border: true,
-        borderColor: TUI_NOTICE,
-        width: "100%",
-        height: "auto",
-        paddingX: 1,
-        visible: false,
-    });
-    approvalBox.add(approvalText);
 
     const composerBox = new BoxRenderable(renderer, {
         id: "composer-box",
@@ -279,7 +258,7 @@ export async function startTui(
     });
     app.add(transcript);
     app.add(queuedPromptText);
-    app.add(approvalBox);
+    app.add(approvalView.box);
     app.add(timelinePickerView.box);
     app.add(commandSuggestionsBox);
     app.add(composerBox);
@@ -455,6 +434,7 @@ export async function startTui(
                     );
                     if (pendingApproval !== undefined) {
                         composer.blur();
+                        approvalView.focus();
                     } else if (previousApproval !== undefined) {
                         if (timelinePicker === undefined) {
                             composer.focus();
@@ -487,7 +467,11 @@ export async function startTui(
                 }
                 renderState();
 
-                if (!state.working && timelinePicker === undefined) {
+                if (
+                    !state.working
+                    && pendingApproval === undefined
+                    && timelinePicker === undefined
+                ) {
                     composer.focus();
                 }
             }
@@ -545,15 +529,18 @@ export async function startTui(
         placeholder.visible = state.entries.length === 0;
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
-        approvalBox.visible = pendingApproval !== undefined;
+        approvalView.box.visible = pendingApproval !== undefined;
         timelinePickerView.box.visible = pendingApproval === undefined
             && timelinePicker !== undefined;
-        transcript.opacity = timelinePickerView.box.visible ? 0.35 : 1;
+        transcript.opacity = approvalView.box.visible
+                || timelinePickerView.box.visible
+            ? 0.35
+            : 1;
         composerBox.visible = pendingApproval === undefined
             && timelinePicker === undefined;
         renderCommandSuggestions();
         if (pendingApproval !== undefined) {
-            approvalText.content = renderTuiApproval(pendingApproval);
+            approvalView.update(pendingApproval);
         }
         if (timelinePicker !== undefined) {
             timelinePickerView.update(timelinePicker);
