@@ -11,7 +11,7 @@ import type {
     UserQuestionUiRequestUpdate,
 } from "../../src/engine/protocol.ts";
 import { isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
-import { TUI_NOTICE, TUI_TEXT } from "./state.ts";
+import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
 
 export interface TuiQuestionKey {
     readonly name: string;
@@ -29,6 +29,8 @@ export interface TuiQuestionView {
     readonly details: ScrollBoxRenderable;
     readonly detailsText: TextRenderable;
     readonly actions: BoxRenderable;
+    readonly choiceAction: TextRenderable;
+    readonly cancelAction: TextRenderable;
     focus(): void;
     update(update: UserQuestionUiRequestUpdate): void;
 }
@@ -92,13 +94,15 @@ export function createTuiQuestionView(
         title: " Question ",
         border: true,
         borderColor: TUI_NOTICE,
-        backgroundColor: "#16161E",
+        backgroundColor: TUI_PANEL,
         position: "absolute",
         bottom: 1,
         left: "5%",
         width: "90%",
         height: "auto",
-        maxHeight: "90%",
+        // Short terminals need the final row that the normal overlay margin
+        // would consume. Larger terminals retain the calmer 90% cap.
+        maxHeight: renderer.height <= 10 ? "100%" : "90%",
         zIndex: 20,
         flexDirection: "column",
         gap: 0,
@@ -113,10 +117,13 @@ export function createTuiQuestionView(
         details,
         detailsText,
         actions,
+        choiceAction,
+        cancelAction,
         focus(): void {
             details.focus();
         },
         update(update): void {
+            box.maxHeight = renderer.height <= 10 ? "100%" : "90%";
             if (currentRequestId === update.requestId) {
                 return;
             }

@@ -5,6 +5,7 @@ import {
     type PasteEvent,
     type RenderContext,
 } from "@opentui/core";
+import { TUI_ACCENT, TUI_PANEL, TUI_TEXT } from "./state.ts";
 
 const PASTE_SUMMARY_LINE_THRESHOLD = 3;
 const PASTE_SUMMARY_CHAR_THRESHOLD = 240;
@@ -84,11 +85,11 @@ export function createTuiComposer(
         width: "100%",
         height: 3,
         placeholder: "Message Vera…",
-        backgroundColor: "#16161E",
-        focusedBackgroundColor: "#16161E",
-        textColor: "#F0F0F0",
-        focusedTextColor: "#FFFFFF",
-        cursorColor: "#7AA2F7",
+        backgroundColor: TUI_PANEL,
+        focusedBackgroundColor: TUI_PANEL,
+        textColor: TUI_TEXT,
+        focusedTextColor: TUI_TEXT,
+        cursorColor: TUI_ACCENT,
         keyBindings: [
             { name: "return", action: "submit" },
             { name: "enter", action: "submit" },

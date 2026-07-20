@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -9,6 +10,18 @@ import {
     startTuiTimelinePicker,
     type TuiTimelinePickerState,
 } from "../../clients/tui/timeline-picker.ts";
+
+test("timeline picker exposes its themed text surface", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    const view = createTuiTimelinePickerView(setup.renderer);
+
+    try {
+        view.content.fg = "#123456";
+        expect(view.content.fg.toInts()).toEqual(RGBA.fromHex("#123456").toInts());
+    } finally {
+        setup.renderer.destroy();
+    }
+});
 import type {
     TimelineActionPlan,
     TimelineBoundary,

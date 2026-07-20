@@ -1,15 +1,27 @@
 import {
     BoxRenderable,
+    fg,
+    StyledText,
     TextRenderable,
+    type Renderable,
     type RenderContext,
+    type TextChunk,
 } from "@opentui/core";
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
-import { TUI_NOTICE, TUI_TEXT } from "./state.ts";
+import {
+    TUI_ACCENT,
+    TUI_ELEMENT,
+    TUI_MUTED,
+    TUI_NOTICE,
+    TUI_PANEL,
+    TUI_TEXT,
+} from "./state.ts";
+import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 
-export type TuiSettingsPickerKind = "model" | "reasoning" | "permissions";
+export type TuiSettingsPickerKind = "model" | "reasoning" | "permissions" | "theme";
 
 export interface TuiSettingsPickerOption {
     readonly value: string;
@@ -23,6 +35,7 @@ export interface TuiSettingsPickerState {
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
     readonly query: string;
+    readonly initialTheme?: TuiThemeName;
 }
 
 export interface TuiSettingsPickerKey {
@@ -40,12 +53,14 @@ export type TuiSettingsPickerSelection =
         readonly kind: "reasoning";
         readonly reasoningEffort: ModelReasoningEffort;
     }
-    | { readonly kind: "permissions"; readonly mode: ApprovalMode };
+    | { readonly kind: "permissions"; readonly mode: ApprovalMode }
+    | { readonly kind: "theme"; readonly theme: TuiThemeName };
 
 export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
     readonly selection?: TuiSettingsPickerSelection;
     readonly handled: boolean;
+    readonly previewTheme?: TuiThemeName;
 }
 
 export interface TuiSettingsPickerView {
@@ -75,6 +90,16 @@ const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
 ];
 
+const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    { value: "default", label: "Default", description: "Vera's original palette" },
+    { value: "system", label: "System", description: "inherit terminal colors" },
+    { value: "orng", label: "Orng", description: "warm orange on black" },
+    { value: "palenight", label: "Palenight", description: "soft blue and purple" },
+    { value: "synthwave", label: "Synthwave", description: "bright cyan and neon" },
+    { value: "nightowl", label: "Night Owl", description: "deep blue, low glare" },
+    { value: "github", label: "GitHub", description: "GitHub dark palette" },
+];
+
 export function startTuiSettingsPicker(
     kind: TuiSettingsPickerKind,
     currentModel: string | undefined,
@@ -82,13 +107,18 @@ export function startTuiSettingsPicker(
     currentPermissions: ApprovalMode | undefined,
     availableReasoning: readonly ModelReasoningEffort[] | undefined = undefined,
     availableModels: readonly SuggestedModel[] | undefined = undefined,
+    currentTheme: TuiThemeName = "default",
 ): TuiSettingsPickerState {
-    const options = kind === "model"
+    const options = kind === "theme"
+        ? THEME_OPTIONS
+        : kind === "model"
         ? modelOptions(availableModels, currentModel)
         : kind === "reasoning"
             ? reasoningOptions(availableReasoning)
             : PERMISSION_OPTIONS;
-    const currentValue = kind === "model"
+    const currentValue = kind === "theme"
+        ? currentTheme
+        : kind === "model"
         ? currentModel
         : kind === "reasoning"
             ? currentReasoning ?? "default"
@@ -97,7 +127,14 @@ export function startTuiSettingsPicker(
         0,
         options.findIndex((option) => option.value === currentValue),
     );
-    return { kind, allOptions: options, options, selectedIndex, query: "" };
+    return {
+        kind,
+        allOptions: options,
+        options,
+        selectedIndex,
+        query: "",
+        ...(kind === "theme" ? { initialTheme: currentTheme } : {}),
+    };
 }
 
 function reasoningOptions(
@@ -118,7 +155,12 @@ export function handleTuiSettingsPickerKey(
         return unchanged(state, false);
     }
     if (key.name === "escape") {
-        return { handled: true };
+        return {
+            handled: true,
+            ...(state.kind === "theme" && state.initialTheme !== undefined
+                ? { previewTheme: state.initialTheme }
+                : {}),
+        };
     }
     if (key.name === "backspace") {
         return searched(state, state.query.slice(0, -1));
@@ -131,24 +173,28 @@ export function handleTuiSettingsPickerKey(
         return searched(state, state.query + key.name);
     }
     if (key.name === "up") {
-        return {
-            state: {
+        const next = {
                 ...state,
                 selectedIndex: Math.max(0, state.selectedIndex - 1),
-            },
+            };
+        return {
+            state: next,
             handled: true,
+            ...themePreview(next),
         };
     }
     if (key.name === "down") {
-        return {
-            state: {
+        const next = {
                 ...state,
                 selectedIndex: Math.min(
                     state.options.length - 1,
                     state.selectedIndex + 1,
                 ),
-            },
+            };
+        return {
+            state: next,
             handled: true,
+            ...themePreview(next),
         };
     }
     if (key.name === "return" || key.name === "enter") {
@@ -167,6 +213,7 @@ export function handleTuiSettingsPickerKey(
 export function createTuiSettingsPickerView(
     renderer: RenderContext,
 ): TuiSettingsPickerView {
+    let themeNodes: Renderable[] = [];
     const content = new TextRenderable(renderer, {
         id: "settings-picker-text",
         content: "",
@@ -180,7 +227,7 @@ export function createTuiSettingsPickerView(
         title: " Settings ",
         border: true,
         borderColor: TUI_NOTICE,
-        backgroundColor: "#16161E",
+        backgroundColor: TUI_PANEL,
         position: "absolute",
         top: 2,
         left: "10%",
@@ -196,6 +243,29 @@ export function createTuiSettingsPickerView(
     return {
         box,
         update(state): void {
+            for (const node of themeNodes) {
+                node.destroy();
+            }
+            themeNodes = [];
+            if (state.kind === "theme") {
+                content.visible = false;
+                box.title = undefined;
+                box.border = false;
+                box.left = "20%";
+                box.width = "60%";
+                box.height = state.allOptions.length + 7;
+                box.paddingLeft = 2;
+                box.paddingRight = 2;
+                box.paddingTop = 1;
+                renderThemePickerRows(renderer, box, state, themeNodes);
+                return;
+            }
+            content.visible = true;
+            box.border = true;
+            box.left = "10%";
+            box.width = "80%";
+            box.paddingLeft = 1;
+            box.paddingRight = 1;
             box.title = pickerTitle(state.kind);
             box.height = Math.min(
                 18,
@@ -204,6 +274,108 @@ export function createTuiSettingsPickerView(
             content.content = renderTuiSettingsPicker(state);
         },
     };
+}
+
+const THEME_LABEL_WIDTH = 11;
+
+function renderThemePickerRows(
+    renderer: RenderContext,
+    box: BoxRenderable,
+    state: TuiSettingsPickerState,
+    nodes: Renderable[],
+): void {
+    const header = new BoxRenderable(renderer, {
+        width: "100%",
+        height: 1,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        paddingLeft: 1,
+        paddingRight: 1,
+    });
+    header.add(new TextRenderable(renderer, {
+        content: "Theme",
+        fg: TUI_TEXT,
+        attributes: 1,
+    }));
+    header.add(new TextRenderable(renderer, {
+        content: "esc",
+        fg: TUI_MUTED,
+    }));
+    const search = new TextRenderable(renderer, {
+        content: new StyledText([
+            fg(TUI_MUTED)("⌕  "),
+            fg(state.query.length === 0 ? TUI_MUTED : TUI_ACCENT)(
+                state.query.length === 0 ? "Search" : state.query,
+            ),
+        ]),
+        width: "100%",
+        height: 2,
+        paddingLeft: 1,
+        paddingTop: 1,
+    });
+    box.add(header);
+    box.add(search);
+    nodes.push(header, search);
+
+    // Show the curated catalog even while filtering: unmatched rows dim rather
+    // than vanish, so the list keeps its stable palette-card shape.
+    const matches = new Set(state.options.map((option) => option.value));
+    state.allOptions.forEach((option) => {
+        const active = option.value === state.options[state.selectedIndex]?.value;
+        const current = option.value === state.initialTheme;
+        const matched = matches.has(option.value);
+        const row = new TextRenderable(renderer, {
+            content: themeRowContent(option, active, current, matched),
+            bg: active ? TUI_ELEMENT : TUI_PANEL,
+            width: "100%",
+            height: 1,
+            paddingRight: 1,
+        });
+        box.add(row);
+        nodes.push(row);
+    });
+
+    const footer = new TextRenderable(renderer, {
+        content: "↑↓ move · ⏎ apply · esc cancel",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 2,
+        paddingLeft: 1,
+        paddingTop: 1,
+    });
+    box.add(footer);
+    nodes.push(footer);
+}
+
+function themeRowContent(
+    option: TuiSettingsPickerOption,
+    active: boolean,
+    current: boolean,
+    matched: boolean,
+): StyledText {
+    const labelColor = matched
+        ? (active || current ? TUI_ACCENT : TUI_TEXT)
+        : TUI_MUTED;
+    const chunks: TextChunk[] = [
+        fg(active ? TUI_ACCENT : TUI_PANEL)("▌ "),
+        fg(TUI_ACCENT)(current ? "● " : "  "),
+        fg(labelColor)(option.label.padEnd(THEME_LABEL_WIDTH)),
+        ...themeSwatchChunks(option.value as TuiThemeName, matched),
+        fg(matched ? TUI_MUTED : TUI_PANEL)(`  ${option.description}`),
+    ];
+    return new StyledText(chunks);
+}
+
+function themeSwatchChunks(name: TuiThemeName, matched: boolean): TextChunk[] {
+    const swatch = tuiThemeSwatch(name);
+    if (swatch === undefined) {
+        // System inherits the terminal palette, unknown until applied.
+        return [fg(TUI_MUTED)("░░ ░░ ░░ ░░")];
+    }
+    return swatch.flatMap((color, index) => [
+        ...(index === 0 ? [] : [fg(TUI_PANEL)(" ")]),
+        fg(matched ? color : TUI_MUTED)("██"),
+    ]);
 }
 
 export function renderTuiSettingsPicker(
@@ -229,10 +401,22 @@ function searched(
             .toLowerCase()
             .includes(normalized)
     );
+    const next = { ...state, options, selectedIndex: 0, query };
     return {
-        state: { ...state, options, selectedIndex: 0, query },
+        state: next,
         handled: true,
+        ...themePreview(next),
     };
+}
+
+function themePreview(
+    state: TuiSettingsPickerState,
+): { readonly previewTheme?: TuiThemeName } {
+    if (state.kind !== "theme") {
+        return {};
+    }
+    const value = state.options[state.selectedIndex]?.value;
+    return value === undefined ? {} : { previewTheme: value as TuiThemeName };
 }
 
 function modelOptions(
@@ -267,7 +451,10 @@ function pickerSelection(
     if (kind === "reasoning") {
         return { kind, reasoningEffort: value as ModelReasoningEffort };
     }
-    return { kind, mode: value as ApprovalMode };
+    if (kind === "permissions") {
+        return { kind, mode: value as ApprovalMode };
+    }
+    return { kind, theme: value as TuiThemeName };
 }
 
 function pickerTitle(kind: TuiSettingsPickerKind): string {
@@ -275,7 +462,9 @@ function pickerTitle(kind: TuiSettingsPickerKind): string {
         ? " Model "
         : kind === "reasoning"
             ? " Reasoning "
-            : " Permissions ";
+            : kind === "permissions"
+                ? " Permissions "
+                : " Themes ";
 }
 
 function unchanged(

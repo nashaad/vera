@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -7,6 +8,23 @@ import {
     createTuiQuestionView,
     renderTuiQuestionDetails,
 } from "../../clients/tui/question.ts";
+
+test("question view exposes every themed text surface", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+
+    try {
+        view.detailsText.fg = "#123456";
+        view.choiceAction.fg = "#123456";
+        view.cancelAction.fg = "#123456";
+        const expected = RGBA.fromHex("#123456").toInts();
+        expect(view.detailsText.fg.toInts()).toEqual(expected);
+        expect(view.choiceAction.fg.toInts()).toEqual(expected);
+        expect(view.cancelAction.fg.toInts()).toEqual(expected);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
 import type {
     UserQuestionUiRequestUpdate,
 } from "../../src/engine/protocol.ts";

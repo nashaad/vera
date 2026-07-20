@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
+import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     handleTuiSettingsPickerKey,
     renderTuiSettingsPicker,
     startTuiSettingsPicker,
+    createTuiSettingsPickerView,
 } from "../../clients/tui/settings-picker.ts";
 
 const availableModels = [
@@ -147,4 +149,74 @@ test("escape closes the settings picker", () => {
     expect(handleTuiSettingsPickerKey(state, { name: "escape" })).toEqual({
         handled: true,
     });
+});
+
+test("theme picker is curated, searchable, and keeps the current theme selected", () => {
+    const themes = startTuiSettingsPicker(
+        "theme",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "nightowl",
+    );
+
+    expect(themes.options.map((option) => option.value)).toEqual([
+        "default",
+        "system",
+        "orng",
+        "palenight",
+        "synthwave",
+        "nightowl",
+        "github",
+    ]);
+    expect(themes.options[themes.selectedIndex]?.value).toBe("nightowl");
+    let filtered = themes;
+    for (const name of "owl") {
+        filtered = handleTuiSettingsPickerKey(filtered, { name }).state
+            ?? filtered;
+    }
+    expect(filtered.options.map((option) => option.value)).toEqual([
+        "nightowl",
+    ]);
+    expect(handleTuiSettingsPickerKey(themes, { name: "down" }).previewTheme)
+        .toBe("github");
+    expect(handleTuiSettingsPickerKey(themes, { name: "escape" }).previewTheme)
+        .toBe("nightowl");
+    expect(handleTuiSettingsPickerKey(filtered, { name: "backspace" }).previewTheme)
+        .toBe("nightowl");
+});
+
+test("theme picker renders as a borderless palette card with swatches", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(startTuiSettingsPicker(
+        "theme",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "default",
+    ));
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("Theme");
+        expect(frame).toContain("esc");
+        // Persisted theme carries the current-dot; every row shows a swatch.
+        expect(frame).toContain("● Default");
+        expect(frame).toContain("██ ██ ██ ██");
+        // System is terminal-derived, so it shows a neutral placeholder swatch.
+        expect(frame).toContain("░░ ░░ ░░ ░░");
+        expect(frame).toContain("↑↓ move · ⏎ apply · esc cancel");
+        expect(frame).not.toContain("┌");
+        expect(view.box.border).toBe(false);
+    } finally {
+        setup.renderer.destroy();
+    }
 });

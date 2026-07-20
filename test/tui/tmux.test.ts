@@ -30,6 +30,20 @@ test.skipIf(!tmuxAvailable)(
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
 
+            sendText(socket, session, "/themes");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Theme");
+            expect(pane).toContain("Night Owl");
+            sendText(socket, session, "owl");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "theme changed: nightowl",
+            );
+            expect(JSON.parse(readFileSync(join(home, ".vera", "tui.json"), "utf8")))
+                .toEqual({ theme: "nightowl" });
+
             sendText(socket, session, "/reasoning");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Reasoning");

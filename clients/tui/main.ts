@@ -63,6 +63,7 @@ import {
     TUI_MUTED,
     TUI_NOTICE,
     TUI_TEXT,
+    applyTuiTheme,
     appendTuiNotice,
     appendTuiThought,
     applyAgentUpdate,
@@ -74,6 +75,11 @@ import {
     renderTuiQueuedPrompt,
     tuiEntryMarginTop,
 } from "./state.ts";
+import { resolveTuiTheme } from "./theme.ts";
+import {
+    loadTuiThemePreference,
+    saveTuiThemePreference,
+} from "./theme-preference.ts";
 
 const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
 const WORKING_HINT = "enter queue · esc redirect/stop · ctrl+c stop";
@@ -159,6 +165,10 @@ export async function startTui(
     const copyText = dependencies.copyText
         ?? ((text: string) => copyTuiText(text, renderer));
     renderer.setTerminalTitle("Vera");
+    let themeName = loadTuiThemePreference();
+    let theme = await resolveTuiTheme(renderer, themeName);
+    applyTuiTheme(theme);
+    renderer.setBackgroundColor(theme.background);
 
     let state = createTuiState();
     let statusNotice: string | undefined;
@@ -172,22 +182,26 @@ export async function startTui(
     let workingSince: number | undefined;
     let phaseSince: number | undefined;
     let activity = "thinking";
+    let themeApplicationVersion = 0;
     const commandRegistry = createBuiltinTuiCommandRegistry();
 
-    const markdownStyle = SyntaxStyle.fromStyles({
-        default: { fg: TUI_TEXT },
-        "markup.heading": { fg: TUI_ACCENT, bold: true },
+    let markdownStyle = createMarkdownStyle(theme);
+    function createMarkdownStyle(activeTheme: typeof theme): SyntaxStyle {
+        return SyntaxStyle.fromStyles({
+        default: { fg: activeTheme.text },
+        "markup.heading": { fg: activeTheme.accent, bold: true },
         "markup.strong": { bold: true },
         "markup.italic": { italic: true },
-        "markup.raw": { fg: "#9ECE6A" },
-        "markup.raw.block": { fg: "#9ECE6A" },
-        "markup.list": { fg: TUI_ACCENT },
-        "markup.quote": { fg: TUI_MUTED, italic: true },
-        "markup.link": { fg: TUI_ACCENT, underline: true },
-        "markup.link.label": { fg: TUI_ACCENT },
-        "markup.link.url": { fg: TUI_MUTED, underline: true },
-        conceal: { fg: TUI_MUTED },
-    });
+        "markup.raw": { fg: activeTheme.success },
+        "markup.raw.block": { fg: activeTheme.success },
+        "markup.list": { fg: activeTheme.accent },
+        "markup.quote": { fg: activeTheme.muted, italic: true },
+        "markup.link": { fg: activeTheme.accent, underline: true },
+        "markup.link.label": { fg: activeTheme.accent },
+        "markup.link.url": { fg: activeTheme.muted, underline: true },
+        conceal: { fg: activeTheme.muted },
+        });
+    }
 
     const transcript = new ScrollBoxRenderable(renderer, {
         id: "transcript",
@@ -219,14 +233,14 @@ export async function startTui(
     const statusText = new TextRenderable(renderer, {
         id: "status",
         content: READY_HINT,
-        fg: "#565B66",
+        fg: TUI_MUTED,
         width: "100%",
         height: 1,
         paddingLeft: 2,
         position: "absolute",
         bottom: 0,
         zIndex: 30,
-        bg: "#0F1016",
+        bg: theme.background,
     });
 
     const queuedPromptText = new TextRenderable(renderer, {
@@ -250,8 +264,8 @@ export async function startTui(
         id: "activity-box",
         border: ["left"],
         borderStyle: "heavy",
-        borderColor: "#E8D94A",
-        backgroundColor: "#1D1F2A",
+        borderColor: TUI_NOTICE,
+        backgroundColor: theme.element,
         width: "100%",
         height: 0,
         paddingX: 2,
@@ -286,15 +300,18 @@ export async function startTui(
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
 
+    // OpenTUI prompt layout follows OpenCode's canonical Prompt mechanics;
+    // Vera keeps its own colors, content, and interaction vocabulary.
     const composerBox = new BoxRenderable(renderer, {
         id: "composer-box",
         border: ["left"],
         borderStyle: "heavy",
-        borderColor: "#7AA2F7",
-        backgroundColor: "#16161E",
+        borderColor: TUI_ACCENT,
+        backgroundColor: theme.panel,
         width: "100%",
-        height: 3,
-        paddingX: 1,
+        height: 5,
+        paddingX: 2,
+        paddingY: 1,
         marginBottom: 1,
     });
     composerBox.add(composer);
@@ -595,6 +612,21 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
+        if (commandAction?.type === "open_theme_picker") {
+            composer.clearComposer();
+            settingsPicker = startTuiSettingsPicker(
+                "theme",
+                state.modelSettings?.model,
+                state.modelSettings?.reasoningEffort,
+                state.approvalMode,
+                state.modelSettings?.availableReasoningEfforts,
+                state.modelSettings?.availableModels,
+                themeName,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         if (commandAction?.type === "open_rewind") {
             if (
                 state.working
@@ -874,6 +906,9 @@ export async function startTui(
         transition: TuiSettingsPickerTransition,
     ): void {
         settingsPicker = transition.state;
+        if (transition.previewTheme !== undefined) {
+            void applySelectedTheme(transition.previewTheme, false);
+        }
         if (transition.selection !== undefined) {
             const selection = transition.selection;
             if (selection.kind === "model") {
@@ -890,13 +925,17 @@ export async function startTui(
                     patch: { reasoningEffort: selection.reasoningEffort },
                 });
                 state = appendTuiNotice(state, `reasoning change requested: ${selection.reasoningEffort}`);
-            } else {
+            } else if (selection.kind === "permissions") {
                 sendCommand({
                     type: "update_permissions",
                     requestId: randomUUID(),
                     mode: selection.mode,
                 });
                 state = appendTuiNotice(state, `permissions change requested: ${selection.mode}`);
+            } else {
+                themeName = selection.theme;
+                saveTuiThemePreference(themeName);
+                void applySelectedTheme(themeName, true);
             }
             settingsPicker = undefined;
         }
@@ -909,6 +948,58 @@ export async function startTui(
             composer.blur();
             settingsPickerView.update(settingsPicker);
             settingsPickerView.box.focus();
+        }
+        renderState();
+    }
+
+    async function applySelectedTheme(
+        selectedTheme: typeof themeName,
+        announce: boolean,
+    ): Promise<void> {
+        const version = ++themeApplicationVersion;
+        const resolvedTheme = await resolveTuiTheme(renderer, selectedTheme);
+        if (version !== themeApplicationVersion || shuttingDown) {
+            return;
+        }
+        theme = resolvedTheme;
+        applyTuiTheme(theme);
+        renderer.setBackgroundColor(theme.background);
+        clearTranscriptNodes();
+        markdownStyle.destroy();
+        markdownStyle = createMarkdownStyle(theme);
+
+        placeholder.fg = theme.muted;
+        statusText.bg = theme.background;
+        queuedPromptText.fg = theme.muted;
+        activityText.fg = theme.text;
+        activityBox.backgroundColor = theme.element;
+        activityBox.borderColor = theme.notice;
+        commandSuggestionsText.fg = theme.text;
+        commandSuggestionsBox.borderColor = theme.muted;
+        composerBox.backgroundColor = theme.panel;
+        composerBox.borderColor = theme.accent;
+        composer.backgroundColor = theme.panel;
+        composer.focusedBackgroundColor = theme.panel;
+        composer.textColor = theme.text;
+        composer.focusedTextColor = theme.text;
+        composer.cursorColor = theme.accent;
+        approvalView.box.backgroundColor = theme.panel;
+        approvalView.box.borderColor = theme.notice;
+        approvalView.detailsText.fg = theme.text;
+        approvalView.actions.fg = theme.text;
+        questionView.box.backgroundColor = theme.panel;
+        questionView.box.borderColor = theme.notice;
+        questionView.detailsText.fg = theme.text;
+        questionView.choiceAction.fg = theme.text;
+        questionView.cancelAction.fg = theme.text;
+        timelinePickerView.box.backgroundColor = theme.panel;
+        timelinePickerView.box.borderColor = theme.notice;
+        timelinePickerView.content.fg = theme.text;
+        settingsPickerView.box.backgroundColor = theme.panel;
+        settingsPickerView.box.borderColor = theme.notice;
+
+        if (announce) {
+            state = appendTuiNotice(state, `theme changed: ${selectedTheme}`);
         }
         renderState();
     }
@@ -1002,7 +1093,7 @@ export async function startTui(
             ? TUI_NOTICE
             : state.working || pendingUiRequest !== undefined
                 ? TUI_ACCENT
-                : "#565B66";
+                : TUI_MUTED;
         statusText.content = renderTuiStatusLine(
             state.modelSettings,
             state.approvalMode,
@@ -1079,9 +1170,7 @@ export async function startTui(
     }
 
     function activityAccentFrame(): string {
-        const colors = ["#E8D94A", "#C7C94F", "#9FAF5C", "#C7C94F"];
-        const index = Math.floor(Date.now() / 200) % colors.length;
-        return colors[index] ?? "#E8D94A";
+        return TUI_NOTICE;
     }
 }
 
