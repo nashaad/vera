@@ -1,4 +1,5 @@
 import type { ModelTool } from "../model/types.ts";
+import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 
 // Prompt ordering is a provider KV-cache contract. Treat prefix stability as
 // a gate for every change here: stable content must remain byte-identical and
@@ -9,10 +10,16 @@ export interface AssembleSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
     readonly date: Date;
+    readonly projectInstructions?: ProjectInstructionSnapshot;
 }
 
 interface SystemPromptSection {
-    readonly name: "Identity" | "Tools" | "Workspace" | "Date";
+    readonly name:
+        | "Identity"
+        | "Tools"
+        | "Workspace"
+        | "Date"
+        | "Project instructions";
     readonly content: string;
 }
 
@@ -38,6 +45,16 @@ export function assembleSystemPrompt(
             name: "Date",
             content: `Current date: ${formatLocalDate(input.date)}`,
         },
+        ...(input.projectInstructions === undefined
+            || (
+                input.projectInstructions.files.length === 0
+                && input.projectInstructions.warnings.length === 0
+            )
+            ? []
+            : [{
+                name: "Project instructions" as const,
+                content: renderProjectInstructions(input.projectInstructions),
+            }]),
     ];
 
     return sections
@@ -56,4 +73,19 @@ function formatLocalDate(date: Date): string {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+}
+
+function renderProjectInstructions(
+    snapshot: ProjectInstructionSnapshot,
+): string {
+    const sections = snapshot.files.map((file) =>
+        [`### ${file.name}`, file.content].join("\n")
+    );
+    if (snapshot.warnings.length > 0) {
+        sections.push([
+            "### Loading diagnostics",
+            ...snapshot.warnings.map((warning) => `- ${warning}`),
+        ].join("\n"));
+    }
+    return sections.join("\n\n");
 }

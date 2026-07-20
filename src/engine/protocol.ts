@@ -324,7 +324,11 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         const response = command.response as Record<string, unknown>;
         if (
             response.type === "tool_approval"
-            && (response.decision === "allow" || response.decision === "deny")
+            && (
+                response.decision === "allow_once"
+                || response.decision === "allow_prefix"
+                || response.decision === "deny"
+            )
         ) {
             return {
                 type: "ui_response",

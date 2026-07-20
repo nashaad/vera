@@ -34,6 +34,10 @@ export type ToolPermissionDecision =
     | AskToolPermission
     | DenyToolPermission;
 
+export interface CommandPrefix {
+    readonly tokens: readonly string[];
+}
+
 const NETWORK_COMMANDS = new Set([
     "curl",
     "ftp",
@@ -85,6 +89,7 @@ export function decideToolPermission(
     mode: ApprovalMode,
     toolCall: HookToolCall,
     workspace: string,
+    commandPrefixes: readonly CommandPrefix[] = [],
 ): ToolPermissionDecision {
     if (toolCall.name !== "bash") {
         return { behavior: "allow" };
@@ -100,6 +105,11 @@ export function decideToolPermission(
             behavior: "deny",
             reason: "Blocked dangerous command: recursive-force rm is not allowed",
         };
+    }
+    if (commandPrefixes.some((prefix) =>
+        commandMatchesPrefix(command, prefix)
+    )) {
+        return { behavior: "allow" };
     }
     if (mode === "full_access") {
         return { behavior: "allow" };
@@ -123,6 +133,46 @@ export function decideToolPermission(
         };
     }
     return { behavior: "allow" };
+}
+
+export function commandPrefixForToolCall(
+    toolCall: HookToolCall,
+): CommandPrefix | undefined {
+    if (toolCall.name !== "bash") {
+        return undefined;
+    }
+    const command = toolCall.input.command;
+    if (typeof command !== "string") {
+        return undefined;
+    }
+    const commands = tokenizeSimpleCommands(command);
+    const words = commands[0];
+    if (commands.length !== 1 || words === undefined || words.length === 0) {
+        return undefined;
+    }
+    return { tokens: [...words] };
+}
+
+export function isCommandPrefix(value: unknown): value is CommandPrefix {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const tokens = (value as Record<string, unknown>).tokens;
+    return Array.isArray(tokens)
+        && tokens.length > 0
+        && tokens.every((token) => typeof token === "string" && token.length > 0);
+}
+
+function commandMatchesPrefix(
+    command: string,
+    prefix: CommandPrefix,
+): boolean {
+    const commands = tokenizeSimpleCommands(command);
+    const words = commands[0];
+    return commands.length === 1
+        && words !== undefined
+        && words.length >= prefix.tokens.length
+        && prefix.tokens.every((token, index) => words[index] === token);
 }
 
 function likelyUsesNetwork(command: string, depth = 0): boolean {

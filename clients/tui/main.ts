@@ -68,9 +68,10 @@ import {
 } from "./state.ts";
 
 const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
-const WORKING_HINT = "working… · enter queue · esc redirect/stop · ctrl+c stop";
+const WORKING_HINT = "enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
-const APPROVAL_HINT = "approval required · y allow · n/esc deny · ctrl+c stop";
+const APPROVAL_HINT =
+    "approval required · 1 once · 2 session prefix · 3/esc deny · ctrl+c stop";
 const QUESTION_HINT = "question waiting · 1-9 choose · esc cancel · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
 
@@ -157,6 +158,8 @@ export async function startTui(
     let abortRequested = false;
     let pendingUiRequest: UiRequestUpdate | undefined;
     let timelinePicker: TuiTimelinePickerState | undefined;
+    let workingSince: number | undefined;
+    let activity = "thinking";
     const commandRegistry = createBuiltinTuiCommandRegistry();
 
     const markdownStyle = SyntaxStyle.fromStyles({
@@ -280,8 +283,13 @@ export async function startTui(
 
     renderer.on(CliRenderEvents.DESTROY, () => {
         shuttingDown = true;
+        clearInterval(statusTimer);
         void client.detach().catch(() => client.close());
     });
+
+    const statusTimer = setInterval(() => {
+        renderStatus();
+    }, 1_000);
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
         const copyableNodes = pendingUiRequest !== undefined
@@ -309,6 +317,7 @@ export async function startTui(
                 renderer.destroy();
             } else if (action === "abort") {
                 abortRequested = true;
+                activity = "stopping";
                 sendCommand({ type: "abort" });
                 renderStatus();
             }
@@ -323,6 +332,7 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 sendCommand(response);
+                activity = "thinking";
                 pendingUiRequest = undefined;
                 focusActiveSurface();
                 renderState();
@@ -378,6 +388,7 @@ export async function startTui(
         }
         if (action === "abort") {
             abortRequested = true;
+            activity = "stopping";
             sendCommand({ type: "abort" });
             renderStatus();
         }
@@ -405,6 +416,45 @@ export async function startTui(
             renderState();
             return;
         }
+        if (commandAction?.type === "update_model") {
+            composer.clearComposer();
+            sendCommand({
+                type: "update_model_settings",
+                requestId: randomUUID(),
+                patch: { model: commandAction.model },
+            });
+            state = appendTuiNotice(state, `model change requested: ${commandAction.model}`);
+            renderState();
+            return;
+        }
+        if (commandAction?.type === "update_reasoning") {
+            composer.clearComposer();
+            sendCommand({
+                type: "update_model_settings",
+                requestId: randomUUID(),
+                patch: { reasoningEffort: commandAction.reasoningEffort },
+            });
+            state = appendTuiNotice(
+                state,
+                `reasoning change requested: ${commandAction.reasoningEffort}`,
+            );
+            renderState();
+            return;
+        }
+        if (commandAction?.type === "update_permissions") {
+            composer.clearComposer();
+            sendCommand({
+                type: "update_permissions",
+                requestId: randomUUID(),
+                mode: commandAction.mode,
+            });
+            state = appendTuiNotice(
+                state,
+                `permissions change requested: ${commandAction.mode}`,
+            );
+            renderState();
+            return;
+        }
         if (commandAction?.type === "open_rewind") {
             if (
                 state.working
@@ -428,6 +478,10 @@ export async function startTui(
         state = state.working
             ? queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt);
+        if (workingSince === undefined) {
+            workingSince = Date.now();
+            activity = "thinking";
+        }
         renderState();
         sendCommand({ type: "prompt", content: prompt });
     }
@@ -443,6 +497,9 @@ export async function startTui(
                     update.type === "ui_request"
                     || update.type === "ui_request_closed"
                 ) {
+                    activity = update.type === "ui_request"
+                        ? "waiting for approval"
+                        : "thinking";
                     const previousRequest = pendingUiRequest;
                     pendingUiRequest = applyTuiUiRequestUpdate(
                         pendingUiRequest,
@@ -466,11 +523,19 @@ export async function startTui(
                     }
                     continue;
                 }
+                observeActivity(update);
                 state = applyAgentUpdate(state, update);
                 if (update.type === "turn_finished") {
                     abortRequested = false;
                     finishStreamingAssistant();
                     state = beginNextQueuedTuiTurn(state);
+                    if (state.working) {
+                        workingSince = Date.now();
+                        activity = "thinking";
+                    } else {
+                        workingSince = undefined;
+                        activity = "ready";
+                    }
                 }
                 renderState();
 
@@ -692,13 +757,13 @@ export async function startTui(
 
         let lifecycleHint = READY_HINT;
         if (abortRequested) {
-            lifecycleHint = STOPPING_HINT;
+            lifecycleHint = `${STOPPING_HINT} · ${elapsedWorkingTime()}`;
         } else if (pendingUiRequest?.request.type === "tool_approval") {
-            lifecycleHint = APPROVAL_HINT;
+            lifecycleHint = `${APPROVAL_HINT} · ${elapsedWorkingTime()}`;
         } else if (pendingUiRequest?.request.type === "user_question") {
-            lifecycleHint = QUESTION_HINT;
+            lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
-            lifecycleHint = WORKING_HINT;
+            lifecycleHint = `working · ${elapsedWorkingTime()} · ${activity} · ${WORKING_HINT}`;
         }
 
         statusText.fg = statusNotice === undefined ? "#565B66" : TUI_NOTICE;
@@ -707,6 +772,36 @@ export async function startTui(
             state.approvalMode,
             statusNotice ?? lifecycleHint,
         );
+    }
+
+    function observeActivity(update: AgentUpdate): void {
+        if (update.type === "user_prompt") {
+            workingSince ??= Date.now();
+            activity = "thinking";
+        } else if (update.type === "assistant_delta") {
+            workingSince ??= Date.now();
+            activity = "responding";
+        } else if (update.type === "tool_started") {
+            workingSince ??= Date.now();
+            activity = `running ${update.tool}`;
+        } else if (update.type === "tool_finished") {
+            activity = "thinking";
+        }
+    }
+
+    function elapsedWorkingTime(): string {
+        if (workingSince === undefined) {
+            return "0s";
+        }
+        const elapsedSeconds = Math.max(
+            0,
+            Math.floor((Date.now() - workingSince) / 1_000),
+        );
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = elapsedSeconds % 60;
+        return minutes === 0
+            ? `${seconds}s`
+            : `${minutes}m${String(seconds).padStart(2, "0")}s`;
     }
 }
 

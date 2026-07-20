@@ -42,12 +42,18 @@ import type {
     ToolOutput,
 } from "../tools/types.ts";
 import { assembleSystemPrompt } from "./assemble.ts";
+import {
+    loadProjectInstructions,
+    projectInstructionMetadata,
+} from "./project-instructions.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
+    commandPrefixForToolCall,
     decideToolPermission,
     type ApprovalMode,
+    type CommandPrefix,
 } from "./permissions.ts";
 import {
     DEFAULT_MODEL_MAX_TOKENS,
@@ -88,6 +94,7 @@ export interface RunTurnState {
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
+    readonly readCommandPrefixes?: () => readonly CommandPrefix[];
 }
 
 export interface RunHeadlessLoopOptions {
@@ -172,6 +179,10 @@ export async function runHeadlessLoop(
             localApprovalMode = mode;
             return localApprovalMode;
         });
+    const readCommandPrefixes = () => store.commandPrefixes();
+    const addCommandPrefix = async (prefix: CommandPrefix): Promise<void> => {
+        await store.appendCommandPrefix(prefix);
+    };
     const events = options.eventBus ?? new EngineEventBus();
     const protocol = createProtocolEncoder(endpoint);
     events.subscribe(protocol);
@@ -197,6 +208,7 @@ export async function runHeadlessLoop(
             : { updateModelSettings: options.updateModelSettings }),
         readApprovalMode,
         updateApprovalMode,
+        addCommandPrefix,
         handleTimelineCommand: (ownerId, command) =>
             timeline.handle(ownerId, command),
         detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),
@@ -228,6 +240,7 @@ export async function runHeadlessLoop(
             ? {}
             : { readModelSettings: options.readModelSettings }),
         readApprovalMode,
+        readCommandPrefixes,
     };
     protocol.checkpoint(state.messages);
 
@@ -275,10 +288,14 @@ export async function runTurn(
         state.events.emit({ type: "turn_started", message: userMessage });
 
         while (true) {
+            const projectInstructions = await loadProjectInstructions(
+                state.toolRuntime.workspace,
+            );
             const systemPrompt = assembleSystemPrompt({
                 tools,
                 workspace: state.toolRuntime.workspace,
                 date: new Date(),
+                projectInstructions,
             });
             const request = {
                 model: activeModel,
@@ -289,6 +306,9 @@ export async function runTurn(
                 systemPrompt,
                 messages: state.messages.slice(),
                 tools,
+                projectInstructions: projectInstructionMetadata(
+                    projectInstructions,
+                ),
                 signal: turn.signal,
             };
             state.events.emit({
@@ -603,15 +623,23 @@ async function executePreparedTool(
         approvalMode,
         hookCall,
         state.toolRuntime.workspace,
+        state.readCommandPrefixes?.() ?? [],
     );
     if (permission.behavior === "deny") {
         return { result: deniedToolResult(toolCall, permission.reason) };
     }
     if (permission.behavior === "ask") {
+        const commandPrefix = commandPrefixForToolCall(hookCall);
         const approval = await state.inbound.requestToolApproval(
             hookCall,
             permission.reason,
-            { timeoutMs: TOOL_APPROVAL_TIMEOUT_MS, signal },
+            {
+                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                signal,
+                ...(commandPrefix === undefined
+                    ? {}
+                    : { commandPrefix }),
+            },
         );
         if (approval.behavior === "deny") {
             return { result: deniedToolResult(toolCall, approval.reason) };

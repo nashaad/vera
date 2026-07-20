@@ -168,12 +168,26 @@ test("host protocol parses messages after attach", () => {
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",
         requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     }))).toEqual({
         type: "ui_response",
         requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "ui_response",
+        requestId: "request-2",
+        response: { type: "tool_approval", decision: "allow_prefix" },
+    }))).toEqual({
+        type: "ui_response",
+        requestId: "request-2",
+        response: { type: "tool_approval", decision: "allow_prefix" },
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "ui_response",
+        requestId: "legacy-request",
+        response: { type: "tool_approval", decision: "allow" },
+    }))).toBeUndefined();
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "list_timeline",
         requestId: "list-1",

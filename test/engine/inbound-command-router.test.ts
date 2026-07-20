@@ -75,7 +75,7 @@ test("the inbound router matches one approval response by request ID", async () 
     channel.client.send({
         type: "ui_response",
         requestId: request.requestId,
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     });
 
     expect(await approval).toEqual({ behavior: "allow" });
@@ -89,6 +89,42 @@ test("the inbound router matches one approval response by request ID", async () 
         "ui_response",
         "ui_request_closed",
     ]);
+});
+
+test("prefix approval is saved before the tool is allowed", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const saved: string[][] = [];
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        addCommandPrefix: async (prefix) => {
+            saved.push([...prefix.tokens]);
+        },
+    });
+    const prefix = { tokens: ["git", "push", "origin"] };
+    const approval = router.requestToolApproval(
+        bashToolCall("git push origin"),
+        "Bash commands run with your full user permissions.",
+        { timeoutMs: 1_000, commandPrefix: prefix },
+    );
+    const request = await channel.client.receive();
+    expect(request).toMatchObject({
+        type: "ui_request",
+        request: { commandPrefix: prefix },
+    });
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "tool_approval", decision: "allow_prefix" },
+    });
+
+    expect(await approval).toEqual({ behavior: "allow" });
+    expect(saved).toEqual([["git", "push", "origin"]]);
+    expect((await channel.client.receive()).type).toBe("ui_request_closed");
 });
 
 test("an unknown approval response is ignored and denial is explicit", async () => {
@@ -109,7 +145,7 @@ test("an unknown approval response is ignored and denial is explicit", async () 
     channel.client.send({
         type: "ui_response",
         requestId: "stale-request",
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     });
     channel.client.send({
         type: "ui_response",
@@ -286,7 +322,7 @@ test("user questions ignore mismatched and stale responses; first valid wins", a
     channel.client.send({
         type: "ui_response",
         requestId: firstRequest.requestId,
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     });
     channel.client.send({
         type: "ui_response",

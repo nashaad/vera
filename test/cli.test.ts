@@ -131,7 +131,7 @@ test("vera reports host upgrades without a runtime stack trace", async () => {
     expect(exitCode).toBe(1);
     expect(errorOutput).toBe(
         "Vera host upgrade required: Resident Vera host PID 49372 uses protocol 1; "
-        + "stop it and relaunch Vera to use protocol 2.\n",
+        + "stop it and relaunch Vera to use protocol 3.\n",
     );
     expect(errorOutput).not.toContain("clients/tui/main.ts");
     expect(errorOutput).not.toContain("HostProtocolMismatchError:");

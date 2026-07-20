@@ -27,12 +27,12 @@ test("typing slash exposes the built-in rewind command", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
     expect(registry.suggestions("/")).toEqual(BUILTIN_COMMANDS);
-    expect(registry.suggestions("/rew")).toEqual(BUILTIN_COMMANDS);
+    expect(registry.suggestions("/rew")).toEqual([BUILTIN_COMMANDS[0]]);
     expect(registry.suggestions("/unknown")).toEqual([]);
     expect(registry.suggestions("message /rew")).toEqual([]);
     expect(registry.suggestions("/rewind now")).toEqual([]);
     expect(renderTuiCommandSuggestions(registry.suggestions("/")))
-        .toBe("/rewind  Rewind the active conversation");
+        .toContain("/model  Change the model for the next turn");
     expect(registry.completion("/rew")).toBe("/rewind");
     expect(registry.completion("  /rew")).toBe("  /rewind");
     expect(registry.completion("/rewind")).toBeUndefined();
@@ -67,6 +67,29 @@ test("the rewind command rejects arguments locally", () => {
     expect(registry.dispatch("/rewind\nlater")).toEqual({
         type: "command_error",
         message: "Usage: /rewind",
+    });
+});
+
+test("model, reasoning, and permissions commands return typed updates", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/model moonshotai/kimi-k3")).toEqual({
+        type: "update_model",
+        model: "moonshotai/kimi-k3",
+    });
+    expect(registry.dispatch("/reasoning max")).toEqual({
+        type: "update_reasoning",
+        reasoningEffort: "max",
+    });
+    expect(registry.dispatch("/permissions ask")).toEqual({
+        type: "update_permissions",
+        mode: "ask",
+    });
+    expect(registry.dispatch("/reasoning turbo")).toMatchObject({
+        type: "command_error",
+    });
+    expect(registry.dispatch("/model")).toMatchObject({
+        type: "command_error",
     });
 });
 

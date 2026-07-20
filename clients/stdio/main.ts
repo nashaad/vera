@@ -92,7 +92,11 @@ try {
             if (update.type === "ui_request") {
                 if (update.request.type === "tool_approval") {
                     stdout.write(`\n${renderStdioApproval(update)}\n`);
-                    lines.setPrompt("Allow? [y/N] ");
+                    lines.setPrompt(
+                        update.request.commandPrefix === undefined
+                            ? "Choose [1 once/3 deny] "
+                            : "Choose [1 once/2 session prefix/3 deny] ",
+                    );
                     lines.prompt();
                     const waiting = new AbortController();
                     const answerOrUpdate = await Promise.race([

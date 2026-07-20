@@ -134,7 +134,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "[y] allow [n/esc] deny",
+                "[1]once",
             );
             expect(pane).toContain("Tool approval");
             expect(pane).toContain("$ grep");
@@ -147,14 +147,14 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "full user permissions",
             );
-            expect(pane).toContain("[y] allow [n/esc] deny");
+            expect(pane).toContain("[1]once");
             expect(pane).not.toContain("$ grep");
 
-            sendKey(socket, session, "n");
+            sendKey(socket, session, "3");
             await waitForVisiblePaneWhere(
                 socket,
                 session,
-                (current) => !current.includes("[y] allow"),
+                (current) => !current.includes("[1]once"),
                 "closed approval",
             );
         } catch (error) {

@@ -1,8 +1,14 @@
 import {
     createHostLockfile,
+    HostProtocolMismatchError,
     type HostLockfile,
     type HostLockRecord,
 } from "./lockfile.ts";
+import {
+    requestHostShutdownIfIdle,
+    type HostIdentity,
+    type ShutdownIfIdleResponse,
+} from "./protocol.ts";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
@@ -14,6 +20,10 @@ export interface EnsureResidentHostOptions {
     readonly pollIntervalMs?: number;
     readonly now?: () => number;
     readonly wait?: (delayMs: number) => Promise<void>;
+    readonly shutdownIfIdle?: (
+        socketPath: string,
+        identity: HostIdentity,
+    ) => Promise<ShutdownIfIdleResponse | undefined>;
 }
 
 export async function ensureResidentHost(
@@ -31,7 +41,58 @@ export async function ensureResidentHost(
     const now = options.now ?? Date.now;
     const wait = options.wait ?? waitFor;
 
-    const running = await lockfile.read();
+    const shutdownIfIdle = options.shutdownIfIdle ?? requestHostShutdownIfIdle;
+    let running: HostLockRecord | undefined;
+    try {
+        running = await lockfile.read();
+    } catch (error) {
+        if (
+            !(error instanceof HostProtocolMismatchError)
+            || error.startedAt === undefined
+            || error.socketPath === undefined
+        ) {
+            throw error;
+        }
+        const response = await shutdownIfIdle(error.socketPath, {
+            pid: error.pid,
+            started_at: error.startedAt,
+            ...(error.actualVersion === undefined
+                ? {}
+                : { protocol_version: error.actualVersion }),
+        });
+        if (
+            response?.type !== "shutdown_if_idle_accepted"
+            || response.pid !== error.pid
+            || response.started_at !== error.startedAt
+        ) {
+            throw error;
+        }
+        const shutdownDeadline = now() + startupTimeoutMs;
+        while (true) {
+            try {
+                const replacement = await lockfile.read();
+                if (replacement === undefined) {
+                    break;
+                }
+                return replacement;
+            } catch (nextError) {
+                if (
+                    !(nextError instanceof HostProtocolMismatchError)
+                    || nextError.pid !== error.pid
+                    || nextError.startedAt !== error.startedAt
+                ) {
+                    throw nextError;
+                }
+            }
+            const remainingMs = shutdownDeadline - now();
+            if (remainingMs <= 0) {
+                throw new Error(
+                    "Resident host did not stop before its deadline",
+                );
+            }
+            await wait(Math.min(pollIntervalMs, remainingMs));
+        }
+    }
     if (running !== undefined) {
         return running;
     }

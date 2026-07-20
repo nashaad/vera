@@ -23,7 +23,8 @@ import type {
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
-import type { ApprovalMode } from "./permissions.ts";
+import type { ApprovalMode, CommandPrefix } from "./permissions.ts";
+import type { ProjectInstructionMetadata } from "./project-instructions.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -51,11 +52,12 @@ export interface ToolApprovalUiRequest {
     readonly toolCall: HookToolCall;
     readonly reason: string;
     readonly warning: string;
+    readonly commandPrefix?: CommandPrefix;
 }
 
 export interface ToolApprovalUiResponse {
     readonly type: "tool_approval";
-    readonly decision: "allow" | "deny";
+    readonly decision: "allow_once" | "allow_prefix" | "deny";
 }
 
 export interface UserQuestionChoice {
@@ -138,6 +140,7 @@ export interface ModelRequestEvent {
     readonly systemPrompt: string;
     readonly messages: readonly ModelMessage[];
     readonly tools: readonly ModelTool[];
+    readonly projectInstructions?: ProjectInstructionMetadata;
 }
 
 export interface ModelRetryScheduledEvent {

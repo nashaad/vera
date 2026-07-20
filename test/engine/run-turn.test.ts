@@ -293,7 +293,7 @@ test("permission mode is fixed for one turn and changes on the next", async () =
     channel.client.send({
         type: "ui_response",
         requestId: approval.requestId,
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     });
     await receiveThroughTurnFinished(channel);
     await firstTurn;
@@ -783,7 +783,7 @@ test("a bash tool call runs and continues the model turn", async () => {
     channel.client.send({
         type: "ui_response",
         requestId: approvalRequest.requestId,
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     });
 
     expect(await channel.client.receive()).toEqual({

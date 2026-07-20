@@ -22,7 +22,7 @@ test("NDJSON parses a typed UI response", async () => {
     const frame: ClientCommand = {
         type: "ui_response",
         requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
     };
     const input = Readable.from([`${JSON.stringify(frame)}\n`]);
     const endpoint = createNdjsonEngineEndpoint(input, { write() {} });

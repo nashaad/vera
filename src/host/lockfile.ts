@@ -44,6 +44,8 @@ export class HostProtocolMismatchError extends Error {
     constructor(
         readonly pid: number,
         readonly actualVersion?: number,
+        readonly startedAt?: string,
+        readonly socketPath?: string,
     ) {
         const actual = actualVersion === undefined
             ? "a legacy protocol"
@@ -133,6 +135,8 @@ export function createHostLockfile(
                 throw new HostProtocolMismatchError(
                     identity.pid,
                     identity.protocol_version,
+                    identity.started_at,
+                    socketPath,
                 );
             }
             return record;

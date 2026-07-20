@@ -13,7 +13,12 @@ import {
     isModelTurnSettings,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
-import { isApprovalMode, type ApprovalMode } from "../engine/permissions.ts";
+import {
+    isApprovalMode,
+    isCommandPrefix,
+    type ApprovalMode,
+    type CommandPrefix,
+} from "../engine/permissions.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -63,6 +68,12 @@ export interface SessionPermissionsEntry {
     readonly mode: ApprovalMode;
 }
 
+export interface SessionCommandPrefixEntry {
+    readonly type: "command_prefix";
+    readonly timestamp: string;
+    readonly prefix: CommandPrefix;
+}
+
 export interface SessionRewindEntry {
     readonly type: "rewind";
     readonly timestamp: string;
@@ -103,6 +114,7 @@ interface LoadedSessionFile {
     readonly legacyDeliveryMessageIds: Map<string, string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
+    readonly commandPrefixEntries: SessionCommandPrefixEntry[];
     readonly leafId: string | null;
 }
 
@@ -118,6 +130,7 @@ export class SessionStore {
     private readonly legacyDeliveryMessageIds: Map<string, string>;
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
+    private readonly commandPrefixEntries: SessionCommandPrefixEntry[];
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -134,6 +147,7 @@ export class SessionStore {
         this.legacyDeliveryMessageIds = loaded.legacyDeliveryMessageIds;
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
+        this.commandPrefixEntries = loaded.commandPrefixEntries;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -172,6 +186,7 @@ export class SessionStore {
                 legacyDeliveryMessageIds: new Map(),
                 modelSettingsEntries: [],
                 permissionsEntries: [],
+                commandPrefixEntries: [],
                 leafId: null,
             },
             {
@@ -246,6 +261,12 @@ export class SessionStore {
         return this.permissionsEntries.at(-1)?.mode;
     }
 
+    commandPrefixes(): readonly CommandPrefix[] {
+        return this.commandPrefixEntries.map((entry) => ({
+            tokens: [...entry.prefix.tokens],
+        }));
+    }
+
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
         this.pendingAppend = result.then(
@@ -285,6 +306,19 @@ export class SessionStore {
     appendApprovalMode(mode: ApprovalMode): Promise<SessionPermissionsEntry> {
         const result = this.pendingAppend.then(() =>
             this.commitApprovalMode(mode)
+        );
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendCommandPrefix(
+        prefix: CommandPrefix,
+    ): Promise<SessionCommandPrefixEntry> {
+        const result = this.pendingAppend.then(() =>
+            this.commitCommandPrefix(prefix)
         );
         this.pendingAppend = result.then(
             () => undefined,
@@ -396,6 +430,22 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.permissionsEntries.push(entry);
+        return entry;
+    }
+
+    private async commitCommandPrefix(
+        prefix: CommandPrefix,
+    ): Promise<SessionCommandPrefixEntry> {
+        if (!isCommandPrefix(prefix)) {
+            throw new Error("Cannot append an invalid command prefix");
+        }
+        const entry: SessionCommandPrefixEntry = {
+            type: "command_prefix",
+            timestamp: this.now().toISOString(),
+            prefix: { tokens: [...prefix.tokens] },
+        };
+        await this.appendRecord(entry);
+        this.commandPrefixEntries.push(entry);
         return entry;
     }
 
@@ -515,6 +565,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const legacyDeliveryMessageIds = new Map<string, string>();
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
+    const commandPrefixEntries: SessionCommandPrefixEntry[] = [];
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
     let leafId: string | null = null;
@@ -633,6 +684,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "command_prefix") {
+            commandPrefixEntries.push(
+                parseCommandPrefixEntry(path, lineNumber, value),
+            );
+            continue;
+        }
         if (value.type === "rewind") {
             const rewind = parseRewindEntry(path, lineNumber, value);
             if (rewind.previousHeadId !== leafId) {
@@ -682,6 +739,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         legacyDeliveryMessageIds,
         modelSettingsEntries,
         permissionsEntries,
+        commandPrefixEntries,
         leafId,
     };
 }
@@ -814,6 +872,27 @@ function parsePermissionsEntry(
         type: "permissions",
         timestamp: value.timestamp,
         mode: value.mode,
+    };
+}
+
+function parseCommandPrefixEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionCommandPrefixEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || !isCommandPrefix(value.prefix)
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid command prefix entry`,
+        );
+    }
+    return {
+        type: "command_prefix",
+        timestamp: value.timestamp,
+        prefix: { tokens: [...value.prefix.tokens] },
     };
 }
 
