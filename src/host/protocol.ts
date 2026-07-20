@@ -6,7 +6,7 @@ import {
 } from "../engine/protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 
-export const HOST_PROTOCOL_VERSION = 2;
+export const HOST_PROTOCOL_VERSION = 3;
 
 export interface HostIdentity {
     readonly pid: number;

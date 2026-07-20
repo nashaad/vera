@@ -2,7 +2,10 @@ import type {
     AgentUpdate,
     TranscriptEntry,
 } from "../engine/protocol.ts";
-import { isApprovalMode } from "../engine/permissions.ts";
+import {
+    isApprovalMode,
+    isCommandPrefix,
+} from "../engine/permissions.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
@@ -109,6 +112,10 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
         return request?.type === "tool_approval"
                 && typeof request.reason === "string"
                 && typeof request.warning === "string"
+                && (
+                    request.commandPrefix === undefined
+                    || isCommandPrefix(request.commandPrefix)
+                )
                 && typeof toolCall?.id === "string"
                 && typeof toolCall.name === "string"
                 && asRecord(toolCall.input) !== undefined

@@ -18,6 +18,7 @@ const request: UiRequestUpdate = {
         },
         reason: "This command may access the network.",
         warning: "This command runs with your full user permissions.",
+        commandPrefix: { tokens: ["curl", "https://example.com"] },
     },
     seq: 1,
 };
@@ -26,10 +27,14 @@ test("stdio approval shows the command and returns a typed answer", () => {
     expect(renderStdioApproval(request)).toContain(
         "$ curl https://example.com\nThis command may access the network.",
     );
-    expect(createStdioApprovalResponse(request, "yes")).toEqual({
+    expect(createStdioApprovalResponse(request, "1")).toEqual({
         type: "ui_response",
         requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow" },
+        response: { type: "tool_approval", decision: "allow_once" },
+    });
+    expect(createStdioApprovalResponse(request, "2").response).toEqual({
+        type: "tool_approval",
+        decision: "allow_prefix",
     });
     expect(createStdioApprovalResponse(request, "anything else").response)
         .toEqual({ type: "tool_approval", decision: "deny" });

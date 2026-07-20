@@ -15,7 +15,9 @@ import type {
     ModelSettingsUpdate,
     PermissionsUpdate,
     TaskNotificationUpdate,
+    ToolApprovalUiRequestUpdate,
 } from "../../src/engine/protocol.ts";
+import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import {
@@ -406,6 +408,58 @@ test("a resumed agent restores its durable permissions", async () => {
         await expectPromptFinishesWithoutApproval(attachment, "resumed turn");
         expect((await SessionStore.open(sessionPath)).approvalMode())
             .toBe("full_access");
+    } finally {
+        await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a resumed agent restores a session command prefix grant", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-prefix-resume-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const firstRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(bashScript("first")),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const original = await firstRegistry.create({
+            id: "durable-prefix-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "first-events.jsonl"),
+        });
+        const attachment = original.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "first turn" });
+        const approval = await receiveToolApproval(attachment);
+        expect(approval.request.commandPrefix).toEqual({ tokens: ["pwd"] });
+        attachment.send({
+            type: "ui_response",
+            requestId: approval.requestId,
+            response: { type: "tool_approval", decision: "allow_prefix" },
+        });
+        await receiveTurnFinished(attachment);
+        expect((await SessionStore.open(sessionPath)).commandPrefixes())
+            .toEqual([{ tokens: ["pwd"] }]);
+    } finally {
+        await firstRegistry.close();
+    }
+
+    const resumedRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(bashScript("resumed")),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+    try {
+        const resumed = await resumedRegistry.resume({
+            sessionPath,
+            eventLogPath: join(root, "resumed-events.jsonl"),
+        });
+        const attachment = resumed.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        await expectPromptFinishesWithoutApproval(attachment, "resumed turn");
     } finally {
         await resumedRegistry.close();
         await rm(root, { recursive: true, force: true });
@@ -954,6 +1008,20 @@ async function receivePermissions(
     while (true) {
         const update = await attachment.receive();
         if (update.type === "permissions") {
+            return update;
+        }
+    }
+}
+
+async function receiveToolApproval(
+    attachment: AgentAttachment,
+): Promise<ToolApprovalUiRequestUpdate> {
+    while (true) {
+        const update = await attachment.receive();
+        if (
+            update.type === "ui_request"
+            && isToolApprovalUiRequestUpdate(update)
+        ) {
             return update;
         }
     }

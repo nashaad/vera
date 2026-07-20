@@ -13,9 +13,11 @@ import type {
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { TUI_NOTICE, TUI_TEXT } from "./state.ts";
 
-const APPROVAL_ACTIONS = "[y] allow [n/esc] deny";
+const APPROVAL_ACTIONS = "[1]once [2]prefix [3/esc]deny";
+const APPROVAL_ACTIONS_WITHOUT_PREFIX =
+    "[1]once [2]n/a [3/esc]deny";
 
-export type TuiApprovalDecision = "allow" | "deny";
+export type TuiApprovalDecision = "allow_once" | "allow_prefix" | "deny";
 
 export interface TuiApprovalKey {
     readonly name: string;
@@ -106,6 +108,7 @@ export function createTuiApprovalView(
             }
             currentRequestId = update.requestId;
             detailsText.content = renderTuiApprovalDetails(update);
+            actions.content = approvalActions(update);
             details.scrollTo(0);
         },
     };
@@ -115,31 +118,39 @@ export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
     return [
         renderTuiApprovalDetails(update),
         "",
-        APPROVAL_ACTIONS,
+        approvalActions(update),
     ].join("\n");
 }
 
 export function renderTuiApprovalDetails(
     update: ToolApprovalUiRequestUpdate,
 ): string {
+    const prefix = update.request.commandPrefix;
     return [
         formatToolCall(update),
         "",
         update.request.reason,
         update.request.warning,
+        ...(prefix === undefined
+            ? []
+            : ["", `Session prefix: $ ${formatPrefix(prefix.tokens)}`]),
     ].join("\n");
 }
 
 export function tuiApprovalDecision(
     key: TuiApprovalKey,
+    prefixAvailable = true,
 ): TuiApprovalDecision | undefined {
     if (key.ctrl || key.meta || key.shift) {
         return undefined;
     }
-    if (key.name === "y") {
-        return "allow";
+    if (key.name === "1") {
+        return "allow_once";
     }
-    if (key.name === "n" || key.name === "escape") {
+    if (key.name === "2" && prefixAvailable) {
+        return "allow_prefix";
+    }
+    if (key.name === "3" || key.name === "escape") {
         return "deny";
     }
     return undefined;
@@ -149,7 +160,10 @@ export function createTuiApprovalResponse(
     update: ToolApprovalUiRequestUpdate,
     key: TuiApprovalKey,
 ): UiResponseCommand | undefined {
-    const decision = tuiApprovalDecision(key);
+    const decision = tuiApprovalDecision(
+        key,
+        update.request.commandPrefix !== undefined,
+    );
     if (decision === undefined) {
         return undefined;
     }
@@ -185,4 +199,20 @@ function formatToolCall(update: ToolApprovalUiRequestUpdate): string {
         return `$ ${command}`;
     }
     return `${update.request.toolCall.name} ${JSON.stringify(update.request.toolCall.input)}`;
+}
+
+function approvalActions(update: ToolApprovalUiRequestUpdate): string {
+    return update.request.commandPrefix === undefined
+        ? APPROVAL_ACTIONS_WITHOUT_PREFIX
+        : APPROVAL_ACTIONS;
+}
+
+function formatPrefix(tokens: readonly string[]): string {
+    return tokens.map(formatShellToken).join(" ");
+}
+
+function formatShellToken(token: string): string {
+    return /^[A-Za-z0-9_./:@%+=,-]+$/.test(token)
+        ? token
+        : `'${token.replaceAll("'", `'\\''`)}'`;
 }

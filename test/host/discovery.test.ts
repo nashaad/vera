@@ -71,6 +71,81 @@ test("host discovery does not start over an incompatible live host", async () =>
     expect(starts).toBe(0);
 });
 
+test("host discovery replaces an incompatible host only after idle shutdown", async () => {
+    const mismatch = new HostProtocolMismatchError(
+        101,
+        2,
+        runningHost.started_at,
+        runningHost.socket_path,
+    );
+    let reads = 0;
+    let starts = 0;
+    const lockfile: HostLockfile = {
+        publish(): Promise<HostLockRecord> {
+            throw new Error("not used");
+        },
+        read(): Promise<HostLockRecord | undefined> {
+            reads += 1;
+            if (reads <= 2) {
+                return Promise.reject(mismatch);
+            }
+            return Promise.resolve(reads === 3 ? undefined : runningHost);
+        },
+    };
+
+    const host = await ensureResidentHost({
+        lockfile,
+        startHost: () => {
+            starts += 1;
+        },
+        shutdownIfIdle: async (socketPath, identity) => {
+            expect(socketPath).toBe(runningHost.socket_path);
+            expect(identity).toMatchObject({
+                pid: 101,
+                started_at: runningHost.started_at,
+                protocol_version: 2,
+            });
+            return {
+                type: "shutdown_if_idle_accepted",
+                pid: 101,
+                started_at: runningHost.started_at,
+            };
+        },
+        wait: async () => {},
+    });
+
+    expect(host).toEqual(runningHost);
+    expect(starts).toBe(1);
+});
+
+test("host discovery leaves a busy incompatible host running", async () => {
+    const mismatch = new HostProtocolMismatchError(
+        101,
+        2,
+        runningHost.started_at,
+        runningHost.socket_path,
+    );
+    const lockfile: HostLockfile = {
+        publish(): Promise<HostLockRecord> {
+            throw new Error("not used");
+        },
+        read(): Promise<HostLockRecord | undefined> {
+            return Promise.reject(mismatch);
+        },
+    };
+
+    await expect(ensureResidentHost({
+        lockfile,
+        startHost(): void {
+            throw new Error("must not start");
+        },
+        shutdownIfIdle: async () => ({
+            type: "shutdown_if_idle_refused",
+            reason: "busy",
+        }),
+    })).rejects.toBe(mismatch);
+});
+
 test("host discovery stops at one fixed startup deadline", async () => {
     let now = 0;
     await expect(ensureResidentHost({

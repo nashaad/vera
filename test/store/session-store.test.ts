@@ -526,6 +526,48 @@ test("session store rejects invalid permissions before writing", async () => {
     expect(readLines(path)).toHaveLength(1);
 });
 
+test("command prefix grants survive reopening the durable session", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-17T12:00:00.000Z",
+            "2026-07-17T12:00:01.000Z",
+        ),
+    });
+
+    await store.appendCommandPrefix({ tokens: ["git", "push", "origin"] });
+    expect(store.commandPrefixes()).toEqual([
+        { tokens: ["git", "push", "origin"] },
+    ]);
+    expect(readLines(path).at(-1)).toEqual({
+        type: "command_prefix",
+        timestamp: "2026-07-17T12:00:01.000Z",
+        prefix: { tokens: ["git", "push", "origin"] },
+    });
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.commandPrefixes()).toEqual([
+        { tokens: ["git", "push", "origin"] },
+    ]);
+});
+
+test("session store rejects malformed command prefix grants", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+
+    await expect(store.appendCommandPrefix({ tokens: [] })).rejects.toThrow(
+        "Cannot append an invalid command prefix",
+    );
+    expect(readLines(path)).toHaveLength(1);
+});
+
 test("pending deliveries are idempotent and survive restart until injected", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

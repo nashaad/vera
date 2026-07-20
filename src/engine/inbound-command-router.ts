@@ -22,6 +22,7 @@ import type {
 import type { MessageChannel } from "./message-channel.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ApprovalMode } from "./permissions.ts";
+import type { CommandPrefix } from "./permissions.ts";
 
 const FULL_USER_AUTHORITY_WARNING =
     "If allowed, this command and its child processes run with your full user permissions.";
@@ -29,6 +30,7 @@ const FULL_USER_AUTHORITY_WARNING =
 export interface ToolApprovalOptions {
     readonly timeoutMs: number;
     readonly signal?: AbortSignal;
+    readonly commandPrefix?: CommandPrefix;
 }
 
 export interface ToolApprovalAllowed {
@@ -47,6 +49,7 @@ interface PendingApproval {
     readonly timer: ReturnType<typeof setTimeout>;
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
+    readonly commandPrefix?: CommandPrefix;
 }
 
 export interface UserQuestionOptions {
@@ -95,6 +98,9 @@ export interface InboundCommandRouterOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly addCommandPrefix?: (
+        prefix: CommandPrefix,
+    ) => Promise<void>;
     readonly handleTimelineCommand?: (
         ownerId: string,
         command: TimelineCommand,
@@ -186,6 +192,13 @@ export class InboundCommandRouter {
             const pending: PendingApproval = {
                 resolve,
                 timer,
+                ...(options.commandPrefix === undefined
+                    ? {}
+                    : {
+                        commandPrefix: {
+                            tokens: [...options.commandPrefix.tokens],
+                        },
+                    }),
                 ...(options.signal === undefined
                     ? {}
                     : {
@@ -209,6 +222,13 @@ export class InboundCommandRouter {
                 toolCall,
                 reason,
                 warning: FULL_USER_AUTHORITY_WARNING,
+                ...(options.commandPrefix === undefined
+                    ? {}
+                    : {
+                        commandPrefix: {
+                            tokens: [...options.commandPrefix.tokens],
+                        },
+                    }),
             },
         });
         return result;
@@ -304,7 +324,7 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "ui_response") {
-                    this.receiveUiResponse(command);
+                    await this.receiveUiResponse(command);
                     continue;
                 }
 
@@ -444,11 +464,32 @@ export class InboundCommandRouter {
         });
     }
 
-    private receiveUiResponse(command: UiResponseCommand): void {
+    private async receiveUiResponse(command: UiResponseCommand): Promise<void> {
         if (
             command.response.type === "tool_approval"
             && this.pendingApprovals.has(command.requestId)
         ) {
+            const pending = this.pendingApprovals.get(command.requestId)!;
+            if (
+                command.response.decision === "allow_prefix"
+                && (
+                    pending.commandPrefix === undefined
+                    || this.options.addCommandPrefix === undefined
+                )
+            ) {
+                return;
+            }
+            if (command.response.decision === "allow_prefix") {
+                try {
+                    await this.options.addCommandPrefix!(pending.commandPrefix!);
+                } catch {
+                    this.finishApproval(command.requestId, {
+                        behavior: "deny",
+                        reason: "The session command prefix could not be saved.",
+                    });
+                    return;
+                }
+            }
             this.events.emit({
                 type: "ui_response",
                 requestId: command.requestId,
@@ -531,7 +572,8 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
 function approvalResult(
     response: ToolApprovalUiResponse,
 ): ToolApprovalResult {
-    return response.decision === "allow"
+    return response.decision === "allow_once"
+        || response.decision === "allow_prefix"
         ? { behavior: "allow" }
         : { behavior: "deny", reason: "Tool use was denied by the user." };
 }

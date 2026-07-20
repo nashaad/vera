@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+    commandPrefixForToolCall,
     decideToolPermission,
     type ApprovalMode,
 } from "../../src/engine/permissions.ts";
@@ -31,6 +32,46 @@ test("recursive-force rm is denied in every mode", () => {
             reason: "Blocked dangerous command: recursive-force rm is not allowed",
         });
     }
+});
+
+test("one simple bash command produces an exact token prefix", () => {
+    expect(commandPrefixForToolCall(
+        bash("git push origin main"),
+    )).toEqual({ tokens: ["git", "push", "origin", "main"] });
+    expect(commandPrefixForToolCall(
+        bash("git status && git push"),
+    )).toBeUndefined();
+});
+
+test("a session prefix allows matching commands but not shell compounds", () => {
+    const prefix = { tokens: ["git", "push", "origin"] };
+    expect(decideToolPermission(
+        "ask",
+        bash("git push origin main"),
+        workspace,
+        [prefix],
+    )).toEqual({ behavior: "allow" });
+    expect(decideToolPermission(
+        "ask",
+        bash("git push upstream main"),
+        workspace,
+        [prefix],
+    ).behavior).toBe("ask");
+    expect(decideToolPermission(
+        "ask",
+        bash("git push origin main && curl https://example.com"),
+        workspace,
+        [prefix],
+    ).behavior).toBe("ask");
+});
+
+test("a session prefix cannot bypass the recursive-force rm denial", () => {
+    expect(decideToolPermission(
+        "ask",
+        bash("rm -rf build"),
+        workspace,
+        [{ tokens: ["rm", "-rf", "build"] }],
+    ).behavior).toBe("deny");
 });
 
 test("ask mode asks before every bash command", () => {

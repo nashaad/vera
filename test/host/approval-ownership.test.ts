@@ -29,7 +29,7 @@ for (const scenario of [
     {
         name: "allow wins and a late deny is harmless",
         winner: "first" as const,
-        decision: "allow" as const,
+        decision: "allow_once" as const,
         lateDecision: "deny" as const,
         expectedToolStarts: 1,
     },
@@ -37,7 +37,7 @@ for (const scenario of [
         name: "deny wins and a late allow is harmless",
         winner: "second" as const,
         decision: "deny" as const,
-        lateDecision: "allow" as const,
+        lateDecision: "allow_once" as const,
         expectedToolStarts: 0,
     },
 ]) {

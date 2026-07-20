@@ -93,6 +93,34 @@ test("host wire validates permission results", () => {
     });
 });
 
+test("host wire validates semantic command prefixes on approvals", () => {
+    const approval = {
+        type: "ui_request",
+        requestId: "approval-1",
+        request: {
+            type: "tool_approval",
+            toolCall: {
+                id: "call-1",
+                name: "bash",
+                input: { command: "git push origin main" },
+            },
+            reason: "This command may access the network.",
+            warning: "This command runs with your full user permissions.",
+            commandPrefix: { tokens: ["git", "push", "origin", "main"] },
+        },
+        seq: 1,
+    } as const;
+
+    expect(parseAgentUpdate(approval)).toEqual(approval);
+    expect(parseAgentUpdate({
+        ...approval,
+        request: {
+            ...approval.request,
+            commandPrefix: { tokens: [] },
+        },
+    })).toBeUndefined();
+});
+
 test("host wire validates targeted timeline replies", () => {
     const boundary = {
         userMessageId: "message-1",
