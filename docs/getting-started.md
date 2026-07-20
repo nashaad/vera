@@ -8,6 +8,13 @@ Install dependencies:
 bun install
 ```
 
+Register the checkout's `vera` command:
+
+```sh
+bun link
+vera --help
+```
+
 Choose one provider.
 
 ## Codex subscription
@@ -17,7 +24,7 @@ No API key or Codex CLI is required.
 Sign in:
 
 ```sh
-bun run clients/cli/main.ts login openai-codex
+vera login openai-codex
 ```
 
 Complete sign-in in the browser. Vera stores credentials in
@@ -73,5 +80,8 @@ Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:
 ## Run
 
 ```sh
-bun run tui
+vera
 ```
+
+For development without linking the command, run
+`bun run clients/cli/main.ts`.

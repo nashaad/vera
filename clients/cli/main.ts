@@ -15,6 +15,7 @@ import {
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 import type { TuiStartTarget } from "../tui/main.ts";
+import { renderCliHelp, renderCliUsage } from "./help.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -34,6 +35,7 @@ export interface CliDependencies {
     readonly runOpenAICodexLogin?: (
         onAuthorizationUrl: (url: string) => void,
     ) => Promise<void>;
+    readonly version?: string;
 }
 
 export async function runCli(
@@ -43,6 +45,22 @@ export async function runCli(
     const output = dependencies.stdout ?? stdout;
     const errorOutput = dependencies.stderr ?? stderr;
     const runTui = dependencies.runTui ?? runConfiguredTui;
+
+    if (
+        args.length === 1
+        && (args[0] === "--help" || args[0] === "-h")
+    ) {
+        output.write(renderCliHelp());
+        return 0;
+    }
+
+    if (
+        args.length === 1
+        && (args[0] === "--version" || args[0] === "-v")
+    ) {
+        output.write(`vera ${dependencies.version ?? sourceVersion()}\n`);
+        return 0;
+    }
 
     if (args.length === 0) {
         await runTui({ type: "create", workspace: process.cwd() });
@@ -125,9 +143,7 @@ export async function runCli(
         return 0;
     }
 
-    errorOutput.write(
-        "Usage: vera [attach <agent-id>|resume <session-path>|send <agent-id> <message>|abort <agent-id>|ls|rpc|login [openai-codex]]\n",
-    );
+    errorOutput.write(renderCliUsage());
     return 1;
 }
 
@@ -209,6 +225,36 @@ async function abortLiveAgent(agentId: string): Promise<void> {
 async function runConfiguredTui(target: TuiStartTarget): Promise<void> {
     const { startConfiguredTui } = await import("../tui/main.ts");
     await startConfiguredTui(target);
+}
+
+function sourceVersion(): string {
+    const revision = Bun.spawnSync(
+        ["git", "rev-parse", "--short", "HEAD"],
+        {
+            cwd: import.meta.dir,
+            stdout: "pipe",
+            stderr: "ignore",
+        },
+    );
+    if (revision.exitCode !== 0) {
+        return "source";
+    }
+    const value = revision.stdout.toString().trim();
+    if (value.length === 0) {
+        return "source";
+    }
+    const status = Bun.spawnSync(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        {
+            cwd: import.meta.dir,
+            stdout: "pipe",
+            stderr: "ignore",
+        },
+    );
+    const dirty = status.exitCode === 0 && status.stdout.length > 0
+        ? "+dirty"
+        : "";
+    return `source ${value}${dirty}`;
 }
 
 if (import.meta.main) {
