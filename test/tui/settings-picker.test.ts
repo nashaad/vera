@@ -83,6 +83,20 @@ test("Kimi reasoning picker only offers its supported max effort", () => {
     expect(reasoning.options.map((option) => option.value)).toEqual(["max"]);
 });
 
+test("GLM reasoning picker only offers its supported max effort", () => {
+    const reasoning = startTuiSettingsPicker(
+        "reasoning",
+        "z-ai/glm-5.2",
+        "off",
+        "approve_for_me",
+        ["max"],
+    );
+
+    expect(reasoning.options.map((option) => option.value)).toEqual(["max"]);
+    expect(handleTuiSettingsPickerKey(reasoning, { name: "enter" }).selection)
+        .toEqual({ kind: "reasoning", reasoningEffort: "max" });
+});
+
 test("settings picker selects permissions with arrows", () => {
     const permissions = startTuiSettingsPicker(
         "permissions",

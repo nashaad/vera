@@ -29,6 +29,8 @@ export function availableReasoningEfforts(
     model: string,
 ): readonly ModelReasoningEffort[] {
     return model === "moonshotai/kimi-k3"
+            || model === "z-ai/glm-5.2"
+            || model === "deepseek/deepseek-v4-pro"
         ? ["max"]
         : ["off", "low", "medium", "high", "max"];
 }
