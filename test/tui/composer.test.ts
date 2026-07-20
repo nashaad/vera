@@ -81,3 +81,21 @@ test("TUI composer collapses a large paste and expands it on submit", async () =
         setup.renderer.destroy();
     }
 });
+
+test("TUI composer keeps the caret at the end after setting text", async () => {
+    const setup = await createTestRenderer({
+        width: 40,
+        height: 8,
+        kittyKeyboard: true,
+    });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        composer.setComposerText("/permissions");
+        expect(composer.cursorOffset).toBe("/permissions".length);
+    } finally {
+        setup.renderer.destroy();
+    }
+});

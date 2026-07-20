@@ -91,7 +91,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "turn_finished") {
-        return { ...state, working: false };
+        const finished = { ...state, working: false };
+        return update.error === undefined
+            ? finished
+            : appendEntry(finished, {
+                kind: "notice",
+                text: `Model error: ${update.error}`,
+            });
     }
     if (update.type === "status") {
         return { ...state, working: update.state !== "idle" };

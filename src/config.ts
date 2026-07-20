@@ -1,6 +1,13 @@
-import { readFileSync } from "node:fs";
+import {
+    mkdirSync,
+    readFileSync,
+    renameSync,
+    writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type { ApprovalMode } from "./engine/permissions.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
@@ -26,6 +33,12 @@ export interface VeraConfig {
 
 export interface LoadVeraConfigOptions {
     readonly path?: string;
+}
+
+export interface VeraConfigDefaultsPatch {
+    readonly model?: string;
+    readonly reasoning_effort?: ModelReasoningEffort;
+    readonly approval_mode?: ApprovalMode;
 }
 
 export function defaultVeraConfigPath(): string {
@@ -64,6 +77,35 @@ export function loadVeraConfig(
         );
     }
     return config;
+}
+
+export function updateVeraConfigDefaults(
+    patch: VeraConfigDefaultsPatch,
+    options: LoadVeraConfigOptions = {},
+): VeraConfig {
+    const path = options.path ?? defaultVeraConfigPath();
+    const current = loadVeraConfig({ path });
+    const updated: VeraConfig = {
+        ...current,
+        ...(patch.model === undefined ? {} : { model: patch.model }),
+        ...(patch.reasoning_effort === undefined
+            ? {}
+            : { reasoning_effort: patch.reasoning_effort }),
+        ...(patch.approval_mode === undefined
+            ? {}
+            : { approval_mode: patch.approval_mode }),
+        ...(patch.model !== undefined && current.fallback?.model === patch.model
+            ? { fallback: undefined }
+            : {}),
+    };
+    const directory = dirname(path);
+    const temporaryPath = join(directory, `.config-${randomUUID()}.tmp`);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    writeFileSync(temporaryPath, `${JSON.stringify(updated, null, 2)}\n`, {
+        mode: 0o600,
+    });
+    renameSync(temporaryPath, path);
+    return updated;
 }
 
 function parseVeraConfig(value: unknown): VeraConfig | undefined {

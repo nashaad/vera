@@ -85,11 +85,26 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_permissions",
         mode: "ask",
     });
+    expect(registry.dispatch("/reas")).toEqual({
+        type: "open_reasoning_picker",
+    });
+    expect(registry.dispatch("/mod")).toEqual({
+        type: "open_model_picker",
+    });
+    expect(registry.dispatch("/perm")).toEqual({
+        type: "open_permissions_picker",
+    });
     expect(registry.dispatch("/reasoning turbo")).toMatchObject({
         type: "command_error",
     });
-    expect(registry.dispatch("/model")).toMatchObject({
-        type: "command_error",
+    expect(registry.dispatch("/model")).toEqual({
+        type: "open_model_picker",
+    });
+    expect(registry.dispatch("/reasoning")).toEqual({
+        type: "open_reasoning_picker",
+    });
+    expect(registry.dispatch("/permissions")).toEqual({
+        type: "open_permissions_picker",
     });
 });
 
@@ -99,6 +114,7 @@ test("ordinary and unknown slash input remain ordinary prompts", () => {
     expect(registry.dispatch("inspect /rewind handling")).toBeUndefined();
     expect(registry.dispatch("/unknown")).toBeUndefined();
     expect(registry.dispatch("/rewind-later")).toBeUndefined();
+    expect(registry.dispatch("/r")).toBeUndefined();
     expect(registry.dispatch("/Rewind")).toBeUndefined();
 });
 

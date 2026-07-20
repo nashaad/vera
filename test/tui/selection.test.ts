@@ -27,14 +27,14 @@ test("TUI selection accepts selectable children inside one transcript entry", ()
     expect(isTranscriptSelection(selection, [entry])).toBe(true);
 });
 
-test("TUI selection rejects a drag ending outside transcript entries", () => {
+test("TUI selection accepts a drag ending just outside transcript entries", () => {
     const selection: TranscriptSelection = {
         anchor: { x: 3, y: 3 },
         focus: { x: 12, y: 7 },
         selectedRenderables: [markdownChild],
     };
 
-    expect(isTranscriptSelection(selection, [entry])).toBe(false);
+    expect(isTranscriptSelection(selection, [entry])).toBe(true);
 });
 
 test("TUI selection rejects selected text from outside transcript entries", () => {

@@ -1679,6 +1679,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
+        error: "Turn aborted",
         seq: 4,
     });
     expect(performance.now() - abortedAt).toBeLessThan(1_000);

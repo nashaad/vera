@@ -2,6 +2,17 @@ import { expect, test } from "bun:test";
 
 import { parseAgentUpdate } from "../../src/host/agent-update-wire.ts";
 
+test("turn finished accepts an optional model error", () => {
+    const update = {
+        type: "turn_finished" as const,
+        error: "unsupported reasoning effort",
+        seq: 1,
+    };
+
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, error: 42 })).toBeUndefined();
+});
+
 test("host wire validates task notifications", () => {
     expect(parseAgentUpdate({
         type: "task_notification",

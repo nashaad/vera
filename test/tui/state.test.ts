@@ -56,6 +56,23 @@ test("TUI state tracks a streamed turn and tool activity", () => {
     ]);
 });
 
+test("TUI shows model failures when a turn finishes", () => {
+    const state = applyAgentUpdate(
+        beginTuiTurn(createTuiState(), "testing"),
+        {
+            type: "turn_finished",
+            error: "Kimi only supports reasoning max",
+            seq: 1,
+        },
+    );
+
+    expect(state.working).toBe(false);
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "Model error: Kimi only supports reasoning max",
+    });
+});
+
 test("TUI applies canonical history and prompts from other clients", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "history",

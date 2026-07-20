@@ -4,9 +4,11 @@ import { realpath } from "node:fs/promises";
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
 import { isApprovalMode, type ApprovalMode } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
-import type {
-    ModelSettingsPatch,
-    ModelTurnSettings,
+import {
+    availableReasoningEfforts,
+    isModelReasoningEffort,
+    type ModelSettingsPatch,
+    type ModelTurnSettings,
 } from "../engine/model-settings.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { createSubagentEffectApplier } from "../engine/subagent.ts";
@@ -55,6 +57,8 @@ export interface AgentRegistryOptions {
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
+    readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
+    readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -161,11 +165,26 @@ export class AgentRegistry {
             return undefined;
         }
         const model = patch.model?.trim() ?? entry.modelSettings.model;
-        const reasoningEffort = patch.reasoningEffort === undefined
+        let reasoningEffort = patch.reasoningEffort === undefined
             ? entry.modelSettings.reasoningEffort
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
+        const availableEfforts = availableReasoningEfforts(model);
+        if (
+            patch.model !== undefined
+            && patch.reasoningEffort === undefined
+            && reasoningEffort !== undefined
+            && !availableEfforts.includes(reasoningEffort)
+        ) {
+            reasoningEffort = availableEfforts.at(-1);
+        }
+        if (
+            reasoningEffort !== undefined
+            && !availableEfforts.includes(reasoningEffort)
+        ) {
+            return undefined;
+        }
         const settings: ModelTurnSettings = {
             model,
             ...(reasoningEffort === undefined
@@ -173,8 +192,9 @@ export class AgentRegistry {
                 : { reasoningEffort }),
         };
         await entry.store.appendModelSettings(settings);
+        this.options.updateModelDefaults?.(settings);
         entry.modelSettings = settings;
-        return { ...entry.modelSettings };
+        return settingsForClient(entry.modelSettings);
     }
 
     async updateApprovalMode(
@@ -190,6 +210,7 @@ export class AgentRegistry {
             return undefined;
         }
         await entry.store.appendApprovalMode(mode);
+        this.options.updateApprovalDefault?.(mode);
         entry.approvalMode = mode;
         return entry.approvalMode;
     }
@@ -287,7 +308,7 @@ export class AgentRegistry {
                     "spawn_background_agent",
                 ],
                 enableUserInteraction: kind === "interactive",
-                readModelSettings: () => entry.modelSettings,
+                readModelSettings: () => settingsForClient(entry.modelSettings),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
                 readApprovalMode: () => entry.approvalMode,
@@ -410,10 +431,9 @@ export class AgentRegistry {
     }
 }
 
-function isModelReasoningEffort(value: unknown): value is ModelReasoningEffort {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+function settingsForClient(settings: ModelTurnSettings): ModelTurnSettings {
+    return {
+        ...settings,
+        availableReasoningEfforts: availableReasoningEfforts(settings.model),
+    };
 }

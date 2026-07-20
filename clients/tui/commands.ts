@@ -23,6 +23,18 @@ export interface UpdatePermissionsTuiCommandAction {
     readonly mode: "ask" | "approve_for_me" | "full_access";
 }
 
+export interface OpenModelPickerTuiCommandAction {
+    readonly type: "open_model_picker";
+}
+
+export interface OpenReasoningPickerTuiCommandAction {
+    readonly type: "open_reasoning_picker";
+}
+
+export interface OpenPermissionsPickerTuiCommandAction {
+    readonly type: "open_permissions_picker";
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -33,6 +45,9 @@ export type TuiCommandAction =
     | UpdateModelTuiCommandAction
     | UpdateReasoningTuiCommandAction
     | UpdatePermissionsTuiCommandAction
+    | OpenModelPickerTuiCommandAction
+    | OpenReasoningPickerTuiCommandAction
+    | OpenPermissionsPickerTuiCommandAction
     | TuiCommandErrorAction;
 
 export interface TuiCommandDefinition {
@@ -131,9 +146,20 @@ export class TuiCommandRegistry {
         const separatorIndex = text.search(/\s/);
         const commandEnd = separatorIndex === -1 ? text.length : separatorIndex;
         const name = text.slice(1, commandEnd);
-        const command = this.commands.get(name);
+        const exactCommand = this.commands.get(name);
+        let command = exactCommand;
         if (command === undefined) {
-            return undefined;
+            const matches = [...this.commands.values()].filter((candidate) =>
+                candidate.name.startsWith(name)
+            );
+            if (matches.length !== 1) {
+                return undefined;
+            }
+            const [uniqueMatch] = matches;
+            if (uniqueMatch === undefined) {
+                return undefined;
+            }
+            command = uniqueMatch;
         }
 
         const argumentsText = text.slice(commandEnd).trim();
@@ -162,9 +188,13 @@ function sharedPrefix(values: readonly string[]): string {
 
 export function renderTuiCommandSuggestions(
     commands: readonly TuiCommandCatalogEntry[],
+    selectedIndex = -1,
 ): string {
     return commands
-        .map((command) => `/${command.name}  ${command.description}`)
+        .map((command, index) => {
+            const marker = index === selectedIndex ? "› " : "  ";
+            return `${marker}/${command.name}  ${command.description}`;
+        })
         .join("\n");
 }
 
@@ -177,20 +207,24 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
     registry.registerCommand({
         ...MODEL_COMMAND,
         parse: (argumentsText) => argumentsText.length === 0
-            ? { type: "command_error", message: `Usage: ${MODEL_COMMAND.usage}` }
+            ? { type: "open_model_picker" }
             : { type: "update_model", model: argumentsText },
     });
     registry.registerCommand({
         ...REASONING_COMMAND,
         parse: (argumentsText) => isReasoningEffort(argumentsText)
             ? { type: "update_reasoning", reasoningEffort: argumentsText }
-            : { type: "command_error", message: `Usage: ${REASONING_COMMAND.usage}` },
+            : argumentsText.length === 0
+                ? { type: "open_reasoning_picker" }
+                : { type: "command_error", message: `Usage: ${REASONING_COMMAND.usage}` },
     });
     registry.registerCommand({
         ...PERMISSIONS_COMMAND,
         parse: (argumentsText) => isApprovalMode(argumentsText)
             ? { type: "update_permissions", mode: argumentsText }
-            : { type: "command_error", message: `Usage: ${PERMISSIONS_COMMAND.usage}` },
+            : argumentsText.length === 0
+                ? { type: "open_permissions_picker" }
+                : { type: "command_error", message: `Usage: ${PERMISSIONS_COMMAND.usage}` },
     });
     return registry;
 }
