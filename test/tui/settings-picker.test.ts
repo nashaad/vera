@@ -6,12 +6,29 @@ import {
     startTuiSettingsPicker,
 } from "../../clients/tui/settings-picker.ts";
 
+const availableModels = [
+    {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        label: "Kimi K3",
+        description: "primary long-context model",
+    },
+    {
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        description: "fast fallback model",
+    },
+] as const;
+
 test("model picker keeps the current model selected", () => {
     const state = startTuiSettingsPicker(
         "model",
         "z-ai/glm-5.2",
         "high",
         "approve_for_me",
+        undefined,
+        availableModels,
     );
 
     expect(state.options[state.selectedIndex]?.value).toBe("z-ai/glm-5.2");
@@ -24,6 +41,8 @@ test("model picker filters its choices as the user types", () => {
         "moonshotai/kimi-k3",
         "max",
         "approve_for_me",
+        undefined,
+        availableModels,
     );
     const first = handleTuiSettingsPickerKey(state, { name: "g" });
     const second = handleTuiSettingsPickerKey(first.state ?? state, { name: "l" });

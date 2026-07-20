@@ -573,6 +573,13 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
                     ...settings.availableReasoningEfforts,
                 ],
             }),
+        ...(settings.availableModels === undefined
+            ? {}
+            : {
+                availableModels: settings.availableModels.map((model) => ({
+                    ...model,
+                })),
+            }),
     };
 }
 

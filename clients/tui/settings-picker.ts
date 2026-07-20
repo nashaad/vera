@@ -5,6 +5,7 @@ import {
 } from "@opentui/core";
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
+import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import { TUI_NOTICE, TUI_TEXT } from "./state.ts";
 
@@ -52,24 +53,6 @@ export interface TuiSettingsPickerView {
     update(state: TuiSettingsPickerState): void;
 }
 
-const MODEL_OPTIONS: readonly TuiSettingsPickerOption[] = [
-    {
-        value: "moonshotai/kimi-k3",
-        label: "Kimi K3",
-        description: "primary long-context model",
-    },
-    {
-        value: "z-ai/glm-5.2",
-        label: "GLM-5.2",
-        description: "fast fallback model",
-    },
-    {
-        value: "deepseek/deepseek-v4-pro",
-        label: "DeepSeek V4 Pro",
-        description: "low-cost reasoning option",
-    },
-];
-
 const REASONING_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "off", label: "Off", description: "quick response, no extra reasoning" },
     { value: "low", label: "Low", description: "light reasoning" },
@@ -98,9 +81,10 @@ export function startTuiSettingsPicker(
     currentReasoning: ModelReasoningEffort | undefined,
     currentPermissions: ApprovalMode | undefined,
     availableReasoning: readonly ModelReasoningEffort[] | undefined = undefined,
+    availableModels: readonly SuggestedModel[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const options = kind === "model"
-        ? withCurrentModel(currentModel)
+        ? modelOptions(availableModels, currentModel)
         : kind === "reasoning"
             ? reasoningOptions(availableReasoning)
             : PERMISSION_OPTIONS;
@@ -251,9 +235,17 @@ function searched(
     };
 }
 
-function withCurrentModel(currentModel: string | undefined): readonly TuiSettingsPickerOption[] {
-    if (currentModel === undefined || MODEL_OPTIONS.some((option) => option.value === currentModel)) {
-        return MODEL_OPTIONS;
+function modelOptions(
+    available: readonly SuggestedModel[] | undefined,
+    currentModel: string | undefined,
+): readonly TuiSettingsPickerOption[] {
+    const options = (available ?? []).map((model) => ({
+        value: model.model,
+        label: model.label,
+        description: `${model.provider} · ${model.description}`,
+    }));
+    if (currentModel === undefined || options.some((option) => option.value === currentModel)) {
+        return options;
     }
     return [
         {
@@ -261,7 +253,7 @@ function withCurrentModel(currentModel: string | undefined): readonly TuiSetting
             label: currentModel,
             description: "current model",
         },
-        ...MODEL_OPTIONS,
+        ...options,
     ];
 }
 

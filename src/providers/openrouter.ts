@@ -16,6 +16,7 @@ import {
 import type {
     ModelAdapter,
     ModelRequest,
+    ModelReasoningEffort,
     ModelSource,
 } from "../model/types.ts";
 
@@ -23,14 +24,20 @@ export type { SendOpenRouterChat } from "./openrouter-wire.ts";
 
 export interface OpenRouterAdapterOptions {
     readonly apiKey: string;
+    readonly reasoningMappings?: ReadonlyMap<
+        string,
+        ReadonlyMap<ModelReasoningEffort, string>
+    >;
 }
 
 export class OpenRouterAdapter implements ModelAdapter {
-    private readonly sendChat: SendOpenRouterChat;
-
-    constructor(sendChat: SendOpenRouterChat) {
-        this.sendChat = sendChat;
-    }
+    constructor(
+        private readonly sendChat: SendOpenRouterChat,
+        private readonly reasoningMappings?: ReadonlyMap<
+            string,
+            ReadonlyMap<ModelReasoningEffort, string>
+        >,
+    ) {}
 
     stream(request: ModelRequest): ModelEventStream {
         const stream = new ModelEventStream();
@@ -53,13 +60,20 @@ export class OpenRouterAdapter implements ModelAdapter {
                 target: source,
                 normalizeToolCallId: normalizeOpenRouterToolCallId,
             });
+            const verifiedMapping = request.reasoningEffort === undefined
+                ? undefined
+                : this.reasoningMappings
+                    ?.get(request.model)
+                    ?.get(request.reasoningEffort);
             const reasoning = request.reasoningEffort === undefined
                 ? undefined
-                : await resolveReasoningSelection(
-                    "openrouter",
-                    request.model,
-                    request.reasoningEffort,
-                );
+                : verifiedMapping === undefined
+                    ? await resolveReasoningSelection(
+                        "openrouter",
+                        request.model,
+                        request.reasoningEffort,
+                    )
+                    : { providerEffort: verifiedMapping };
             const providerRequest = {
                 model: request.model,
                 ...(request.maxTokens === undefined
@@ -141,7 +155,7 @@ export function createOpenRouterAdapter(
             },
             { signal },
         );
-    });
+    }, options.reasoningMappings);
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {

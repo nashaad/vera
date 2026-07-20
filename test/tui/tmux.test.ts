@@ -98,8 +98,11 @@ test.skipIf(!tmuxAvailable)(
 
             pane = await waitForPane(socket, session, "enter queue");
             expect(pane).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (thinking|responding) · \d+s/);
+            expect(pane).toContain("esc interrupt");
 
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
+            expect(pane).toContain("Responding · test · provider loading");
+            expect(pane).toMatch(/\+ Thought: \d+\.\d+s/);
             sendText(socket, session, "redirect now");
             sendKey(socket, session, "Enter");
 
@@ -583,7 +586,14 @@ async function exerciseConversationRewind(
         "completed /rewind command",
     );
     sendKey(socket, session, "Enter");
-    pane = await waitForPane(socket, session, "second request");
+    pane = await waitForPaneWhere(
+        socket,
+        session,
+        (current) => current.includes("Rewind — select a point")
+            && current.includes("›")
+            && current.includes("second request"),
+        "loaded rewind timeline",
+    );
     expect(pane).toContain("Rewind — select a point");
     expect(pane).toContain("second request");
     expect(pane).toContain(

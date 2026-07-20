@@ -37,16 +37,30 @@ test("host wire validates task notifications", () => {
 });
 
 test("host wire validates model settings results", () => {
+    const availableModels = [{
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        description: "fast fallback model",
+    }];
     expect(parseAgentUpdate({
         type: "model_settings",
         requestId: "settings-1",
-        settings: { model: "next-model", reasoningEffort: "high" },
+        settings: {
+            model: "next-model",
+            reasoningEffort: "high",
+            availableModels,
+        },
         pending: true,
         seq: 8,
     })).toEqual({
         type: "model_settings",
         requestId: "settings-1",
-        settings: { model: "next-model", reasoningEffort: "high" },
+        settings: {
+            model: "next-model",
+            reasoningEffort: "high",
+            availableModels,
+        },
         pending: true,
         seq: 8,
     });

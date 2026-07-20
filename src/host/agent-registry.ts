@@ -5,6 +5,7 @@ import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
 import { isApprovalMode, type ApprovalMode } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import {
+    availableModels,
     availableReasoningEfforts,
     isModelReasoningEffort,
     type ModelSettingsPatch,
@@ -51,6 +52,7 @@ export interface RegisteredAgentSummary {
 
 export interface AgentRegistryOptions {
     readonly createAdapter: () => ModelAdapter;
+    readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
@@ -177,14 +179,17 @@ export class AgentRegistry {
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
-        const availableEfforts = availableReasoningEfforts(model);
+        const availableEfforts = availableReasoningEfforts(
+            this.options.provider ?? "unknown",
+            model,
+        );
         if (
             patch.model !== undefined
             && patch.reasoningEffort === undefined
             && reasoningEffort !== undefined
             && !availableEfforts.includes(reasoningEffort)
         ) {
-            reasoningEffort = availableEfforts.at(-1);
+            reasoningEffort = strongestReasoningEffort(availableEfforts);
         }
         if (
             reasoningEffort !== undefined
@@ -203,7 +208,10 @@ export class AgentRegistry {
         this.defaultModel = settings.model;
         this.defaultReasoningEffort = settings.reasoningEffort;
         entry.modelSettings = settings;
-        return settingsForClient(entry.modelSettings);
+        return settingsForClient(
+            entry.modelSettings,
+            this.options.provider ?? "unknown",
+        );
     }
 
     async updateApprovalMode(
@@ -318,7 +326,10 @@ export class AgentRegistry {
                     "spawn_background_agent",
                 ],
                 enableUserInteraction: kind === "interactive",
-                readModelSettings: () => settingsForClient(entry.modelSettings),
+                readModelSettings: () => settingsForClient(
+                    entry.modelSettings,
+                    this.options.provider ?? "unknown",
+                ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
                 readApprovalMode: () => entry.approvalMode,
@@ -441,9 +452,29 @@ export class AgentRegistry {
     }
 }
 
-function settingsForClient(settings: ModelTurnSettings): ModelTurnSettings {
+function strongestReasoningEffort(
+    efforts: readonly ModelReasoningEffort[],
+): ModelReasoningEffort | undefined {
+    const strongestFirst: readonly ModelReasoningEffort[] = [
+        "max",
+        "high",
+        "medium",
+        "low",
+        "off",
+    ];
+    return strongestFirst.find((effort) => efforts.includes(effort));
+}
+
+function settingsForClient(
+    settings: ModelTurnSettings,
+    provider: string,
+): ModelTurnSettings {
     return {
         ...settings,
-        availableReasoningEfforts: availableReasoningEfforts(settings.model),
+        availableReasoningEfforts: availableReasoningEfforts(
+            provider,
+            settings.model,
+        ),
+        availableModels: availableModels(provider),
     };
 }

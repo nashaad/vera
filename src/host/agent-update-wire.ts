@@ -76,6 +76,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                         && settings.availableReasoningEfforts.every(
                             isModelReasoningEffort,
                         )))
+                && (settings.availableModels === undefined
+                    || (Array.isArray(settings.availableModels)
+                        && settings.availableModels.every(isSuggestedModel)))
             ? value as AgentUpdate
             : undefined;
     }
@@ -251,6 +254,14 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     return entry?.kind === "tool"
         && typeof entry.tool === "string"
         && asRecord(entry.args) !== undefined;
+}
+
+function isSuggestedModel(value: unknown): boolean {
+    const model = asRecord(value);
+    return typeof model?.provider === "string"
+        && typeof model.model === "string"
+        && typeof model.label === "string"
+        && typeof model.description === "string";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

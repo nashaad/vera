@@ -22,6 +22,29 @@ describe("OpenRouter adapter", () => {
         expect(normalizeOpenRouterToolCallId(id)).toBe(`call_${"a".repeat(80)}`);
     });
 
+    test("uses supplied verification mappings instead of the installed catalog", async () => {
+        const sendChat: SendOpenRouterChat = async (request) => {
+            expect(request.reasoning).toEqual({ effort: "candidate-effort" });
+            return chunks([
+                chatChunk({ delta: { content: "ok" }, finishReason: "stop" }),
+            ]);
+        };
+        const adapter = new OpenRouterAdapter(sendChat, new Map([
+            ["test/model", new Map([["high", "candidate-effort"]])],
+        ]));
+
+        const result = await adapter.stream({
+            model: "test/model",
+            reasoningEffort: "high",
+            messages: [{
+                role: "user",
+                content: [{ type: "text", text: "hello" }],
+            }],
+        }).result();
+
+        expect(result.stopReason).toBe("stop");
+    });
+
     test("normalizes a stream and returns the completed assistant message", async () => {
         const sendChat: SendOpenRouterChat = async (request) => {
             expect(request.maxTokens).toBe(64_000);

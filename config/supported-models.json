@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "providers": {
+    "openrouter": {
+      "models_endpoint": "https://openrouter.ai/api/v1/models"
+    }
+  },
+  "suggested_models": [
+    {
+      "provider": "openrouter",
+      "model": "moonshotai/kimi-k3",
+      "label": "Kimi K3",
+      "description": "primary long-context model"
+    },
+    {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.2",
+      "label": "GLM-5.2",
+      "description": "fast fallback model"
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "description": "low-cost reasoning option"
+    }
+  ],
+  "verified_models": [
+    {
+      "provider": "openrouter",
+      "model": "moonshotai/kimi-k3",
+      "label": "Kimi K3",
+      "description": "primary long-context model",
+      "context_window": 1048576,
+      "tool_support": true,
+      "reasoning": [
+        {
+          "vera_effort": "max",
+          "provider_effort": "max",
+          "verified_at": "2026-07-20T19:47:48.836Z"
+        },
+        {
+          "vera_effort": "high",
+          "provider_effort": "high",
+          "verified_at": "2026-07-20T19:47:48.836Z"
+        },
+        {
+          "vera_effort": "low",
+          "provider_effort": "low",
+          "verified_at": "2026-07-20T19:47:48.836Z"
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.2",
+      "label": "GLM-5.2",
+      "description": "fast fallback model",
+      "context_window": 1048576,
+      "tool_support": true,
+      "reasoning": [
+        {
+          "vera_effort": "max",
+          "provider_effort": "xhigh",
+          "verified_at": "2026-07-20T19:47:48.836Z"
+        },
+        {
+          "vera_effort": "high",
+          "provider_effort": "high",
+          "verified_at": "2026-07-20T19:47:48.836Z"
+        }
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "description": "low-cost reasoning option",
+      "context_window": 1048576,
+      "tool_support": true,
+      "reasoning": [
+        {
+          "vera_effort": "max",
+          "provider_effort": "xhigh",
+          "verified_at": "2026-07-20T19:47:48.836Z"
+        },
+        {
+          "vera_effort": "high",
+          "provider_effort": "high",
+          "verified_at": "2026-07-20T19:47:48.836Z"
+        }
+      ]
+    }
+  ]
+}

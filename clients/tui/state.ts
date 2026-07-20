@@ -6,7 +6,12 @@ import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 
-export type TuiTranscriptEntryKind = "user" | "assistant" | "tool" | "notice";
+export type TuiTranscriptEntryKind =
+    | "user"
+    | "assistant"
+    | "tool"
+    | "thought"
+    | "notice";
 
 export interface TuiTranscriptEntry {
     readonly kind: TuiTranscriptEntryKind;
@@ -154,6 +159,13 @@ export function appendTuiNotice(state: TuiState, message: string): TuiState {
     return appendEntry(state, { kind: "notice", text: message });
 }
 
+export function appendTuiThought(state: TuiState, seconds: number): TuiState {
+    return appendEntry(state, {
+        kind: "thought",
+        text: `+ Thought: ${seconds.toFixed(1)}s`,
+    });
+}
+
 export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     if (entry.kind === "user") {
         const chunks: TextChunk[] = [];
@@ -169,6 +181,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "notice") {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
+    }
+    if (entry.kind === "thought") {
+        return new StyledText([fg("#E8D94A")(entry.text)]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
