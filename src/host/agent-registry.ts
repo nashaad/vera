@@ -93,9 +93,16 @@ export class AgentRegistry {
     private readonly agents = new Map<string, RegisteredAgentEntry>();
     private readonly startingIds = new Set<string>();
     private readonly deliveryTasks = new Set<Promise<void>>();
+    private defaultModel: string;
+    private defaultReasoningEffort: ModelReasoningEffort | undefined;
+    private defaultApprovalMode: ApprovalMode;
     private isClosed = false;
 
-    constructor(private readonly options: AgentRegistryOptions) {}
+    constructor(private readonly options: AgentRegistryOptions) {
+        this.defaultModel = options.model;
+        this.defaultReasoningEffort = options.reasoningEffort;
+        this.defaultApprovalMode = options.approvalMode;
+    }
 
     async create(
         options: CreateRegisteredAgentOptions,
@@ -193,6 +200,8 @@ export class AgentRegistry {
         };
         await entry.store.appendModelSettings(settings);
         this.options.updateModelDefaults?.(settings);
+        this.defaultModel = settings.model;
+        this.defaultReasoningEffort = settings.reasoningEffort;
         entry.modelSettings = settings;
         return settingsForClient(entry.modelSettings);
     }
@@ -211,6 +220,7 @@ export class AgentRegistry {
         }
         await entry.store.appendApprovalMode(mode);
         this.options.updateApprovalDefault?.(mode);
+        this.defaultApprovalMode = mode;
         entry.approvalMode = mode;
         return entry.approvalMode;
     }
@@ -266,12 +276,12 @@ export class AgentRegistry {
             kind,
             events,
             modelSettings: store.modelSettings() ?? {
-                model: this.options.model,
-                ...(this.options.reasoningEffort === undefined
+                model: this.defaultModel,
+                ...(this.defaultReasoningEffort === undefined
                     ? {}
-                    : { reasoningEffort: this.options.reasoningEffort }),
+                    : { reasoningEffort: this.defaultReasoningEffort }),
             },
-            approvalMode: store.approvalMode() ?? this.options.approvalMode,
+            approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
             run: Promise.resolve(),
             completed: false,
         };
@@ -294,8 +304,8 @@ export class AgentRegistry {
         entry.run = runHeadlessLoop(
             agent.engine,
             adapter,
-            this.options.model,
-            this.options.reasoningEffort,
+            this.defaultModel,
+            this.defaultReasoningEffort,
             {
                 sessionStore: store,
                 eventLogPath,
