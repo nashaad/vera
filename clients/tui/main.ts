@@ -41,7 +41,7 @@ import {
     createBuiltinTuiCommandRegistry,
     renderTuiCommandSuggestions,
 } from "./commands.ts";
-import { createTuiComposer } from "./composer.ts";
+import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import { renderTuiStatusLine } from "./status.ts";
@@ -300,21 +300,7 @@ export async function startTui(
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
 
-    // OpenTUI prompt layout follows OpenCode's canonical Prompt mechanics;
-    // Vera keeps its own colors, content, and interaction vocabulary.
-    const composerBox = new BoxRenderable(renderer, {
-        id: "composer-box",
-        border: ["left"],
-        borderStyle: "heavy",
-        borderColor: TUI_ACCENT,
-        backgroundColor: theme.panel,
-        width: "100%",
-        height: 5,
-        paddingX: 2,
-        paddingY: 1,
-        marginBottom: 1,
-    });
-    composerBox.add(composer);
+    const composerBox = createTuiComposerPanel(renderer, composer);
 
     const app = new BoxRenderable(renderer, {
         id: "app",

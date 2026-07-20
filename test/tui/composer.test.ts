@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
-import { createTuiComposer } from "../../clients/tui/composer.ts";
+import {
+    createTuiComposer,
+    createTuiComposerPanel,
+} from "../../clients/tui/composer.ts";
 import { applyTuiTheme } from "../../clients/tui/state.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
@@ -20,6 +23,22 @@ test("TUI composer uses one theme color across its padded surface", async () => 
         expect(composer.backgroundColor.toInts()).toEqual(expected);
     } finally {
         applyTuiTheme(VERA_TUI_THEME);
+        setup.renderer.destroy();
+    }
+});
+
+test("clicking composer padding focuses the textarea", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const panel = createTuiComposerPanel(setup.renderer, composer);
+    setup.renderer.root.add(panel);
+
+    try {
+        await setup.flush();
+        expect(composer.focused).toBe(false);
+        await setup.mockMouse.click(2, 1);
+        expect(composer.focused).toBe(true);
+    } finally {
         setup.renderer.destroy();
     }
 });
