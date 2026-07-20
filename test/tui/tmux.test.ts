@@ -170,6 +170,74 @@ test.skipIf(!tmuxAvailable)(
     15_000,
 );
 
+test.skipIf(!tmuxAvailable)(
+    "real TUI mouse drag copies transcript text and keeps it highlighted",
+    async () => {
+        const socket = `vera-selection-${process.pid}-${randomUUID()}`;
+        const session = "selection";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-selection-"));
+        const copiedTextPath = join(home, "copied-text");
+        const selectedText = "COPY THIS TEXT";
+        let pane = "";
+
+        try {
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "100",
+                "-y",
+                "30",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_TEST_COPIED_TEXT_PATH=${shellQuote(copiedTextPath)} ${
+                    shellQuote(process.execPath)
+                } run test/support/tui-selection-child.ts`,
+            ]);
+
+            pane = await waitForVisiblePane(socket, session, selectedText);
+            const lines = pane.split("\n");
+            const row = lines.findIndex((line) => line.includes(selectedText));
+            const selectedLine = lines[row];
+            if (selectedLine === undefined) {
+                throw new Error("Selected transcript line was not visible");
+            }
+            const column = selectedLine.indexOf(selectedText);
+
+            sendMouseDrag(
+                socket,
+                session,
+                column + 1,
+                row + 1,
+                column + selectedText.length + 1,
+                row + 1,
+            );
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                `copied ${selectedText.length} characters`,
+            );
+            expect(readFileSync(copiedTextPath, "utf8")).toBe(selectedText);
+
+            const styledPane = captureVisiblePaneWithStyles(socket, session);
+            expect(styledPane).toMatch(
+                new RegExp(`\\x1b\\[48;2;\\d+;\\d+;\\d+m${selectedText}`),
+            );
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
 function startTuiSession(
     socket: string,
     session: string,
@@ -356,6 +424,28 @@ function sendText(socket: string, session: string, value: string): void {
 
 function sendKey(socket: string, session: string, key: string): void {
     runTmux(socket, ["send-keys", "-t", session, key]);
+}
+
+function sendMouseDrag(
+    socket: string,
+    session: string,
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+): void {
+    const sequence = `\x1b[<0;${startX};${startY}M`
+        + `\x1b[<32;${endX};${endY}M`
+        + `\x1b[<0;${endX};${endY}m`;
+    runTmux(socket, [
+        "send-keys",
+        "-t",
+        session,
+        "-H",
+        ...Array.from(Buffer.from(sequence), (byte) =>
+            byte.toString(16).padStart(2, "0")
+        ),
+    ]);
 }
 
 async function exerciseConversationRewind(
@@ -546,6 +636,13 @@ function capturePane(socket: string, session: string): string {
 
 function captureVisiblePane(socket: string, session: string): string {
     return runTmux(socket, ["capture-pane", "-p", "-t", session]);
+}
+
+function captureVisiblePaneWithStyles(
+    socket: string,
+    session: string,
+): string {
+    return runTmux(socket, ["capture-pane", "-p", "-e", "-t", session]);
 }
 
 function runTmux(socket: string, args: readonly string[]): string {
