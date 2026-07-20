@@ -117,16 +117,66 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
     }
 });
 
+test("TUI approval grows with content before details begin scrolling", async () => {
+    const setup = await createTestRenderer({
+        width: 80,
+        height: 18,
+        kittyKeyboard: true,
+    });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        view.update(requestWithCommand("pwd", "short-request"));
+        await setup.flush();
+        const shortHeight = view.box.height;
+        expect(view.box.screenY + shortHeight).toBe(17);
+        expect(view.details.scrollHeight).toBe(view.details.height);
+
+        view.update(requestWithCommand(
+            `grep ${"prompt.assembly|".repeat(8)}`,
+            "medium-request",
+        ));
+        await setup.flush();
+        const mediumHeight = view.box.height;
+        expect(mediumHeight).toBeGreaterThan(shortHeight);
+        expect(view.details.scrollHeight).toBe(view.details.height);
+
+        view.update(requestWithCommand(
+            `grep ${"prompt.assembly|".repeat(100)}`,
+            "overflow-request",
+        ));
+        await setup.flush();
+        expect(view.box.height).toBeGreaterThan(mediumHeight);
+        expect(view.box.height).toBeLessThanOrEqual(16);
+        expect(view.box.screenY + view.box.height).toBe(17);
+        expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
+        expect(setup.captureCharFrame()).toContain("[y] allow [n/esc] deny");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 function longRequest(): UiRequestUpdate {
+    return requestWithCommand(
+        `grep -rli -i "${"prompt.assembly|".repeat(20)}" /a/very/long/project/path --include="*.md"`,
+        "long-request",
+    );
+}
+
+function requestWithCommand(
+    command: string,
+    requestId: string,
+): UiRequestUpdate {
     return {
         ...request,
+        requestId,
         request: {
             ...request.request,
             toolCall: {
                 ...request.request.toolCall,
-                input: {
-                    command: `grep -rli -i "${"prompt.assembly|".repeat(20)}" /a/very/long/project/path --include="*.md"`,
-                },
+                input: { command },
             },
         },
     };
