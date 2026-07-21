@@ -35,7 +35,6 @@ import {
     createTuiApprovalResponse,
 } from "./approval.ts";
 import {
-    createTuiQuestionResponse,
     createTuiQuestionView,
 } from "./question.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
@@ -89,7 +88,9 @@ const WORKING_HINT = "enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
 const APPROVAL_HINT =
     "approval required · 1 once · 2 session prefix · 3/esc deny · ctrl+c stop";
-const QUESTION_HINT = "question waiting · 1-9 choose · esc cancel · ctrl+c stop";
+// The question overlay owns the choose/cancel hint now, so the status line only
+// carries the waiting phase and the global interrupt.
+const QUESTION_HINT = "question waiting · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
 const PROGRESS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
@@ -288,7 +289,7 @@ export async function startTui(
         id: "activity-box",
         border: ["left"],
         borderStyle: "heavy",
-        borderColor: TUI_NOTICE,
+        borderColor: TUI_ACCENT,
         backgroundColor: theme.element,
         width: "100%",
         height: 0,
@@ -399,10 +400,27 @@ export async function startTui(
             return;
         }
 
-        if (pendingUiRequest !== undefined) {
-            const response = isToolApprovalUiRequestUpdate(pendingUiRequest)
-                ? createTuiApprovalResponse(pendingUiRequest, key)
-                : createTuiQuestionResponse(pendingUiRequest, key);
+        if (
+            pendingUiRequest !== undefined
+            && isUserQuestionUiRequestUpdate(pendingUiRequest)
+        ) {
+            // Arrow keys move the highlight (no engine message); numbers, Enter,
+            // and Escape resolve the question. Selection stays client-local.
+            const result = questionView.handleKey(pendingUiRequest, key);
+            if (result.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                if (result.response !== undefined) {
+                    sendCommand(result.response);
+                    activity = "thinking";
+                    pendingUiRequest = undefined;
+                    focusActiveSurface();
+                }
+                renderState();
+                return;
+            }
+        } else if (pendingUiRequest !== undefined) {
+            const response = createTuiApprovalResponse(pendingUiRequest, key);
             if (response !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -1040,7 +1058,7 @@ export async function startTui(
         queuedPromptText.fg = theme.muted;
         activityText.fg = theme.text;
         activityBox.backgroundColor = theme.element;
-        activityBox.borderColor = theme.notice;
+        activityBox.borderColor = theme.accent;
         commandSuggestionsText.fg = theme.text;
         commandSuggestionsBox.borderColor = theme.muted;
         composerBox.backgroundColor = theme.panel;
@@ -1055,15 +1073,15 @@ export async function startTui(
         approvalView.detailsText.fg = theme.text;
         approvalView.actions.fg = theme.text;
         questionView.box.backgroundColor = theme.panel;
-        questionView.box.borderColor = theme.notice;
+        questionView.box.borderColor = theme.accent;
         questionView.detailsText.fg = theme.text;
-        questionView.choiceAction.fg = theme.text;
-        questionView.cancelAction.fg = theme.text;
+        questionView.choiceAction.fg = theme.muted;
+        questionView.cancelAction.fg = theme.muted;
         timelinePickerView.box.backgroundColor = theme.panel;
-        timelinePickerView.box.borderColor = theme.notice;
+        timelinePickerView.box.borderColor = theme.accent;
         timelinePickerView.content.fg = theme.text;
         settingsPickerView.box.backgroundColor = theme.panel;
-        settingsPickerView.box.borderColor = theme.notice;
+        settingsPickerView.box.borderColor = theme.accent;
 
         if (announce) {
             state = appendTuiNotice(state, `theme changed: ${selectedTheme}`);
@@ -1239,7 +1257,7 @@ export async function startTui(
     }
 
     function activityAccentFrame(): string {
-        return TUI_NOTICE;
+        return TUI_ACCENT;
     }
 }
 

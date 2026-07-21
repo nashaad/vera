@@ -1,3 +1,7 @@
+import { fg, StyledText, type TextChunk } from "@opentui/core";
+
+import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
+
 export interface TuiCommandCatalogEntry {
     readonly name: string;
     readonly description: string;
@@ -215,13 +219,24 @@ function sharedPrefix(values: readonly string[]): string {
 export function renderTuiCommandSuggestions(
     commands: readonly TuiCommandCatalogEntry[],
     selectedIndex = -1,
-): string {
-    return commands
-        .map((command, index) => {
-            const marker = index === selectedIndex ? "› " : "  ";
-            return `${marker}/${command.name}  ${command.description}`;
-        })
-        .join("\n");
+): StyledText {
+    const chunks: TextChunk[] = [];
+    commands.forEach((command, index) => {
+        const active = index === selectedIndex;
+        if (index > 0) {
+            chunks.push(fg(TUI_MUTED)("\n"));
+        }
+        // Quiet selection: a chevron marker plus an accent command name, the
+        // lightest device that marks the row without a loud full-width bar.
+        chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
+        chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(`/${command.name}`));
+        chunks.push(fg(TUI_MUTED)(`  ${command.description}`));
+    });
+    return new StyledText(chunks);
+}
+
+export function tuiCommandSuggestionsText(styled: StyledText): string {
+    return styled.chunks.map((chunk) => chunk.text).join("");
 }
 
 export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {

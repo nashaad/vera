@@ -312,12 +312,12 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "[1-3] choose · [esc] cancel",
+                "1  Stable",
             );
             expect(pane).toContain("Which release channel");
-            expect(pane).toContain("[1] Stable");
-            expect(pane).toContain("[2] Preview");
-            expect(pane).toContain("[3] Nightly");
+            expect(pane).toContain("2  Preview");
+            expect(pane).toContain("3  Nightly");
+            expect(pane).toContain("esc cancel");
 
             sendText(socket, session, "2");
             pane = await waitForVisiblePane(
@@ -325,7 +325,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Selection received: preview-channel",
             );
-            expect(pane).not.toContain("[1-3] choose");
+            expect(pane).not.toContain("esc cancel");
 
             sendText(socket, session, "focus restored");
             sendKey(socket, session, "Enter");
