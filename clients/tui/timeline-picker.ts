@@ -11,7 +11,7 @@ import type {
     TimelineBoundary,
     TimelineReplyUpdate,
 } from "../../src/engine/protocol.ts";
-import { TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import { TUI_ACCENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
 
 interface TimelinePickerBase {
     readonly boundaries: readonly TimelineBoundary[];
@@ -214,7 +214,7 @@ export function createTuiTimelinePickerView(
         id: "timeline-picker",
         title: " Rewind ",
         border: true,
-        borderColor: TUI_NOTICE,
+        borderColor: TUI_ACCENT,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         top: 1,

@@ -16,7 +16,6 @@ import {
     TUI_ACCENT,
     TUI_ELEMENT,
     TUI_MUTED,
-    TUI_NOTICE,
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
@@ -317,7 +316,7 @@ export function createTuiSettingsPickerView(
         id: "settings-picker",
         title: " Settings ",
         border: true,
-        borderColor: TUI_NOTICE,
+        borderColor: TUI_ACCENT,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         top: 2,
@@ -448,7 +447,7 @@ function themeRowContent(
         ? (active || current ? TUI_ACCENT : TUI_TEXT)
         : TUI_MUTED;
     const chunks: TextChunk[] = [
-        fg(active ? TUI_ACCENT : TUI_PANEL)("▌ "),
+        active ? fg(TUI_ACCENT)("› ") : fg(TUI_PANEL)("  "),
         fg(TUI_ACCENT)(current ? "● " : "  "),
         fg(labelColor)(option.label.padEnd(THEME_LABEL_WIDTH)),
         ...themeSwatchChunks(option.value as TuiThemeName, matched),

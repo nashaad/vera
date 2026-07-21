@@ -6,7 +6,6 @@ import {
     applyTuiQuestionUpdate,
     createTuiQuestionResponse,
     createTuiQuestionView,
-    renderTuiQuestionDetails,
 } from "../../clients/tui/question.ts";
 
 test("question view exposes every themed text surface", async () => {
@@ -43,13 +42,70 @@ const request: UserQuestionUiRequestUpdate = {
     seq: 1,
 };
 
-test("TUI question renders numbered choices", () => {
-    expect(renderTuiQuestionDetails(request)).toBe([
-        "Which release channel should Vera use?",
-        "",
-        "[1] Stable",
-        "[2] Preview",
-    ].join("\n"));
+test("TUI question renders the choices as a highlighted list", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(request);
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("Which release channel should Vera use?");
+        // Numbers front each choice; no bracket noise.
+        expect(frame).toContain("1  Stable");
+        expect(frame).toContain("2  Preview");
+        expect(frame).not.toContain("[1]");
+        expect(frame).toContain("1-2");
+        expect(frame).toContain("esc cancel");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("TUI question arrow keys select without touching the engine early", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(request);
+
+    try {
+        // Arrows are handled locally and produce no response.
+        expect(view.handleKey(request, { name: "down" }))
+            .toEqual({ handled: true });
+        // Enter now resolves to the highlighted (second) choice.
+        expect(view.handleKey(request, { name: "return" })).toEqual({
+            handled: true,
+            response: {
+                type: "ui_response",
+                requestId: "question-1",
+                response: {
+                    type: "user_question",
+                    outcome: "selected",
+                    choiceId: "preview-channel",
+                },
+            },
+        });
+        // Clamped at the top; still no response.
+        expect(view.handleKey(request, { name: "up" }))
+            .toEqual({ handled: true });
+        // A digit still selects immediately regardless of the highlight.
+        expect(view.handleKey(request, { name: "1", sequence: "1" }).response)
+            .toEqual({
+                type: "ui_response",
+                requestId: "question-1",
+                response: {
+                    type: "user_question",
+                    outcome: "selected",
+                    choiceId: "stable-channel",
+                },
+            });
+        // Escape cancels through the same handler.
+        expect(view.handleKey(request, { name: "escape" }).response?.response)
+            .toEqual({ type: "user_question", outcome: "cancelled" });
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("TUI question maps digits to stable choice IDs without Enter", () => {
@@ -133,7 +189,8 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         let frame = setup.captureCharFrame();
         expect(frame).toContain("Question");
         expect(frame).toContain("Which release channel");
-        expect(frame).toContain("[1-9] choose · [esc] cancel");
+        expect(frame).toContain("1-9");
+        expect(frame).toContain("esc cancel");
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
         expect(view.box.zIndex).toBe(20);
         expect(view.actions.screenY).toBeLessThan(18);
@@ -143,7 +200,8 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         frame = setup.captureCharFrame();
         expect(frame).toContain("Question");
         expect(frame).toContain("Which release channel");
-        expect(frame).toContain("[1-9] choose · [esc] cancel");
+        expect(frame).toContain("1-9");
+        expect(frame).toContain("esc cancel");
         expect(view.actions.screenY).toBeLessThan(10);
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(9);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
@@ -153,15 +211,13 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         await setup.flush();
         expect(view.details.scrollTop).toBeGreaterThan(0);
         expect(view.actions.screenY).toBe(actionsY);
-        expect(setup.captureCharFrame()).toContain(
-            "[1-9] choose · [esc] cancel",
-        );
+        expect(setup.captureCharFrame()).toContain("esc cancel");
 
         setup.resize(24, 6);
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(frame).toContain("[1-9] choose");
-        expect(frame).toContain("[esc] cancel");
+        expect(frame).toContain("1-9");
+        expect(frame).toContain("esc cancel");
         expect(view.actions.screenY + view.actions.height).toBeLessThanOrEqual(5);
     } finally {
         setup.renderer.destroy();
@@ -203,9 +259,7 @@ test("TUI question grows with content before details begin scrolling", async () 
         expect(view.box.height).toBeLessThanOrEqual(16);
         expect(view.box.screenY + view.box.height).toBe(17);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
-        expect(setup.captureCharFrame()).toContain(
-            "[1-2] choose · [esc] cancel",
-        );
+        expect(setup.captureCharFrame()).toContain("1-2");
     } finally {
         setup.renderer.destroy();
     }

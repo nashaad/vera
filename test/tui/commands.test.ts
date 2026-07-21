@@ -4,6 +4,7 @@ import {
     BUILTIN_COMMANDS,
     createBuiltinTuiCommandRegistry,
     renderTuiCommandSuggestions,
+    tuiCommandSuggestionsText,
     TuiCommandRegistry,
 } from "../../clients/tui/commands.ts";
 
@@ -31,8 +32,14 @@ test("typing slash exposes the built-in rewind command", () => {
     expect(registry.suggestions("/unknown")).toEqual([]);
     expect(registry.suggestions("message /rew")).toEqual([]);
     expect(registry.suggestions("/rewind now")).toEqual([]);
-    expect(renderTuiCommandSuggestions(registry.suggestions("/")))
-        .toContain("/model  Change the model for the next turn");
+    expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
+        registry.suggestions("/"),
+    ))).toContain("/model  Change the model for the next turn");
+    // The highlighted command carries the chevron marker; others are indented.
+    expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
+        registry.suggestions("/"),
+        0,
+    ))).toContain("› /rewind");
     expect(registry.completion("/rew")).toBe("/rewind");
     expect(registry.completion("  /rew")).toBe("  /rewind");
     expect(registry.completion("/rewind")).toBeUndefined();
