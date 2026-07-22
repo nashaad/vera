@@ -261,10 +261,21 @@ export class ResidentAgent {
         if (isTimelineReplyUpdate(update)) {
             throw new Error("Timeline replies must target one attachment");
         }
-        const snapshot = clone(update);
-        if ("seq" in snapshot && typeof snapshot.seq === "number") {
-            this.lastSequence = Math.max(this.lastSequence, snapshot.seq);
+        if (!Number.isSafeInteger(update.seq) || update.seq < 0) {
+            throw new Error(
+                "Invalid resident update sequence: expected a non-negative safe integer",
+            );
         }
+        const expectedSequence = update.type === "history"
+            ? this.lastSequence
+            : this.lastSequence + 1;
+        if (update.seq !== expectedSequence) {
+            throw new Error(
+                `Invalid resident update sequence: expected ${expectedSequence}, received ${update.seq}`,
+            );
+        }
+        const snapshot = clone(update);
+        this.lastSequence = snapshot.seq;
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
         } else if (snapshot.type === "user_prompt") {
