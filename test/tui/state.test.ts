@@ -7,6 +7,7 @@ import {
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
+    failTuiConnection,
     queueTuiPrompt,
     renderTuiEntry,
     renderTuiQueuedPrompt,
@@ -103,6 +104,23 @@ test("TUI stops working when the resident agent fails", () => {
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
         text: "Agent error: Resident agent stopped unexpectedly",
+    });
+});
+
+test("TUI connection failure stops work and clears unsendable prompts", () => {
+    const state = failTuiConnection(
+        queueTuiPrompt(
+            beginTuiTurn(createTuiState(), "active prompt"),
+            "queued prompt",
+        ),
+        "Host sent a non-contiguous agent update sequence",
+    );
+
+    expect(state.working).toBe(false);
+    expect(state.queuedPrompts).toEqual([]);
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "Connection error: Host sent a non-contiguous agent update sequence",
     });
 });
 

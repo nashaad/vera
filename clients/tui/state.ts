@@ -190,6 +190,14 @@ export function appendTuiNotice(state: TuiState, message: string): TuiState {
     return appendEntry(state, { kind: "notice", text: message });
 }
 
+export function failTuiConnection(state: TuiState, message: string): TuiState {
+    return appendTuiNotice({
+        ...state,
+        working: false,
+        queuedPrompts: [],
+    }, `Connection error: ${message}`);
+}
+
 export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     return appendEntry(state, {
         kind: "thought",

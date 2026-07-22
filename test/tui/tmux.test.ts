@@ -14,6 +14,52 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
+    "resident stream failure becomes a recoverable disconnected TUI",
+    async () => {
+        const socket = `vera-connection-error-${process.pid}-${randomUUID()}`;
+        const session = "connection-error";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-connection-error-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-connection-error-child.ts",
+            );
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Connection error: Host sent a non-contiguous agent update sequence",
+            );
+            expect(pane).toContain("disconnected · /resume reconnect");
+            expect(pane).not.toContain("working…");
+            expect(pane).not.toContain("stopping");
+
+            sendText(socket, session, "/themes");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Theme");
+            expect(pane).toContain("System");
+
+            sendKey(socket, session, "Escape");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "terminal model errors remain visible after tools and the next turn works",
     async () => {
         const socket = `vera-terminal-error-${process.pid}-${randomUUID()}`;
