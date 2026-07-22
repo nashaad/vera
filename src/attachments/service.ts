@@ -17,6 +17,9 @@ import type {
     ModelInputMessage,
     ModelMessage,
 } from "../model/types.ts";
+import { open } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, isAbsolute, join, resolve } from "node:path";
 
 export class ImageAttachmentService {
     private readonly limits: ImageValidationLimits;
@@ -34,6 +37,7 @@ export class ImageAttachmentService {
     async attach(
         data: Uint8Array,
         sourceName: string,
+        signal?: AbortSignal,
     ): Promise<StoredImageAttachment> {
         const snapshot = copyBytes(data);
         const validated = await validateImageBytes(
@@ -41,17 +45,72 @@ export class ImageAttachmentService {
             this.limits,
             this.inspect,
         );
+        signal?.throwIfAborted();
         const stored = await this.files.saveImage(
             snapshot,
             validated,
             sourceName,
         );
+        signal?.throwIfAborted();
         return this.session.appendAttachment(stored);
+    }
+
+    async attachFile(
+        path: string,
+        signal?: AbortSignal,
+    ): Promise<StoredImageAttachment> {
+        const selectedPath = resolveSelectedPath(path, this.session.header.cwd);
+        signal?.throwIfAborted();
+        const file = await open(selectedPath, "r");
+        try {
+            const info = await file.stat();
+            if (!info.isFile()) {
+                throw new Error("Image attachment must be a regular file");
+            }
+            if (info.size > this.limits.maxBytes) {
+                throw new Error(
+                    `Image is ${info.size} bytes; maximum is ${this.limits.maxBytes}`,
+                );
+            }
+            const buffer = new Uint8Array(this.limits.maxBytes + 1);
+            let offset = 0;
+            while (offset < buffer.length) {
+                signal?.throwIfAborted();
+                const { bytesRead } = await file.read(
+                    buffer,
+                    offset,
+                    buffer.length - offset,
+                    offset,
+                );
+                if (bytesRead === 0) break;
+                offset += bytesRead;
+            }
+            if (offset > this.limits.maxBytes) {
+                throw new Error(
+                    `Image exceeds the maximum of ${this.limits.maxBytes} bytes`,
+                );
+            }
+            signal?.throwIfAborted();
+            return this.attach(
+                buffer.subarray(0, offset),
+                basename(selectedPath),
+                signal,
+            );
+        } finally {
+            await file.close();
+        }
     }
 
     async readContent(attachmentId: string): Promise<ImageContent> {
         return readSessionImageContent(this.session, attachmentId);
     }
+}
+
+function resolveSelectedPath(path: string, workspace: string): string {
+    const expanded = path === "~" ? homedir()
+        : path.startsWith("~/") ? join(homedir(), path.slice(2))
+        : path;
+    return isAbsolute(expanded) ? expanded : resolve(workspace, expanded);
 }
 
 export async function readSessionImageContent(

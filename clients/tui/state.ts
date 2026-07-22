@@ -56,10 +56,17 @@ export function createTuiState(): TuiState {
     };
 }
 
-export function beginTuiTurn(state: TuiState, prompt: string): TuiState {
+export function beginTuiTurn(
+    state: TuiState,
+    prompt: string,
+    attachmentIds?: readonly string[],
+): TuiState {
     return {
         ...state,
-        entries: [...state.entries, { kind: "user", text: prompt }],
+        entries: [...state.entries, {
+            kind: "user",
+            text: displayUserPrompt(prompt, attachmentIds),
+        }],
         working: true,
     };
 }
@@ -183,6 +190,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         || update.type === "timeline_action_preview"
         || update.type === "timeline_action_applied"
         || update.type === "timeline_action_rejected"
+    ) {
+        return state;
+    }
+    if (
+        update.type === "image_attached"
+        || update.type === "image_attachment_rejected"
     ) {
         return state;
     }

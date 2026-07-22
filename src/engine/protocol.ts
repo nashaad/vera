@@ -50,6 +50,12 @@ export interface PromptCommand {
     readonly attachmentIds?: readonly string[];
 }
 
+export interface AttachImageCommand {
+    readonly type: "attach_image";
+    readonly requestId: string;
+    readonly path: string;
+}
+
 export interface AbortCommand {
     readonly type: "abort";
 }
@@ -107,6 +113,7 @@ export type TimelineCommand =
 
 export type ClientCommand =
     | PromptCommand
+    | AttachImageCommand
     | AbortCommand
     | UiResponseCommand
     | GetModelSettingsCommand
@@ -298,6 +305,29 @@ export type TimelineReplyUpdate =
     | TimelineActionAppliedUpdate
     | TimelineActionRejectedUpdate;
 
+export interface ImageAttachedUpdate {
+    readonly type: "image_attached";
+    readonly requestId: string;
+    readonly attachment: {
+        readonly id: string;
+        readonly name: string;
+        readonly mediaType: string;
+        readonly bytes: number;
+        readonly width: number;
+        readonly height: number;
+    };
+}
+
+export interface ImageAttachmentRejectedUpdate {
+    readonly type: "image_attachment_rejected";
+    readonly requestId: string;
+    readonly error: string;
+}
+
+export type ImageAttachmentReplyUpdate =
+    | ImageAttachedUpdate
+    | ImageAttachmentRejectedUpdate;
+
 export type AgentUpdate =
     | HistoryUpdate
     | UserPromptUpdate
@@ -314,7 +344,8 @@ export type AgentUpdate =
     | ModelSettingsRejectedUpdate
     | PermissionsUpdate
     | PermissionsRejectedUpdate
-    | TimelineReplyUpdate;
+    | TimelineReplyUpdate
+    | ImageAttachmentReplyUpdate;
 
 export interface AgentUpdateSender {
     send(update: AgentUpdate): void;
@@ -344,6 +375,18 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
     }
     if (command.type === "abort") {
         return { type: "abort" };
+    }
+    if (
+        command.type === "attach_image"
+        && isRequestId(command.requestId)
+        && typeof command.path === "string"
+        && command.path.length > 0
+    ) {
+        return {
+            type: "attach_image",
+            requestId: command.requestId,
+            path: command.path,
+        };
     }
     if (
         command.type === "ui_response"

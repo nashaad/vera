@@ -6,6 +6,7 @@ import type {
     AgentUpdate,
     ClientCommand,
     HistoryUpdate,
+    ImageAttachedUpdate,
     TimelineReplyUpdate,
 } from "../engine/protocol.ts";
 import {
@@ -39,6 +40,10 @@ export class AgentCommandQueueFullError extends Error {
 export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
     readonly createAttachmentId?: () => string;
+    readonly attachImage?: (
+        path: string,
+        signal: AbortSignal,
+    ) => Promise<ImageAttachedUpdate["attachment"]>;
 }
 
 interface QueuedCommand {
@@ -59,6 +64,7 @@ export class ResidentAgent {
     private readonly inbound = new AsyncQueue<QueuedCommand>();
     private readonly attachments = new Map<string, AsyncQueue<AgentUpdate>>();
     private readonly issuedAttachmentIds = new Set<string>();
+    private readonly imageAttachmentTasks = new Map<string, Set<AbortController>>();
     private checkpoint: HistoryUpdate = {
         type: "history",
         entries: [],
@@ -77,7 +83,7 @@ export class ResidentAgent {
     constructor(
         id: string,
         workspace: string,
-        options: ResidentAgentOptions = {},
+        private readonly options: ResidentAgentOptions = {},
     ) {
         this.id = nonEmpty(id, "agent ID");
         this.workspace = nonEmpty(workspace, "agent workspace");
@@ -137,6 +143,14 @@ export class ResidentAgent {
                 if (this.isClosed || this.terminalFailure !== undefined) {
                     throw new ResidentAgentClosedError();
                 }
+                if (command.type === "attach_image") {
+                    void this.attachImage(
+                        attachmentId,
+                        command.requestId,
+                        command.path,
+                    );
+                    return;
+                }
                 if (this.pendingCommandCount >= this.maxPendingCommands) {
                     throw new AgentCommandQueueFullError();
                 }
@@ -169,6 +183,7 @@ export class ResidentAgent {
                 }
                 attached = false;
                 this.attachments.delete(attachmentId);
+                this.abortImageAttachments(attachmentId);
                 outgoing.fail(new AgentDetachedError(), {
                     discardBuffered: true,
                 });
@@ -193,6 +208,53 @@ export class ResidentAgent {
         if (outgoing !== undefined && !this.isClosed) {
             outgoing.push(clone(reply));
         }
+    }
+
+    private async attachImage(
+        ownerId: string,
+        requestId: string,
+        path: string,
+    ): Promise<void> {
+        const outgoing = this.attachments.get(ownerId);
+        if (outgoing === undefined || this.isClosed) return;
+        const controller = new AbortController();
+        const tasks = this.imageAttachmentTasks.get(ownerId) ?? new Set();
+        tasks.add(controller);
+        this.imageAttachmentTasks.set(ownerId, tasks);
+        try {
+            const attachment = await this.options.attachImage?.(
+                path,
+                controller.signal,
+            );
+            if (attachment === undefined) {
+                throw new Error("Image attachments are unavailable");
+            }
+            if (this.attachments.get(ownerId) === outgoing && !this.isClosed) {
+                outgoing.push({
+                    type: "image_attached",
+                    requestId,
+                    attachment: clone(attachment),
+                });
+            }
+        } catch (error) {
+            if (this.attachments.get(ownerId) === outgoing && !this.isClosed) {
+                outgoing.push({
+                    type: "image_attachment_rejected",
+                    requestId,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        } finally {
+            tasks.delete(controller);
+            if (tasks.size === 0) this.imageAttachmentTasks.delete(ownerId);
+        }
+    }
+
+    private abortImageAttachments(ownerId: string): void {
+        for (const controller of this.imageAttachmentTasks.get(ownerId) ?? []) {
+            controller.abort();
+        }
+        this.imageAttachmentTasks.delete(ownerId);
     }
 
     close(): void {
@@ -252,6 +314,9 @@ export class ResidentAgent {
             outgoing.fail(error, { discardBuffered });
         }
         this.attachments.clear();
+        for (const ownerId of this.imageAttachmentTasks.keys()) {
+            this.abortImageAttachments(ownerId);
+        }
     }
 
     private broadcast(update: AgentUpdate): void {
@@ -260,6 +325,12 @@ export class ResidentAgent {
         }
         if (isTimelineReplyUpdate(update)) {
             throw new Error("Timeline replies must target one attachment");
+        }
+        if (
+            update.type === "image_attached"
+            || update.type === "image_attachment_rejected"
+        ) {
+            throw new Error("Image attachment replies must target one attachment");
         }
         if (!Number.isSafeInteger(update.seq) || update.seq < 0) {
             throw new Error(

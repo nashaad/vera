@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
@@ -36,6 +36,28 @@ test("image attachment service stores bytes before durable metadata", async () =
         join(`${session.path}.attachments`, attached.id),
     ))).toEqual([1, 2, 3]);
     expect(attached.name).toBe("screenshot.png");
+});
+
+test("image attachment service owns a selected regular file", async () => {
+    const root = await temporaryDirectory();
+    const sourcePath = join(root, "selected.png");
+    await writeFile(sourcePath, Uint8Array.from([4, 5, 6]));
+    const session = await SessionStore.create(join(root, "session.jsonl"), {
+        sessionId: "session-1",
+        cwd: root,
+    });
+    const service = new ImageAttachmentService(
+        session,
+        limits,
+        async () => ({ mediaType: "image/png", width: 2, height: 3 }),
+    );
+
+    const attached = await service.attachFile(sourcePath);
+
+    expect(attached.name).toBe("selected.png");
+    expect(Array.from(await readFile(
+        join(`${session.path}.attachments`, attached.id),
+    ))).toEqual([4, 5, 6]);
 });
 
 test("image attachment service owns one immutable byte snapshot", async () => {
