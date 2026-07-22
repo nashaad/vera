@@ -42,6 +42,24 @@ test("Vera config selects OpenAI Codex", () => {
     });
 });
 
+test("Vera config selects Ollama without an API key", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "ollama",
+        model: "gemma4:26b",
+        reasoning_effort: "off",
+    }));
+
+    expect(loadVeraConfig({ path })).toEqual({
+        schema_version: 1,
+        provider: "ollama",
+        model: "gemma4:26b",
+        reasoning_effort: "off",
+        approval_mode: "approve_for_me",
+    });
+});
+
 test("Vera config loads each approval mode", () => {
     for (const approval_mode of ["ask", "approve_for_me", "full_access"] as const) {
         const path = temporaryConfigPath();
@@ -119,7 +137,7 @@ test("Vera config rejects a missing model", () => {
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "expected schema_version 1, provider openrouter or openai-codex, a non-empty model string",
+        "expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string",
     );
 });
 
