@@ -22,10 +22,12 @@ export interface InspectedImage {
     readonly mediaType: string;
     readonly width: number;
     readonly height: number;
+    readonly animated?: boolean;
 }
 
 export type InspectImageBytes = (
     data: Uint8Array,
+    limits: ImageValidationLimits,
 ) => Promise<InspectedImage>;
 
 export interface ValidatedImage {
@@ -64,11 +66,21 @@ export async function validateImageBytes(
     snapshot.set(data);
     const decoderInput = new Uint8Array(byteLength);
     decoderInput.set(snapshot);
-    const inspected = await inspectSnapshot(decoderInput, inspect);
+    const inspected = await inspectSnapshot(
+        decoderInput,
+        validatedLimits,
+        inspect,
+    );
     if (!isImageMediaType(inspected.mediaType)) {
         throw new ImageValidationError(
             "unsupported",
             `Image decoder reported unsupported type: ${inspected.mediaType}`,
+        );
+    }
+    if (inspected.animated === true) {
+        throw new ImageValidationError(
+            "unsupported",
+            "Animated images are not supported",
         );
     }
     if (
@@ -102,10 +114,11 @@ export async function validateImageBytes(
 
 async function inspectSnapshot(
     snapshot: Uint8Array,
+    limits: ImageValidationLimits,
     inspect: InspectImageBytes,
 ): Promise<InspectedImage> {
     try {
-        const value: unknown = await inspect(snapshot);
+        const value: unknown = await inspect(snapshot, limits);
         if (
             typeof value !== "object"
             || value === null
@@ -116,14 +129,21 @@ async function inspectSnapshot(
         const mediaType = record.mediaType;
         const width = record.width;
         const height = record.height;
+        const animated = record.animated;
         if (
             typeof mediaType !== "string"
             || typeof width !== "number"
             || typeof height !== "number"
+            || (animated !== undefined && typeof animated !== "boolean")
         ) {
             throw new Error("decoder returned invalid metadata");
         }
-        return { mediaType, width, height };
+        return {
+            mediaType,
+            width,
+            height,
+            ...(animated === undefined ? {} : { animated }),
+        };
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new ImageValidationError(
