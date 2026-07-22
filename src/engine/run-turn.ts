@@ -940,6 +940,13 @@ async function resolveToolInteraction(
             isError: false,
         };
     }
+    if (result.outcome === "custom") {
+        return {
+            kind: "output",
+            output: JSON.stringify({ custom: true, text: result.text }),
+            isError: false,
+        };
+    }
     return {
         kind: "output",
         output: JSON.stringify({

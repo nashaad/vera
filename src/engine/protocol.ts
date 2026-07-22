@@ -440,6 +440,22 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                 },
             };
         }
+        if (
+            response.type === "user_question"
+            && response.outcome === "custom"
+            && typeof response.text === "string"
+            && response.text.trim().length > 0
+        ) {
+            return {
+                type: "ui_response",
+                requestId: command.requestId,
+                response: {
+                    type: "user_question",
+                    outcome: "custom",
+                    text: response.text.trim(),
+                },
+            };
+        }
     }
     if (
         command.type === "get_model_settings"

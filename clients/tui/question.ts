@@ -60,6 +60,8 @@ export function createTuiQuestionView(
     // Highlighted choice for arrow/Enter selection. Purely client-local: it
     // never travels to the engine, which only ever sees the chosen choiceId.
     let selectedIndex = 0;
+    let enteringCustom = false;
+    let customText = "";
     let choiceRows: Renderable[] = [];
 
     const detailsText = new TextRenderable(renderer, {
@@ -167,6 +169,25 @@ export function createTuiQuestionView(
             choicesColumn.add(row);
             choiceRows.push(row);
         });
+        const otherIndex = update.request.choices.length;
+        const otherActive = otherIndex === selectedIndex;
+        const other = new TextRenderable(renderer, {
+            id: "question-choice-other",
+            content: new StyledText([
+                otherActive ? fg(TUI_ACCENT)("› ") : fg(TUI_PANEL)("  "),
+                fg(TUI_ACCENT)(`${otherIndex + 1}  `),
+                fg(TUI_TEXT)(enteringCustom
+                    ? `Other: ${customText}▌`
+                    : "Other — type your own answer"),
+            ]),
+            bg: otherActive ? TUI_ELEMENT : TUI_PANEL,
+            width: "100%",
+            height: "auto",
+            wrapMode: "word",
+            flexShrink: 0,
+        });
+        choicesColumn.add(other);
+        choiceRows.push(other);
     }
 
     return {
@@ -186,6 +207,8 @@ export function createTuiQuestionView(
             }
             currentRequestId = update.requestId;
             selectedIndex = 0;
+            enteringCustom = false;
+            customText = "";
             detailsText.content = update.request.question;
             choiceAction.content = questionChoiceHint(update);
             renderChoices(update);
@@ -195,7 +218,34 @@ export function createTuiQuestionView(
             if (hasModifier(key)) {
                 return { handled: false };
             }
-            const count = update.request.choices.length;
+            const count = update.request.choices.length + 1;
+            if (enteringCustom) {
+                if (key.name === "escape") {
+                    enteringCustom = false;
+                    customText = "";
+                    renderChoices(update);
+                    choiceAction.content = questionChoiceHint(update);
+                    return { handled: true };
+                }
+                if (key.name === "backspace") {
+                    customText = [...customText].slice(0, -1).join("");
+                    renderChoices(update);
+                    return { handled: true };
+                }
+                if (key.name === "return" || key.name === "enter") {
+                    const text = customText.trim();
+                    return text.length === 0
+                        ? { handled: true }
+                        : { handled: true, response: customResponse(update, text) };
+                }
+                const value = key.sequence ?? key.name;
+                if (value.length > 0 && !key.ctrl && !key.meta) {
+                    customText += value;
+                    renderChoices(update);
+                    return { handled: true };
+                }
+                return { handled: false };
+            }
             if (key.name === "up" || key.name === "down") {
                 const next = key.name === "up"
                     ? Math.max(0, selectedIndex - 1)
@@ -208,9 +258,25 @@ export function createTuiQuestionView(
             }
             if (key.name === "return" || key.name === "enter") {
                 const choice = update.request.choices[selectedIndex];
+                if (choice === undefined && selectedIndex === count - 1) {
+                    enteringCustom = true;
+                    choiceAction.content = "type answer · ⏎ submit · esc back ";
+                    renderChoices(update);
+                    return { handled: true };
+                }
                 return choice === undefined
                     ? { handled: false }
                     : { handled: true, response: selectedResponse(update, choice.id) };
+            }
+            const directValue = key.sequence?.length === 1
+                ? key.sequence
+                : key.name;
+            if (Number(directValue) - 1 === count - 1) {
+                selectedIndex = count - 1;
+                enteringCustom = true;
+                choiceAction.content = "type answer · ⏎ submit · esc back ";
+                renderChoices(update);
+                return { handled: true };
             }
             const response = createTuiQuestionResponse(update, key);
             return response === undefined
@@ -282,8 +348,19 @@ function selectedResponse(
     };
 }
 
+function customResponse(
+    update: UserQuestionUiRequestUpdate,
+    text: string,
+): UiResponseCommand {
+    return {
+        type: "ui_response",
+        requestId: update.requestId,
+        response: { type: "user_question", outcome: "custom", text },
+    };
+}
+
 function questionChoiceHint(update: UserQuestionUiRequestUpdate): string {
-    return `↑↓ move · 1-${update.request.choices.length} or ⏎ choose `;
+    return `↑↓ move · 1-${update.request.choices.length} or ⏎ choose · other available `;
 }
 
 function hasModifier(key: TuiQuestionKey): boolean {

@@ -11,6 +11,7 @@ export function renderStdioQuestion(
         ...update.request.choices.map(
             (choice, index) => `${index + 1}. ${choice.label}`,
         ),
+        `${update.request.choices.length + 1}. Other (type your answer)`,
     ].join("\n");
 }
 
@@ -38,7 +39,17 @@ export function createStdioQuestionResponse(
         ? update.request.choices[index]
         : undefined;
     if (choice === undefined) {
-        return undefined;
+        return Number.isFinite(Number(normalized))
+            ? undefined
+            : {
+                type: "ui_response",
+                requestId: update.requestId,
+                response: {
+                    type: "user_question",
+                    outcome: "custom",
+                    text: answer!.trim(),
+                },
+            };
     }
     return {
         type: "ui_response",

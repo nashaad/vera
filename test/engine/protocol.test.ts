@@ -72,6 +72,23 @@ test("attachment IDs remain ordered across commands and transcript projection", 
         content: "compare",
         attachmentIds: ["one.png", "one.png", "two.png"],
     });
+    expect(parseClientCommand({
+        type: "ui_response",
+        requestId: "question-3",
+        response: {
+            type: "user_question",
+            outcome: "custom",
+            text: "Show every Arc task",
+        },
+    })).toEqual({
+        type: "ui_response",
+        requestId: "question-3",
+        response: {
+            type: "user_question",
+            outcome: "custom",
+            text: "Show every Arc task",
+        },
+    });
     expect(projectTranscript([{
         role: "user",
         content: [
