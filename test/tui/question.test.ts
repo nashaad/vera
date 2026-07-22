@@ -56,9 +56,40 @@ test("TUI question renders the choices as a highlighted list", async () => {
         // Numbers front each choice; no bracket noise.
         expect(frame).toContain("1  Stable");
         expect(frame).toContain("2  Preview");
+        expect(frame).toContain("3  Other — type your own answer");
         expect(frame).not.toContain("[1]");
         expect(frame).toContain("1-2");
         expect(frame).toContain("esc cancel");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("TUI question accepts a typed Other answer", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(request);
+    try {
+        expect(view.handleKey(request, { name: "3", sequence: "3" }))
+            .toEqual({ handled: true });
+        for (const character of "Use Arc") {
+            expect(view.handleKey(request, {
+                name: character,
+                sequence: character,
+            }).handled).toBe(true);
+        }
+        expect(view.handleKey(request, { name: "enter" })).toEqual({
+            handled: true,
+            response: {
+                type: "ui_response",
+                requestId: "question-1",
+                response: {
+                    type: "user_question",
+                    outcome: "custom",
+                    text: "Use Arc",
+                },
+            },
+        });
     } finally {
         setup.renderer.destroy();
     }

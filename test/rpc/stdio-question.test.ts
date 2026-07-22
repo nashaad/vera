@@ -25,6 +25,7 @@ test("stdio question renders numbered choices and returns stable IDs", () => {
         "Which release channel should Vera use?",
         "1. Stable",
         "2. Preview",
+        "3. Other (type your answer)",
     ].join("\n"));
     expect(createStdioQuestionResponse(request, "2")).toEqual({
         type: "ui_response",
@@ -36,7 +37,15 @@ test("stdio question renders numbered choices and returns stable IDs", () => {
         },
     });
     expect(createStdioQuestionResponse(request, "3")).toBeUndefined();
-    expect(createStdioQuestionResponse(request, "yes")).toBeUndefined();
+    expect(createStdioQuestionResponse(request, "use nightly instead")).toEqual({
+        type: "ui_response",
+        requestId: "question-1",
+        response: {
+            type: "user_question",
+            outcome: "custom",
+            text: "use nightly instead",
+        },
+    });
 });
 
 test("stdio question cancels on c, cancel, or input end", () => {

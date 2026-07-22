@@ -27,7 +27,7 @@ test("system prompt sections are assembled from current inputs", () => {
         date: new Date(2026, 6, 17),
     })).toBe([
         "## Identity",
-        "You are Vera, a coding agent. Follow the user's instructions and use the available tools when they help.",
+        "You are Vera, a coding agent. Follow the user's instructions and use the available tools when they help. Use respectful, matter-of-fact language; do not describe the user's tools, projects, or terminology dismissively. When the user's request is already clear, act on it instead of asking them to restate or categorize it.",
         "",
         "## Tools",
         "Available tools:",

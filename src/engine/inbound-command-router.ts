@@ -65,8 +65,14 @@ export interface UserQuestionCancelled {
     readonly outcome: "cancelled";
 }
 
+export interface UserQuestionCustom {
+    readonly outcome: "custom";
+    readonly text: string;
+}
+
 export type UserQuestionResult =
     | UserQuestionSelected
+    | UserQuestionCustom
     | UserQuestionCancelled;
 
 interface PendingQuestion {
@@ -599,6 +605,10 @@ function questionResult(
 ): UserQuestionResult | undefined {
     if (response.outcome === "cancelled") {
         return { outcome: "cancelled" };
+    }
+    if (response.outcome === "custom") {
+        const text = response.text.trim();
+        return text.length === 0 ? undefined : { outcome: "custom", text };
     }
     const choice = request.choices.find(
         (candidate) => candidate.id === response.choiceId,

@@ -84,8 +84,15 @@ export interface UserQuestionCancelledUiResponse {
     readonly outcome: "cancelled";
 }
 
+export interface UserQuestionCustomUiResponse {
+    readonly type: "user_question";
+    readonly outcome: "custom";
+    readonly text: string;
+}
+
 export type UserQuestionUiResponse =
     | UserQuestionSelectedUiResponse
+    | UserQuestionCustomUiResponse
     | UserQuestionCancelledUiResponse;
 
 export type UiRequest = ToolApprovalUiRequest | UserQuestionUiRequest;
