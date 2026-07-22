@@ -72,6 +72,7 @@ import {
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
+    failTuiConnection,
     queueTuiPrompt,
     renderTuiEntry,
     renderTuiQueuedPrompt,
@@ -193,6 +194,7 @@ export async function startTui(
     renderer.setBackgroundColor(theme.background);
 
     let state = createTuiState();
+    let connectionFailed = false;
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
     let shuttingDown = false;
@@ -565,6 +567,14 @@ export async function startTui(
             renderState();
             return;
         }
+        if (
+            connectionFailed
+            && commandAction?.type !== "open_resume_picker"
+            && commandAction?.type !== "open_theme_picker"
+        ) {
+            renderStatus();
+            return;
+        }
         if (commandAction?.type === "update_model") {
             composer.clearComposer();
             sendCommand({
@@ -889,14 +899,19 @@ export async function startTui(
     }
 
     function reportConnectionError(error: unknown): void {
-        if (shuttingDown) {
+        if (shuttingDown || connectionFailed) {
             return;
         }
+        connectionFailed = true;
         const message = error instanceof Error ? error.message : String(error);
         pendingUiRequest = undefined;
         timelinePicker = undefined;
         settingsPicker = undefined;
-        state = appendTuiNotice(state, `Connection error: ${message}`);
+        abortRequested = false;
+        workingSince = undefined;
+        phaseSince = undefined;
+        activity = "disconnected";
+        state = failTuiConnection(state, message);
         renderState();
         composer.focus();
     }
@@ -1180,7 +1195,9 @@ export async function startTui(
         }
 
         let lifecycleHint = READY_HINT;
-        if (abortRequested) {
+        if (connectionFailed) {
+            lifecycleHint = "disconnected · /resume reconnect · ctrl+c quit";
+        } else if (abortRequested) {
             lifecycleHint = `${STOPPING_HINT} · ${elapsedWorkingTime()}`;
         } else if (pendingUiRequest?.request.type === "tool_approval") {
             lifecycleHint = `${APPROVAL_HINT} · ${elapsedWorkingTime()}`;
