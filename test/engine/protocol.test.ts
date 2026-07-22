@@ -86,6 +86,23 @@ test("attachment IDs remain ordered across commands and transcript projection", 
     }]);
 });
 
+test("image attachment requests require a request ID and nonempty path", () => {
+    expect(parseClientCommand({
+        type: "attach_image",
+        requestId: "image-1",
+        path: "/tmp/screen.png",
+    })).toEqual({
+        type: "attach_image",
+        requestId: "image-1",
+        path: "/tmp/screen.png",
+    });
+    expect(parseClientCommand({
+        type: "attach_image",
+        requestId: "",
+        path: "/tmp/screen.png",
+    })).toBeUndefined();
+});
+
 test("projected tool arguments cannot mutate canonical history", () => {
     const input = { nested: { path: "note.txt" } };
     const transcript = projectTranscript([{

@@ -47,6 +47,11 @@ export interface OpenResumePickerTuiCommandAction {
     readonly type: "open_resume_picker";
 }
 
+export interface AttachImageTuiCommandAction {
+    readonly type: "attach_image";
+    readonly path: string;
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -62,6 +67,7 @@ export type TuiCommandAction =
     | OpenPermissionsPickerTuiCommandAction
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
+    | AttachImageTuiCommandAction
     | TuiCommandErrorAction;
 
 export interface TuiCommandDefinition {
@@ -110,6 +116,12 @@ const RESUME_COMMAND = {
     usage: "/resume",
 } as const satisfies TuiCommandCatalogEntry;
 
+const IMAGE_COMMAND = {
+    name: "image",
+    description: "Attach an image to the next prompt",
+    usage: "/image <path>",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     MODEL_COMMAND,
@@ -117,6 +129,7 @@ export const BUILTIN_COMMANDS = [
     PERMISSIONS_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
+    IMAGE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
 export class TuiCommandRegistry {
@@ -275,7 +288,22 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
         ...RESUME_COMMAND,
         action: { type: "open_resume_picker" },
     });
+    registry.registerCommand({
+        ...IMAGE_COMMAND,
+        parse: (argumentsText) => argumentsText.length === 0
+            ? { type: "command_error", message: `Usage: ${IMAGE_COMMAND.usage}` }
+            : { type: "attach_image", path: unquotePath(argumentsText) },
+    });
     return registry;
+}
+
+function unquotePath(value: string): string {
+    const quote = value[0];
+    return quote !== undefined
+            && (quote === "\"" || quote === "'")
+            && value.at(-1) === quote
+        ? value.slice(1, -1)
+        : value.replace(/\\ /g, " ");
 }
 
 function isReasoningEffort(value: string): value is UpdateReasoningTuiCommandAction["reasoningEffort"] {

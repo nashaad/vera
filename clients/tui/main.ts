@@ -209,6 +209,12 @@ export async function startTui(
     let themeApplicationVersion = 0;
     let resumeSessionPath: string | undefined;
     let resumeListVersion = 0;
+    let promptSubmitting = false;
+    let pendingImages: Array<{
+        requestId: string;
+        id?: string;
+        name?: string;
+    }> = [];
     const finished = Promise.withResolvers<TuiExit>();
     const commandRegistry = createBuiltinTuiCommandRegistry();
 
@@ -556,12 +562,15 @@ export async function startTui(
     });
 
     function submitPrompt(): void {
+        if (promptSubmitting) return;
         const prompt = composer.expandedText().trim();
-        if (prompt.length === 0) {
+        if (prompt.length === 0 && pendingImages.length === 0) {
             return;
         }
 
-        const commandAction = commandRegistry.dispatch(prompt);
+        const commandAction = prompt.length === 0
+            ? undefined
+            : commandRegistry.dispatch(prompt);
         if (commandAction?.type === "command_error") {
             state = appendTuiNotice(state, commandAction.message);
             renderState();
@@ -573,6 +582,26 @@ export async function startTui(
             && commandAction?.type !== "open_theme_picker"
         ) {
             renderStatus();
+            return;
+        }
+        if (commandAction?.type === "attach_image") {
+            if (state.working || state.queuedPrompts.length > 0) {
+                state = appendTuiNotice(
+                    state,
+                    "Images can be attached when the current turn is idle.",
+                );
+                renderState();
+                return;
+            }
+            const requestId = randomUUID();
+            pendingImages.push({ requestId });
+            composer.clearComposer();
+            sendCommand({
+                type: "attach_image",
+                requestId,
+                path: commandAction.path,
+            });
+            showStatusNotice("attaching image…");
             return;
         }
         if (commandAction?.type === "update_model") {
@@ -737,17 +766,66 @@ export async function startTui(
             return;
         }
 
+        if (pendingImages.some((image) => image.id === undefined)) {
+            state = appendTuiNotice(state, "Wait for the image attachment to finish.");
+            renderState();
+            return;
+        }
+        const attachmentIds = pendingImages.map((image) => image.id!);
+        if (attachmentIds.length > 0) {
+            const submittedRequestIds = new Set(
+                pendingImages.map((image) => image.requestId),
+            );
+            promptSubmitting = true;
+            renderStatus();
+            void client.send({
+                type: "prompt",
+                content: prompt,
+                attachmentIds,
+            }).then(() => {
+                promptSubmitting = false;
+                if (shuttingDown) return;
+                if (composer.expandedText().trim() === prompt) {
+                    composer.clearComposer();
+                }
+                pendingImages = pendingImages.filter(
+                    (image) => !submittedRequestIds.has(image.requestId),
+                );
+                const optimisticText = [
+                    prompt,
+                    ...attachmentIds.map(() => "[Attached image]"),
+                ].filter((part) => part.length > 0).join("\n");
+                if (state.entries.at(-1)?.text !== optimisticText) {
+                    state = beginTuiTurn(state, prompt, attachmentIds);
+                } else if (!state.working) {
+                    state = { ...state, working: true };
+                }
+                workingSince ??= Date.now();
+                phaseSince = workingSince;
+                activity = "thinking";
+                renderState();
+            }).catch((error) => {
+                promptSubmitting = false;
+                reportConnectionError(error);
+            });
+            return;
+        }
         composer.clearComposer();
         state = state.working
             ? queueTuiPrompt(state, prompt)
-            : beginTuiTurn(state, prompt);
+            : beginTuiTurn(state, prompt, attachmentIds);
         if (workingSince === undefined) {
             workingSince = Date.now();
             phaseSince = workingSince;
             activity = "thinking";
         }
         renderState();
-        sendCommand({ type: "prompt", content: prompt });
+        pendingImages = [];
+        sendCommand({
+            type: "prompt",
+            content: prompt,
+            ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
+        });
     }
 
     async function receiveAgentUpdates(): Promise<void> {
@@ -756,6 +834,34 @@ export async function startTui(
                 const update = await client.receive();
                 if (shuttingDown) {
                     return;
+                }
+                if (
+                    update.type === "image_attached"
+                    || update.type === "image_attachment_rejected"
+                ) {
+                    const imageIndex = pendingImages.findIndex(
+                        (image) => image.requestId === update.requestId,
+                    );
+                    if (imageIndex === -1) continue;
+                    if (update.type === "image_attached") {
+                        pendingImages[imageIndex] = {
+                            requestId: update.requestId,
+                            id: update.attachment.id,
+                            name: update.attachment.name,
+                        };
+                        showStatusNotice(
+                            `attached ${update.attachment.name} · ${pendingImages.length} pending`,
+                        );
+                    } else {
+                        pendingImages.splice(imageIndex, 1);
+                        state = appendTuiNotice(
+                            state,
+                            `Could not attach image: ${update.error}`,
+                        );
+                        renderState();
+                    }
+                    composer.focus();
+                    continue;
                 }
                 if (
                     update.type === "ui_request"
@@ -1205,6 +1311,12 @@ export async function startTui(
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
             lifecycleHint = `${progressFrame()} ${activity} · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
+        } else if (pendingImages.some((image) => image.id === undefined)) {
+            lifecycleHint = "attaching image…";
+        } else if (promptSubmitting) {
+            lifecycleHint = "sending prompt with image…";
+        } else if (pendingImages.length > 0) {
+            lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send · /image add another`;
         }
 
         statusText.fg = statusNotice !== undefined

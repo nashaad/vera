@@ -15,6 +15,11 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (isTimelineReplyType(update.type)) {
         return update.seq === undefined ? parseTimelineReply(value, update) : undefined;
     }
+    if (isImageAttachmentReplyType(update.type)) {
+        return update.seq === undefined
+            ? parseImageAttachmentReply(value, update)
+            : undefined;
+    }
     if (!isSequence(update.seq)) {
         return undefined;
     }
@@ -240,6 +245,38 @@ function isTimelineReplyType(value: unknown): boolean {
         || value === "timeline_action_preview"
         || value === "timeline_action_applied"
         || value === "timeline_action_rejected";
+}
+
+function isImageAttachmentReplyType(value: unknown): boolean {
+    return value === "image_attached" || value === "image_attachment_rejected";
+}
+
+function parseImageAttachmentReply(
+    value: unknown,
+    update: Record<string, unknown>,
+): AgentUpdate | undefined {
+    if (typeof update.requestId !== "string" || update.requestId.length === 0) {
+        return undefined;
+    }
+    if (update.type === "image_attachment_rejected") {
+        return typeof update.error === "string" && update.error.trim().length > 0
+            ? value as AgentUpdate
+            : undefined;
+    }
+    const attachment = asRecord(update.attachment);
+    return typeof attachment?.id === "string"
+            && attachment.id.length > 0
+            && typeof attachment.name === "string"
+            && attachment.name.length > 0
+            && typeof attachment.mediaType === "string"
+            && Number.isSafeInteger(attachment.bytes)
+            && (attachment.bytes as number) > 0
+            && Number.isSafeInteger(attachment.width)
+            && (attachment.width as number) > 0
+            && Number.isSafeInteger(attachment.height)
+            && (attachment.height as number) > 0
+        ? value as AgentUpdate
+        : undefined;
 }
 
 function isTimelineBoundary(value: unknown): boolean {

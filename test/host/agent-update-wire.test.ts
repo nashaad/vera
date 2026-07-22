@@ -2,6 +2,32 @@ import { expect, test } from "bun:test";
 
 import { parseAgentUpdate } from "../../src/host/agent-update-wire.ts";
 
+test("host wire validates requester-owned image attachment results", () => {
+    const attached = {
+        type: "image_attached" as const,
+        requestId: "request-1",
+        attachment: {
+            id: "hash.png",
+            name: "screen.png",
+            mediaType: "image/png",
+            bytes: 3,
+            width: 2,
+            height: 1,
+        },
+    };
+    expect(parseAgentUpdate(attached)).toEqual(attached);
+    expect(parseAgentUpdate({ ...attached, seq: 1 })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "image_attachment_rejected",
+        requestId: "request-2",
+        error: "unsupported image",
+    })).toEqual({
+        type: "image_attachment_rejected",
+        requestId: "request-2",
+        error: "unsupported image",
+    });
+});
+
 test("turn finished accepts an optional model error", () => {
     const update = {
         type: "turn_finished" as const,

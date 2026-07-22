@@ -106,6 +106,76 @@ test("resident agent bounds commands waiting for the engine", async () => {
     });
 });
 
+test("image attachment results return only to the requesting client", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        attachImage: async (path) => ({
+            id: "hash.png",
+            name: path.split("/").at(-1)!,
+            mediaType: "image/png",
+            bytes: 3,
+            width: 2,
+            height: 1,
+        }),
+    });
+    const first = agent.attach();
+    const second = agent.attach();
+    await first.receive();
+    await second.receive();
+
+    first.send({
+        type: "attach_image",
+        requestId: "request-1",
+        path: "/tmp/screen.png",
+    });
+
+    expect(await first.receive()).toEqual({
+        type: "image_attached",
+        requestId: "request-1",
+        attachment: {
+            id: "hash.png",
+            name: "screen.png",
+            mediaType: "image/png",
+            bytes: 3,
+            width: 2,
+            height: 1,
+        },
+    });
+    second.send({ type: "prompt", content: "still ordered" });
+    expect(await agent.engine.receive()).toEqual({
+        type: "prompt",
+        content: "still ordered",
+    });
+});
+
+test("detaching cancels that client's in-flight image attachments", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const cancelled = Promise.withResolvers<void>();
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        attachImage: async (_path, signal) => {
+            observedSignal = signal;
+            await new Promise<void>((_resolve, reject) => {
+                signal.addEventListener("abort", () => {
+                    cancelled.resolve();
+                    reject(signal.reason);
+                }, { once: true });
+            });
+            throw new Error("unreachable");
+        },
+    });
+    const client = agent.attach();
+    await client.receive();
+    client.send({
+        type: "attach_image",
+        requestId: "request-1",
+        path: "/tmp/screen.png",
+    });
+
+    client.detach();
+    await cancelled.promise;
+
+    expect(observedSignal?.aborted).toBe(true);
+});
+
 test("detaching one client leaves the resident agent and peers alive", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const first = agent.attach();

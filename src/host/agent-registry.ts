@@ -28,6 +28,7 @@ import {
     SessionStore,
 } from "../store/session-store.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
+import { ImageAttachmentService } from "../attachments/service.ts";
 import {
     type AgentAttachment,
     ResidentAgent,
@@ -42,6 +43,12 @@ export type RegisteredAgentStatus =
     | "failed";
 
 export type RegisteredAgentKind = "interactive" | "background";
+
+const IMAGE_ATTACHMENT_LIMITS = {
+    maxBytes: 20 * 1_024 * 1_024,
+    maxWidth: 16_384,
+    maxHeight: 16_384,
+} as const;
 
 export interface RegisteredAgentSummary {
     readonly id: string;
@@ -306,7 +313,14 @@ export class AgentRegistry {
         const adapter = storedFailure === undefined
             ? this.options.createAdapter()
             : undefined;
-        const agent = new ResidentAgent(store.header.id, store.header.cwd);
+        const imageAttachments = new ImageAttachmentService(
+            store,
+            IMAGE_ATTACHMENT_LIMITS,
+        );
+        const agent = new ResidentAgent(store.header.id, store.header.cwd, {
+            attachImage: (path, signal) =>
+                imageAttachments.attachFile(path, signal),
+        });
         const events = new EngineEventBus();
         const entry: RegisteredAgentEntry = {
             agent,
