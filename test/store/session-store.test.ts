@@ -1032,11 +1032,11 @@ test("attachment metadata is durable, bounded, and idempotent", async () => {
 
     const append = store.appendAttachment(attachment);
     (attachment as { name: string }).name = "mutated.png";
-    expect(await append).toBe(true);
+    expect(await append).toEqual(expected);
     expect(await store.appendAttachment({
         ...expected,
         name: "same-bytes-different-name.png",
-    })).toBe(false);
+    })).toEqual(expected);
     expect(readLines(path).at(-1)).toEqual({
         type: "attachment",
         timestamp: "2026-07-22T12:00:01.000Z",
@@ -1065,6 +1065,25 @@ test("attachment IDs reject conflicting metadata", async () => {
         width: attachment.width + 1,
     })).rejects.toThrow("conflicts with stored metadata");
     expect(readLines(path)).toHaveLength(2);
+});
+
+test("session replay tolerates an identical attachment record after retry", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    const attachment = imageAttachment();
+    await store.appendAttachment(attachment);
+    const record = readLines(path).at(-1)!;
+    appendFileSync(path, `${JSON.stringify({
+        ...record,
+        timestamp: "2026-07-22T12:00:02.000Z",
+    })}\n`);
+
+    expect((await SessionStore.open(path)).attachmentRecords())
+        .toEqual([attachment]);
 });
 
 test("session store rejects malformed attachment records", async () => {
