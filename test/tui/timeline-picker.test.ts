@@ -1,27 +1,31 @@
 import { expect, test } from "bun:test";
-import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     applyTuiTimelineReply,
     createTuiTimelinePickerView,
     handleTuiTimelineKey,
-    renderTuiTimelinePicker,
     startTuiTimelinePicker,
     type TuiTimelinePickerState,
 } from "../../clients/tui/timeline-picker.ts";
 
-test("timeline picker exposes its themed text surface", async () => {
-    const setup = await createTestRenderer({ width: 80, height: 24 });
+async function timelineFrame(
+    state: TuiTimelinePickerState,
+    width = 80,
+    height = 24,
+): Promise<string> {
+    const setup = await createTestRenderer({ width, height });
     const view = createTuiTimelinePickerView(setup.renderer);
-
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(state);
     try {
-        view.content.fg = "#123456";
-        expect(view.content.fg.toInts()).toEqual(RGBA.fromHex("#123456").toInts());
+        await setup.flush();
+        return setup.captureCharFrame();
     } finally {
         setup.renderer.destroy();
     }
-});
+}
 import type {
     TimelineActionPlan,
     TimelineBoundary,
@@ -123,7 +127,7 @@ test("timeline picker correlates list, preview, and apply requests", () => {
     expect(transition.composerText).toBe("Add stale-file protection");
 });
 
-test("timeline picker searches, moves, goes back, and closes locally", () => {
+test("timeline picker searches, moves, goes back, and closes locally", async () => {
     let state = selectState();
     state = requiredState(handleTuiTimelineKey(
         state,
@@ -131,8 +135,9 @@ test("timeline picker searches, moves, goes back, and closes locally", () => {
         values("unused"),
     ).state);
     expect(state).toMatchObject({ screen: "select", query: "b" });
-    expect(renderTuiTimelinePicker(state)).toContain("Capture checkpoint blobs");
-    expect(renderTuiTimelinePicker(state)).not.toContain("Add stale-file protection");
+    let frame = await timelineFrame(state);
+    expect(frame).toContain("Capture checkpoint blobs");
+    expect(frame).not.toContain("Add stale-file protection");
 
     state = requiredState(handleTuiTimelineKey(
         state,
@@ -144,7 +149,10 @@ test("timeline picker searches, moves, goes back, and closes locally", () => {
         key("down"),
         values("unused"),
     ).state);
-    expect(renderTuiTimelinePicker(state)).toContain("› 09:51");
+    expect(state).toMatchObject({ screen: "select", selectedIndex: 1 });
+    frame = await timelineFrame(state);
+    expect(frame).toContain("09:51");
+    expect(frame).toContain("10:42");
 
     state = requiredState(handleTuiTimelineKey(
         state,
@@ -273,7 +281,7 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
     try {
         await setup.flush();
         let frame = setup.captureCharFrame();
-        expect(frame).toContain("Rewind — select a point");
+        expect(frame).toContain("Rewind: select a point");
         expect(frame).toContain("Add stale-file protection");
         expect(frame).toContain("Workspace files and external effects will not change");
         expect(setup.renderer.currentFocusedRenderable).toBe(view.box);

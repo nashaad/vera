@@ -43,6 +43,7 @@ import {
     renderTuiCommandSuggestions,
 } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
+import { TuiBodyFocusController } from "./body-focus.ts";
 import {
     createTuiPermissionsConfirmView,
     handleTuiPermissionsConfirmKey,
@@ -356,6 +357,7 @@ export async function startTui(
 
     const composerBox = createTuiComposerPanel(renderer, composer);
 
+    const bodyFocus = new TuiBodyFocusController();
     const app = new BoxRenderable(renderer, {
         id: "app",
         width: "100%",
@@ -364,6 +366,17 @@ export async function startTui(
         gap: 1,
         paddingTop: 1,
         paddingBottom: 0,
+        onMouseDrag: () => bodyFocus.noteDrag(),
+        onMouseDragEnd: () => bodyFocus.noteDrag(),
+        onMouseUp: () => {
+            const blocked = pendingUiRequest !== undefined
+                || timelinePicker !== undefined
+                || settingsPicker !== undefined
+                || confirmingFullAccess;
+            if (bodyFocus.release(blocked)) {
+                composer.focus();
+            }
+        },
     });
     app.add(transcript);
     app.add(activityBox);
@@ -1262,7 +1275,6 @@ export async function startTui(
         activityBox.backgroundColor = theme.element;
         activityBox.borderColor = theme.accent;
         commandSuggestionsText.fg = theme.text;
-        commandSuggestionsBox.borderColor = theme.muted;
         composerBox.backgroundColor = theme.panel;
         composerBox.borderColor = theme.accent;
         composer.backgroundColor = theme.panel;
@@ -1271,19 +1283,17 @@ export async function startTui(
         composer.focusedTextColor = theme.text;
         composer.cursorColor = theme.accent;
         approvalView.box.backgroundColor = theme.panel;
-        approvalView.box.borderColor = theme.notice;
         approvalView.detailsText.fg = theme.text;
         approvalView.actions.fg = theme.text;
         questionView.box.backgroundColor = theme.panel;
-        questionView.box.borderColor = theme.accent;
         questionView.detailsText.fg = theme.text;
         questionView.choiceAction.fg = theme.muted;
         questionView.cancelAction.fg = theme.muted;
         timelinePickerView.box.backgroundColor = theme.panel;
-        timelinePickerView.box.borderColor = theme.accent;
-        timelinePickerView.content.fg = theme.text;
+        if (timelinePicker !== undefined) {
+            timelinePickerView.update(timelinePicker);
+        }
         settingsPickerView.box.backgroundColor = theme.panel;
-        settingsPickerView.box.borderColor = theme.accent;
 
         if (announce) {
             state = appendTuiNotice(state, `theme changed: ${selectedTheme}`);
@@ -1306,10 +1316,10 @@ export async function startTui(
         );
         // Leave room for every matching command. The old fixed three-row box
         // clipped the catalog to its first entry, which made the other slash
-        // commands appear to be missing.
+        // commands appear to be missing. Borderless now, so no frame rows to add.
         commandSuggestionsBox.height = suggestions.length > 0
-            ? suggestions.length + 2
-            : 3;
+            ? suggestions.length
+            : 1;
         commandSuggestionsBox.visible = suggestions.length > 0
             && pendingUiRequest === undefined
             && timelinePicker === undefined
@@ -1386,7 +1396,9 @@ export async function startTui(
             lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }
 
-        statusText.fg = statusNotice !== undefined
+        statusText.fg = state.approvalMode === "full_access"
+            ? "#ff3b30"
+            : statusNotice !== undefined
             ? TUI_NOTICE
             : state.working || pendingUiRequest !== undefined
                 ? TUI_ACCENT

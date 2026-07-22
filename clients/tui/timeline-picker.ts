@@ -1,8 +1,9 @@
 import {
     BoxRenderable,
-    TextRenderable,
     type KeyEvent,
+    type Renderable,
     type RenderContext,
+    TextRenderable,
 } from "@opentui/core";
 
 import type {
@@ -11,7 +12,13 @@ import type {
     TimelineBoundary,
     TimelineReplyUpdate,
 } from "../../src/engine/protocol.ts";
-import { TUI_ACCENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import {
+    dialogFooterNode,
+    dialogHeaderNode,
+    dialogOptionRow,
+    dialogSearchNode,
+} from "./dialog-chrome.ts";
 
 interface TimelinePickerBase {
     readonly boundaries: readonly TimelineBoundary[];
@@ -68,7 +75,6 @@ export interface TuiTimelinePickerTransition {
 
 export interface TuiTimelinePickerView {
     readonly box: BoxRenderable;
-    readonly content: TextRenderable;
     update(state: TuiTimelinePickerState): void;
 }
 
@@ -202,102 +208,176 @@ export function handleTuiTimelineKey(
 export function createTuiTimelinePickerView(
     renderer: RenderContext,
 ): TuiTimelinePickerView {
-    const content = new TextRenderable(renderer, {
-        id: "timeline-picker-text",
-        content: "",
-        fg: TUI_TEXT,
-        width: "100%",
-        height: "auto",
-        wrapMode: "word",
-    });
+    let nodes: Renderable[] = [];
     const box = new BoxRenderable(renderer, {
         id: "timeline-picker",
-        title: " Rewind ",
-        border: true,
-        borderColor: TUI_ACCENT,
+        border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         top: 1,
         left: "5%",
         width: "90%",
-        height: 16,
+        height: "auto",
+        maxHeight: "90%",
         zIndex: 10,
-        paddingX: 1,
+        flexDirection: "column",
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: 1,
         focusable: true,
         visible: false,
     });
-    box.add(content);
 
     return {
         box,
-        content,
         update(state): void {
-            box.title = timelineTitle(state);
-            content.content = renderTuiTimelinePicker(state);
+            for (const node of nodes) {
+                node.destroy();
+            }
+            nodes = timelineNodes(renderer, state);
+            for (const node of nodes) {
+                box.add(node);
+            }
         },
     };
 }
 
-export function renderTuiTimelinePicker(
+// The rewind flow is several screens: a searchable boundary list, an action
+// menu, and a set of informational panels (loading/previewing/confirm/
+// applying). The list and action screens render as highlight-bar rows; the
+// informational screens are plain body text. Every screen shares the same
+// unbordered card header so the flow reads as one dialog.
+function timelineNodes(
+    renderer: RenderContext,
     state: TuiTimelinePickerState,
-    width = 80,
-): string {
+): Renderable[] {
+    const nodes: Renderable[] = [
+        dialogHeaderNode(renderer, timelineTitle(state)),
+    ];
+    const pushNotice = (notice: string | undefined): void => {
+        if (notice !== undefined) {
+            nodes.push(noticeText(renderer, notice));
+        }
+    };
+
     if (state.screen === "loading") {
-        const notice = state.notice === undefined ? "" : `${state.notice}\n\n`;
-        return `${notice}Loading conversation timeline…\n\nEsc close`;
+        pushNotice(state.notice);
+        nodes.push(bodyText(renderer, "Loading conversation timeline…"));
+        nodes.push(dialogFooterNode(renderer, "esc close"));
+        return nodes;
     }
 
     const selected = selectedBoundary(state);
-    const notice = state.notice === undefined ? "" : `${state.notice}\n\n`;
     if (state.screen === "select") {
+        nodes.push(dialogSearchNode(renderer, state.query));
+        pushNotice(state.notice);
         const filtered = filteredBoundaries(state);
-        const selectedIndex = clampedIndex(state, filtered);
-        const visibleStart = Math.max(
-            0,
-            Math.min(selectedIndex - 2, Math.max(0, filtered.length - 6)),
-        );
-        const visibleBoundaries = filtered.slice(visibleStart, visibleStart + 6);
-        const rows = filtered.length === 0
-            ? "  No matching user messages."
-            : visibleBoundaries.map((boundary, index) => {
-                const marker = index + visibleStart === selectedIndex ? "›" : " ";
-                return `${marker} ${boundaryTime(boundary.timestamp)}  ${
-                    truncate(oneLine(boundary.prompt), Math.max(12, width - 14))
-                }`;
-            }).join("\n");
-        const preview = selected === undefined
-            ? "No conversation boundary selected."
-            : `Rewind to before: “${truncate(oneLine(selected.prompt), 72)}”\n`
-                + "Workspace files and external effects will not change.";
-        return `${notice}Search  ${state.query}\n\n${rows}\n\n${preview}\n\n`
-            + "↑↓ move · type to search · enter actions · esc close";
+        if (filtered.length === 0) {
+            nodes.push(bodyText(renderer, "No matching user messages."));
+        } else {
+            const selectedIndex = clampedIndex(state, filtered);
+            const visibleStart = Math.max(
+                0,
+                Math.min(selectedIndex - 2, Math.max(0, filtered.length - 6)),
+            );
+            filtered.slice(visibleStart, visibleStart + 6).forEach(
+                (boundary, index) => {
+                    nodes.push(dialogOptionRow(renderer, {
+                        label: oneLine(boundary.prompt),
+                        leading: `${boundaryTime(boundary.timestamp)}  `,
+                        active: index + visibleStart === selectedIndex,
+                    }));
+                },
+            );
+        }
+        nodes.push(bodyText(
+            renderer,
+            selected === undefined
+                ? "No conversation boundary selected."
+                : `Rewind to before: “${truncate(oneLine(selected.prompt), 72)}”\n`
+                    + "Workspace files and external effects will not change.",
+        ));
+        nodes.push(dialogFooterNode(
+            renderer,
+            "↑↓ move · type to search · ⏎ actions · esc close",
+        ));
+        return nodes;
     }
 
     if (selected === undefined) {
-        return `${notice}No conversation boundary selected.\n\nEsc back`;
+        nodes.push(bodyText(renderer, "No conversation boundary selected."));
+        nodes.push(dialogFooterNode(renderer, "esc back"));
+        return nodes;
     }
     const selectedText = `To before: “${truncate(oneLine(selected.prompt), 72)}”`;
+
     if (state.screen === "actions") {
-        const rewindMarker = state.selectedAction === "rewind" ? "›" : " ";
-        const cancelMarker = state.selectedAction === "cancel" ? "›" : " ";
-        return `${notice}${selectedText}\n\n`
-            + `${rewindMarker} [1] Rewind conversation…\n`
-            + `${cancelMarker} [2] Cancel\n\n`
-            + "↑↓ move · enter select · esc back";
+        nodes.push(bodyText(renderer, selectedText));
+        pushNotice(state.notice);
+        nodes.push(dialogOptionRow(renderer, {
+            label: "Rewind conversation",
+            leading: "1  ",
+            active: state.selectedAction === "rewind",
+        }));
+        nodes.push(dialogOptionRow(renderer, {
+            label: "Cancel",
+            leading: "2  ",
+            active: state.selectedAction === "cancel",
+        }));
+        nodes.push(dialogFooterNode(renderer, "↑↓ move · ⏎ select · esc back"));
+        return nodes;
     }
+
     if (state.screen === "previewing") {
-        return `${selectedText}\n\nPreparing conversation preview…`;
+        nodes.push(bodyText(
+            renderer,
+            `${selectedText}\n\nPreparing conversation preview…`,
+        ));
+        return nodes;
     }
+
     const plan = state.plan;
-    const confirmation = `${notice}To before: “${
-        truncate(oneLine(plan.boundary.prompt), 72)
-    }”\n\nConversation  keep ${plan.keptMessageCount} messages; set aside ${
-        plan.setAsideMessageCount
-    } later messages\nFiles         unchanged\nExternal work unchanged`;
+    pushNotice(state.notice);
+    nodes.push(bodyText(
+        renderer,
+        `To before: “${truncate(oneLine(plan.boundary.prompt), 72)}”\n\n`
+            + `Conversation  keep ${plan.keptMessageCount} messages; set aside `
+            + `${plan.setAsideMessageCount} later messages\n`
+            + "Files         unchanged\n"
+            + "External work unchanged",
+    ));
     if (state.screen === "applying") {
-        return `${confirmation}\n\nRewinding conversation…`;
+        nodes.push(bodyText(renderer, "Rewinding conversation…"));
+        return nodes;
     }
-    return `${confirmation}\n\n[1] Rewind now · [Esc] Back`;
+    nodes.push(dialogFooterNode(renderer, "[1] Rewind now · esc back"));
+    return nodes;
+}
+
+function bodyText(renderer: RenderContext, content: string): TextRenderable {
+    return new TextRenderable(renderer, {
+        content,
+        fg: TUI_TEXT,
+        width: "100%",
+        height: "auto",
+        wrapMode: "word",
+        marginTop: 1,
+        paddingLeft: 1,
+        paddingRight: 1,
+    });
+}
+
+function noticeText(renderer: RenderContext, content: string): TextRenderable {
+    return new TextRenderable(renderer, {
+        content,
+        fg: TUI_NOTICE,
+        width: "100%",
+        height: "auto",
+        wrapMode: "word",
+        marginTop: 1,
+        paddingLeft: 1,
+        paddingRight: 1,
+    });
 }
 
 function handleSelectKey(
@@ -542,12 +622,12 @@ function refreshTimeline(
 
 function timelineTitle(state: TuiTimelinePickerState): string {
     if (state.screen === "select" || state.screen === "loading") {
-        return " Rewind — select a point ";
+        return "Rewind: select a point";
     }
     if (state.screen === "confirm" || state.screen === "applying") {
-        return " Confirm rewind ";
+        return "Confirm rewind";
     }
-    return " Rewind — choose an action ";
+    return "Rewind: choose an action";
 }
 
 function boundaryTime(timestamp: string): string {

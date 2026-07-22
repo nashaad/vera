@@ -10,6 +10,10 @@ export function renderTuiStatusLine(
     const thinking = settings === undefined
         ? "loading"
         : settings.reasoningEffort ?? "default";
-    const permissions = approvalMode ?? "loading";
-    return `${message} · ${model} · reasoning ${thinking} · permissions ${permissions}`;
+    const permissions = approvalMode === "full_access"
+        ? "FULL ACCESS · RED ZONE"
+        : approvalMode === "approve_for_me"
+            ? "approve for me"
+            : approvalMode ?? "permissions loading";
+    return `${message} · ${model} · reasoning ${thinking} · ${permissions}`;
 }

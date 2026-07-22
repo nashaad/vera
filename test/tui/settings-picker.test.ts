@@ -3,13 +3,33 @@ import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     handleTuiSettingsPickerKey,
-    renderTuiSettingsPicker,
     startTuiSettingsPicker,
     startTuiSessionPicker,
     createTuiSettingsPickerView,
+    type TuiSettingsPickerState,
 } from "../../clients/tui/settings-picker.ts";
 
-test("session picker filters durable interactive conversations and selects an agent", () => {
+// The pickers render as renderable rows, so their look is asserted against a
+// captured frame rather than a string projection of the same state.
+async function pickerFrame(
+    state: TuiSettingsPickerState,
+    width = 100,
+    height = 40,
+): Promise<string> {
+    const setup = await createTestRenderer({ width, height });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(state);
+    try {
+        await setup.flush();
+        return setup.captureCharFrame();
+    } finally {
+        setup.renderer.destroy();
+    }
+}
+
+test("session picker filters durable interactive conversations and selects an agent", async () => {
     const state = startTuiSessionPicker([
         {
             id: "11111111-first-session",
@@ -29,9 +49,10 @@ test("session picker filters durable interactive conversations and selects an ag
         },
     ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
 
-    expect(renderTuiSettingsPicker(state)).toContain("Fix the deployment race");
-    expect(renderTuiSettingsPicker(state)).toContain("1h ago · alpha");
-    expect(renderTuiSettingsPicker(state)).not.toContain("22222222");
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("Fix the deployment race");
+    expect(frame).toContain("1h ago · alpha");
+    expect(frame).not.toContain("22222222");
     expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
         .toEqual({ kind: "session", sessionPath: "/sessions/first.jsonl" });
 
@@ -43,21 +64,21 @@ test("session picker filters durable interactive conversations and selects an ag
     expect(searched.options).toHaveLength(1);
 });
 
-test("session picker excludes the current and unavailable conversations", () => {
+test("session picker excludes the current and unavailable conversations", async () => {
     const state = startTuiSessionPicker([
         session("current", "idle"),
         session("failed", "failed"),
         session("closed", "closed"),
     ], "current");
 
-    expect(renderTuiSettingsPicker(state)).toContain("No conversations found");
+    expect(await pickerFrame(state)).toContain("No conversations found");
     expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
         .toBeUndefined();
-    expect(renderTuiSettingsPicker(startTuiSessionPicker([], undefined, true)))
+    expect(await pickerFrame(startTuiSessionPicker([], undefined, true)))
         .toContain("Loading conversations…");
 });
 
-test("session picker hides empty chats and shows only meaningful live state", () => {
+test("session picker hides empty chats and shows only meaningful live state", async () => {
     const state = startTuiSessionPicker([
         {
             ...session("empty", "idle"),
@@ -70,7 +91,7 @@ test("session picker hides empty chats and shows only meaningful live state", ()
         },
     ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
 
-    const rendered = renderTuiSettingsPicker(state);
+    const rendered = await pickerFrame(state);
     expect(rendered).not.toContain("empty");
     expect(rendered).toContain("Investigate the host");
     expect(rendered).toContain("working · alpha");
@@ -145,7 +166,7 @@ const availableModels = [
     },
 ] as const;
 
-test("model picker keeps the current model selected", () => {
+test("model picker keeps the current model selected", async () => {
     const state = startTuiSettingsPicker(
         "model",
         "z-ai/glm-5.2",
@@ -161,12 +182,16 @@ test("model picker keeps the current model selected", () => {
         provider: "openrouter",
         model: "z-ai/glm-5.2",
     });
-    expect(renderTuiSettingsPicker(state)).toContain("GLM-5.2");
-    expect(renderTuiSettingsPicker(state)).toContain("openrouter\n");
-    expect(renderTuiSettingsPicker(state)).not.toContain("Recent");
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("Select model");
+    // The provider is a group heading above its models, and the persisted
+    // choice carries the current-dot.
+    expect(frame).toMatch(/openrouter\s+\n/);
+    expect(frame).toContain("● GLM-5.2");
+    expect(frame).not.toContain("Recent");
 });
 
-test("model picker filters its choices as the user types", () => {
+test("model picker filters its choices as the user types", async () => {
     const state = startTuiSettingsPicker(
         "model",
         "moonshotai/kimi-k3",
@@ -184,12 +209,14 @@ test("model picker filters its choices as the user types", () => {
     expect(second.state?.options.map((option) => option.model)).toEqual([
         "z-ai/glm-5.2",
     ]);
-    expect(renderTuiSettingsPicker(second.state ?? state)).toContain("Search  gl");
-    expect(renderTuiSettingsPicker(second.state ?? state))
-        .toContain("openrouter · fast fallback model");
+    // While searching, the flat result list carries its provider in the row's
+    // right-hand column instead of a group heading.
+    const frame = await pickerFrame(second.state ?? state);
+    expect(frame).toContain("⌕  gl");
+    expect(frame).toMatch(/GLM-5\.2\s+fast fallback model\s+openrouter/);
 });
 
-test("model picker distinguishes the same model id across providers", () => {
+test("model picker distinguishes the same model id across providers", async () => {
     const models = [
         ...availableModels,
         {
@@ -222,12 +249,12 @@ test("model picker distinguishes the same model id across providers", () => {
             provider: "ollama",
             model: "moonshotai/kimi-k3",
         });
-    const rendered = renderTuiSettingsPicker(state);
-    expect(rendered).toContain("ollama\n");
-    expect(rendered).toContain("openrouter\n");
+    const rendered = await pickerFrame(state);
+    expect(rendered).toMatch(/ollama\s+\n/);
+    expect(rendered).toMatch(/openrouter\s+\n/);
 });
 
-test("every settings picker filters as the user types", () => {
+test("every settings picker filters as the user types", async () => {
     const reasoning = startTuiSettingsPicker(
         "reasoning",
         "z-ai/glm-5.2",
@@ -255,8 +282,7 @@ test("every settings picker filters as the user types", () => {
     }
     expect(filteredPermissions.options.map((option) => option.value))
         .toEqual(["full_access"]);
-    expect(renderTuiSettingsPicker(filteredPermissions))
-        .toContain("Search  full");
+    expect(await pickerFrame(filteredPermissions)).toContain("⌕  full");
 });
 
 test("Kimi reasoning picker only offers its supported max effort", () => {

@@ -4,8 +4,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
-import { TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
-import { dialogHeaderNode } from "./dialog-chrome.ts";
+const DANGER = "#ff3b30";
+const DANGER_BACKGROUND = "#210b0b";
 
 export interface TuiPermissionsConfirmKey {
     readonly name: string;
@@ -32,14 +32,24 @@ export function handleTuiPermissionsConfirmKey(
 export function createTuiPermissionsConfirmView(
     renderer: RenderContext,
 ): TuiPermissionsConfirmView {
-    const header = dialogHeaderNode(renderer, "Confirm full access");
+    const header = new TextRenderable(renderer, {
+        id: "permissions-confirm-header",
+        content: "⚠  DANGER: ENTER FULL-ACCESS RED ZONE",
+        fg: DANGER,
+        width: "100%",
+        height: 1,
+    });
     const warning = new TextRenderable(renderer, {
         id: "permissions-confirm-warning",
         content: [
-            "Full access lets commands run without approval using your full user permissions.",
-            "This can modify or delete files and affect processes outside the workspace.",
+            "Vera will run commands WITHOUT ASKING FOR APPROVAL.",
+            "Commands inherit your full user permissions—not just workspace access.",
+            "A mistaken or malicious command could permanently delete files, expose secrets,",
+            "install software, or affect other processes on this computer.",
+            "",
+            "Only continue if you accept those risks and intend to supervise this session.",
         ].join("\n"),
-        fg: TUI_TEXT,
+        fg: DANGER,
         width: "100%",
         height: "auto",
         wrapMode: "word",
@@ -47,8 +57,8 @@ export function createTuiPermissionsConfirmView(
     });
     const footer = new TextRenderable(renderer, {
         id: "permissions-confirm-actions",
-        content: "[1/enter] enable full access · [esc] cancel",
-        fg: TUI_MUTED,
+        content: "[1/enter] I understand — ENTER RED ZONE · [esc] keep protections",
+        fg: DANGER,
         width: "100%",
         height: "auto",
         marginTop: 1,
@@ -56,7 +66,7 @@ export function createTuiPermissionsConfirmView(
     const box = new BoxRenderable(renderer, {
         id: "permissions-confirm-box",
         border: false,
-        backgroundColor: TUI_PANEL,
+        backgroundColor: DANGER_BACKGROUND,
         position: "absolute",
         bottom: 1,
         left: 1,
@@ -68,6 +78,7 @@ export function createTuiPermissionsConfirmView(
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,
+        paddingBottom: 1,
         visible: false,
     });
     box.add(header);

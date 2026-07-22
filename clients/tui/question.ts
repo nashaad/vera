@@ -1,10 +1,8 @@
 import {
     BoxRenderable,
-    fg,
     type Renderable,
     type RenderContext,
     ScrollBoxRenderable,
-    StyledText,
     TextRenderable,
 } from "@opentui/core";
 
@@ -15,12 +13,11 @@ import type {
 } from "../../src/engine/protocol.ts";
 import { isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
-    TUI_ACCENT,
-    TUI_ELEMENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
+import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
 
 export interface TuiQuestionKey {
     readonly name: string;
@@ -123,11 +120,10 @@ export function createTuiQuestionView(
     });
     actions.add(choiceAction);
     actions.add(cancelAction);
+    const header = dialogHeaderNode(renderer, "Question");
     const box = new BoxRenderable(renderer, {
         id: "question-box",
-        title: " Question ",
-        border: true,
-        borderColor: TUI_ACCENT,
+        border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         bottom: 1,
@@ -140,9 +136,11 @@ export function createTuiQuestionView(
         zIndex: 20,
         flexDirection: "column",
         gap: 0,
-        paddingX: 1,
+        paddingLeft: 2,
+        paddingRight: 2,
         visible: false,
     });
+    box.add(header);
     box.add(details);
     box.add(actions);
 
@@ -152,39 +150,23 @@ export function createTuiQuestionView(
         }
         choiceRows = [];
         update.request.choices.forEach((choice, index) => {
-            const active = index === selectedIndex;
-            const row = new TextRenderable(renderer, {
-                id: `question-choice-${index}`,
-                content: new StyledText([
-                    active ? fg(TUI_ACCENT)("› ") : fg(TUI_PANEL)("  "),
-                    fg(TUI_ACCENT)(`${index + 1}  `),
-                    fg(TUI_TEXT)(choice.label),
-                ]),
-                bg: active ? TUI_ELEMENT : TUI_PANEL,
-                width: "100%",
-                height: "auto",
-                wrapMode: "word",
-                flexShrink: 0,
+            const row = dialogOptionRow(renderer, {
+                label: choice.label,
+                leading: `${index + 1}  `,
+                active: index === selectedIndex,
+                wrap: true,
             });
             choicesColumn.add(row);
             choiceRows.push(row);
         });
         const otherIndex = update.request.choices.length;
-        const otherActive = otherIndex === selectedIndex;
-        const other = new TextRenderable(renderer, {
-            id: "question-choice-other",
-            content: new StyledText([
-                otherActive ? fg(TUI_ACCENT)("› ") : fg(TUI_PANEL)("  "),
-                fg(TUI_ACCENT)(`${otherIndex + 1}  `),
-                fg(TUI_TEXT)(enteringCustom
-                    ? `Other: ${customText}▌`
-                    : "Other — type your own answer"),
-            ]),
-            bg: otherActive ? TUI_ELEMENT : TUI_PANEL,
-            width: "100%",
-            height: "auto",
-            wrapMode: "word",
-            flexShrink: 0,
+        const other = dialogOptionRow(renderer, {
+            label: enteringCustom
+                ? `Other: ${customText}▌`
+                : "Other — type your own answer",
+            leading: `${otherIndex + 1}  `,
+            active: otherIndex === selectedIndex,
+            wrap: true,
         });
         choicesColumn.add(other);
         choiceRows.push(other);
