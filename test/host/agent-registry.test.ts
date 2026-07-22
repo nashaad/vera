@@ -875,6 +875,51 @@ test("an adapter construction failure does not register an agent", async () => {
     }
 });
 
+test("a restarted registry replays a durable resident failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-failure-replay-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "failed-agent",
+        cwd: root,
+    });
+    await store.appendAgentFailure(
+        "failure-1",
+        "Resident agent stopped unexpectedly",
+    );
+    let adapterCreations = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterCreations += 1;
+            return new FauxAdapter([textResponse("must not run")]);
+        },
+        model: "faux/test",
+        approvalMode: "approve_for_me",
+    });
+
+    try {
+        const agent = await registry.resume({ sessionPath });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        expect(await attachment.receive()).toEqual({
+            type: "agent_failed",
+            failureId: "failure-1",
+            detail: "Resident agent stopped unexpectedly",
+            seq: 1,
+        });
+        await expect(attachment.receive()).rejects.toThrow();
+        expect(() => attachment.send({ type: "prompt", content: "retry" }))
+            .toThrow();
+        expect(adapterCreations).toBe(0);
+        expect(registry.list()).toMatchObject([{
+            id: "failed-agent",
+            status: "failed",
+        }]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("resident timeline preview and apply stay with their requesting attachment", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-timeline-"));
     const registry = createRegistry(() => [textResponse("first answer")]);

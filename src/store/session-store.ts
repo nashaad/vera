@@ -81,6 +81,13 @@ export interface SessionAttachmentEntry {
     readonly attachment: SessionImageAttachmentMetadata;
 }
 
+export interface SessionAgentFailureEntry {
+    readonly type: "agent_failure";
+    readonly id: string;
+    readonly timestamp: string;
+    readonly detail: string;
+}
+
 export interface SessionImageAttachmentMetadata {
     readonly id: string;
     readonly name: string;
@@ -118,6 +125,7 @@ export interface SessionMessageStore {
 export interface ReadonlySessionSnapshot {
     readonly header: SessionHeader;
     readonly messages: readonly ModelMessage[];
+    readonly agentFailure?: SessionAgentFailureEntry;
 }
 
 export interface SessionDeliveryInbox {
@@ -138,6 +146,7 @@ interface LoadedSessionFile {
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly commandPrefixEntries: SessionCommandPrefixEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
+    readonly agentFailure?: SessionAgentFailureEntry;
     readonly leafId: string | null;
 }
 
@@ -155,6 +164,7 @@ export class SessionStore {
     private readonly permissionsEntries: SessionPermissionsEntry[];
     private readonly commandPrefixEntries: SessionCommandPrefixEntry[];
     private readonly attachmentEntries: SessionAttachmentEntry[];
+    private agentFailureEntry: SessionAgentFailureEntry | undefined;
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -173,6 +183,7 @@ export class SessionStore {
         this.permissionsEntries = loaded.permissionsEntries;
         this.commandPrefixEntries = loaded.commandPrefixEntries;
         this.attachmentEntries = loaded.attachmentEntries;
+        this.agentFailureEntry = loaded.agentFailure;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -213,6 +224,7 @@ export class SessionStore {
                 permissionsEntries: [],
                 commandPrefixEntries: [],
                 attachmentEntries: [],
+                agentFailure: undefined,
                 leafId: null,
             },
             {
@@ -297,8 +309,17 @@ export class SessionStore {
         return this.attachmentEntries.map((entry) => ({ ...entry.attachment }));
     }
 
+    agentFailure(): SessionAgentFailureEntry | undefined {
+        return this.agentFailureEntry === undefined
+            ? undefined
+            : { ...this.agentFailureEntry };
+    }
+
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
-        const result = this.pendingAppend.then(() => this.commitMessage(message));
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitMessage(message);
+        });
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -310,9 +331,10 @@ export class SessionStore {
         deliveryId: string,
         message: ModelMessage,
     ): Promise<SessionMessageEntry> {
-        const result = this.pendingAppend.then(() =>
-            this.commitDeliveryMessage(deliveryId, message)
-        );
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitDeliveryMessage(deliveryId, message);
+        });
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -323,9 +345,10 @@ export class SessionStore {
     appendModelSettings(
         settings: ModelTurnSettings,
     ): Promise<SessionModelSettingsEntry> {
-        const result = this.pendingAppend.then(() =>
-            this.commitModelSettings(settings)
-        );
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitModelSettings(settings);
+        });
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -334,9 +357,10 @@ export class SessionStore {
     }
 
     appendApprovalMode(mode: ApprovalMode): Promise<SessionPermissionsEntry> {
-        const result = this.pendingAppend.then(() =>
-            this.commitApprovalMode(mode)
-        );
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitApprovalMode(mode);
+        });
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -347,9 +371,10 @@ export class SessionStore {
     appendCommandPrefix(
         prefix: CommandPrefix,
     ): Promise<SessionCommandPrefixEntry> {
-        const result = this.pendingAppend.then(() =>
-            this.commitCommandPrefix(prefix)
-        );
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitCommandPrefix(prefix);
+        });
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -361,8 +386,23 @@ export class SessionStore {
         attachment: SessionImageAttachmentMetadata,
     ): Promise<SessionImageAttachmentMetadata> {
         const snapshot = copySessionImageAttachment(attachment);
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitAttachment(snapshot);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendAgentFailure(
+        id: string,
+        detail: string,
+    ): Promise<SessionAgentFailureEntry> {
         const result = this.pendingAppend.then(() =>
-            this.commitAttachment(snapshot)
+            this.commitAgentFailure(id, detail)
         );
         this.pendingAppend = result.then(
             () => undefined,
@@ -372,9 +412,10 @@ export class SessionStore {
     }
 
     rewindBefore(userMessageId: string): Promise<SessionRewindEntry> {
-        const result = this.pendingAppend.then(() =>
-            this.commitRewind(userMessageId)
-        );
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitRewind(userMessageId);
+        });
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -383,9 +424,10 @@ export class SessionStore {
     }
 
     recordDelivery(delivery: PendingDelivery): Promise<boolean> {
-        const result = this.pendingAppend.then(() =>
-            this.commitDelivery(delivery)
-        );
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitDelivery(delivery);
+        });
         this.pendingAppend = result.then(
             () => undefined,
             () => undefined,
@@ -531,6 +573,30 @@ export class SessionStore {
         return { ...stored };
     }
 
+    private async commitAgentFailure(
+        requestedId: string,
+        requestedDetail: string,
+    ): Promise<SessionAgentFailureEntry> {
+        const id = nonEmpty(requestedId, "agent failure ID");
+        const detail = nonEmpty(requestedDetail, "agent failure detail");
+        const existing = this.agentFailureEntry;
+        if (existing !== undefined) {
+            if (existing.id !== id || existing.detail !== detail) {
+                throw new Error("Session already has a different agent failure");
+            }
+            return { ...existing };
+        }
+        const entry: SessionAgentFailureEntry = {
+            type: "agent_failure",
+            id,
+            timestamp: this.now().toISOString(),
+            detail,
+        };
+        await this.appendRecord(entry);
+        this.agentFailureEntry = entry;
+        return { ...entry };
+    }
+
     private async commitRewind(
         requestedUserMessageId: string,
     ): Promise<SessionRewindEntry> {
@@ -597,12 +663,21 @@ export class SessionStore {
     }
 
     private async appendRecord(record: object): Promise<void> {
+        if (this.agentFailureEntry !== undefined) {
+            throw new Error("Cannot append after the terminal agent failure");
+        }
         const file = await open(this.path, "a", 0o600);
         try {
             await file.writeFile(jsonLine(record), "utf8");
             await file.sync();
         } finally {
             await file.close();
+        }
+    }
+
+    private requireActive(): void {
+        if (this.agentFailureEntry !== undefined) {
+            throw new Error("Cannot append after the terminal agent failure");
         }
     }
 }
@@ -641,6 +716,9 @@ export async function readSessionSnapshot(
             loaded.messageEntries,
             loaded.leafId,
         ).map((entry) => entry.message),
+        ...(loaded.agentFailure === undefined
+            ? {}
+            : { agentFailure: { ...loaded.agentFailure } }),
     };
 }
 
@@ -685,6 +763,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const permissionsEntries: SessionPermissionsEntry[] = [];
     const commandPrefixEntries: SessionCommandPrefixEntry[] = [];
     const attachmentEntries: SessionAttachmentEntry[] = [];
+    let agentFailure: SessionAgentFailureEntry | undefined;
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
     const knownAttachmentIds = new Set<string>();
@@ -693,6 +772,25 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     for (let index = 1; index < lines.length; index += 1) {
         const lineNumber = index + 1;
         const value = parseJsonObject(path, lineNumber, lines[index]);
+        if (agentFailure !== undefined) {
+            if (value.type === "agent_failure") {
+                const duplicate = parseAgentFailureEntry(
+                    path,
+                    lineNumber,
+                    value,
+                );
+                if (
+                    duplicate.id === agentFailure.id
+                    && duplicate.detail === agentFailure.detail
+                ) {
+                    continue;
+                }
+            }
+            throw invalidSession(
+                path,
+                `line ${lineNumber} follows the terminal agent failure`,
+            );
+        }
         if (value.type === "message") {
             const entry = parseMessageEntry(path, lineNumber, value);
             if (knownMessageIds.has(entry.id)) {
@@ -831,6 +929,10 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             attachmentEntries.push(entry);
             continue;
         }
+        if (value.type === "agent_failure") {
+            agentFailure = parseAgentFailureEntry(path, lineNumber, value);
+            continue;
+        }
         if (value.type === "rewind") {
             const rewind = parseRewindEntry(path, lineNumber, value);
             if (rewind.previousHeadId !== leafId) {
@@ -882,7 +984,34 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         permissionsEntries,
         commandPrefixEntries,
         attachmentEntries,
+        agentFailure,
         leafId,
+    };
+}
+
+function parseAgentFailureEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionAgentFailureEntry {
+    if (
+        typeof value.id !== "string"
+        || value.id.length === 0
+        || typeof value.timestamp !== "string"
+        || Number.isNaN(Date.parse(value.timestamp))
+        || typeof value.detail !== "string"
+        || value.detail.trim().length === 0
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid agent failure entry`,
+        );
+    }
+    return {
+        type: "agent_failure",
+        id: value.id,
+        timestamp: value.timestamp,
+        detail: value.detail,
     };
 }
 

@@ -100,6 +100,43 @@ test("session store creates a header and reloads one message chain", async () =>
     expect(reopened.messages()).toEqual([user, assistant, toolResult]);
 });
 
+test("agent failures are durable and idempotent", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "failure.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "failed-session",
+        cwd: "/work/vera",
+        now: dates(
+            "2026-07-22T19:00:00.000Z",
+            "2026-07-22T19:01:00.000Z",
+        ),
+    });
+    const failure = await store.appendAgentFailure(
+        "failure-1",
+        "Resident agent stopped unexpectedly",
+    );
+    expect(await store.appendAgentFailure(
+        "failure-1",
+        "Resident agent stopped unexpectedly",
+    )).toEqual(failure);
+    await expect(store.appendAgentFailure("failure-2", "different"))
+        .rejects.toThrow("different agent failure");
+    await expect(store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "too late" }],
+    })).rejects.toThrow("Cannot append after the terminal agent failure");
+
+    expect((await SessionStore.open(path)).agentFailure()).toEqual(failure);
+    expect(readLines(path).filter((entry) => entry.type === "agent_failure"))
+        .toHaveLength(1);
+
+    appendFileSync(path, `${JSON.stringify({
+        ...failure,
+        timestamp: "2026-07-22T19:02:00.000Z",
+    })}\n`);
+    expect((await SessionStore.open(path)).agentFailure()).toEqual(failure);
+});
+
 test("session store ignores removed file checkpoint records", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

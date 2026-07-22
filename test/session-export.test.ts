@@ -36,7 +36,7 @@ test("session export is read-only and follows the active conversation branch", a
 
         const json = JSON.parse(await exportSession(path, "json"));
         expect(json).toEqual({
-            format_version: 2,
+            format_version: 3,
             session: {
                 id: "session-1",
                 started_at: "2026-07-20T20:00:00.000Z",
@@ -55,7 +55,7 @@ test("session export is read-only and follows the active conversation branch", a
 
 test("Markdown export contains transcript content inside each speaker entry", () => {
     const markdown = renderSessionMarkdown({
-        format_version: 2,
+        format_version: 3,
         session: {
             id: "session-`one`",
             started_at: "2026-07-20T20:00:00.000Z",
@@ -107,6 +107,35 @@ test("session export preserves a durable terminal model error", async () => {
         });
         expect(await exportSession(path, "markdown")).toContain(
             "## Model error\n\n> rate limited after retries",
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("session export includes a resident lifecycle failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-failure-export-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, {
+            sessionId: "failed-session",
+            cwd: "/work/vera",
+            now: () => new Date("2026-07-22T19:00:00.000Z"),
+        });
+        await store.appendAgentFailure(
+            "failure-1",
+            "Resident agent stopped unexpectedly",
+        );
+
+        const json = JSON.parse(await exportSession(path, "json"));
+        expect(json.format_version).toBe(3);
+        expect(json.agent_failure).toEqual({
+            id: "failure-1",
+            occurred_at: "2026-07-22T19:00:00.000Z",
+            detail: "Resident agent stopped unexpectedly",
+        });
+        expect(await exportSession(path, "markdown")).toContain(
+            "## Resident agent failure\n\n> Resident agent stopped unexpectedly",
         );
     } finally {
         await rm(root, { recursive: true, force: true });

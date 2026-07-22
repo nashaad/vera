@@ -177,6 +177,19 @@ test("failing a resident agent drains one typed terminal update", async () => {
         );
     }
     expect(agent.status).toBe("idle");
+    expect(agent.failed).toBeTrue();
+    expect(agent.closed).toBeFalse();
+
+    const replay = agent.attach();
+    expect((await replay.receive()).type).toBe("history");
+    expect((await replay.receive()).type).toBe("assistant_delta");
+    expect(await replay.receive()).toMatchObject({
+        type: "agent_failed",
+        failureId: "failure-1",
+    });
+    expect(() => replay.send({ type: "prompt", content: "too late" }))
+        .toThrow(ResidentAgentClosedError);
+    agent.close();
     expect(agent.closed).toBeTrue();
 });
 
