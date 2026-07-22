@@ -102,3 +102,16 @@ vera export ~/.vera/sessions/<session-id>.jsonl --format json
 
 Export writes to standard output and does not modify the session or workspace.
 Redirect it to a file when needed.
+
+## Inspect a model request
+
+Print the latest final provider-neutral request recorded for a session:
+
+```sh
+vera inspect ~/.vera/sessions/<session-id>.jsonl
+```
+
+The versioned JSON includes the system prompt, model-visible messages, and
+offered tools. It may contain project files, prompts, tool results, and private
+reasoning from earlier messages. Treat it as sensitive local data. It is not the
+provider-specific wire payload.
