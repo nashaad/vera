@@ -82,6 +82,32 @@ test("content deduplication returns the canonical session metadata", async () =>
     expect(session.attachmentRecords()).toEqual([first]);
 });
 
+test("attachment service hydrates only canonical verified session content", async () => {
+    const root = await temporaryDirectory();
+    const session = await SessionStore.create(join(root, "session.jsonl"), {
+        sessionId: "session-1",
+        cwd: root,
+    });
+    const service = new ImageAttachmentService(
+        session,
+        limits,
+        async () => ({ mediaType: "image/png", width: 1, height: 1 }),
+    );
+    const attached = await service.attach(
+        Uint8Array.from([1, 2, 3]),
+        "screen.png",
+    );
+
+    expect(await service.readContent(attached.id)).toEqual({
+        type: "image",
+        mediaType: "image/png",
+        data: Uint8Array.from([1, 2, 3]),
+    });
+    await expect(service.readContent("missing.png")).rejects.toThrow(
+        "Image attachment missing.png is not in this session",
+    );
+});
+
 test("metadata failure leaves content-addressed bytes safe for concurrent use", async () => {
     const root = await temporaryDirectory();
     const path = join(root, "session.jsonl");

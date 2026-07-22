@@ -4,6 +4,7 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelInputMessage,
     type ModelMessage,
     type ModelRequest,
 } from "../../src/model/types.ts";
@@ -83,7 +84,7 @@ function requestWorkspace(request: ModelRequest): string {
     return line?.slice("Working directory: ".length) ?? "missing";
 }
 
-function describeMessage(message: ModelMessage): string {
+function describeMessage(message: ModelInputMessage): string {
     if (message.role === "tool_result") {
         return `tool_result:${message.toolName}`;
     }

@@ -17,6 +17,7 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelInputMessage,
     type ModelMessage,
     type ModelRequest,
 } from "../../src/model/types.ts";
@@ -159,7 +160,7 @@ test("subagent inherits the parent turn model and reasoning", async () => {
     }
 });
 
-function firstText(message: ModelMessage | undefined): string {
+function firstText(message: ModelInputMessage | undefined): string {
     const block = message?.content[0];
     return block?.type === "text" ? block.text : "";
 }
