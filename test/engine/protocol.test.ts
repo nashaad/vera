@@ -62,6 +62,30 @@ test("stored model messages project to a client transcript", () => {
     ]);
 });
 
+test("attachment IDs remain ordered across commands and transcript projection", () => {
+    expect(parseClientCommand({
+        type: "prompt",
+        content: "compare",
+        attachmentIds: ["one.png", "one.png", "two.png"],
+    })).toEqual({
+        type: "prompt",
+        content: "compare",
+        attachmentIds: ["one.png", "one.png", "two.png"],
+    });
+    expect(projectTranscript([{
+        role: "user",
+        content: [
+            { type: "text", text: "compare" },
+            { type: "image_attachment", attachmentId: "one.png" },
+            { type: "image_attachment", attachmentId: "two.png" },
+        ],
+    }])).toEqual([{
+        kind: "user",
+        text: "compare",
+        attachmentIds: ["one.png", "two.png"],
+    }]);
+});
+
 test("projected tool arguments cannot mutate canonical history", () => {
     const input = { nested: { path: "note.txt" } };
     const transcript = projectTranscript([{

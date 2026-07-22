@@ -19,6 +19,7 @@ export type AgentStatus = "idle" | "working" | "waiting";
 export interface UserTranscriptEntry {
     readonly kind: "user";
     readonly text: string;
+    readonly attachmentIds?: readonly string[];
 }
 
 export interface AssistantTranscriptEntry {
@@ -46,6 +47,7 @@ export type TranscriptEntry =
 export interface PromptCommand {
     readonly type: "prompt";
     readonly content: string;
+    readonly attachmentIds?: readonly string[];
 }
 
 export interface AbortCommand {
@@ -122,6 +124,7 @@ export interface HistoryUpdate {
 export interface UserPromptUpdate {
     readonly type: "user_prompt";
     readonly content: string;
+    readonly attachmentIds?: readonly string[];
     readonly seq: number;
 }
 
@@ -242,6 +245,7 @@ export interface TimelineBoundary {
     readonly userMessageId: string;
     readonly timestamp: string;
     readonly prompt: string;
+    readonly attachmentIds?: readonly string[];
     readonly position: number;
 }
 
@@ -325,8 +329,18 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         return undefined;
     }
     const command = value as Record<string, unknown>;
-    if (command.type === "prompt" && typeof command.content === "string") {
-        return { type: "prompt", content: command.content };
+    if (
+        command.type === "prompt"
+        && typeof command.content === "string"
+        && isAttachmentIds(command.attachmentIds)
+    ) {
+        return {
+            type: "prompt",
+            content: command.content,
+            ...(command.attachmentIds === undefined
+                ? {}
+                : { attachmentIds: [...command.attachmentIds] }),
+        };
     }
     if (command.type === "abort") {
         return { type: "abort" };
@@ -507,6 +521,13 @@ function isRequestId(value: unknown): value is string {
     return typeof value === "string" && value.length > 0;
 }
 
+function isAttachmentIds(value: unknown): value is readonly string[] | undefined {
+    return value === undefined || (
+        Array.isArray(value)
+        && value.every((id) => typeof id === "string" && id.length > 0)
+    );
+}
+
 function isModelReasoningEffort(
     value: unknown,
 ): value is ModelReasoningEffort {
@@ -528,6 +549,7 @@ export function createProtocolEncoder(
             sender.send({
                 type: "user_prompt",
                 content: textContent(event.message.content),
+                ...attachmentIds(event.message.content),
                 seq,
             });
             return;
@@ -690,6 +712,7 @@ export function projectTranscript(
             entries.push({
                 kind: "user",
                 text: textContent(message.content),
+                ...attachmentIds(message.content),
             });
             continue;
         }
@@ -743,7 +766,20 @@ function terminalDetail(message: ModelMessage): string | undefined {
 }
 
 function textContent(
-    content: readonly { readonly text: string }[],
+    content: readonly { readonly type: string; readonly text?: string }[],
 ): string {
-    return content.map((part) => part.text).join("\n");
+    return content.flatMap((part) => part.type === "text" && part.text !== undefined
+        ? [part.text]
+        : []).join("\n");
+}
+
+function attachmentIds(
+    content: readonly { readonly type: string; readonly attachmentId?: string }[],
+): { readonly attachmentIds?: readonly string[] } {
+    const ids = content.flatMap((part) =>
+        part.type === "image_attachment" && part.attachmentId !== undefined
+            ? [part.attachmentId]
+            : []
+    );
+    return ids.length === 0 ? {} : { attachmentIds: ids };
 }

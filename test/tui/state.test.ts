@@ -347,3 +347,30 @@ test("TUI state leaves timeline replies for the future picker", () => {
 
     expect(replies.reduce(applyAgentUpdate, initial)).toEqual(initial);
 });
+
+test("TUI history and live prompts show attached images", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{
+            kind: "user",
+            text: "compare",
+            attachmentIds: ["one.png", "two.png"],
+        }],
+        seq: 1,
+    });
+    expect(state.entries).toEqual([{
+        kind: "user",
+        text: "compare\n[Attached image]\n[Attached image]",
+    }]);
+
+    state = applyAgentUpdate(state, {
+        type: "user_prompt",
+        content: "new image",
+        attachmentIds: ["three.png"],
+        seq: 2,
+    });
+    expect(state.entries.at(-1)).toEqual({
+        kind: "user",
+        text: "new image\n[Attached image]",
+    });
+});

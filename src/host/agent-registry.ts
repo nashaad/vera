@@ -248,7 +248,9 @@ export class AgentRegistry {
                 const firstUserMessage = firstUserEntry?.message;
                 const title = firstUserMessage?.role === "user"
                     ? firstUserMessage.content
-                        .map((content) => content.text)
+                        .flatMap((content) => content.type === "text"
+                            ? [content.text]
+                            : [])
                         .join(" ")
                         .replaceAll(/\s+/g, " ")
                         .trim()

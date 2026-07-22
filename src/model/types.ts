@@ -22,6 +22,13 @@ export interface ImageContent {
     readonly data: Uint8Array;
 }
 
+export interface ImageAttachmentContent {
+    readonly type: "image_attachment";
+    readonly attachmentId: string;
+}
+
+export type UserContent = TextContent | ImageAttachmentContent;
+
 export interface ThinkingContent {
     readonly type: "thinking";
     readonly text: string;
@@ -40,13 +47,13 @@ export type AssistantContent = TextContent | ThinkingContent | ToolCallContent;
 
 export interface UserMessage {
     readonly role: "user";
-    readonly content: readonly TextContent[];
+    readonly content: readonly UserContent[];
     readonly internal?: boolean;
 }
 
 export interface ModelInputUserMessage {
     readonly role: "user";
-    readonly content: readonly (TextContent | ImageContent)[];
+    readonly content: readonly (UserContent | ImageContent)[];
     readonly internal?: boolean;
 }
 
@@ -192,6 +199,7 @@ export interface ModelStream extends AsyncIterable<ModelStreamEvent> {
 }
 
 export interface ModelAdapter {
+    readonly supportsImageInput?: boolean;
     /**
      * Return a stream immediately. Provider failures belong in its terminal
      * error event so the engine can apply recovery without provider knowledge.

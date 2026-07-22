@@ -36,7 +36,7 @@ test("session export is read-only and follows the active conversation branch", a
 
         const json = JSON.parse(await exportSession(path, "json"));
         expect(json).toEqual({
-            format_version: 3,
+            format_version: 4,
             session: {
                 id: "session-1",
                 started_at: "2026-07-20T20:00:00.000Z",
@@ -55,7 +55,7 @@ test("session export is read-only and follows the active conversation branch", a
 
 test("Markdown export contains transcript content inside each speaker entry", () => {
     const markdown = renderSessionMarkdown({
-        format_version: 3,
+        format_version: 4,
         session: {
             id: "session-`one`",
             started_at: "2026-07-20T20:00:00.000Z",
@@ -128,7 +128,7 @@ test("session export includes a resident lifecycle failure", async () => {
         );
 
         const json = JSON.parse(await exportSession(path, "json"));
-        expect(json.format_version).toBe(3);
+        expect(json.format_version).toBe(4);
         expect(json.agent_failure).toEqual({
             id: "failure-1",
             occurred_at: "2026-07-22T19:00:00.000Z",

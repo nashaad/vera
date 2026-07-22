@@ -12,7 +12,11 @@ import {
     AttachmentStore,
     type StoredImageAttachment,
 } from "./store.ts";
-import type { ImageContent } from "../model/types.ts";
+import type {
+    ImageContent,
+    ModelInputMessage,
+    ModelMessage,
+} from "../model/types.ts";
 
 export class ImageAttachmentService {
     private readonly limits: ImageValidationLimits;
@@ -46,18 +50,54 @@ export class ImageAttachmentService {
     }
 
     async readContent(attachmentId: string): Promise<ImageContent> {
-        const attachment = this.session.attachmentRecords().find(
-            (candidate) => candidate.id === attachmentId,
-        );
-        if (attachment === undefined) {
-            throw new Error(`Image attachment ${attachmentId} is not in this session`);
-        }
-        return {
-            type: "image",
-            mediaType: attachment.mediaType,
-            data: await this.files.readImage(attachment),
-        };
+        return readSessionImageContent(this.session, attachmentId);
     }
+}
+
+export async function readSessionImageContent(
+    session: SessionStore,
+    attachmentId: string,
+): Promise<ImageContent> {
+    const attachment = session.attachmentRecords().find(
+        (candidate) => candidate.id === attachmentId,
+    );
+    if (attachment === undefined) {
+        throw new Error(`Image attachment ${attachmentId} is not in this session`);
+    }
+    return {
+        type: "image",
+        mediaType: attachment.mediaType,
+        data: await new AttachmentStore(session.path).readImage(attachment),
+    };
+}
+
+export async function hydrateImageAttachments(
+    messages: readonly ModelMessage[],
+    readImage: (attachmentId: string) => Promise<ImageContent>,
+    cache: Map<string, ImageContent> = new Map(),
+): Promise<ModelInputMessage[]> {
+    const hydrated: ModelInputMessage[] = [];
+    for (const message of messages) {
+        if (message.role !== "user") {
+            hydrated.push(message);
+            continue;
+        }
+        const content = [];
+        for (const block of message.content) {
+            if (block.type === "text") {
+                content.push(block);
+                continue;
+            }
+            let image = cache.get(block.attachmentId);
+            if (image === undefined) {
+                image = await readImage(block.attachmentId);
+                cache.set(block.attachmentId, image);
+            }
+            content.push(image);
+        }
+        hydrated.push({ ...message, content });
+    }
+    return hydrated;
 }
 
 function copyLimits(limits: ImageValidationLimits): ImageValidationLimits {

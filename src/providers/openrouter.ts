@@ -31,6 +31,7 @@ export interface OpenRouterAdapterOptions {
 }
 
 export class OpenRouterAdapter implements ModelAdapter {
+    readonly supportsImageInput = false;
     constructor(
         private readonly sendChat: SendOpenRouterChat,
         private readonly reasoningMappings?: ReadonlyMap<

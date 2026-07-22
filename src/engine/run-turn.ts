@@ -1,14 +1,20 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-    AssistantMessage,
-    ModelAdapter,
-    ModelMessage,
-    ModelReasoningEffort,
-    ToolCallContent,
-    ToolResultMessage,
-    UserMessage,
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ImageContent,
+    type ModelAdapter,
+    type ModelMessage,
+    type ModelReasoningEffort,
+    type ToolCallContent,
+    type ToolResultMessage,
+    type UserMessage,
 } from "../model/types.ts";
+import {
+    hydrateImageAttachments,
+    readSessionImageContent,
+} from "../attachments/service.ts";
 import type { JsonObject } from "../sdk/hooks.ts";
 import type {
     HookToolCall,
@@ -95,6 +101,7 @@ export interface RunTurnState {
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readCommandPrefixes?: () => readonly CommandPrefix[];
     readonly promptPrefixTracker?: PromptPrefixTracker;
+    readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -242,12 +249,22 @@ export async function runHeadlessLoop(
         readApprovalMode,
         readCommandPrefixes,
         promptPrefixTracker: new PromptPrefixTracker(),
+        readImageContent: (attachmentId) =>
+            readSessionImageContent(store, attachmentId),
     };
     protocol.checkpoint(state.messages);
 
     while (true) {
+        const checkpointMessages = [...state.messages];
         await runTurn(adapter, model, state, reasoningEffort);
-        protocol.checkpoint(state.messages);
+        if (
+            state.messages.length !== checkpointMessages.length
+            || state.messages.some((message, index) =>
+                message !== checkpointMessages[index]
+            )
+        ) {
+            protocol.checkpoint(state.messages);
+        }
     }
 }
 
@@ -280,11 +297,38 @@ export async function runTurn(
                 : state.enabledToolEffects ?? [],
             state.enableUserInteraction === true,
         );
-        await drainPendingDeliveries(state);
         const userMessage: UserMessage = {
             role: "user",
-            content: [{ type: "text", text: turn.prompt.content }],
+            content: [
+                { type: "text", text: turn.prompt.content },
+                ...(turn.prompt.attachmentIds ?? []).map((attachmentId) => ({
+                    type: "image_attachment" as const,
+                    attachmentId,
+                })),
+            ],
         };
+        const imageCache = new Map<string, ImageContent>();
+        try {
+            if (
+                adapter.supportsImageInput === false
+                && userMessage.content.some((block) => block.type === "image_attachment")
+            ) {
+                throw new Error("the selected model provider does not support image input");
+            }
+            await hydrateImageAttachments(
+                [...state.messages, userMessage],
+                requireImageReader(state),
+                imageCache,
+            );
+        } catch (error) {
+            assistantMessage = attachmentErrorMessage(
+                activeModel,
+                errorMessage(error),
+            );
+            state.events.emit({ type: "turn_finished", message: assistantMessage });
+            return assistantMessage;
+        }
+        await drainPendingDeliveries(state);
         await commitMessage(state, userMessage);
         state.events.emit({ type: "turn_started", message: userMessage });
 
@@ -331,9 +375,27 @@ export async function runTurn(
                 tools: request.tools,
                 promptContributions,
             });
+            let modelRequest;
+            try {
+                modelRequest = {
+                    ...request,
+                    messages: await hydrateImageAttachments(
+                        state.messages,
+                        requireImageReader(state),
+                    ),
+                };
+            } catch (error) {
+                assistantMessage = attachmentErrorMessage(
+                    activeModel,
+                    errorMessage(error),
+                );
+                await commitMessage(state, assistantMessage);
+                state.events.emit({ type: "turn_finished", message: assistantMessage });
+                return assistantMessage;
+            }
             assistantMessage = await requestModelWithRecovery(
                 adapter,
-                request,
+                modelRequest,
                 {
                     onEvent(event): void {
                         if (event.type === "error") {
@@ -470,6 +532,25 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+function requireImageReader(
+    state: RunTurnState,
+): (attachmentId: string) => Promise<ImageContent> {
+    return state.readImageContent ?? (async (attachmentId) => {
+        throw new Error(`Image attachment ${attachmentId} cannot be read`);
+    });
+}
+
+function attachmentErrorMessage(model: string, detail: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [],
+        source: { provider: "vera", api: "attachment", model },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: `Image attachment unavailable: ${detail}`,
+    };
 }
 
 async function drainPendingDeliveries(state: RunTurnState): Promise<void> {

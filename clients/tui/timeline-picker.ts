@@ -399,6 +399,15 @@ function previewTransition(
     if (boundary === undefined) {
         return unchanged(state);
     }
+    if (boundary.attachmentIds !== undefined && boundary.attachmentIds.length > 0) {
+        return {
+            state: {
+                ...state,
+                notice: "Image prompts cannot be restored until the attachment composer is available.",
+            },
+            handled: true,
+        };
+    }
     const requestId = createRequestId();
     return {
         state: { ...baseState(state), screen: "previewing", requestId },

@@ -1087,6 +1087,31 @@ test("attachment metadata is durable, bounded, and idempotent", async () => {
     expect(reopened.attachmentRecords()).toEqual([expected]);
 });
 
+test("user messages may reference only attachment metadata already in the session", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    const attachment = imageAttachment();
+    const message: ModelMessage = {
+        role: "user",
+        content: [
+            { type: "text", text: "inspect it" },
+            { type: "image_attachment", attachmentId: attachment.id },
+        ],
+    };
+
+    await expect(store.appendMessage(message)).rejects.toThrow(
+        `Image attachment ${attachment.id} is not in this session`,
+    );
+    await store.appendAttachment(attachment);
+    await store.appendMessage(message);
+
+    expect((await SessionStore.open(path)).messages()).toEqual([message]);
+});
+
 test("attachment IDs reject conflicting metadata", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
