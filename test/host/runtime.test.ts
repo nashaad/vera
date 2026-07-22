@@ -8,6 +8,7 @@ import { attachAgent } from "../../src/host/attached-client.ts";
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import {
+    HOST_PROTOCOL_VERSION,
     requestHostIdentity,
     requestHostShutdownIfIdle,
 } from "../../src/host/protocol.ts";
@@ -41,6 +42,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             expect(await requestHostShutdownIfIdle(
                 socketPath,
                 host.server.identity,
+                HOST_PROTOCOL_VERSION + 1,
             )).toMatchObject({
                 type: "shutdown_if_idle_accepted",
                 pid: host.server.identity.pid,
@@ -305,6 +307,94 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                 seq: 0,
             });
             attached.detach();
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host replays the same failed agent after restart",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-failure-restart-"));
+        const workspace = await realpath(root);
+        const sessionDirectory = join(root, "sessions");
+        const sessionPath = join(sessionDirectory, "failed.jsonl");
+        const store = await SessionStore.create(sessionPath, {
+            sessionId: "failed-agent",
+            cwd: workspace,
+        });
+        await store.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "durable prompt" }],
+        });
+        await store.appendAgentFailure(
+            "failure-1",
+            "Resident agent stopped unexpectedly",
+        );
+        const socketPath = join(root, "host.sock");
+        const lockPath = join(root, "host.json");
+        let adapterCreations = 0;
+        const start = () => startResidentHost({
+            config: {
+                schema_version: 1 as const,
+                provider: "openrouter" as const,
+                model: "faux/test",
+                approval_mode: "approve_for_me" as const,
+            },
+            createAdapter: () => {
+                adapterCreations += 1;
+                return new FauxAdapter([textResponse("must not run")]);
+            },
+            socketPath,
+            lockPath,
+            sessionDirectory,
+        });
+
+        let host = await start();
+        try {
+            for (let incarnation = 0; incarnation < 2; incarnation += 1) {
+                const listing = await connectHost({ socketPath });
+                await listing.send({ type: "list_agents" });
+                expect(await listing.receive()).toMatchObject({
+                    type: "agent_list",
+                    agents: [{ id: "failed-agent", status: "failed" }],
+                });
+                listing.close();
+
+                const attached = await attachAgent({
+                    socketPath,
+                    agentId: "failed-agent",
+                });
+                expect(await attached.receive()).toMatchObject({
+                    type: "history",
+                    entries: [{ kind: "user", text: "durable prompt" }],
+                });
+                expect(await attached.receive()).toEqual({
+                    type: "agent_failed",
+                    failureId: "failure-1",
+                    detail: "Resident agent stopped unexpectedly",
+                    seq: 1,
+                });
+                attached.close();
+                const restored = host.registry.find("failed-agent");
+                if (restored === undefined) {
+                    throw new Error("Expected restored failed resident");
+                }
+                const direct = restored.attach();
+                expect(() => direct.send({
+                    type: "prompt",
+                    content: "must stay terminal",
+                })).toThrow();
+                direct.detach();
+
+                if (incarnation === 0) {
+                    await host.close();
+                    host = await start();
+                }
+            }
+            expect(adapterCreations).toBe(0);
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });

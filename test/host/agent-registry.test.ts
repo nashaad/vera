@@ -920,6 +920,50 @@ test("a restarted registry replays a durable resident failure", async () => {
     }
 });
 
+test("a failure-record write error still reaches live attachments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-failure-write-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const backupPath = join(root, "agent.backup.jsonl");
+    const registry = createRegistry(() => [textResponse("must not finish")]);
+
+    try {
+        const agent = await registry.create({
+            id: "volatile-failure-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+
+        await rename(sessionPath, backupPath);
+        await mkdir(sessionPath);
+        attachment.send({ type: "prompt", content: "trigger persistence" });
+        const failure = await attachment.receive();
+        expect(failure).toMatchObject({
+            type: "agent_failed",
+            detail: "Resident agent stopped unexpectedly",
+        });
+        await expect(attachment.receive()).rejects.toThrow();
+        expect(() => attachment.send({
+            type: "prompt",
+            content: "must stay terminal",
+        })).toThrow();
+        expect(registry.list()).toMatchObject([{
+            id: "volatile-failure-agent",
+            status: "failed",
+        }]);
+
+        await rm(sessionPath, { recursive: true, force: true });
+        await rename(backupPath, sessionPath);
+        expect((await SessionStore.open(sessionPath)).agentFailure())
+            .toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("resident timeline preview and apply stay with their requesting attachment", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-timeline-"));
     const registry = createRegistry(() => [textResponse("first answer")]);
