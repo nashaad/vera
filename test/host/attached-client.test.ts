@@ -125,6 +125,46 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client receives a resident failure before disconnect",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            await client.receive();
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "partial",
+                seq: 1,
+            });
+            agent.fail("failure-1", "Resident agent stopped unexpectedly");
+
+            expect(await client.receive()).toEqual({
+                type: "assistant_delta",
+                text: "partial",
+                seq: 1,
+            });
+            expect(await client.receive()).toEqual({
+                type: "agent_failed",
+                failureId: "failure-1",
+                detail: "Resident agent stopped unexpectedly",
+                seq: 2,
+            });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "attached client reports a typed missing-agent failure",
     async () => {
         const directory = temporaryDirectory();

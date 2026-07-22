@@ -789,10 +789,19 @@ export async function startTui(
                 if (update.type === "history") {
                     clearTranscriptNodes();
                 }
-                if (update.type === "turn_finished") {
+                if (
+                    update.type === "turn_finished"
+                    || update.type === "agent_failed"
+                ) {
                     abortRequested = false;
                     finishStreamingAssistant();
-                    state = beginNextQueuedTuiTurn(state);
+                    if (update.type === "agent_failed") {
+                        pendingUiRequest = undefined;
+                        timelinePicker = undefined;
+                        settingsPicker = undefined;
+                    } else {
+                        state = beginNextQueuedTuiTurn(state);
+                    }
                     if (state.working) {
                         workingSince = Date.now();
                         phaseSince = workingSince;
@@ -804,6 +813,11 @@ export async function startTui(
                     }
                 }
                 renderState();
+
+                if (update.type === "agent_failed") {
+                    composer.focus();
+                    return;
+                }
 
                 if (
                     !state.working
@@ -1204,7 +1218,10 @@ export async function startTui(
         } else if (update.type === "tool_finished") {
             activity = "thinking";
             phaseSince = Date.now();
-        } else if (update.type === "turn_finished") {
+        } else if (
+            update.type === "turn_finished"
+            || update.type === "agent_failed"
+        ) {
             finishThoughtPhase();
         }
     }

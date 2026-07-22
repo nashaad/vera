@@ -149,6 +149,37 @@ test("closing a resident agent discards buffered commands and updates", async ()
     expect(() => agent.attach()).toThrow(ResidentAgentClosedError);
 });
 
+test("failing a resident agent drains one typed terminal update", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const first = agent.attach();
+    const second = agent.attach();
+    await first.receive();
+    await second.receive();
+    agent.engine.send({ type: "assistant_delta", text: "partial", seq: 4 });
+
+    agent.fail("failure-1", "Resident agent stopped unexpectedly");
+    agent.fail("failure-2", "duplicate");
+
+    for (const attachment of [first, second]) {
+        expect(await attachment.receive()).toEqual({
+            type: "assistant_delta",
+            text: "partial",
+            seq: 4,
+        });
+        expect(await attachment.receive()).toEqual({
+            type: "agent_failed",
+            failureId: "failure-1",
+            detail: "Resident agent stopped unexpectedly",
+            seq: 5,
+        });
+        await expect(attachment.receive()).rejects.toBeInstanceOf(
+            ResidentAgentClosedError,
+        );
+    }
+    expect(agent.status).toBe("idle");
+    expect(agent.closed).toBeTrue();
+});
+
 test("resident agent snapshots commands and isolates attached clients", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const first = agent.attach();

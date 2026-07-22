@@ -15,6 +15,18 @@ test("turn finished accepts an optional model error", () => {
     expect(parseAgentUpdate({ ...update, error: "   " })).toBeUndefined();
 });
 
+test("host wire validates terminal resident failures", () => {
+    const update = {
+        type: "agent_failed" as const,
+        failureId: "failure-1",
+        detail: "Resident agent stopped unexpectedly",
+        seq: 2,
+    };
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, failureId: "" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, detail: "   " })).toBeUndefined();
+});
+
 test("history accepts durable model errors", () => {
     const update = {
         type: "history" as const,

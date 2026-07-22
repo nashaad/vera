@@ -363,7 +363,10 @@ export class AgentRegistry {
         ).catch((error: unknown) => {
             if (!agent.closed) {
                 entry.failure = error;
-                agent.close();
+                agent.fail(
+                    randomUUID(),
+                    "Resident agent stopped unexpectedly",
+                );
             }
         });
         for (const delivery of store.pendingDeliveries()) {

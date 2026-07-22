@@ -125,6 +125,16 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 text: `Model error: ${error}`,
             });
     }
+    if (update.type === "agent_failed") {
+        return appendEntry({
+            ...state,
+            working: false,
+            queuedPrompts: [],
+        }, {
+            kind: "notice",
+            text: `Agent error: ${update.detail}`,
+        });
+    }
     if (update.type === "status") {
         return { ...state, working: update.state !== "idle" };
     }
