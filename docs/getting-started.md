@@ -93,6 +93,10 @@ Start Ollama and choose an installed model from `ollama list`:
 Vera connects to `http://127.0.0.1:11434` by default. Set `OLLAMA_HOST` to use
 another host. The initial integration uses Ollama's OpenAI-compatible chat
 endpoint and supports streaming text and tool calls without an API key.
+When Vera starts, it discovers installed Ollama models without blocking startup
+if the local server is unavailable. In the TUI, run `/model`, search by model or
+provider, and choose a model under the `ollama` section. The provider/model pair
+becomes the default for later turns and new conversations.
 
 ## Run
 

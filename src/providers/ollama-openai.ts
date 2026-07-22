@@ -98,11 +98,10 @@ async function* decodeSse(
     let buffered = "";
     for await (const bytes of body) {
         buffered += decoder.decode(bytes, { stream: true });
-        buffered = buffered.replace(/\r\n?/g, "\n");
-        let boundary: number;
-        while ((boundary = buffered.indexOf("\n\n")) !== -1) {
-            const event = buffered.slice(0, boundary);
-            buffered = buffered.slice(boundary + 2);
+        let match: RegExpExecArray | null;
+        while ((match = /\r?\n\r?\n/.exec(buffered)) !== null) {
+            const event = buffered.slice(0, match.index);
+            buffered = buffered.slice(match.index + match[0].length);
             const chunk = parseEvent(event);
             if (chunk !== undefined) yield chunk;
         }
@@ -115,7 +114,7 @@ async function* decodeSse(
 }
 
 function parseEvent(event: string): ChatStreamChunk | undefined {
-    const data = event.split("\n")
+    const data = event.replace(/\r\n?/g, "\n").split("\n")
         .filter((line) => line.startsWith("data:"))
         .map((line) => line.slice(5).trimStart())
         .join("\n");

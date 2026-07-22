@@ -33,6 +33,7 @@ export interface AskUserInteraction {
 
 export interface ToolEffectContext {
     readonly approvalMode: ApprovalMode;
+    readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
 }

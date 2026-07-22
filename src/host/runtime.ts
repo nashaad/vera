@@ -7,6 +7,8 @@ import {
     type VeraConfig,
 } from "../config.ts";
 import type { ModelAdapter } from "../model/types.ts";
+import { availableModels } from "../engine/model-settings.ts";
+import type { SuggestedModel } from "../model/supported-models.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
 import { AgentRegistry } from "./agent-registry.ts";
@@ -43,14 +45,22 @@ export async function startResidentHost(
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
     const eventLogDirectory = options.eventLogDirectory;
+    const models = options.createAdapter === undefined
+        ? await discoverAvailableModels(options.config)
+        : configuredCatalog(options.config);
     const registry = new AgentRegistry({
         createAdapter: options.createAdapter
-            ?? (() => createConfiguredModelAdapter(options.config)),
+            ?? ((provider) => createConfiguredModelAdapter({
+                ...options.config,
+                provider: (provider ?? options.config.provider) as VeraConfig["provider"],
+            })),
         provider: options.config.provider,
         model: options.config.model,
         approvalMode: options.config.approval_mode,
+        availableModels: models,
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({
+                provider: settings.provider as VeraConfig["provider"],
                 model: settings.model,
                 ...(settings.reasoningEffort === undefined
                     ? {}
@@ -113,6 +123,73 @@ export async function startResidentHost(
             return closing;
         },
     };
+}
+
+async function discoverAvailableModels(
+    config: VeraConfig,
+): Promise<readonly SuggestedModel[]> {
+    const catalog = catalogModels(config);
+    try {
+        const configuredHost = process.env.OLLAMA_HOST
+            ?? "http://127.0.0.1:11434";
+        const host = (/^https?:\/\//.test(configuredHost)
+            ? configuredHost
+            : `http://${configuredHost}`).replace(/\/+$/, "");
+        const response = await fetch(`${host}/v1/models`, {
+            signal: AbortSignal.timeout(750),
+        });
+        if (response.ok) {
+            const body = await response.json() as {
+                data?: readonly { id?: unknown }[];
+            };
+            for (const item of body.data ?? []) {
+                if (typeof item.id !== "string" || item.id.length === 0) {
+                    continue;
+                }
+                catalog.push({
+                    provider: "ollama",
+                    model: item.id,
+                    label: item.id,
+                    description: "installed locally",
+                });
+            }
+        }
+    } catch {
+        // Ollama is optional; an offline local server must not block Vera startup.
+    }
+    if (!catalog.some((item) =>
+        item.provider === config.provider && item.model === config.model
+    )) {
+        catalog.unshift({
+            provider: config.provider,
+            model: config.model,
+            label: config.model,
+            description: "configured model",
+        });
+    }
+    return catalog;
+}
+
+function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
+    const catalog = catalogModels(config);
+    return catalog.some((item) =>
+        item.provider === config.provider && item.model === config.model
+    )
+        ? catalog
+        : [{
+            provider: config.provider,
+            model: config.model,
+            label: config.model,
+            description: "configured model",
+        }, ...catalog];
+}
+
+function catalogModels(config: VeraConfig): SuggestedModel[] {
+    return [...availableModels()].filter((model) =>
+        model.provider !== "openrouter"
+        || config.provider === "openrouter"
+        || Boolean(process.env.OPENROUTER_API_KEY)
+    );
 }
 
 async function restoreStoredAgents(

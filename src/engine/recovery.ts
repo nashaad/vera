@@ -33,6 +33,7 @@ export interface ModelRetryScheduled {
 }
 
 export interface ModelFallbackPolicy {
+    readonly provider?: string;
     readonly model: string;
     readonly afterFailures: number;
 }

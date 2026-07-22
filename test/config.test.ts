@@ -90,6 +90,7 @@ test("Vera config loads an engine model fallback", () => {
         after_failures: 2,
     });
     expect(configuredModelFallback(config)).toEqual({
+        provider: "openrouter",
         model: "backup/model",
         afterFailures: 2,
     });
@@ -198,6 +199,25 @@ test("settings changes become defaults for newly created chats", () => {
         model: "z-ai/glm-5.2",
         reasoning_effort: "high",
         approval_mode: "ask",
+    });
+});
+
+test("switching providers clears a provider-specific fallback", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "primary/model",
+        fallback: { model: "backup/model", after_failures: 2 },
+    }));
+
+    expect(updateVeraConfigDefaults({
+        provider: "ollama",
+        model: "local-model",
+    }, { path })).toMatchObject({
+        provider: "ollama",
+        model: "local-model",
+        fallback: undefined,
     });
 });
 

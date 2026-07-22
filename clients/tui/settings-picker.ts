@@ -33,6 +33,8 @@ export interface TuiSettingsPickerOption {
     readonly label: string;
     readonly description: string;
     readonly searchText?: string;
+    readonly provider?: string;
+    readonly model?: string;
 }
 
 export interface TuiSettingsPickerState {
@@ -42,6 +44,7 @@ export interface TuiSettingsPickerState {
     readonly selectedIndex: number;
     readonly query: string;
     readonly initialTheme?: TuiThemeName;
+    readonly initialModel?: string;
     readonly loading?: boolean;
 }
 
@@ -55,7 +58,7 @@ export interface TuiSettingsPickerKey {
 }
 
 export type TuiSettingsPickerSelection =
-    | { readonly kind: "model"; readonly model: string }
+    | { readonly kind: "model"; readonly provider: string; readonly model: string }
     | {
         readonly kind: "reasoning";
         readonly reasoningEffort: ModelReasoningEffort;
@@ -116,18 +119,21 @@ export function startTuiSettingsPicker(
     availableReasoning: readonly ModelReasoningEffort[] | undefined = undefined,
     availableModels: readonly SuggestedModel[] | undefined = undefined,
     currentTheme: TuiThemeName = "default",
+    currentProvider: string | undefined = undefined,
 ): TuiSettingsPickerState {
     const options = kind === "theme"
         ? THEME_OPTIONS
         : kind === "model"
-        ? modelOptions(availableModels, currentModel)
+        ? modelOptions(availableModels, currentProvider, currentModel)
         : kind === "reasoning"
             ? reasoningOptions(availableReasoning)
             : PERMISSION_OPTIONS;
     const currentValue = kind === "theme"
         ? currentTheme
         : kind === "model"
-        ? currentModel
+        ? currentModel === undefined || currentProvider === undefined
+            ? undefined
+            : providerModelKey(currentProvider, currentModel)
         : kind === "reasoning"
             ? currentReasoning ?? "default"
             : currentPermissions;
@@ -141,6 +147,9 @@ export function startTuiSettingsPicker(
         options,
         selectedIndex,
         query: "",
+        ...(kind === "model" && currentValue !== undefined
+            ? { initialModel: currentValue }
+            : {}),
         ...(kind === "theme" ? { initialTheme: currentTheme } : {}),
     };
 }
@@ -293,7 +302,7 @@ export function handleTuiSettingsPickerKey(
             return unchanged(state, true);
         }
         return {
-            selection: pickerSelection(state.kind, selected.value),
+            selection: pickerSelection(state.kind, selected),
             handled: true,
         };
     }
@@ -471,13 +480,23 @@ function themeSwatchChunks(name: TuiThemeName, matched: boolean): TextChunk[] {
 export function renderTuiSettingsPicker(
     state: TuiSettingsPickerState,
 ): string {
-    const rows = state.options.map((option, index) => {
+    const rows = state.options.flatMap((option, index) => {
         const marker = index === state.selectedIndex ? "›" : " ";
-        return `${marker} ${option.label.padEnd(18)} ${option.description}`;
+        const current = state.kind === "model"
+            && option.value === state.initialModel ? "●" : " ";
+        const description = state.kind === "model" && state.query.length > 0
+            ? `${option.provider} · ${option.description}`
+            : option.description;
+        const row = `${marker}${current} ${option.label.padEnd(18)} ${description}`;
+        if (state.kind !== "model" || state.query.length > 0) {
+            return [row];
+        }
+        const previous = state.options[index - 1];
+        return previous?.provider === option.provider
+            ? [row]
+            : [`${option.provider ?? "Other"}`, row];
     });
-    const search = `Search  ${state.query}\n\n${
-        state.kind === "model" && state.query.length === 0 ? "Recent\n" : ""
-    }`;
+    const search = `Search  ${state.query}\n\n`;
     const empty = state.kind === "session" && rows.length === 0
         ? state.loading
             ? "Loading conversations…"
@@ -518,33 +537,53 @@ function themePreview(
 
 function modelOptions(
     available: readonly SuggestedModel[] | undefined,
+    currentProvider: string | undefined,
     currentModel: string | undefined,
 ): readonly TuiSettingsPickerOption[] {
     const options = (available ?? []).map((model) => ({
-        value: model.model,
+        value: providerModelKey(model.provider, model.model),
         label: model.label,
-        description: `${model.provider} · ${model.description}`,
-    }));
-    if (currentModel === undefined || options.some((option) => option.value === currentModel)) {
+        description: model.description,
+        searchText: `${model.provider} ${model.model}`,
+        provider: model.provider,
+        model: model.model,
+    })).toSorted((left, right) =>
+        left.provider.localeCompare(right.provider)
+            || left.label.localeCompare(right.label)
+    );
+    if (currentModel === undefined || currentProvider === undefined) {
         return options;
     }
+    const currentValue = providerModelKey(currentProvider, currentModel);
+    if (options.some((option) => option.value === currentValue)) return options;
     return [
         {
-            value: currentModel,
+            value: currentValue,
             label: currentModel,
             description: "current model",
+            searchText: `${currentProvider} ${currentModel}`,
+            provider: currentProvider,
+            model: currentModel,
         },
         ...options,
     ];
 }
 
+function providerModelKey(provider: string, model: string): string {
+    return JSON.stringify([provider, model]);
+}
+
 function pickerSelection(
     kind: TuiSettingsPickerKind,
-    value: string,
+    option: TuiSettingsPickerOption,
 ): TuiSettingsPickerSelection {
     if (kind === "model") {
-        return { kind, model: value };
+        if (option.provider === undefined || option.model === undefined) {
+            throw new Error("model picker option is missing provider identity");
+        }
+        return { kind, provider: option.provider, model: option.model };
     }
+    const value = option.value;
     if (kind === "reasoning") {
         return { kind, reasoningEffort: value as ModelReasoningEffort };
     }

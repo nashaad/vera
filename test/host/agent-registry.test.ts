@@ -130,6 +130,7 @@ test("a resident agent applies new model settings at the next turn", async () =>
             type: "update_model_settings",
             requestId: "change-settings",
             patch: {
+                provider: "ollama",
                 model: "second-model",
                 reasoningEffort: "high",
             },
@@ -138,6 +139,7 @@ test("a resident agent applies new model settings at the next turn", async () =>
             type: "model_settings",
             requestId: "change-settings",
             settings: {
+                provider: "ollama",
                 model: "second-model",
                 reasoningEffort: "high",
             },
@@ -158,6 +160,7 @@ test("a resident agent applies new model settings at the next turn", async () =>
             type: "model_settings",
             requestId: "read-settings",
             settings: {
+                provider: "ollama",
                 model: "second-model",
                 reasoningEffort: "high",
             },
@@ -173,11 +176,12 @@ test("a resident agent applies new model settings at the next turn", async () =>
         await receiveTurnFinished(secondAttachment);
 
         expect(requests.map((request) => ({
+            provider: request.provider,
             model: request.model,
             reasoningEffort: request.reasoningEffort,
         }))).toEqual([
-            { model: "first-model", reasoningEffort: "low" },
-            { model: "second-model", reasoningEffort: "high" },
+            { provider: "unknown", model: "first-model", reasoningEffort: "low" },
+            { provider: "ollama", model: "second-model", reasoningEffort: "high" },
         ]);
         const store = await SessionStore.open(join(root, "agent.jsonl"));
         expect(store.messages().filter((message) => message.role === "user"))

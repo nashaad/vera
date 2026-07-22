@@ -68,6 +68,26 @@ test("Ollama compatibility streams text through Vera's model adapter", async () 
     });
 });
 
+test("Ollama compatibility handles CRLF split across network chunks", async () => {
+    const encoder = new TextEncoder();
+    const adapter = createOllamaAdapter({
+        fetch: async () => new Response(new ReadableStream({
+            start(controller) {
+                controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\r'));
+                controller.enqueue(encoder.encode('\n\r\n'));
+                controller.enqueue(encoder.encode('data: [DONE]\r\n\r\n'));
+                controller.close();
+            },
+        }), { status: 200 }),
+    });
+    const stream = adapter.stream({ model: "local", messages: [] });
+    const events = [];
+    for await (const event of stream) events.push(event);
+    expect(events.some((event) =>
+        event.type === "text_delta" && event.text === "hi"
+    )).toBe(true);
+});
+
 test("Ollama compatibility exposes connection and HTTP failures as terminal errors", async () => {
     const adapter = createOllamaAdapter({
         fetch: async () => new Response('{"error":"model not found"}', {

@@ -36,6 +36,7 @@ export interface LoadVeraConfigOptions {
 }
 
 export interface VeraConfigDefaultsPatch {
+    readonly provider?: VeraProviderId;
     readonly model?: string;
     readonly reasoning_effort?: ModelReasoningEffort;
     readonly approval_mode?: ApprovalMode;
@@ -87,13 +88,20 @@ export function updateVeraConfigDefaults(
     const current = loadVeraConfig({ path });
     const updated: VeraConfig = {
         ...current,
+        ...(patch.provider === undefined ? {} : { provider: patch.provider }),
         ...(patch.model === undefined ? {} : { model: patch.model }),
         ...(patch.reasoning_effort === undefined
             ? {}
             : { reasoning_effort: patch.reasoning_effort }),
+        ...(patch.provider === "openai-codex"
+            ? { reasoning_effort: undefined }
+            : {}),
         ...(patch.approval_mode === undefined
             ? {}
             : { approval_mode: patch.approval_mode }),
+        ...(patch.provider !== undefined && patch.provider !== current.provider
+            ? { fallback: undefined }
+            : {}),
         ...(patch.model !== undefined && current.fallback?.model === patch.model
             ? { fallback: undefined }
             : {}),
@@ -160,6 +168,7 @@ export function configuredModelFallback(
         return undefined;
     }
     return {
+        provider: config.provider,
         model: config.fallback.model,
         afterFailures: config.fallback.after_failures,
     };

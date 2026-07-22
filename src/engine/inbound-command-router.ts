@@ -562,6 +562,7 @@ export class InboundCommandRouter {
 
 function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
     return {
+        ...(settings.provider === undefined ? {} : { provider: settings.provider }),
         model: settings.model,
         ...(settings.reasoningEffort === undefined
             ? {}
