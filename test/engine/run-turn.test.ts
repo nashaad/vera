@@ -23,6 +23,7 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelMessage,
     type ModelRequest,
     type ModelReasoningEffort,
 } from "../../src/model/types.ts";
@@ -457,7 +458,7 @@ test("a length stop preserves streamed text and continues with a larger cap", as
         },
     ]);
     expect(state.messages).toEqual([
-        ...requests[1]!.messages,
+        ...requests[1]!.messages as readonly ModelMessage[],
         finalResponse,
     ]);
     expect(observed).toContainEqual({

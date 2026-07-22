@@ -14,6 +14,49 @@ import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 import type { ModelMessage, ModelStreamEvent } from "../../src/model/types.ts";
 
 describe("OpenAI Codex adapter", () => {
+    test("encodes ordered provider-neutral image content", async () => {
+        const requests: OpenAICodexRequest[] = [];
+        const imageData = Uint8Array.from([1, 2, 3]);
+        const adapter = new OpenAICodexAdapter(async (request) => {
+            requests.push(request);
+            return events([{
+                type: "response.completed",
+                response: { model: "gpt-5.6-sol", usage: {} },
+            }]);
+        });
+        const stream = adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [{
+                role: "user",
+                content: [
+                    { type: "text", text: "What is shown?" },
+                    {
+                        type: "image",
+                        mediaType: "image/png",
+                        data: imageData,
+                    },
+                ],
+            }],
+        });
+        imageData[0] = 9;
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+
+        expect(requests[0]?.input).toEqual([{
+            type: "message",
+            role: "user",
+            content: [
+                { type: "input_text", text: "What is shown?" },
+                {
+                    type: "input_image",
+                    image_url: "data:image/png;base64,AQID",
+                    detail: "auto",
+                },
+            ],
+        }]);
+    });
+
     test("streams and replays one tool-using conversation on Responses", async () => {
         const requests: OpenAICodexRequest[] = [];
         const responses: OpenAICodexStreamEvent[][] = [

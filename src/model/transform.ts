@@ -1,6 +1,7 @@
 import type {
     AssistantContent,
     AssistantMessage,
+    ModelInputMessage,
     ModelMessage,
     ModelSource,
     ToolCallContent,
@@ -18,14 +19,14 @@ interface TransformedAssistant {
 }
 
 export function transformMessages(
-    messages: readonly ModelMessage[],
+    messages: readonly ModelInputMessage[],
     options: TransformMessagesOptions,
-): ModelMessage[] {
+): ModelInputMessage[] {
     const resultIds = collectToolResultIds(messages);
     const skippedToolCallIds = collectSkippedToolCallIds(messages);
     const transformedToolCallIds = new Map<string, string>();
     const usedToolCallIds = new Set<string>();
-    const transformed: ModelMessage[] = [];
+    const transformed: ModelInputMessage[] = [];
 
     for (const message of messages) {
         if (message.role === "assistant") {
@@ -104,7 +105,7 @@ function transformAssistant(
     };
 }
 
-function collectToolResultIds(messages: readonly ModelMessage[]): Set<string> {
+function collectToolResultIds(messages: readonly ModelInputMessage[]): Set<string> {
     return new Set(
         messages
             .filter((message): message is ToolResultMessage => message.role === "tool_result")
@@ -112,7 +113,7 @@ function collectToolResultIds(messages: readonly ModelMessage[]): Set<string> {
     );
 }
 
-function collectSkippedToolCallIds(messages: readonly ModelMessage[]): Set<string> {
+function collectSkippedToolCallIds(messages: readonly ModelInputMessage[]): Set<string> {
     const ids = new Set<string>();
     for (const message of messages) {
         if (message.role !== "assistant" || !shouldSkip(message)) {

@@ -7,7 +7,7 @@ import type {
 } from "@openrouter/sdk/models";
 
 import type {
-    ModelMessage,
+    ModelInputMessage,
     ModelStopReason,
     ModelTool,
     ModelUsage,
@@ -31,7 +31,7 @@ export type SendOpenRouterChat = (
 
 export function encodeOpenRouterMessages(
     systemPrompt: string | undefined,
-    messages: readonly ModelMessage[],
+    messages: readonly ModelInputMessage[],
 ): ChatMessages[] {
     const encoded: ChatMessages[] = [];
     if (systemPrompt) {
@@ -40,6 +40,9 @@ export function encodeOpenRouterMessages(
 
     for (const message of messages) {
         if (message.role === "user") {
+            if (message.content.some((block) => block.type === "image")) {
+                throw new Error("OpenRouter image input is not supported yet");
+            }
             encoded.push({ role: "user", content: joinText(message.content) });
             continue;
         }
@@ -166,6 +169,8 @@ export function parseOpenRouterToolInput(
     return parsed as Record<string, unknown>;
 }
 
-function joinText(content: readonly { readonly text: string }[]): string {
-    return content.map((block) => block.text).join("");
+function joinText(content: readonly { readonly type: string; readonly text?: string }[]): string {
+    return content.flatMap((block) => block.type === "text" && block.text !== undefined
+        ? [block.text]
+        : []).join("");
 }

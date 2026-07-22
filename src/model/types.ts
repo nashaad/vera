@@ -10,6 +10,18 @@ export interface TextContent {
     readonly text: string;
 }
 
+export type ModelImageMediaType =
+    | "image/png"
+    | "image/jpeg"
+    | "image/gif"
+    | "image/webp";
+
+export interface ImageContent {
+    readonly type: "image";
+    readonly mediaType: ModelImageMediaType;
+    readonly data: Uint8Array;
+}
+
 export interface ThinkingContent {
     readonly type: "thinking";
     readonly text: string;
@@ -32,6 +44,12 @@ export interface UserMessage {
     readonly internal?: boolean;
 }
 
+export interface ModelInputUserMessage {
+    readonly role: "user";
+    readonly content: readonly (TextContent | ImageContent)[];
+    readonly internal?: boolean;
+}
+
 export interface AssistantMessage {
     readonly role: "assistant";
     readonly content: readonly AssistantContent[];
@@ -50,6 +68,10 @@ export interface ToolResultMessage {
 }
 
 export type ModelMessage = UserMessage | AssistantMessage | ToolResultMessage;
+export type ModelInputMessage =
+    | ModelInputUserMessage
+    | AssistantMessage
+    | ToolResultMessage;
 
 export interface ModelUsage {
     readonly inputTokens: number;
@@ -81,7 +103,7 @@ export interface ModelRequest {
     readonly maxTokens?: number;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly systemPrompt?: string;
-    readonly messages: readonly ModelMessage[];
+    readonly messages: readonly ModelInputMessage[];
     readonly tools?: readonly ModelTool[];
     readonly signal?: AbortSignal;
 }

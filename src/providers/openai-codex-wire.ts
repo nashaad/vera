@@ -1,5 +1,5 @@
 import type {
-    ModelMessage,
+    ModelInputMessage,
     ModelTool,
     ModelUsage,
 } from "../model/types.ts";
@@ -10,6 +10,12 @@ export interface OpenAICodexInputText {
     readonly text: string;
 }
 
+export interface OpenAICodexInputImage {
+    readonly type: "input_image";
+    readonly image_url: string;
+    readonly detail: "auto";
+}
+
 export interface OpenAICodexOutputText {
     readonly type: "output_text";
     readonly text: string;
@@ -18,7 +24,7 @@ export interface OpenAICodexOutputText {
 export interface OpenAICodexUserInput {
     readonly type: "message";
     readonly role: "user";
-    readonly content: readonly OpenAICodexInputText[];
+    readonly content: readonly (OpenAICodexInputText | OpenAICodexInputImage)[];
 }
 
 export interface OpenAICodexAssistantInput {
@@ -87,7 +93,7 @@ export type SendOpenAICodexResponse = (
 ) => Promise<AsyncIterable<OpenAICodexStreamEvent>>;
 
 export function encodeOpenAICodexInput(
-    messages: readonly ModelMessage[],
+    messages: readonly ModelInputMessage[],
 ): OpenAICodexInputItem[] {
     const input: OpenAICodexInputItem[] = [];
 
@@ -96,10 +102,13 @@ export function encodeOpenAICodexInput(
             input.push({
                 type: "message",
                 role: "user",
-                content: [{
-                    type: "input_text",
-                    text: joinText(message.content),
-                }],
+                content: message.content.map((block) => block.type === "text"
+                    ? { type: "input_text", text: block.text }
+                    : {
+                        type: "input_image",
+                        image_url: `data:${block.mediaType};base64,${Buffer.from(block.data).toString("base64")}`,
+                        detail: "auto",
+                    }),
             });
             continue;
         }

@@ -12,6 +12,7 @@ import {
     AttachmentStore,
     type StoredImageAttachment,
 } from "./store.ts";
+import type { ImageContent } from "../model/types.ts";
 
 export class ImageAttachmentService {
     private readonly limits: ImageValidationLimits;
@@ -42,6 +43,20 @@ export class ImageAttachmentService {
             sourceName,
         );
         return this.session.appendAttachment(stored);
+    }
+
+    async readContent(attachmentId: string): Promise<ImageContent> {
+        const attachment = this.session.attachmentRecords().find(
+            (candidate) => candidate.id === attachmentId,
+        );
+        if (attachment === undefined) {
+            throw new Error(`Image attachment ${attachmentId} is not in this session`);
+        }
+        return {
+            type: "image",
+            mediaType: attachment.mediaType,
+            data: await this.files.readImage(attachment),
+        };
     }
 }
 

@@ -45,7 +45,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
 
     stream(request: ModelRequest): ModelEventStream {
         const stream = new ModelEventStream();
-        void this.produce(request, stream);
+        void this.produce(snapshotImageInputs(request), stream);
         return stream;
     }
 
@@ -117,6 +117,20 @@ export class OpenAICodexAdapter implements ModelAdapter {
             });
         }
     }
+}
+
+function snapshotImageInputs(request: ModelRequest): ModelRequest {
+    return {
+        ...request,
+        messages: request.messages.map((message) => message.role !== "user"
+            ? message
+            : {
+                ...message,
+                content: message.content.map((block) => block.type === "text"
+                    ? block
+                    : { ...block, data: new Uint8Array(block.data) }),
+            }),
+    };
 }
 
 export function createOpenAICodexAdapter(
