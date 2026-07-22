@@ -9,7 +9,7 @@ import type { RegisteredAgentSummary } from "./agent-registry.ts";
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 5;
+export const HOST_PROTOCOL_VERSION = 6;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -29,6 +29,7 @@ export interface ShutdownIfIdleRequest {
     readonly type: "shutdown_if_idle";
     readonly pid: number;
     readonly started_at: string;
+    readonly requester_protocol_version: number;
 }
 
 export interface CreateAgentRequest {
@@ -97,7 +98,7 @@ export interface ShutdownIfIdleAcceptedResponse {
 
 export interface ShutdownIfIdleRefusedResponse {
     readonly type: "shutdown_if_idle_refused";
-    readonly reason: "busy" | "identity_mismatch";
+    readonly reason: "busy" | "identity_mismatch" | "requester_not_newer";
 }
 
 export type ShutdownIfIdleResponse =
@@ -142,11 +143,15 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && (value.pid as number) > 0
         && typeof value.started_at === "string"
         && !Number.isNaN(Date.parse(value.started_at))
+        && Number.isSafeInteger(value.requester_protocol_version)
+        && (value.requester_protocol_version as number) > 0
     ) {
         return {
             type: "shutdown_if_idle",
             pid: value.pid as number,
             started_at: value.started_at,
+            requester_protocol_version:
+                value.requester_protocol_version as number,
         };
     }
     if (
@@ -234,6 +239,7 @@ export function requestHostIdentity(
 export function requestHostShutdownIfIdle(
     socketPath: string,
     identity: HostIdentity,
+    requesterProtocolVersion: number = HOST_PROTOCOL_VERSION,
 ): Promise<ShutdownIfIdleResponse | undefined> {
     return new Promise((resolve) => {
         let socket: Socket;
@@ -261,6 +267,7 @@ export function requestHostShutdownIfIdle(
                 type: "shutdown_if_idle",
                 pid: identity.pid,
                 started_at: identity.started_at,
+                requester_protocol_version: requesterProtocolVersion,
             })}\n`);
         });
         socket.on("data", (chunk: string) => {
@@ -323,6 +330,7 @@ function parseShutdownIfIdleResponse(
         && (
             response.reason === "busy"
             || response.reason === "identity_mismatch"
+            || response.reason === "requester_not_newer"
         )
     ) {
         return {

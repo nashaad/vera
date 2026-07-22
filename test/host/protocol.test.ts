@@ -23,11 +23,18 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "shutdown_if_idle",
         pid: 101,
         started_at: "2026-07-17T12:00:00.000Z",
+        requester_protocol_version: HOST_PROTOCOL_VERSION,
     }))).toEqual({
         type: "shutdown_if_idle",
         pid: 101,
         started_at: "2026-07-17T12:00:00.000Z",
+        requester_protocol_version: HOST_PROTOCOL_VERSION,
     });
+    expect(parseHostRequest(JSON.stringify({
+        type: "shutdown_if_idle",
+        pid: 101,
+        started_at: "2026-07-17T12:00:00.000Z",
+    }))).toBeUndefined();
     expect(parseHostRequest(JSON.stringify({
         type: "shutdown_if_idle",
         pid: 0,

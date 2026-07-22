@@ -56,6 +56,14 @@ afterEach(() => {
                 server.identity,
             )).toEqual({
                 type: "shutdown_if_idle_refused",
+                reason: "requester_not_newer",
+            });
+            expect(await requestHostShutdownIfIdle(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION + 1,
+            )).toEqual({
+                type: "shutdown_if_idle_refused",
                 reason: "busy",
             });
 
@@ -63,6 +71,7 @@ afterEach(() => {
             expect(await requestHostShutdownIfIdle(
                 socketPath,
                 server.identity,
+                HOST_PROTOCOL_VERSION + 1,
             )).toEqual({
                 type: "shutdown_if_idle_accepted",
                 pid: 101,
@@ -107,6 +116,7 @@ afterEach(() => {
             expect(await requestHostShutdownIfIdle(
                 socketPath,
                 server.identity,
+                HOST_PROTOCOL_VERSION + 1,
             )).toEqual({
                 type: "shutdown_if_idle_refused",
                 reason: "busy",
@@ -119,6 +129,7 @@ afterEach(() => {
             expect(await requestHostShutdownIfIdle(
                 socketPath,
                 server.identity,
+                HOST_PROTOCOL_VERSION + 1,
             )).toMatchObject({ type: "shutdown_if_idle_accepted" });
         } finally {
             attached.close();
