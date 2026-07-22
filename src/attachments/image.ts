@@ -68,7 +68,7 @@ export async function validateImageBytes(
     decoderInput.set(snapshot);
     const inspected = await inspectSnapshot(
         decoderInput,
-        validatedLimits,
+        { ...validatedLimits },
         inspect,
     );
     if (!isImageMediaType(inspected.mediaType)) {

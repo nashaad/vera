@@ -359,7 +359,7 @@ export class SessionStore {
 
     appendAttachment(
         attachment: SessionImageAttachmentMetadata,
-    ): Promise<boolean> {
+    ): Promise<SessionImageAttachmentMetadata> {
         const snapshot = copySessionImageAttachment(attachment);
         const result = this.pendingAppend.then(() =>
             this.commitAttachment(snapshot)
@@ -495,7 +495,7 @@ export class SessionStore {
 
     private async commitAttachment(
         attachment: SessionImageAttachmentMetadata,
-    ): Promise<boolean> {
+    ): Promise<SessionImageAttachmentMetadata> {
         const stored = attachment;
         const existing = this.attachmentEntries.find(
             (entry) => entry.attachment.id === stored.id,
@@ -504,16 +504,31 @@ export class SessionStore {
             if (!sameAttachmentContent(existing.attachment, stored)) {
                 throw new Error(`Attachment ${stored.id} conflicts with stored metadata`);
             }
-            return false;
+            return { ...existing.attachment };
         }
         const entry: SessionAttachmentEntry = {
             type: "attachment",
             timestamp: this.now().toISOString(),
             attachment: stored,
         };
-        await this.appendRecord(entry);
+        try {
+            await this.appendRecord(entry);
+        } catch (error) {
+            const durable = await readDurableAttachment(this.path, stored.id);
+            if (
+                durable === undefined
+                || !sameAttachmentContent(durable, stored)
+            ) {
+                throw error;
+            }
+            this.attachmentEntries.push({
+                ...entry,
+                attachment: durable,
+            });
+            return { ...durable };
+        }
         this.attachmentEntries.push(entry);
-        return true;
+        return { ...stored };
     }
 
     private async commitRewind(
@@ -589,6 +604,21 @@ export class SessionStore {
         } finally {
             await file.close();
         }
+    }
+}
+
+async function readDurableAttachment(
+    path: string,
+    id: string,
+): Promise<SessionImageAttachmentMetadata | undefined> {
+    try {
+        const source = await readFile(path, "utf8");
+        const complete = completeSessionSource(path, source);
+        return parseSessionFile(path, complete).attachmentEntries.find(
+            (entry) => entry.attachment.id === id,
+        )?.attachment;
+    } catch {
+        return undefined;
     }
 }
 
@@ -783,6 +813,15 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         if (value.type === "attachment") {
             const entry = parseAttachmentEntry(path, lineNumber, value);
             if (knownAttachmentIds.has(entry.attachment.id)) {
+                const existing = attachmentEntries.find(
+                    (candidate) => candidate.attachment.id === entry.attachment.id,
+                );
+                if (
+                    existing !== undefined
+                    && sameAttachmentContent(existing.attachment, entry.attachment)
+                ) {
+                    continue;
+                }
                 throw invalidSession(
                     path,
                     `line ${lineNumber} repeats attachment ID ${entry.attachment.id}`,

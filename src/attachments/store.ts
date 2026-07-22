@@ -64,6 +64,7 @@ export class AttachmentStore {
         }
         return data;
     }
+
 }
 
 async function writeExclusive(path: string, data: Uint8Array): Promise<void> {

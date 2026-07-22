@@ -118,6 +118,15 @@ test("image validation rejects unsupported, corrupt, and huge decoder results", 
         }),
         "unsupported",
     );
+    await expectError(
+        new Uint8Array([1]),
+        { maxBytes: 1, maxWidth: 1, maxHeight: 1 },
+        async (_data, decoderLimits) => {
+            (decoderLimits as { maxWidth: number }).maxWidth = 10;
+            return { mediaType: "image/png", width: 2, height: 1 };
+        },
+        "dimensions_exceeded",
+    );
 });
 
 test("image validation reads decoder metadata properties once", async () => {

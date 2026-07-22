@@ -140,6 +140,7 @@ describe("AttachmentStore", () => {
         await expect(store.saveImage(data, metadata(data), "photo.png"))
             .rejects.toThrow();
     });
+
 });
 
 async function temporaryDirectory(): Promise<string> {
