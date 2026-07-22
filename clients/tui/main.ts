@@ -43,6 +43,10 @@ import {
     renderTuiCommandSuggestions,
 } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
+import {
+    createTuiPermissionsConfirmView,
+    handleTuiPermissionsConfirmKey,
+} from "./permissions-confirm.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import { renderTuiStatusLine } from "./status.ts";
@@ -213,6 +217,7 @@ export async function startTui(
     let pendingUiRequest: UiRequestUpdate | undefined;
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiSettingsPickerState | undefined;
+    let confirmingFullAccess = false;
     let commandSuggestionIndex = 0;
     let workingSince: number | undefined;
     let phaseSince: number | undefined;
@@ -326,6 +331,7 @@ export async function startTui(
     );
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
+    const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
     const approvalView = createTuiApprovalView(renderer);
     const questionView = createTuiQuestionView(renderer);
 
@@ -338,12 +344,11 @@ export async function startTui(
     });
     const commandSuggestionsBox = new BoxRenderable(renderer, {
         id: "command-suggestions",
-        title: " Commands ",
-        border: true,
-        borderColor: TUI_MUTED,
+        border: false,
         width: "100%",
-        height: 3,
-        paddingX: 1,
+        height: 1,
+        paddingLeft: 1,
+        paddingRight: 1,
         visible: false,
     });
     commandSuggestionsBox.add(commandSuggestionsText);
@@ -367,6 +372,7 @@ export async function startTui(
     app.add(questionView.box);
     app.add(timelinePickerView.box);
     app.add(settingsPickerView.box);
+    app.add(permissionsConfirmView.box);
     app.add(commandSuggestionsBox);
     app.add(composerBox);
     app.add(statusText);
@@ -467,6 +473,23 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 applyTimelineTransition(transition);
+                return;
+            }
+        }
+
+        if (confirmingFullAccess) {
+            const result = handleTuiPermissionsConfirmKey(key);
+            if (result !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                confirmingFullAccess = false;
+                if (result === "confirm") {
+                    requestPermissionsChange("full_access");
+                } else {
+                    state = appendTuiNotice(state, "full access unchanged");
+                }
+                focusActiveSurface();
+                renderState();
                 return;
             }
         }
@@ -657,15 +680,12 @@ export async function startTui(
         }
         if (commandAction?.type === "update_permissions") {
             composer.clearComposer();
-            sendCommand({
-                type: "update_permissions",
-                requestId: randomUUID(),
-                mode: commandAction.mode,
-            });
-            state = appendTuiNotice(
-                state,
-                `permissions change requested: ${commandAction.mode}`,
-            );
+            if (commandAction.mode === "full_access") {
+                confirmingFullAccess = true;
+                focusActiveSurface();
+            } else {
+                requestPermissionsChange(commandAction.mode);
+            }
             renderState();
             return;
         }
@@ -998,6 +1018,10 @@ export async function startTui(
             settingsPickerView.box.focus();
             return;
         }
+        if (confirmingFullAccess) {
+            permissionsConfirmView.box.focus();
+            return;
+        }
         composer.focus();
     }
 
@@ -1035,6 +1059,7 @@ export async function startTui(
         pendingUiRequest = undefined;
         timelinePicker = undefined;
         settingsPicker = undefined;
+        confirmingFullAccess = false;
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
@@ -1061,15 +1086,21 @@ export async function startTui(
             && timelinePicker !== undefined;
         settingsPickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
+            && !confirmingFullAccess
             && settingsPicker !== undefined;
+        permissionsConfirmView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && confirmingFullAccess;
         transcript.opacity = approvalView.box.visible
                 || questionView.box.visible
                 || timelinePickerView.box.visible
                 || settingsPickerView.box.visible
+                || permissionsConfirmView.box.visible
             ? 0.35
             : 1;
         composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
+            && !confirmingFullAccess
             && settingsPicker === undefined;
         renderCommandSuggestions();
         if (
@@ -1170,12 +1201,11 @@ export async function startTui(
                 });
                 state = appendTuiNotice(state, `reasoning change requested: ${selection.reasoningEffort}`);
             } else if (selection.kind === "permissions") {
-                sendCommand({
-                    type: "update_permissions",
-                    requestId: randomUUID(),
-                    mode: selection.mode,
-                });
-                state = appendTuiNotice(state, `permissions change requested: ${selection.mode}`);
+                if (selection.mode === "full_access") {
+                    confirmingFullAccess = true;
+                } else {
+                    requestPermissionsChange(selection.mode);
+                }
             } else if (selection.kind === "theme") {
                 themeName = selection.theme;
                 saveTuiThemePreference(themeName);
@@ -1198,6 +1228,15 @@ export async function startTui(
             settingsPickerView.box.focus();
         }
         renderState();
+    }
+
+    function requestPermissionsChange(mode: "ask" | "approve_for_me" | "full_access"): void {
+        sendCommand({
+            type: "update_permissions",
+            requestId: randomUUID(),
+            mode,
+        });
+        state = appendTuiNotice(state, `permissions change requested: ${mode}`);
     }
 
     async function applySelectedTheme(
