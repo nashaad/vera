@@ -67,6 +67,7 @@ export class ResidentAgent {
     private updatesAfterCheckpoint: AgentUpdate[] = [];
     private currentStatus: AgentStatus = "idle";
     private lastSequence = 0;
+    private terminalFailure: AgentUpdate | undefined;
     private isClosed = false;
     private pendingCommandCount = 0;
     private promptStarting = false;
@@ -124,13 +125,16 @@ export class ResidentAgent {
         for (const update of this.updatesAfterCheckpoint) {
             outgoing.push(clone(update));
         }
+        if (this.terminalFailure !== undefined) {
+            outgoing.fail(new ResidentAgentClosedError());
+        }
 
         return {
             send: (command): void => {
                 if (!attached) {
                     throw new AgentDetachedError();
                 }
-                if (this.isClosed) {
+                if (this.isClosed || this.terminalFailure !== undefined) {
                     throw new ResidentAgentClosedError();
                 }
                 if (this.pendingCommandCount >= this.maxPendingCommands) {
@@ -168,7 +172,7 @@ export class ResidentAgent {
                 outgoing.fail(new AgentDetachedError(), {
                     discardBuffered: true,
                 });
-                if (!this.isClosed) {
+                if (!this.isClosed && this.terminalFailure === undefined) {
                     this.inbound.push({
                         command: {
                             type: "timeline_owner_detached",
@@ -196,16 +200,37 @@ export class ResidentAgent {
     }
 
     fail(failureId: string, detail: string): void {
-        if (this.isClosed) {
+        if (this.isClosed || this.terminalFailure !== undefined) {
             return;
         }
-        this.broadcast({
+        const failure = {
             type: "agent_failed",
             failureId: nonEmpty(failureId, "failure ID"),
             detail: nonEmpty(detail, "failure detail"),
             seq: this.lastSequence + 1,
-        });
-        this.closeWithError(new ResidentAgentClosedError(), false);
+        } as const;
+        this.broadcast(failure);
+        this.terminalFailure = failure;
+        const error = new ResidentAgentClosedError();
+        this.pendingCommandCount = 0;
+        this.inbound.fail(error, { discardBuffered: true });
+        for (const outgoing of this.attachments.values()) {
+            outgoing.fail(error);
+        }
+    }
+
+    restoreFailure(
+        history: HistoryUpdate,
+        failureId: string,
+        detail: string,
+    ): void {
+        if (this.isClosed || this.terminalFailure !== undefined) {
+            throw new ResidentAgentClosedError();
+        }
+        this.checkpoint = clone(history);
+        this.updatesAfterCheckpoint = [];
+        this.lastSequence = history.seq;
+        this.fail(failureId, detail);
     }
 
     private closeWithError(error: Error, discardBuffered: boolean): void {
@@ -214,10 +239,12 @@ export class ResidentAgent {
         }
         // Wake an active turn before failing the engine's next receive. An
         // idle engine ignores abort, while an active one cancels its work.
-        this.inbound.push({
-            command: { type: "abort" },
-            countsTowardLimit: false,
-        });
+        if (this.terminalFailure === undefined) {
+            this.inbound.push({
+                command: { type: "abort" },
+                countsTowardLimit: false,
+            });
+        }
         this.isClosed = true;
         this.pendingCommandCount = 0;
         this.inbound.fail(error, { discardBuffered: true });
@@ -228,7 +255,7 @@ export class ResidentAgent {
     }
 
     private broadcast(update: AgentUpdate): void {
-        if (this.isClosed) {
+        if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }
         if (isTimelineReplyUpdate(update)) {
@@ -267,12 +294,16 @@ export class ResidentAgent {
         return this.isClosed;
     }
 
+    get failed(): boolean {
+        return this.terminalFailure !== undefined;
+    }
+
     get status(): AgentStatus {
         return this.currentStatus;
     }
 
     idleForShutdown(): boolean {
-        return this.isClosed || (
+        return this.isClosed || this.terminalFailure !== undefined || (
             this.currentStatus === "idle"
             && !this.promptStarting
             && this.pendingCommandCount === 0

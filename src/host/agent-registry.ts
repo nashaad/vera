@@ -17,6 +17,7 @@ import type {
     ModelAdapter,
     ModelReasoningEffort,
 } from "../model/types.ts";
+import { projectTranscript } from "../engine/protocol.ts";
 import type {
     ApplyToolEffect,
     SpawnBackgroundAgentEffect,
@@ -163,7 +164,7 @@ export class AgentRegistry {
         patch: ModelSettingsPatch,
     ): Promise<ModelTurnSettings | undefined> {
         const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed) {
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return undefined;
         }
         if (
@@ -224,6 +225,7 @@ export class AgentRegistry {
         if (
             entry === undefined
             || entry.agent.closed
+            || entry.agent.failed
             || !isApprovalMode(mode)
         ) {
             return undefined;
@@ -266,7 +268,8 @@ export class AgentRegistry {
                     ...(title === undefined || title.length === 0
                         ? {}
                         : { title: title.slice(0, 80) }),
-                    updated_at: activeEntries.at(-1)?.timestamp
+                    updated_at: entry.store.agentFailure()?.timestamp
+                        ?? activeEntries.at(-1)?.timestamp
                         ?? entry.store.header.timestamp,
                 };
             })
@@ -297,7 +300,10 @@ export class AgentRegistry {
         eventLogPath = this.options.eventLogPathForId?.(store.header.id)
             ?? defaultEventLogPath(store.header.id),
     ): ResidentAgent {
-        const adapter = this.options.createAdapter();
+        const storedFailure = store.agentFailure();
+        const adapter = storedFailure === undefined
+            ? this.options.createAdapter()
+            : undefined;
         const agent = new ResidentAgent(store.header.id, store.header.cwd);
         const events = new EngineEventBus();
         const entry: RegisteredAgentEntry = {
@@ -314,8 +320,22 @@ export class AgentRegistry {
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
             run: Promise.resolve(),
             completed: false,
+            ...(storedFailure === undefined
+                ? {}
+                : { failure: new Error(storedFailure.detail) }),
         };
         this.agents.set(agent.id, entry);
+        if (storedFailure !== undefined) {
+            agent.restoreFailure({
+                type: "history",
+                entries: projectTranscript(store.messages()),
+                seq: 0,
+            }, storedFailure.id, storedFailure.detail);
+            return agent;
+        }
+        if (adapter === undefined) {
+            throw new Error("Active resident agent has no model adapter");
+        }
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
@@ -360,13 +380,18 @@ export class AgentRegistry {
                 sendTimelineReply: (ownerId, reply) =>
                     agent.sendTimelineReply(ownerId, reply),
             },
-        ).catch((error: unknown) => {
+        ).catch(async (error: unknown) => {
             if (!agent.closed) {
                 entry.failure = error;
-                agent.fail(
-                    randomUUID(),
-                    "Resident agent stopped unexpectedly",
-                );
+                const failureId = randomUUID();
+                const detail = "Resident agent stopped unexpectedly";
+                try {
+                    await store.appendAgentFailure(failureId, detail);
+                } catch {
+                    // Live clients still need a terminal outcome when the
+                    // failure record itself cannot be persisted.
+                }
+                agent.fail(failureId, detail);
             }
         });
         for (const delivery of store.pendingDeliveries()) {
