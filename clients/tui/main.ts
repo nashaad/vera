@@ -221,6 +221,7 @@ export async function startTui(
     let resumeSessionPath: string | undefined;
     let resumeListVersion = 0;
     let promptSubmitting = false;
+    let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
         id?: string;
@@ -318,7 +319,11 @@ export async function startTui(
     });
     activityBox.add(activityText);
 
-    const composer = createTuiComposer(renderer, submitPrompt);
+    const composer = createTuiComposer(
+        renderer,
+        submitPrompt,
+        attachPastedImage,
+    );
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
     const approvalView = createTuiApprovalView(renderer);
@@ -595,26 +600,6 @@ export async function startTui(
             renderStatus();
             return;
         }
-        if (commandAction?.type === "attach_image") {
-            if (state.working || state.queuedPrompts.length > 0) {
-                state = appendTuiNotice(
-                    state,
-                    "Images can be attached when the current turn is idle.",
-                );
-                renderState();
-                return;
-            }
-            const requestId = randomUUID();
-            pendingImages.push({ requestId });
-            composer.clearComposer();
-            sendCommand({
-                type: "attach_image",
-                requestId,
-                path: commandAction.path,
-            });
-            showStatusNotice("attaching image…");
-            return;
-        }
         if (commandAction?.type === "update_model") {
             composer.clearComposer();
             sendCommand({
@@ -780,6 +765,7 @@ export async function startTui(
         }
 
         if (pendingImages.some((image) => image.id === undefined)) {
+            submitAfterImageAttachment = true;
             state = appendTuiNotice(state, "Wait for the image attachment to finish.");
             renderState();
             return;
@@ -841,6 +827,21 @@ export async function startTui(
         });
     }
 
+    function attachPastedImage(path: string): void {
+        if (state.working || state.queuedPrompts.length > 0) {
+            state = appendTuiNotice(
+                state,
+                "Images can be attached when the current turn is idle.",
+            );
+            renderState();
+            return;
+        }
+        const requestId = randomUUID();
+        pendingImages.push({ requestId });
+        sendCommand({ type: "attach_image", requestId, path });
+        showStatusNotice("attaching image…");
+    }
+
     async function receiveAgentUpdates(): Promise<void> {
         try {
             while (!shuttingDown) {
@@ -865,7 +866,15 @@ export async function startTui(
                         showStatusNotice(
                             `attached ${update.attachment.name} · ${pendingImages.length} pending`,
                         );
+                        if (
+                            submitAfterImageAttachment
+                            && pendingImages.every((image) => image.id !== undefined)
+                        ) {
+                            submitAfterImageAttachment = false;
+                            queueMicrotask(submitPrompt);
+                        }
                     } else {
+                        submitAfterImageAttachment = false;
                         pendingImages.splice(imageIndex, 1);
                         state = appendTuiNotice(
                             state,
@@ -1335,7 +1344,7 @@ export async function startTui(
         } else if (promptSubmitting) {
             lifecycleHint = "sending prompt with image…";
         } else if (pendingImages.length > 0) {
-            lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send · /image add another`;
+            lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }
 
         statusText.fg = statusNotice !== undefined
