@@ -14,6 +14,10 @@ import {
 } from "../../src/host/lockfile.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
+import {
+    exportSession,
+    type SessionExportFormat,
+} from "../../src/session-export.ts";
 import type { TuiStartTarget } from "../tui/main.ts";
 import { renderCliHelp, renderCliUsage } from "./help.ts";
 
@@ -27,6 +31,10 @@ export interface CliDependencies {
     readonly sendPrompt?: (
         agentId: string,
         content: string,
+    ) => Promise<string>;
+    readonly exportSession?: (
+        sessionPath: string,
+        format: SessionExportFormat,
     ) => Promise<string>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
@@ -93,6 +101,16 @@ export async function runCli(
         return 0;
     }
 
+    const exportRequest = parseExportRequest(args);
+    if (exportRequest !== undefined) {
+        const rendered = await (dependencies.exportSession ?? exportSession)(
+            exportRequest.sessionPath,
+            exportRequest.format,
+        );
+        output.write(rendered);
+        return 0;
+    }
+
     if (
         args.length >= 3
         && args[0] === "send"
@@ -145,6 +163,25 @@ export async function runCli(
 
     errorOutput.write(renderCliUsage());
     return 1;
+}
+
+function parseExportRequest(
+    args: readonly string[],
+): { readonly sessionPath: string; readonly format: SessionExportFormat } | undefined {
+    if (args[0] !== "export" || typeof args[1] !== "string" || args[1].length === 0) {
+        return undefined;
+    }
+    if (args.length === 2) {
+        return { sessionPath: args[1], format: "markdown" };
+    }
+    if (
+        args.length === 4
+        && args[2] === "--format"
+        && (args[3] === "markdown" || args[3] === "json")
+    ) {
+        return { sessionPath: args[1], format: args[3] };
+    }
+    return undefined;
 }
 
 export async function runCliMain(

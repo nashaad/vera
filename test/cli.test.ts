@@ -22,6 +22,7 @@ test("vera help and version are available without starting a client", async () =
     expect(await runCli(["--help"], dependencies)).toBe(0);
     expect(output).toContain("Vera coding agent");
     expect(output).toContain("vera attach <agent-id>");
+    expect(output).toContain("vera export <session-path>");
     expect(output).toContain("vera login [openai-codex]");
     expect(output).toContain("-v, --version");
 
@@ -29,6 +30,34 @@ test("vera help and version are available without starting a client", async () =
     expect(await runCli(["--version"], dependencies)).toBe(0);
     expect(output).toBe("vera source abc1234\n");
     expect(started).toBe(false);
+});
+
+test("vera export writes Markdown by default and accepts JSON", async () => {
+    const calls: Array<{ path: string; format: string }> = [];
+    let output = "";
+    const exportSession = async (path: string, format: "markdown" | "json") => {
+        calls.push({ path, format });
+        return format === "json" ? "{\"ok\":true}\n" : "# Chat\n";
+    };
+
+    expect(await runCli(["export", "/sessions/one.jsonl"], {
+        exportSession,
+        stdout: { write: (text) => output += text },
+    })).toBe(0);
+    expect(await runCli([
+        "export",
+        "/sessions/two.jsonl",
+        "--format",
+        "json",
+    ], {
+        exportSession,
+        stdout: { write: (text) => output += text },
+    })).toBe(0);
+    expect(calls).toEqual([
+        { path: "/sessions/one.jsonl", format: "markdown" },
+        { path: "/sessions/two.jsonl", format: "json" },
+    ]);
+    expect(output).toBe("# Chat\n{\"ok\":true}\n");
 });
 
 test("the package bin runs help from outside the checkout", () => {
