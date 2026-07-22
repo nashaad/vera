@@ -85,3 +85,20 @@ vera
 
 For development without linking the command, run
 `bun run clients/cli/main.ts`.
+
+## Export a conversation
+
+Export the active conversation branch as Markdown:
+
+```sh
+vera export ~/.vera/sessions/<session-id>.jsonl
+```
+
+Export the same user-facing transcript as versioned JSON:
+
+```sh
+vera export ~/.vera/sessions/<session-id>.jsonl --format json
+```
+
+Export writes to standard output and does not modify the session or workspace.
+Redirect it to a file when needed.

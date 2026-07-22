@@ -98,6 +98,11 @@ export interface SessionMessageStore {
     appendMessage(message: ModelMessage): Promise<unknown>;
 }
 
+export interface ReadonlySessionSnapshot {
+    readonly header: SessionHeader;
+    readonly messages: readonly ModelMessage[];
+}
+
 export interface SessionDeliveryInbox {
     pendingDeliveries(): readonly SessionDeliveryEntry[];
     appendDeliveryMessage(
@@ -533,19 +538,28 @@ export function defaultSessionDirectory(): string {
     return join(homedir(), ".vera", "sessions");
 }
 
+export async function readSessionSnapshot(
+    path: string,
+): Promise<ReadonlySessionSnapshot> {
+    const source = await readFile(path, "utf8");
+    const loaded = parseSessionFile(path, completeSessionSource(path, source));
+    return {
+        header: loaded.header,
+        messages: activeBranchEntries(
+            loaded.messageEntries,
+            loaded.leafId,
+        ).map((entry) => entry.message),
+    };
+}
+
 async function removeUnterminatedTail(
     path: string,
     source: string,
 ): Promise<string> {
-    if (source.endsWith("\n")) {
+    const completeSource = completeSessionSource(path, source);
+    if (completeSource === source) {
         return source;
     }
-
-    const finalNewline = source.lastIndexOf("\n");
-    if (finalNewline < 0) {
-        throw invalidSession(path, "has no complete header line");
-    }
-    const completeSource = source.slice(0, finalNewline + 1);
     const file = await open(path, "r+");
     try {
         await file.truncate(Buffer.byteLength(completeSource));
@@ -554,6 +568,18 @@ async function removeUnterminatedTail(
         await file.close();
     }
     return completeSource;
+}
+
+function completeSessionSource(path: string, source: string): string {
+    if (source.endsWith("\n")) {
+        return source;
+    }
+
+    const finalNewline = source.lastIndexOf("\n");
+    if (finalNewline < 0) {
+        throw invalidSession(path, "has no complete header line");
+    }
+    return source.slice(0, finalNewline + 1);
 }
 
 function parseSessionFile(path: string, source: string): LoadedSessionFile {
