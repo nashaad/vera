@@ -3,12 +3,21 @@ import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 
 // Prompt ordering is a provider KV-cache contract. Treat prefix stability as
 // a gate for every change here: stable content must remain byte-identical and
-// mutable content belongs at the growing edge. The current all-in-one assembly
-// is temporary; staged assembly must add a prefix-stability test before landing.
+// mutable content belongs at the growing edge.
 
 export interface AssembleSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly date: Date;
+    readonly projectInstructions?: ProjectInstructionSnapshot;
+}
+
+export interface AssembleStableSystemPromptInput {
+    readonly tools: readonly ModelTool[];
+    readonly workspace: string;
+}
+
+export interface AssembleContextualSystemPromptInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
 }
@@ -28,6 +37,15 @@ const IDENTITY = "You are Vera, a coding agent. Follow the user's instructions a
 export function assembleSystemPrompt(
     input: AssembleSystemPromptInput,
 ): string {
+    return [
+        assembleStableSystemPrompt(input),
+        assembleContextualSystemPrompt(input),
+    ].join("\n\n");
+}
+
+export function assembleStableSystemPrompt(
+    input: AssembleStableSystemPromptInput,
+): string {
     const sections: readonly SystemPromptSection[] = [
         {
             name: "Identity",
@@ -41,6 +59,14 @@ export function assembleSystemPrompt(
             name: "Workspace",
             content: `Working directory: ${input.workspace}`,
         },
+    ];
+    return renderSections(sections);
+}
+
+export function assembleContextualSystemPrompt(
+    input: AssembleContextualSystemPromptInput,
+): string {
+    const sections: readonly SystemPromptSection[] = [
         {
             name: "Date",
             content: `Current date: ${formatLocalDate(input.date)}`,
@@ -56,10 +82,13 @@ export function assembleSystemPrompt(
                 content: renderProjectInstructions(input.projectInstructions),
             }]),
     ];
+    return renderSections(sections);
+}
 
-    return sections
-        .map((section) => `## ${section.name}\n${section.content}`)
-        .join("\n\n");
+function renderSections(sections: readonly SystemPromptSection[]): string {
+    return sections.map((section) =>
+        `## ${section.name}\n${section.content}`
+    ).join("\n\n");
 }
 
 function renderTools(tools: readonly ModelTool[]): string {
