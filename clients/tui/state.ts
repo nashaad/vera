@@ -114,11 +114,15 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "turn_finished") {
         const finished = { ...state, working: false };
-        return update.error === undefined
+        const error = update.error
+            ?? (update.outcome === "error" ? "Model request failed"
+                : update.outcome === "aborted" ? "Turn aborted"
+                : undefined);
+        return error === undefined
             ? finished
             : appendEntry(finished, {
                 kind: "notice",
-                text: `Model error: ${update.error}`,
+                text: `Model error: ${error}`,
             });
     }
     if (update.type === "status") {
@@ -243,6 +247,12 @@ function toTuiTranscriptEntry(entry: TranscriptEntry): TuiTranscriptEntry {
         return {
             kind: "tool",
             text: `∗ ${formatToolCall(entry.tool, entry.args)}`,
+        };
+    }
+    if (entry.kind === "error") {
+        return {
+            kind: "notice",
+            text: `Model error: ${entry.detail ?? "Model request failed"}`,
         };
     }
     return entry;

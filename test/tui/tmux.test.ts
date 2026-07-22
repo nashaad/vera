@@ -14,6 +14,54 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
+    "terminal model errors remain visible after tools and the next turn works",
+    async () => {
+        const socket = `vera-terminal-error-${process.pid}-${randomUUID()}`;
+        const session = "terminal-error";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-terminal-error-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-terminal-error-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "inspect then answer");
+            sendKey(socket, session, "Enter");
+
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Model error: rate limited after retries",
+            );
+            expect(pane).toContain("∗ read package.json");
+
+            sendText(socket, session, "try again");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "RECOVERED AFTER ERROR",
+            );
+            expect(pane).toContain("try again");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "resume picker selects another durable conversation",
     async () => {
         const socket = `vera-resume-${process.pid}-${randomUUID()}`;
