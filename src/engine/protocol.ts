@@ -151,6 +151,13 @@ export interface TurnFinishedUpdate {
     readonly seq: number;
 }
 
+export interface AgentFailedUpdate {
+    readonly type: "agent_failed";
+    readonly failureId: string;
+    readonly detail: string;
+    readonly seq: number;
+}
+
 export interface StatusUpdate {
     readonly type: "status";
     readonly state: AgentStatus;
@@ -294,6 +301,7 @@ export type AgentUpdate =
     | ToolStartedUpdate
     | ToolFinishedUpdate
     | TurnFinishedUpdate
+    | AgentFailedUpdate
     | StatusUpdate
     | TaskNotificationUpdate
     | UiRequestUpdate

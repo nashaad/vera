@@ -66,6 +66,7 @@ export class ResidentAgent {
     };
     private updatesAfterCheckpoint: AgentUpdate[] = [];
     private currentStatus: AgentStatus = "idle";
+    private lastSequence = 0;
     private isClosed = false;
     private pendingCommandCount = 0;
     private promptStarting = false;
@@ -156,9 +157,6 @@ export class ResidentAgent {
                 if (!attached) {
                     return Promise.reject(new AgentDetachedError());
                 }
-                if (this.isClosed) {
-                    return Promise.reject(new ResidentAgentClosedError());
-                }
                 return outgoing.receive(signal);
             },
             detach: (): void => {
@@ -194,6 +192,23 @@ export class ResidentAgent {
     }
 
     close(): void {
+        this.closeWithError(new ResidentAgentClosedError(), true);
+    }
+
+    fail(failureId: string, detail: string): void {
+        if (this.isClosed) {
+            return;
+        }
+        this.broadcast({
+            type: "agent_failed",
+            failureId: nonEmpty(failureId, "failure ID"),
+            detail: nonEmpty(detail, "failure detail"),
+            seq: this.lastSequence + 1,
+        });
+        this.closeWithError(new ResidentAgentClosedError(), false);
+    }
+
+    private closeWithError(error: Error, discardBuffered: boolean): void {
         if (this.isClosed) {
             return;
         }
@@ -205,10 +220,9 @@ export class ResidentAgent {
         });
         this.isClosed = true;
         this.pendingCommandCount = 0;
-        const error = new ResidentAgentClosedError();
         this.inbound.fail(error, { discardBuffered: true });
         for (const outgoing of this.attachments.values()) {
-            outgoing.fail(error, { discardBuffered: true });
+            outgoing.fail(error, { discardBuffered });
         }
         this.attachments.clear();
     }
@@ -221,6 +235,9 @@ export class ResidentAgent {
             throw new Error("Timeline replies must target one attachment");
         }
         const snapshot = clone(update);
+        if ("seq" in snapshot && typeof snapshot.seq === "number") {
+            this.lastSequence = Math.max(this.lastSequence, snapshot.seq);
+        }
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
         } else if (snapshot.type === "user_prompt") {
@@ -231,6 +248,8 @@ export class ResidentAgent {
         } else if (snapshot.type === "ui_request_closed") {
             this.currentStatus = "working";
         } else if (snapshot.type === "turn_finished") {
+            this.currentStatus = "idle";
+        } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";
         }
         if (snapshot.type === "history") {

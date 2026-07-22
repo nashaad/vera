@@ -84,6 +84,28 @@ test("TUI shows model failures when a turn finishes", () => {
     });
 });
 
+test("TUI stops working when the resident agent fails", () => {
+    const state = applyAgentUpdate(
+        queueTuiPrompt(
+            beginTuiTurn(createTuiState(), "testing"),
+            "do not send after failure",
+        ),
+        {
+            type: "agent_failed",
+            failureId: "failure-1",
+            detail: "Resident agent stopped unexpectedly",
+            seq: 1,
+        },
+    );
+
+    expect(state.working).toBe(false);
+    expect(state.queuedPrompts).toEqual([]);
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "Agent error: Resident agent stopped unexpectedly",
+    });
+});
+
 test("TUI keeps model failures restored from canonical history", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "history",

@@ -48,6 +48,14 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "agent_failed") {
+        return typeof update.failureId === "string"
+                && update.failureId.length > 0
+                && typeof update.detail === "string"
+                && update.detail.trim().length > 0
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "status") {
         return update.state === "idle"
                 || update.state === "working"

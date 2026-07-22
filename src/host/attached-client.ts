@@ -177,7 +177,7 @@ function createAttachedClient(
         pendingUpdateCount = 0;
         resumeReading?.();
         resumeReading = undefined;
-        updates.fail(error, { discardBuffered: true });
+        updates.fail(error);
         rejectDetached?.(error);
         connection.close();
     }
