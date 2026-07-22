@@ -17,6 +17,7 @@ import type {
     ModelAdapter,
     ModelReasoningEffort,
 } from "../model/types.ts";
+import type { SuggestedModel } from "../model/supported-models.ts";
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
     ApplyToolEffect,
@@ -29,6 +30,7 @@ import {
 } from "../store/session-store.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import { ImageAttachmentService } from "../attachments/service.ts";
+import { ProviderRoutingAdapter } from "../providers/routing.ts";
 import {
     type AgentAttachment,
     ResidentAgent,
@@ -61,12 +63,13 @@ export interface RegisteredAgentSummary {
 }
 
 export interface AgentRegistryOptions {
-    readonly createAdapter: () => ModelAdapter;
+    readonly createAdapter: (provider?: string) => ModelAdapter;
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
+    readonly availableModels?: readonly SuggestedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
@@ -87,6 +90,7 @@ export interface ResumeRegisteredAgentOptions {
 
 interface InheritedAgentSettings {
     readonly approvalMode: ApprovalMode;
+    readonly modelSettings?: ModelTurnSettings;
 }
 
 interface RegisteredAgentEntry {
@@ -94,6 +98,7 @@ interface RegisteredAgentEntry {
     readonly store: SessionStore;
     readonly kind: RegisteredAgentKind;
     readonly events: EngineEventBus;
+    readonly adapter?: ProviderRoutingAdapter;
     modelSettings: ModelTurnSettings;
     approvalMode: ApprovalMode;
     run: Promise<void>;
@@ -106,12 +111,14 @@ export class AgentRegistry {
     private readonly startingIds = new Set<string>();
     private readonly deliveryTasks = new Set<Promise<void>>();
     private defaultModel: string;
+    private defaultProvider: string;
     private defaultReasoningEffort: ModelReasoningEffort | undefined;
     private defaultApprovalMode: ApprovalMode;
     private isClosed = false;
 
     constructor(private readonly options: AgentRegistryOptions) {
         this.defaultModel = options.model;
+        this.defaultProvider = options.provider ?? "unknown";
         this.defaultReasoningEffort = options.reasoningEffort;
         this.defaultApprovalMode = options.approvalMode;
     }
@@ -139,6 +146,9 @@ export class AgentRegistry {
             );
             if (inherited !== undefined) {
                 await store.appendApprovalMode(inherited.approvalMode);
+                if (inherited.modelSettings !== undefined) {
+                    await store.appendModelSettings(inherited.modelSettings);
+                }
             }
             this.requireOpen();
             return this.start(store, kind, options.eventLogPath);
@@ -175,7 +185,12 @@ export class AgentRegistry {
             return undefined;
         }
         if (
-            (patch.model === undefined && patch.reasoningEffort === undefined)
+            (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
+            || (patch.provider !== undefined && patch.provider.trim().length === 0)
+            || (patch.provider !== undefined
+                && patch.provider !== "openrouter"
+                && patch.provider !== "openai-codex"
+                && patch.provider !== "ollama")
             || (patch.model !== undefined && patch.model.trim().length === 0)
             || (patch.reasoningEffort !== undefined
                 && patch.reasoningEffort !== null
@@ -183,14 +198,23 @@ export class AgentRegistry {
         ) {
             return undefined;
         }
+        const provider = patch.provider?.trim()
+            ?? entry.modelSettings.provider
+            ?? this.defaultProvider;
         const model = patch.model?.trim() ?? entry.modelSettings.model;
+        try {
+            entry.adapter?.prepareProvider(provider);
+        } catch {
+            return undefined;
+        }
         let reasoningEffort = patch.reasoningEffort === undefined
             ? entry.modelSettings.reasoningEffort
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
+        if (provider === "openai-codex") reasoningEffort = undefined;
         const availableEfforts = availableReasoningEfforts(
-            this.options.provider ?? "unknown",
+            provider,
             model,
         );
         if (
@@ -208,6 +232,7 @@ export class AgentRegistry {
             return undefined;
         }
         const settings: ModelTurnSettings = {
+            provider,
             model,
             ...(reasoningEffort === undefined
                 ? {}
@@ -216,11 +241,13 @@ export class AgentRegistry {
         await entry.store.appendModelSettings(settings);
         this.options.updateModelDefaults?.(settings);
         this.defaultModel = settings.model;
+        this.defaultProvider = settings.provider ?? this.defaultProvider;
         this.defaultReasoningEffort = settings.reasoningEffort;
         entry.modelSettings = settings;
         return settingsForClient(
             entry.modelSettings,
-            this.options.provider ?? "unknown",
+            entry.modelSettings.provider ?? this.defaultProvider,
+            this.options.availableModels,
         );
     }
 
@@ -311,7 +338,11 @@ export class AgentRegistry {
     ): ResidentAgent {
         const storedFailure = store.agentFailure();
         const adapter = storedFailure === undefined
-            ? this.options.createAdapter()
+            ? new ProviderRoutingAdapter(
+                (provider) => this.options.createAdapter(provider),
+                this.defaultProvider,
+                this.options.createAdapter(this.defaultProvider),
+            )
             : undefined;
         const imageAttachments = new ImageAttachmentService(
             store,
@@ -322,17 +353,25 @@ export class AgentRegistry {
                 imageAttachments.attachFile(path, signal),
         });
         const events = new EngineEventBus();
+        const storedSettings = store.modelSettings();
         const entry: RegisteredAgentEntry = {
             agent,
             store,
             kind,
             events,
-            modelSettings: store.modelSettings() ?? {
-                model: this.defaultModel,
-                ...(this.defaultReasoningEffort === undefined
-                    ? {}
-                    : { reasoningEffort: this.defaultReasoningEffort }),
-            },
+            ...(adapter === undefined ? {} : { adapter }),
+            modelSettings: storedSettings === undefined
+                ? {
+                    provider: this.defaultProvider,
+                    model: this.defaultModel,
+                    ...(this.defaultReasoningEffort === undefined
+                        ? {}
+                        : { reasoningEffort: this.defaultReasoningEffort }),
+                }
+                : {
+                    ...storedSettings,
+                    provider: storedSettings.provider ?? this.defaultProvider,
+                },
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
             run: Promise.resolve(),
             completed: false,
@@ -364,7 +403,7 @@ export class AgentRegistry {
                 ? this.spawnBackgroundAgent(
                     store,
                     effect,
-                    context.approvalMode,
+                    context,
                 )
                 : applySubagentEffect(effect, signal, context);
         entry.run = runHeadlessLoop(
@@ -386,7 +425,8 @@ export class AgentRegistry {
                 enableUserInteraction: kind === "interactive",
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
-                    this.options.provider ?? "unknown",
+                    entry.modelSettings.provider ?? this.defaultProvider,
+                    this.options.availableModels,
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -424,12 +464,23 @@ export class AgentRegistry {
     private async spawnBackgroundAgent(
         parentStore: SessionStore,
         effect: SpawnBackgroundAgentEffect,
-        approvalMode: ApprovalMode,
+        context: Parameters<ApplyToolEffect>[2],
     ): Promise<ToolOutput> {
         const child = await this.createWithKind(
             { workspace: parentStore.header.cwd },
             "background",
-            { approvalMode },
+            {
+                approvalMode: context.approvalMode,
+                modelSettings: {
+                    ...(context.provider === undefined
+                        ? { provider: this.defaultProvider }
+                        : { provider: context.provider }),
+                    model: context.model,
+                    ...(context.reasoningEffort === undefined
+                        ? {}
+                        : { reasoningEffort: context.reasoningEffort }),
+                },
+            },
         );
         const attachment = child.attach();
         try {
@@ -534,6 +585,7 @@ function strongestReasoningEffort(
 function settingsForClient(
     settings: ModelTurnSettings,
     provider: string,
+    models: readonly SuggestedModel[] = availableModels(),
 ): ModelTurnSettings {
     return {
         ...settings,
@@ -541,6 +593,6 @@ function settingsForClient(
             provider,
             settings.model,
         ),
-        availableModels: availableModels(provider),
+        availableModels: models,
     };
 }

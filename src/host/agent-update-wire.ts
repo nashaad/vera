@@ -90,6 +90,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.pending === "boolean"
                 && typeof settings?.model === "string"
                 && settings.model.length > 0
+                && (settings.provider === undefined
+                    || (typeof settings.provider === "string"
+                        && settings.provider.length > 0))
                 && (settings.reasoningEffort === undefined
                     || isModelReasoningEffort(settings.reasoningEffort))
                 && (settings.availableReasoningEfforts === undefined

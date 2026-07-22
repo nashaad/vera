@@ -33,6 +33,7 @@ export interface CreateSubagentEffectApplierOptions {
 
 export interface RunSubagentOptions {
     readonly adapter: ModelAdapter;
+    readonly provider?: string;
     readonly model: string;
     readonly description: string;
     readonly workspace: string;
@@ -61,6 +62,7 @@ export function createSubagentEffectApplier(
         const sessionId = randomUUID();
         const result = await runSubagent({
             adapter: options.adapter,
+            ...(context.provider === undefined ? {} : { provider: context.provider }),
             model: context.model,
             description: effect.description,
             workspace: options.workspace,
@@ -127,7 +129,16 @@ export async function runSubagent(
         const finalMessage = await runTurn(
             options.adapter,
             options.model,
-            state,
+            {
+                ...state,
+                readModelSettings: () => ({
+                    ...(options.provider === undefined ? {} : { provider: options.provider }),
+                    model: options.model,
+                    ...(options.reasoningEffort === undefined
+                        ? {}
+                        : { reasoningEffort: options.reasoningEffort }),
+                }),
+            },
             options.reasoningEffort,
         );
         await updates;

@@ -624,6 +624,8 @@ export async function startTui(
                 state.approvalMode,
                 state.modelSettings?.availableReasoningEfforts,
                 state.modelSettings?.availableModels,
+                undefined,
+                state.modelSettings?.provider,
             );
             renderState();
             focusActiveSurface();
@@ -1131,9 +1133,15 @@ export async function startTui(
                 sendCommand({
                     type: "update_model_settings",
                     requestId: randomUUID(),
-                    patch: { model: selection.model },
+                    patch: {
+                        provider: selection.provider,
+                        model: selection.model,
+                    },
                 });
-                state = appendTuiNotice(state, `model change requested: ${selection.model}`);
+                state = appendTuiNotice(
+                    state,
+                    `model change requested: ${selection.provider}/${selection.model}`,
+                );
             } else if (selection.kind === "reasoning") {
                 sendCommand({
                     type: "update_model_settings",

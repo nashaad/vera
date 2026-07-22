@@ -538,9 +538,13 @@ function parseModelSettingsPatch(
     }
     const source = value as Record<string, unknown>;
     const hasModel = Object.hasOwn(source, "model");
+    const hasProvider = Object.hasOwn(source, "provider");
     const hasReasoningEffort = Object.hasOwn(source, "reasoningEffort");
     if (
-        (!hasModel && !hasReasoningEffort)
+        (!hasProvider && !hasModel && !hasReasoningEffort)
+        || (hasProvider
+            && (typeof source.provider !== "string"
+                || source.provider.trim().length === 0))
         || (hasModel
             && (typeof source.model !== "string"
                 || source.model.trim().length === 0))
@@ -550,11 +554,13 @@ function parseModelSettingsPatch(
     ) {
         return undefined;
     }
+    const provider = hasProvider ? source.provider as string : undefined;
     const model = hasModel ? source.model as string : undefined;
     const reasoningEffort = hasReasoningEffort
         ? source.reasoningEffort as ModelReasoningEffort | null
         : undefined;
     return {
+        ...(provider === undefined ? {} : { provider }),
         ...(model === undefined ? {} : { model }),
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     };

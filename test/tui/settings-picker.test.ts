@@ -153,10 +153,17 @@ test("model picker keeps the current model selected", () => {
         "approve_for_me",
         undefined,
         availableModels,
+        "default",
+        "openrouter",
     );
 
-    expect(state.options[state.selectedIndex]?.value).toBe("z-ai/glm-5.2");
+    expect(state.options[state.selectedIndex]).toMatchObject({
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+    });
     expect(renderTuiSettingsPicker(state)).toContain("GLM-5.2");
+    expect(renderTuiSettingsPicker(state)).toContain("openrouter\n");
+    expect(renderTuiSettingsPicker(state)).not.toContain("Recent");
 });
 
 test("model picker filters its choices as the user types", () => {
@@ -167,15 +174,57 @@ test("model picker filters its choices as the user types", () => {
         "approve_for_me",
         undefined,
         availableModels,
+        "default",
+        "openrouter",
     );
     const first = handleTuiSettingsPickerKey(state, { name: "g" });
     const second = handleTuiSettingsPickerKey(first.state ?? state, { name: "l" });
 
     expect(second.state?.query).toBe("gl");
-    expect(second.state?.options.map((option) => option.value)).toEqual([
+    expect(second.state?.options.map((option) => option.model)).toEqual([
         "z-ai/glm-5.2",
     ]);
     expect(renderTuiSettingsPicker(second.state ?? state)).toContain("Search  gl");
+    expect(renderTuiSettingsPicker(second.state ?? state))
+        .toContain("openrouter · fast fallback model");
+});
+
+test("model picker distinguishes the same model id across providers", () => {
+    const models = [
+        ...availableModels,
+        {
+            provider: "ollama",
+            model: "moonshotai/kimi-k3",
+            label: "Kimi K3 local",
+            description: "local model",
+        },
+    ] as const;
+    const state = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "off",
+        "approve_for_me",
+        undefined,
+        models,
+        "default",
+        "ollama",
+    );
+
+    expect(state.options[state.selectedIndex]).toMatchObject({
+        provider: "ollama",
+        model: "moonshotai/kimi-k3",
+    });
+    expect(new Set(state.options.map((option) => option.value)).size)
+        .toBe(state.options.length);
+    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+        .toEqual({
+            kind: "model",
+            provider: "ollama",
+            model: "moonshotai/kimi-k3",
+        });
+    const rendered = renderTuiSettingsPicker(state);
+    expect(rendered).toContain("ollama\n");
+    expect(rendered).toContain("openrouter\n");
 });
 
 test("every settings picker filters as the user types", () => {

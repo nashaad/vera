@@ -281,6 +281,7 @@ export async function runTurn(
         const modelSettings = turn.modelSettings
             ?? state.readModelSettings?.()
             ?? {
+                provider: "unknown",
                 model,
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
             };
@@ -310,7 +311,10 @@ export async function runTurn(
         const imageCache = new Map<string, ImageContent>();
         try {
             if (
-                adapter.supportsImageInput === false
+                (modelSettings.provider !== undefined
+                    && adapter.supportsImageInputFor !== undefined
+                    ? !adapter.supportsImageInputFor(modelSettings.provider)
+                    : adapter.supportsImageInput === false)
                 && userMessage.content.some((block) => block.type === "image_attachment")
             ) {
                 throw new Error("the selected model provider does not support image input");
@@ -338,6 +342,9 @@ export async function runTurn(
             );
             const requestDate = new Date();
             const projection = projectModelRequest({
+                ...(modelSettings.provider === undefined
+                    ? {}
+                    : { provider: modelSettings.provider }),
                 model: activeModel,
                 maxTokens,
                 ...(turnReasoningEffort === undefined
@@ -422,6 +429,9 @@ export async function runTurn(
                         });
                     },
                     ...(state.modelFallback === undefined
+                        || (state.modelFallback.provider !== undefined
+                            && state.modelFallback.provider
+                                !== modelSettings.provider)
                         ? {}
                         : { fallback: state.modelFallback }),
                     ...(state.waitForModelRetry === undefined
@@ -751,6 +761,9 @@ async function executePreparedTool(
             signal,
             {
                 approvalMode,
+                ...(modelSettings.provider === undefined
+                    ? {}
+                    : { provider: modelSettings.provider }),
                 model: modelSettings.model,
                 ...(modelSettings.reasoningEffort === undefined
                     ? {}

@@ -13,6 +13,7 @@ import {
 import type { PromptContribution } from "./prompt-contributions.ts";
 
 export interface ModelRequestSnapshot {
+    readonly provider?: string;
     readonly model: string;
     readonly maxTokens: number;
     readonly reasoningEffort?: ModelReasoningEffort;
@@ -55,6 +56,7 @@ export function projectModelRequest(
         projectInstructions: snapshot.projectInstructions,
     });
     const request = Object.freeze({
+        ...(snapshot.provider === undefined ? {} : { provider: snapshot.provider }),
         model: snapshot.model,
         maxTokens: snapshot.maxTokens,
         ...(snapshot.reasoningEffort === undefined

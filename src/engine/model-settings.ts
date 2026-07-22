@@ -6,6 +6,7 @@ import {
 } from "../model/supported-models.ts";
 
 export interface ModelTurnSettings {
+    readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
@@ -13,6 +14,7 @@ export interface ModelTurnSettings {
 }
 
 export interface ModelSettingsPatch {
+    readonly provider?: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort | null;
 }
@@ -22,7 +24,10 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
         return false;
     }
     const settings = value as Record<string, unknown>;
-    return typeof settings.model === "string"
+    return (settings.provider === undefined
+            || (typeof settings.provider === "string"
+                && settings.provider.trim().length > 0))
+        && typeof settings.model === "string"
         && settings.model.trim().length > 0
         && (settings.reasoningEffort === undefined
             || isModelReasoningEffort(settings.reasoningEffort))
@@ -44,9 +49,8 @@ export function availableReasoningEfforts(
         : ["off", "low", "medium", "high", "max"];
 }
 
-export function availableModels(provider: string): readonly SuggestedModel[] {
+export function availableModels(): readonly SuggestedModel[] {
     return loadSupportedModelsCatalog().verified_models
-        .filter((model) => model.provider === provider)
         .map((model) => ({
             provider: model.provider,
             model: model.model,
