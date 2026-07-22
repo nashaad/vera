@@ -22,6 +22,12 @@ export interface StartResidentHostOptions {
     readonly startedAt?: string;
     readonly sessionDirectory?: string;
     readonly eventLogDirectory?: string;
+    readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
+}
+
+export interface SessionRestoreFailure {
+    readonly sessionPath: string;
+    readonly error: unknown;
 }
 
 export interface ResidentHost {
@@ -73,6 +79,7 @@ export async function startResidentHost(
         await restoreStoredAgents(
             registry,
             sessionDirectory,
+            options.onRestoreFailure ?? reportRestoreFailure,
         );
         server = await startHostServer({
             ...(options.socketPath === undefined
@@ -111,6 +118,7 @@ export async function startResidentHost(
 async function restoreStoredAgents(
     registry: AgentRegistry,
     sessionDirectory: string,
+    onFailure: (failure: SessionRestoreFailure) => void,
 ): Promise<void> {
     let names: string[];
     try {
@@ -123,8 +131,24 @@ async function restoreStoredAgents(
     }
 
     for (const name of names.filter((value) => value.endsWith(".jsonl")).sort()) {
-        await registry.resume({ sessionPath: join(sessionDirectory, name) });
+        const sessionPath = join(sessionDirectory, name);
+        try {
+            await registry.resume({ sessionPath });
+        } catch (error) {
+            try {
+                onFailure({ sessionPath, error });
+            } catch {
+                // Diagnostics must not let one bad session block healthy restores.
+            }
+        }
     }
+}
+
+function reportRestoreFailure(failure: SessionRestoreFailure): void {
+    const detail = failure.error instanceof Error
+        ? failure.error.message
+        : String(failure.error);
+    console.error(`Vera skipped corrupt session ${failure.sessionPath}: ${detail}`);
 }
 
 async function resumeOrFind(

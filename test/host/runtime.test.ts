@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -307,6 +307,114 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                 seq: 0,
             });
             attached.detach();
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host isolates corrupt stored sessions during restore",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-corrupt-restore-"));
+        const workspace = await realpath(root);
+        const sessionDirectory = join(root, "sessions");
+        const firstPath = join(sessionDirectory, "first.jsonl");
+        const corruptPath = join(sessionDirectory, "middle.jsonl");
+        const lastPath = join(sessionDirectory, "third.jsonl");
+        await SessionStore.create(firstPath, {
+            sessionId: "first",
+            cwd: workspace,
+        });
+        await SessionStore.create(corruptPath, {
+            sessionId: "corrupt",
+            cwd: workspace,
+        });
+        await writeFile(corruptPath, "{complete but invalid json}\n", {
+            flag: "a",
+        });
+        const canonicalCorruptPath = await realpath(corruptPath);
+        const corruptSource = await readFile(corruptPath, "utf8");
+        await SessionStore.create(lastPath, {
+            sessionId: "third",
+            cwd: workspace,
+        });
+
+        const failures: Array<{ sessionPath: string; error: unknown }> = [];
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "approve_for_me",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+            onRestoreFailure: (failure) => failures.push(failure),
+        });
+        try {
+            expect(host.registry.list().map((agent) => agent.id)).toEqual([
+                "first",
+                "third",
+            ]);
+            expect(failures).toHaveLength(1);
+            expect(failures[0]?.sessionPath).toBe(corruptPath);
+            expect(String(failures[0]?.error)).toContain(
+                `Invalid session file ${canonicalCorruptPath}`,
+            );
+            expect(String(failures[0]?.error)).toContain("line 2");
+            expect(await readFile(corruptPath, "utf8")).toBe(corruptSource);
+
+            await expect(
+                resumeAgentThroughHost(socketPath, corruptPath),
+            ).rejects.toThrow("Resident agent resume failed");
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "restore diagnostics cannot block later resident sessions",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-restore-report-"));
+        const workspace = await realpath(root);
+        const sessionDirectory = join(root, "sessions");
+        const corruptPath = join(sessionDirectory, "first.jsonl");
+        await SessionStore.create(corruptPath, {
+            sessionId: "corrupt",
+            cwd: workspace,
+        });
+        await writeFile(corruptPath, "not-json\n", { flag: "a" });
+        await SessionStore.create(join(sessionDirectory, "second.jsonl"), {
+            sessionId: "second",
+            cwd: workspace,
+        });
+
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "approve_for_me",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+            onRestoreFailure: () => {
+                throw new Error("diagnostic sink failed");
+            },
+        });
+        try {
+            expect(host.registry.list().map((agent) => agent.id)).toEqual([
+                "second",
+            ]);
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });
