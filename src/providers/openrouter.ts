@@ -4,6 +4,7 @@ import type { ChatRequestEffort } from "@openrouter/sdk/models";
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
+import type { ProviderFailure } from "../model/provider-failure.ts";
 import { resolveReasoningSelection } from "../model/reasoning-effort.ts";
 import { ModelEventStream } from "../model/stream.ts";
 import { transformMessages } from "../model/transform.ts";
@@ -30,15 +31,34 @@ export interface OpenRouterAdapterOptions {
     >;
 }
 
+export interface ChatProviderProfile {
+    readonly provider: string;
+    readonly api: string;
+    readonly supportsImageInput?: boolean;
+    readonly reasoningEffort?: (
+        effort: ModelReasoningEffort,
+    ) => string | undefined;
+    readonly classifyError?: (value: unknown) => ProviderFailure;
+}
+
+const OPENROUTER_PROFILE: ChatProviderProfile = {
+    provider: "openrouter",
+    api: "openrouter-chat",
+    supportsImageInput: false,
+};
+
 export class OpenRouterAdapter implements ModelAdapter {
-    readonly supportsImageInput = false;
+    readonly supportsImageInput: boolean;
     constructor(
         private readonly sendChat: SendOpenRouterChat,
         private readonly reasoningMappings?: ReadonlyMap<
             string,
             ReadonlyMap<ModelReasoningEffort, string>
         >,
-    ) {}
+        private readonly profile: ChatProviderProfile = OPENROUTER_PROFILE,
+    ) {
+        this.supportsImageInput = profile.supportsImageInput ?? false;
+    }
 
     stream(request: ModelRequest): ModelEventStream {
         const stream = new ModelEventStream();
@@ -48,8 +68,8 @@ export class OpenRouterAdapter implements ModelAdapter {
 
     private async produce(request: ModelRequest, stream: ModelEventStream): Promise<void> {
         const source: ModelSource = {
-            provider: "openrouter",
-            api: "openrouter-chat",
+            provider: this.profile.provider,
+            api: this.profile.api,
             model: request.model,
         };
         const decoder = new OpenRouterStreamDecoder(source, stream);
@@ -61,19 +81,24 @@ export class OpenRouterAdapter implements ModelAdapter {
                 target: source,
                 normalizeToolCallId: normalizeOpenRouterToolCallId,
             });
+            const profileEffort = request.reasoningEffort === undefined
+                ? undefined
+                : this.profile.reasoningEffort?.(request.reasoningEffort);
             const verifiedMapping = request.reasoningEffort === undefined
                 ? undefined
-                : this.reasoningMappings
+                : profileEffort ?? this.reasoningMappings
                     ?.get(request.model)
                     ?.get(request.reasoningEffort);
             const reasoning = request.reasoningEffort === undefined
                 ? undefined
                 : verifiedMapping === undefined
-                    ? await resolveReasoningSelection(
-                        "openrouter",
-                        request.model,
-                        request.reasoningEffort,
-                    )
+                    ? this.profile.provider === "openrouter"
+                        ? await resolveReasoningSelection(
+                            "openrouter",
+                            request.model,
+                            request.reasoningEffort,
+                        )
+                        : undefined
                     : { providerEffort: verifiedMapping };
             const providerRequest = {
                 model: request.model,
@@ -110,7 +135,8 @@ export class OpenRouterAdapter implements ModelAdapter {
             const error = request.signal?.aborted
                 ? toError(value)
                 : new ProviderFailureError(
-                    classifyOpenRouterError(value),
+                    this.profile.classifyError?.(value)
+                        ?? classifyOpenRouterError(value),
                     value,
                 );
             const stopReason = request.signal?.aborted ? "aborted" : "error";
@@ -156,7 +182,7 @@ export function createOpenRouterAdapter(
             },
             { signal },
         );
-    }, options.reasoningMappings);
+    }, options.reasoningMappings, OPENROUTER_PROFILE);
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {

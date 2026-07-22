@@ -1,6 +1,7 @@
 import type { VeraConfig } from "../config.ts";
 import { createOpenAICodexAdapter } from "./openai-codex.ts";
 import { createOpenRouterAdapter } from "./openrouter.ts";
+import { createOllamaAdapter } from "./ollama-openai.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 
@@ -19,6 +20,12 @@ export function createConfiguredModelAdapter(
             ...(options.authStorage === undefined
                 ? {}
                 : { authStorage: options.authStorage }),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        });
+    }
+    if (config.provider === "ollama") {
+        return createOllamaAdapter({
+            host: (options.env ?? process.env).OLLAMA_HOST,
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         });
     }

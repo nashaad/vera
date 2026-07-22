@@ -15,7 +15,7 @@ import type { ModelReasoningEffort } from "./model/types.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
-export type VeraProviderId = "openrouter" | "openai-codex";
+export type VeraProviderId = "openrouter" | "openai-codex" | "ollama";
 
 export interface VeraModelFallbackConfig {
     readonly model: string;
@@ -73,7 +73,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter or openai-codex, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, optional approval_mode ask, approve_for_me, or full_access, and optional fallback with a different model and after_failures from 1 to 3. OpenAI Codex fallback requires reasoning_effort to be omitted.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, optional approval_mode ask, approve_for_me, or full_access, and optional fallback with a different model and after_failures from 1 to 3. OpenAI Codex fallback requires reasoning_effort to be omitted.`,
         );
     }
     return config;
@@ -119,7 +119,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
             && config.provider !== "openrouter"
-            && config.provider !== "openai-codex")
+            && config.provider !== "openai-codex"
+            && config.provider !== "ollama")
         || typeof config.model !== "string"
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined

@@ -77,6 +77,23 @@ Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:
 }
 ```
 
+## Ollama
+
+Start Ollama and choose an installed model from `ollama list`:
+
+```json
+{
+  "schema_version": 1,
+  "provider": "ollama",
+  "model": "gemma4:26b",
+  "reasoning_effort": "off"
+}
+```
+
+Vera connects to `http://127.0.0.1:11434` by default. Set `OLLAMA_HOST` to use
+another host. The initial integration uses Ollama's OpenAI-compatible chat
+endpoint and supports streaming text and tool calls without an API key.
+
 ## Run
 
 ```sh
