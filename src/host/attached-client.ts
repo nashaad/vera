@@ -85,6 +85,7 @@ function createAttachedClient(
     let rejectDetached: ((error: Error) => void) | undefined;
     let pendingUpdateCount = 0;
     let resumeReading: (() => void) | undefined;
+    let lastSequence: number | undefined;
     const detached = new Promise<void>((resolve, reject) => {
         resolveDetached = resolve;
         rejectDetached = reject;
@@ -160,6 +161,25 @@ function createAttachedClient(
                 const update = parseAgentUpdate(value);
                 if (update === undefined) {
                     throw new Error("Host sent an invalid agent update");
+                }
+                if ("seq" in update) {
+                    if (lastSequence === undefined) {
+                        if (update.type !== "history") {
+                            throw new Error(
+                                "Host sent an agent update before its history checkpoint",
+                            );
+                        }
+                    } else {
+                        const expected = update.type === "history"
+                            ? lastSequence
+                            : lastSequence + 1;
+                        if (update.seq !== expected) {
+                            throw new Error(
+                                "Host sent a non-contiguous agent update sequence",
+                            );
+                        }
+                    }
+                    lastSequence = update.seq;
                 }
                 pendingUpdateCount += 1;
                 updates.push(update);

@@ -199,10 +199,11 @@ afterEach(() => {
                     agent_id: "agent-1",
                     workspace: "/work/one",
                 })}\n`);
+                socket.write('{"type":"history","entries":[],"seq":0}\n');
                 socket.write(
                     '{"type":"assistant_delta","text":"one","seq":1}\n',
                 );
-                socket.write('{"type":"assistant_delta","seq":1}\n');
+                socket.write('{"type":"assistant_delta","seq":2}\n');
             });
         });
         await new Promise<void>((resolve, reject) => {
@@ -217,6 +218,11 @@ afterEach(() => {
         try {
             await Bun.sleep(10);
             expect(client.closed).toBe(false);
+            expect(await client.receive()).toEqual({
+                type: "history",
+                entries: [],
+                seq: 0,
+            });
             expect(await client.receive()).toEqual({
                 type: "assistant_delta",
                 text: "one",
@@ -236,6 +242,92 @@ afterEach(() => {
     },
 );
 
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client rejects a gap after its replay checkpoint",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "timeline", requestId: "timeline-1", boundaries: [] },
+            { type: "history", entries: [], seq: 4 },
+            { type: "assistant_delta", text: "lost an update", seq: 6 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({
+                type: "history",
+                seq: 4,
+            });
+            expect(await client.receive()).toMatchObject({ type: "timeline" });
+            expect(await client.receive()).toMatchObject({
+                type: "history",
+                seq: 4,
+            });
+            await expect(client.receive()).rejects.toThrow(
+                "Host sent a non-contiguous agent update sequence",
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client requires history before sequenced updates",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "assistant_delta", text: "orphaned", seq: 1 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            await expect(client.receive()).rejects.toThrow(
+                "Host sent an agent update before its history checkpoint",
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client rejects duplicate and regressing update sequences",
+    async () => {
+        for (const invalidSequence of [4, 3]) {
+            const directory = temporaryDirectory();
+            const socketPath = join(directory, `host-${invalidSequence}.sock`);
+            const server = await scriptedHost(socketPath, [
+                { type: "history", entries: [], seq: 4 },
+                {
+                    type: "assistant_delta",
+                    text: "out of order",
+                    seq: invalidSequence,
+                },
+            ]);
+            const client = await attachAgent({
+                socketPath,
+                agentId: "agent-1",
+            });
+            try {
+                expect(await client.receive()).toMatchObject({
+                    type: "history",
+                    seq: 4,
+                });
+                await expect(client.receive()).rejects.toThrow(
+                    "Host sent a non-contiguous agent update sequence",
+                );
+            } finally {
+                client.close();
+                await closeServer(server);
+            }
+        }
+    },
+);
+
 function temporaryDirectory(): string {
     const directory = mkdtempSync(join("/private/tmp", "vera-attached-client-"));
     temporaryDirectories.push(directory);
@@ -251,4 +343,33 @@ async function receiveUpdates(
         updates.push(await client.receive());
     }
     return updates;
+}
+
+async function scriptedHost(
+    socketPath: string,
+    updates: readonly AgentUpdate[],
+): Promise<ReturnType<typeof createServer>> {
+    const server = createServer((socket) => {
+        socket.once("data", () => {
+            socket.write(`${JSON.stringify({
+                type: "attached",
+                agent_id: "agent-1",
+                workspace: "/work/one",
+            })}\n`);
+            for (const update of updates) {
+                socket.write(`${JSON.stringify(update)}\n`);
+            }
+        });
+    });
+    await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(socketPath, resolve);
+    });
+    return server;
+}
+
+function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
+    return new Promise((resolve, reject) => {
+        server.close((error) => error === undefined ? resolve() : reject(error));
+    });
 }
