@@ -41,6 +41,19 @@ test("turn finished accepts an optional model error", () => {
     expect(parseAgentUpdate({ ...update, error: "   " })).toBeUndefined();
 });
 
+test("host wire validates context token counts", () => {
+    expect(parseAgentUpdate({
+        type: "turn_finished",
+        contextInputTokens: 64_500,
+        seq: 1,
+    })).toBeDefined();
+    expect(parseAgentUpdate({
+        type: "turn_finished",
+        contextInputTokens: -1,
+        seq: 1,
+    })).toBeUndefined();
+});
+
 test("host wire validates terminal resident failures", () => {
     const update = {
         type: "agent_failed" as const,

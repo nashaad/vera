@@ -8,6 +8,7 @@ export interface SuggestedModel {
     readonly model: string;
     readonly label: string;
     readonly description: string;
+    readonly contextWindow?: number;
 }
 
 export interface VerifiedReasoningCombination {
@@ -85,7 +86,10 @@ function isSuggestedModel(value: unknown): value is SuggestedModel {
     return typeof model?.provider === "string"
         && typeof model.model === "string"
         && typeof model.label === "string"
-        && typeof model.description === "string";
+        && typeof model.description === "string"
+        && (model.contextWindow === undefined
+            || (Number.isSafeInteger(model.contextWindow)
+                && (model.contextWindow as number) > 0));
 }
 
 function isProviders(value: unknown): boolean {

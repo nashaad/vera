@@ -26,6 +26,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (update.type === "history") {
         return Array.isArray(update.entries)
             && update.entries.every(isTranscriptEntry)
+            && isOptionalTokenCount(update.contextInputTokens)
             ? value as AgentUpdate
             : undefined;
     }
@@ -53,6 +54,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.error === undefined
                 || (typeof update.error === "string"
                     && update.error.trim().length > 0))
+            && isOptionalTokenCount(update.contextInputTokens)
             ? value as AgentUpdate
             : undefined;
     }
@@ -103,6 +105,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && (settings.availableModels === undefined
                     || (Array.isArray(settings.availableModels)
                         && settings.availableModels.every(isSuggestedModel)))
+                && (settings.contextWindow === undefined
+                    || (Number.isSafeInteger(settings.contextWindow)
+                        && (settings.contextWindow as number) > 0))
             ? value as AgentUpdate
             : undefined;
     }
@@ -334,7 +339,15 @@ function isSuggestedModel(value: unknown): boolean {
     return typeof model?.provider === "string"
         && typeof model.model === "string"
         && typeof model.label === "string"
-        && typeof model.description === "string";
+        && typeof model.description === "string"
+        && (model.contextWindow === undefined
+            || (Number.isSafeInteger(model.contextWindow)
+                && (model.contextWindow as number) > 0));
+}
+
+function isOptionalTokenCount(value: unknown): boolean {
+    return value === undefined
+        || (Number.isSafeInteger(value) && (value as number) >= 0);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

@@ -126,6 +126,7 @@ export interface HistoryUpdate {
     readonly type: "history";
     readonly entries: readonly TranscriptEntry[];
     readonly seq: number;
+    readonly contextInputTokens?: number;
 }
 
 export interface UserPromptUpdate {
@@ -159,6 +160,7 @@ export interface TurnFinishedUpdate {
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
     readonly seq: number;
+    readonly contextInputTokens?: number;
 }
 
 export interface AgentFailedUpdate {
@@ -748,6 +750,7 @@ export function createProtocolEncoder(
                 type: "turn_finished",
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
+                ...contextInputTokens(event.message),
                 seq,
             });
         }
@@ -758,10 +761,28 @@ export function createProtocolEncoder(
             sender.send({
                 type: "history",
                 entries: projectTranscript(messages),
+                ...latestContextInputTokens(messages),
                 seq,
             });
         },
     });
+}
+
+function latestContextInputTokens(
+    messages: readonly ModelMessage[],
+): { readonly contextInputTokens?: number } {
+    const message = messages.findLast((candidate) => candidate.role === "assistant");
+    return message === undefined ? {} : contextInputTokens(message);
+}
+
+function contextInputTokens(
+    message: ModelMessage,
+): { readonly contextInputTokens?: number } {
+    return message.role === "assistant"
+        && Number.isSafeInteger(message.usage.inputTokens)
+        && message.usage.inputTokens > 0
+        ? { contextInputTokens: message.usage.inputTokens }
+        : {};
 }
 
 export function projectTranscript(

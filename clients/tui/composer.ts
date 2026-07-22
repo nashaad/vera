@@ -127,7 +127,8 @@ export function createTuiComposerPanel(
         height: 5,
         paddingX: 2,
         paddingY: 1,
-        marginBottom: 1,
+        // Reserve the status row and its bottom gutter.
+        marginBottom: 2,
         // OpenCode focuses its textarea from mouse-down. Vera extends that
         // mechanic to the padded panel because the whole panel reads as input.
         onMouseDown: () => composer.focus(),

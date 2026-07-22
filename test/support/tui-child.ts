@@ -25,6 +25,7 @@ void runHeadlessLoop(
         readModelSettings: () => ({
             model: "test",
             reasoningEffort: "high",
+            contextWindow: 100,
         }),
         updateModelSettings: async () => undefined,
         readApprovalMode: () => "approve_for_me",
@@ -49,7 +50,7 @@ function response(text: string): AssistantMessage {
         role: "assistant",
         content: [{ type: "text", text }],
         source: { provider: "faux", api: "scripted", model: "test" },
-        usage: emptyUsage(),
+        usage: { ...emptyUsage(), inputTokens: 25 },
         stopReason: "stop",
     };
 }

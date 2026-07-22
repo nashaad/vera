@@ -26,6 +26,7 @@ export interface TuiState {
     readonly queuedPrompts: readonly string[];
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
+    readonly contextInputTokens?: number;
 }
 
 export let TUI_ACCENT = VERA_TUI_THEME.accent;
@@ -120,7 +121,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "turn_finished") {
-        const finished = { ...state, working: false };
+        const finished = {
+            ...state,
+            working: false,
+            ...(update.contextInputTokens === undefined
+                ? {}
+                : { contextInputTokens: update.contextInputTokens }),
+        };
         const error = update.error
             ?? (update.outcome === "error" ? "Model request failed"
                 : update.outcome === "aborted" ? "Turn aborted"
@@ -157,6 +164,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return {
             ...state,
             entries: update.entries.map(toTuiTranscriptEntry),
+            ...(update.contextInputTokens === undefined
+                ? {}
+                : { contextInputTokens: update.contextInputTokens }),
         };
     }
     if (update.type === "user_prompt") {

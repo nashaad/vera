@@ -48,7 +48,7 @@ const messages: ModelMessage[] = [
         role: "assistant",
         content: [{ type: "text", text: "It says contents." }],
         source: { provider: "faux", api: "test", model: "test" },
-        usage: emptyUsage(),
+        usage: { ...emptyUsage(), inputTokens: 64_500 },
         stopReason: "stop",
     },
 ];
@@ -190,9 +190,34 @@ test("protocol checkpoints keep the current update sequence", () => {
         {
             type: "history",
             entries: projectTranscript(messages),
+            contextInputTokens: 64_500,
             seq: 1,
         },
     ]);
+});
+
+test("turn completion reports the latest context input tokens", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    const message = messages.at(-1);
+    if (message?.role !== "assistant") {
+        throw new Error("Expected the fixture to end with an assistant message");
+    }
+    protocol({
+        type: "turn_finished",
+        message,
+    });
+
+    expect(updates).toEqual([{
+        type: "turn_finished",
+        contextInputTokens: 64_500,
+        seq: 1,
+    }]);
 });
 
 test("task notifications share the ordered agent update sequence", () => {

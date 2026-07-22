@@ -11,6 +11,7 @@ export interface ModelTurnSettings {
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
     readonly availableModels?: readonly SuggestedModel[];
+    readonly contextWindow?: number;
 }
 
 export interface ModelSettingsPatch {
@@ -36,7 +37,10 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
                 && settings.availableReasoningEfforts.every(isModelReasoningEffort)))
         && (settings.availableModels === undefined
             || (Array.isArray(settings.availableModels)
-                && settings.availableModels.every(isSuggestedModel)));
+                && settings.availableModels.every(isSuggestedModel)))
+        && (settings.contextWindow === undefined
+            || (Number.isSafeInteger(settings.contextWindow)
+                && (settings.contextWindow as number) > 0));
 }
 
 export function availableReasoningEfforts(
@@ -56,6 +60,7 @@ export function availableModels(): readonly SuggestedModel[] {
             model: model.model,
             label: model.label,
             description: model.description,
+            contextWindow: model.context_window,
         }));
 }
 
@@ -67,7 +72,10 @@ function isSuggestedModel(value: unknown): boolean {
     return typeof model.provider === "string"
         && typeof model.model === "string"
         && typeof model.label === "string"
-        && typeof model.description === "string";
+        && typeof model.description === "string"
+        && (model.contextWindow === undefined
+            || (Number.isSafeInteger(model.contextWindow)
+                && (model.contextWindow as number) > 0));
 }
 
 export function isModelReasoningEffort(

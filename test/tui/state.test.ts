@@ -228,6 +228,23 @@ test("TUI state keeps host-reported permissions", () => {
     expect(state.entries).toEqual([]);
 });
 
+test("TUI state keeps context usage across completion and replay", () => {
+    let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
+        type: "turn_finished",
+        contextInputTokens: 64_500,
+        seq: 1,
+    });
+    expect(state.contextInputTokens).toBe(64_500);
+
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [],
+        contextInputTokens: 70_000,
+        seq: 1,
+    });
+    expect(state.contextInputTokens).toBe(70_000);
+});
+
 test("TUI does not duplicate its optimistic user prompt", () => {
     const state = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "inspect"),

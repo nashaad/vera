@@ -253,15 +253,17 @@ test.skipIf(!tmuxAvailable)(
 
             pane = await waitForPane(socket, session, "Start a conversation");
             expect(pane).toContain("test · reasoning high");
+            expect(pane).not.toContain("shift+enter newline");
             sendText(socket, session, "start streaming");
             sendKey(socket, session, "Enter");
 
             pane = await waitForPane(socket, session, "enter queue");
             expect(pane).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (thinking|responding) · \d+s/);
-            expect(pane).toContain("esc interrupt");
+            expect(pane).toContain("esc redirect/stop");
 
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
-            expect(pane).toContain("Responding · test · provider loading");
+            expect(pane).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] responding · \d+s/);
+            expect(pane).toContain("esc redirect/stop");
             expect(pane).toMatch(/\+ Thought: \d+\.\d+s/);
             sendText(socket, session, "redirect now");
             sendKey(socket, session, "Enter");
@@ -273,6 +275,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("PARTIAL xxxxx");
             expect(pane).toContain("redirect now");
             expect(pane).not.toContain("FIRST-END");
+            expect(pane).toContain("approve for me · ctx 25%");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {

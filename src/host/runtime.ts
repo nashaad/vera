@@ -154,6 +154,19 @@ async function discoverAvailableModels(
                 });
             }
         }
+        if (config.provider === "ollama") {
+            const contextWindow = await discoverOllamaContextWindow(
+                host,
+                config.model,
+            );
+            const configured = catalog.find((item) =>
+                item.provider === "ollama" && item.model === config.model
+            );
+            if (configured !== undefined && contextWindow !== undefined) {
+                const index = catalog.indexOf(configured);
+                catalog[index] = { ...configured, contextWindow };
+            }
+        }
     } catch {
         // Ollama is optional; an offline local server must not block Vera startup.
     }
@@ -168,6 +181,41 @@ async function discoverAvailableModels(
         });
     }
     return catalog;
+}
+
+async function discoverOllamaContextWindow(
+    host: string,
+    model: string,
+): Promise<number | undefined> {
+    const response = await fetch(`${host}/api/show`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model }),
+        signal: AbortSignal.timeout(750),
+    });
+    if (!response.ok) return undefined;
+    return ollamaContextWindow(await response.json());
+}
+
+export function ollamaContextWindow(value: unknown): number | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const body = value as { model_info?: unknown };
+    if (
+        typeof body.model_info !== "object"
+        || body.model_info === null
+        || Array.isArray(body.model_info)
+    ) {
+        return undefined;
+    }
+    const lengths = Object.entries(body.model_info)
+        .filter(([key]) => key.endsWith(".context_length"))
+        .map(([, value]) => value)
+        .filter((value): value is number =>
+            Number.isSafeInteger(value) && (value as number) > 0
+        );
+    return lengths[0];
 }
 
 function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {

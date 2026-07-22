@@ -573,6 +573,9 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
         ...(settings.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: settings.reasoningEffort }),
+        ...(settings.contextWindow === undefined
+            ? {}
+            : { contextWindow: settings.contextWindow }),
         ...(settings.availableReasoningEfforts === undefined
             ? {}
             : {
