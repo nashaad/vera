@@ -5,6 +5,7 @@ import {
     type HostLockRecord,
 } from "./lockfile.ts";
 import {
+    HOST_PROTOCOL_VERSION,
     requestHostShutdownIfIdle,
     type HostIdentity,
     type ShutdownIfIdleResponse,
@@ -50,6 +51,8 @@ export async function ensureResidentHost(
             !(error instanceof HostProtocolMismatchError)
             || error.startedAt === undefined
             || error.socketPath === undefined
+            || error.actualVersion === undefined
+            || error.actualVersion >= HOST_PROTOCOL_VERSION
         ) {
             throw error;
         }

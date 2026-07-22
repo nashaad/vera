@@ -6,6 +6,7 @@ import type {
     HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import { HostProtocolMismatchError } from "../../src/host/lockfile.ts";
+import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 
 const runningHost: HostLockRecord = {
     schema_version: 1,
@@ -69,6 +70,36 @@ test("host discovery does not start over an incompatible live host", async () =>
         },
     })).rejects.toBe(mismatch);
     expect(starts).toBe(0);
+});
+
+test("host discovery never asks an unknown or newer host to shut down", async () => {
+    for (const actualVersion of [undefined, HOST_PROTOCOL_VERSION + 1]) {
+        const mismatch = new HostProtocolMismatchError(
+            101,
+            actualVersion,
+            runningHost.started_at,
+            runningHost.socket_path,
+        );
+        let shutdownRequests = 0;
+        await expect(ensureResidentHost({
+            lockfile: {
+                publish(): Promise<HostLockRecord> {
+                    throw new Error("not used");
+                },
+                read(): Promise<HostLockRecord | undefined> {
+                    return Promise.reject(mismatch);
+                },
+            },
+            startHost(): void {
+                throw new Error("must not start");
+            },
+            shutdownIfIdle: async () => {
+                shutdownRequests += 1;
+                return undefined;
+            },
+        })).rejects.toBe(mismatch);
+        expect(shutdownRequests).toBe(0);
+    }
 });
 
 test("host discovery replaces an incompatible host only after idle shutdown", async () => {

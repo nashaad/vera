@@ -62,7 +62,7 @@ export async function startHostServer(
     let activeAttachments = 0;
     let shutdownNotified = false;
     const requestShutdown = (
-        requested: HostIdentity,
+        requested: HostIdentity & { readonly requester_protocol_version: number },
     ): ShutdownIfIdleResponse => {
         if (
             requested.pid !== identity.pid
@@ -71,6 +71,12 @@ export async function startHostServer(
             return {
                 type: "shutdown_if_idle_refused",
                 reason: "identity_mismatch",
+            };
+        }
+        if (requested.requester_protocol_version <= HOST_PROTOCOL_VERSION) {
+            return {
+                type: "shutdown_if_idle_refused",
+                reason: "requester_not_newer",
             };
         }
         if (shutdownFenced) {
@@ -178,7 +184,9 @@ function receiveConnection(
     createAgent: (workspace: string) => Promise<ResidentAgent>,
     resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
     isShutdownFenced: () => boolean,
-    requestShutdown: (identity: HostIdentity) => ShutdownIfIdleResponse,
+    requestShutdown: (
+        identity: HostIdentity & { readonly requester_protocol_version: number },
+    ) => ShutdownIfIdleResponse,
     attachmentOpened: () => () => void,
     notifyShutdownAccepted: () => void,
 ): void {
@@ -289,6 +297,8 @@ function receiveConnection(
                 pid: request.pid,
                 started_at: request.started_at,
                 protocol_version: HOST_PROTOCOL_VERSION,
+                requester_protocol_version:
+                    request.requester_protocol_version,
             });
             void send(response).then(() => {
                 if (response.type === "shutdown_if_idle_accepted") {
