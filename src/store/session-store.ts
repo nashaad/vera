@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ModelMessage } from "../model/types.ts";
+import type { ImageMediaType } from "../attachments/image.ts";
 import {
     isModelTurnSettings,
     type ModelTurnSettings,
@@ -74,6 +75,22 @@ export interface SessionCommandPrefixEntry {
     readonly prefix: CommandPrefix;
 }
 
+export interface SessionAttachmentEntry {
+    readonly type: "attachment";
+    readonly timestamp: string;
+    readonly attachment: SessionImageAttachmentMetadata;
+}
+
+export interface SessionImageAttachmentMetadata {
+    readonly id: string;
+    readonly name: string;
+    readonly mediaType: ImageMediaType;
+    readonly bytes: number;
+    readonly width: number;
+    readonly height: number;
+    readonly sha256: string;
+}
+
 export interface SessionRewindEntry {
     readonly type: "rewind";
     readonly timestamp: string;
@@ -120,6 +137,7 @@ interface LoadedSessionFile {
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly commandPrefixEntries: SessionCommandPrefixEntry[];
+    readonly attachmentEntries: SessionAttachmentEntry[];
     readonly leafId: string | null;
 }
 
@@ -136,6 +154,7 @@ export class SessionStore {
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
     private readonly commandPrefixEntries: SessionCommandPrefixEntry[];
+    private readonly attachmentEntries: SessionAttachmentEntry[];
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
@@ -153,6 +172,7 @@ export class SessionStore {
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
         this.commandPrefixEntries = loaded.commandPrefixEntries;
+        this.attachmentEntries = loaded.attachmentEntries;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
@@ -192,6 +212,7 @@ export class SessionStore {
                 modelSettingsEntries: [],
                 permissionsEntries: [],
                 commandPrefixEntries: [],
+                attachmentEntries: [],
                 leafId: null,
             },
             {
@@ -272,6 +293,10 @@ export class SessionStore {
         }));
     }
 
+    attachmentRecords(): readonly SessionImageAttachmentMetadata[] {
+        return this.attachmentEntries.map((entry) => ({ ...entry.attachment }));
+    }
+
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
         const result = this.pendingAppend.then(() => this.commitMessage(message));
         this.pendingAppend = result.then(
@@ -324,6 +349,20 @@ export class SessionStore {
     ): Promise<SessionCommandPrefixEntry> {
         const result = this.pendingAppend.then(() =>
             this.commitCommandPrefix(prefix)
+        );
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendAttachment(
+        attachment: SessionImageAttachmentMetadata,
+    ): Promise<boolean> {
+        const snapshot = copySessionImageAttachment(attachment);
+        const result = this.pendingAppend.then(() =>
+            this.commitAttachment(snapshot)
         );
         this.pendingAppend = result.then(
             () => undefined,
@@ -452,6 +491,29 @@ export class SessionStore {
         await this.appendRecord(entry);
         this.commandPrefixEntries.push(entry);
         return entry;
+    }
+
+    private async commitAttachment(
+        attachment: SessionImageAttachmentMetadata,
+    ): Promise<boolean> {
+        const stored = attachment;
+        const existing = this.attachmentEntries.find(
+            (entry) => entry.attachment.id === stored.id,
+        );
+        if (existing !== undefined) {
+            if (!sameAttachmentContent(existing.attachment, stored)) {
+                throw new Error(`Attachment ${stored.id} conflicts with stored metadata`);
+            }
+            return false;
+        }
+        const entry: SessionAttachmentEntry = {
+            type: "attachment",
+            timestamp: this.now().toISOString(),
+            attachment: stored,
+        };
+        await this.appendRecord(entry);
+        this.attachmentEntries.push(entry);
+        return true;
     }
 
     private async commitRewind(
@@ -592,8 +654,10 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
     const commandPrefixEntries: SessionCommandPrefixEntry[] = [];
+    const attachmentEntries: SessionAttachmentEntry[] = [];
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
+    const knownAttachmentIds = new Set<string>();
     let leafId: string | null = null;
 
     for (let index = 1; index < lines.length; index += 1) {
@@ -716,6 +780,18 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "attachment") {
+            const entry = parseAttachmentEntry(path, lineNumber, value);
+            if (knownAttachmentIds.has(entry.attachment.id)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} repeats attachment ID ${entry.attachment.id}`,
+                );
+            }
+            knownAttachmentIds.add(entry.attachment.id);
+            attachmentEntries.push(entry);
+            continue;
+        }
         if (value.type === "rewind") {
             const rewind = parseRewindEntry(path, lineNumber, value);
             if (rewind.previousHeadId !== leafId) {
@@ -766,8 +842,90 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         modelSettingsEntries,
         permissionsEntries,
         commandPrefixEntries,
+        attachmentEntries,
         leafId,
     };
+}
+
+function parseAttachmentEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionAttachmentEntry {
+    if (typeof value.timestamp !== "string") {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid attachment entry`,
+        );
+    }
+    try {
+        return {
+            type: "attachment",
+            timestamp: value.timestamp,
+            attachment: copySessionImageAttachment(
+                value.attachment as SessionImageAttachmentMetadata,
+            ),
+        };
+    } catch (cause) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid attachment entry`,
+            cause,
+        );
+    }
+}
+
+function copySessionImageAttachment(
+    value: SessionImageAttachmentMetadata,
+): SessionImageAttachmentMetadata {
+    if (!isRecord(value)) throw new Error("Invalid attachment metadata");
+    const attachment = {
+        id: value.id,
+        name: value.name,
+        mediaType: value.mediaType,
+        bytes: value.bytes,
+        width: value.width,
+        height: value.height,
+        sha256: value.sha256,
+    };
+    const extension = attachment.mediaType === "image/png" ? "png"
+        : attachment.mediaType === "image/jpeg" ? "jpg"
+        : attachment.mediaType === "image/gif" ? "gif"
+        : attachment.mediaType === "image/webp" ? "webp"
+        : undefined;
+    if (
+        extension === undefined
+        || !isSha256(attachment.sha256)
+        || attachment.id !== `${attachment.sha256}.${extension}`
+        || typeof attachment.name !== "string"
+        || attachment.name.length === 0
+        || attachment.name.trim() !== attachment.name
+        || attachment.name.includes("\0")
+        || attachment.name.includes("/")
+        || attachment.name.includes("\\")
+        || Buffer.byteLength(attachment.name, "utf8") > 255
+        || !Number.isSafeInteger(attachment.bytes)
+        || attachment.bytes <= 0
+        || !Number.isSafeInteger(attachment.width)
+        || attachment.width <= 0
+        || !Number.isSafeInteger(attachment.height)
+        || attachment.height <= 0
+    ) {
+        throw new Error("Invalid attachment metadata");
+    }
+    return attachment;
+}
+
+function sameAttachmentContent(
+    left: SessionImageAttachmentMetadata,
+    right: SessionImageAttachmentMetadata,
+): boolean {
+    return left.id === right.id
+        && left.mediaType === right.mediaType
+        && left.bytes === right.bytes
+        && left.width === right.width
+        && left.height === right.height
+        && left.sha256 === right.sha256;
 }
 
 function parseHeader(path: string, line: string | undefined): SessionHeader {

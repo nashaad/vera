@@ -15,6 +15,7 @@ import {
 } from "../../src/store/session-store.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+import type { SessionImageAttachmentMetadata } from "../../src/store/session-store.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -1015,6 +1016,89 @@ test("session store rejects messages that only resemble engine types", async () 
     );
 });
 
+test("attachment metadata is durable, bounded, and idempotent", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-22T12:00:00.000Z",
+            "2026-07-22T12:00:01.000Z",
+        ),
+    });
+    const attachment = imageAttachment();
+    const expected = { ...attachment };
+
+    const append = store.appendAttachment(attachment);
+    (attachment as { name: string }).name = "mutated.png";
+    expect(await append).toBe(true);
+    expect(await store.appendAttachment({
+        ...expected,
+        name: "same-bytes-different-name.png",
+    })).toBe(false);
+    expect(readLines(path).at(-1)).toEqual({
+        type: "attachment",
+        timestamp: "2026-07-22T12:00:01.000Z",
+        attachment: expected,
+    });
+
+    const reopened = await SessionStore.open(path);
+    const loaded = reopened.attachmentRecords();
+    expect(loaded).toEqual([expected]);
+    (loaded[0] as { name: string }).name = "changed.png";
+    expect(reopened.attachmentRecords()).toEqual([expected]);
+});
+
+test("attachment IDs reject conflicting metadata", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    const attachment = imageAttachment();
+    await store.appendAttachment(attachment);
+
+    await expect(store.appendAttachment({
+        ...attachment,
+        width: attachment.width + 1,
+    })).rejects.toThrow("conflicts with stored metadata");
+    expect(readLines(path)).toHaveLength(2);
+});
+
+test("session store rejects malformed attachment records", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const header = JSON.stringify({
+        type: "session",
+        version: SESSION_FORMAT_VERSION,
+        id: "session-1",
+        timestamp: "2026-07-22T12:00:00.000Z",
+        cwd: directory,
+    });
+    const attachment = imageAttachment();
+    const candidates = [
+        { ...attachment, id: "../outside.png" },
+        { ...attachment, name: "/private/source.png" },
+        { ...attachment, name: " " },
+        { ...attachment, name: "bad\0name.png" },
+        { ...attachment, sha256: "not-a-hash" },
+        { ...attachment, bytes: 0 },
+    ];
+
+    for (const candidate of candidates) {
+        writeFileSync(path, `${header}\n${JSON.stringify({
+            type: "attachment",
+            timestamp: "2026-07-22T12:00:01.000Z",
+            attachment: candidate,
+        })}\n`);
+        await expect(SessionStore.open(path)).rejects.toThrow(
+            "line 2 is not a valid attachment entry",
+        );
+    }
+});
+
 test("session store rejects an invalid message before writing", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
@@ -1049,6 +1133,19 @@ function assistantMessage(text: string): ModelMessage {
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
         stopReason: "stop",
+    };
+}
+
+function imageAttachment(): SessionImageAttachmentMetadata {
+    const sha256 = "a".repeat(64);
+    return {
+        id: `${sha256}.png`,
+        name: "screenshot.png",
+        mediaType: "image/png",
+        bytes: 123,
+        width: 10,
+        height: 20,
+        sha256,
     };
 }
 
