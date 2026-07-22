@@ -11,7 +11,8 @@ import type {
     UiResponseCommand,
 } from "../../src/engine/protocol.ts";
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
-import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import { TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import { dialogHeaderNode } from "./dialog-chrome.ts";
 
 const APPROVAL_ACTIONS = "[1]once [2]prefix [3/esc]deny";
 const APPROVAL_ACTIONS_WITHOUT_PREFIX =
@@ -65,7 +66,7 @@ export function createTuiApprovalView(
     const actions = new TextRenderable(renderer, {
         id: "approval-actions",
         content: APPROVAL_ACTIONS,
-        fg: TUI_TEXT,
+        fg: TUI_MUTED,
         width: "100%",
         height: "auto",
         maxHeight: 2,
@@ -73,11 +74,12 @@ export function createTuiApprovalView(
         flexShrink: 0,
     });
 
+    const header = dialogHeaderNode(renderer, "Tool approval");
+    // Kept tight (no vertical padding, single row gap) so the prompt still fits
+    // very short terminals where the card padding would push the actions off.
     const box = new BoxRenderable(renderer, {
         id: "approval-box",
-        title: " Tool approval ",
-        border: true,
-        borderColor: TUI_NOTICE,
+        border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         bottom: 1,
@@ -88,9 +90,11 @@ export function createTuiApprovalView(
         zIndex: 20,
         flexDirection: "column",
         gap: 0,
-        paddingX: 1,
+        paddingLeft: 2,
+        paddingRight: 2,
         visible: false,
     });
+    box.add(header);
     box.add(details);
     box.add(actions);
 

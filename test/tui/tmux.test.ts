@@ -192,8 +192,11 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "Reasoning");
             expect(pane).toContain("High");
 
+            // The selected row is now a background highlight rather than a "›"
+            // caret, so it does not show up in tmux's text-only capture. The
+            // "reasoning change requested: max" wait below is the real guard:
+            // it only appears if Down moved the selection off High before Enter.
             sendKey(socket, session, "Down");
-            await waitForVisiblePane(socket, session, "› Max");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(
                 socket,
@@ -314,7 +317,7 @@ test.skipIf(!tmuxAvailable)(
             await waitForPane(interruptSocket, "interrupt", "Start a conversation");
             sendText(interruptSocket, "interrupt", "/rewind");
             sendKey(interruptSocket, "interrupt", "Enter");
-            await waitForPane(interruptSocket, "interrupt", "Rewind — select a point");
+            await waitForPane(interruptSocket, "interrupt", "Rewind: select a point");
             sendKey(interruptSocket, "interrupt", "C-c");
             await waitForSessionExit(interruptSocket, "interrupt");
         } finally {
@@ -734,7 +737,6 @@ async function exerciseConversationRewind(
         session,
         "/rewind  Rewind the active conversation",
     );
-    expect(pane).toContain("Commands");
     sendKey(socket, session, "Tab");
     pane = await waitForPaneWhere(
         socket,
@@ -746,12 +748,11 @@ async function exerciseConversationRewind(
     pane = await waitForPaneWhere(
         socket,
         session,
-        (current) => current.includes("Rewind — select a point")
-            && current.includes("›")
+        (current) => current.includes("Rewind: select a point")
             && current.includes("second request"),
         "loaded rewind timeline",
     );
-    expect(pane).toContain("Rewind — select a point");
+    expect(pane).toContain("Rewind: select a point");
     expect(pane).toContain("second request");
     expect(pane).toContain(
         "Workspace files and external effects will not change",

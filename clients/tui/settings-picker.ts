@@ -19,6 +19,15 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
+import {
+    DIALOG_CHROME_HEIGHT,
+    DIALOG_GUTTER_WIDTH,
+    dialogFooterNode,
+    dialogGroupHeaderNode,
+    dialogHeaderNode,
+    dialogOptionRow,
+    dialogSearchNode,
+} from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 
 export type TuiSettingsPickerKind =
@@ -312,19 +321,10 @@ export function handleTuiSettingsPickerKey(
 export function createTuiSettingsPickerView(
     renderer: RenderContext,
 ): TuiSettingsPickerView {
-    let themeNodes: Renderable[] = [];
-    const content = new TextRenderable(renderer, {
-        id: "settings-picker-text",
-        content: "",
-        fg: TUI_TEXT,
-        width: "100%",
-        height: "auto",
-        wrapMode: "word",
-    });
+    let nodes: Renderable[] = [];
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
-        title: " Settings ",
-        border: true,
+        border: false,
         borderColor: TUI_ACCENT,
         backgroundColor: TUI_PANEL,
         position: "absolute",
@@ -333,46 +333,157 @@ export function createTuiSettingsPickerView(
         width: "80%",
         height: 8,
         zIndex: 15,
-        paddingX: 1,
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: 1,
         focusable: true,
         visible: false,
     });
-    box.add(content);
 
     return {
         box,
         update(state): void {
-            for (const node of themeNodes) {
+            for (const node of nodes) {
                 node.destroy();
             }
-            themeNodes = [];
+            nodes = [];
+            box.title = undefined;
+            box.border = false;
             if (state.kind === "theme") {
-                content.visible = false;
-                box.title = undefined;
-                box.border = false;
                 box.left = "20%";
                 box.width = "60%";
-                box.height = state.allOptions.length + 7;
-                box.paddingLeft = 2;
-                box.paddingRight = 2;
-                box.paddingTop = 1;
-                renderThemePickerRows(renderer, box, state, themeNodes);
+                box.height = state.allOptions.length + DIALOG_CHROME_HEIGHT;
+                renderThemePickerRows(renderer, box, state, nodes);
                 return;
             }
-            content.visible = true;
-            box.border = true;
             box.left = "10%";
             box.width = "80%";
-            box.paddingLeft = 1;
-            box.paddingRight = 1;
-            box.title = pickerTitle(state.kind);
-            box.height = Math.min(
-                18,
-                state.options.length + 9,
-            );
-            content.content = renderTuiSettingsPicker(state);
+            renderListPickerRows(renderer, box, state, nodes);
         },
     };
+}
+
+const PICKER_MAX_ROWS = 12;
+
+type PickerDisplayRow =
+    | { readonly kind: "group"; readonly label: string }
+    | {
+        readonly kind: "option";
+        readonly option: TuiSettingsPickerOption;
+        readonly index: number;
+    };
+
+function renderListPickerRows(
+    renderer: RenderContext,
+    box: BoxRenderable,
+    state: TuiSettingsPickerState,
+    nodes: Renderable[],
+): void {
+    const header = dialogHeaderNode(renderer, pickerTitle(state.kind));
+    const search = dialogSearchNode(renderer, state.query);
+    box.add(header);
+    box.add(search);
+    nodes.push(header, search);
+
+    const rows = windowedDisplayRows(
+        listDisplayRows(state),
+        state.selectedIndex,
+    );
+    let lines = 0;
+    if (rows.length === 0) {
+        const empty = new TextRenderable(renderer, {
+            content: emptyPickerMessage(state),
+            fg: TUI_MUTED,
+            width: "100%",
+            height: 1,
+            paddingLeft: DIALOG_GUTTER_WIDTH,
+        });
+        box.add(empty);
+        nodes.push(empty);
+        lines = 1;
+    }
+    rows.forEach((row, position) => {
+        const node = row.kind === "group"
+            ? dialogGroupHeaderNode(renderer, row.label, position > 0)
+            : dialogOptionRow(renderer, {
+                label: row.option.label,
+                leading: isCurrentOption(state, row.option) ? "● " : "  ",
+                description: row.option.description,
+                meta: optionMeta(state, row.option),
+                active: row.index === state.selectedIndex,
+                current: isCurrentOption(state, row.option),
+            });
+        lines += row.kind === "group" && position > 0 ? 2 : 1;
+        box.add(node);
+        nodes.push(node);
+    });
+
+    const footer = dialogFooterNode(renderer, "↑↓ move · ⏎ select · esc close");
+    box.add(footer);
+    nodes.push(footer);
+    box.height = lines + DIALOG_CHROME_HEIGHT;
+}
+
+function listDisplayRows(
+    state: TuiSettingsPickerState,
+): readonly PickerDisplayRow[] {
+    // Only the unfiltered model list is grouped: a search result is a single
+    // ranked list, and the provider moves to the row's right-hand column.
+    const grouped = state.kind === "model" && state.query.length === 0;
+    const rows: PickerDisplayRow[] = [];
+    state.options.forEach((option, index) => {
+        if (
+            grouped
+            && state.options[index - 1]?.provider !== option.provider
+        ) {
+            rows.push({ kind: "group", label: option.provider ?? "Other" });
+        }
+        rows.push({ kind: "option", option, index });
+    });
+    return rows;
+}
+
+function windowedDisplayRows(
+    rows: readonly PickerDisplayRow[],
+    selectedIndex: number,
+): readonly PickerDisplayRow[] {
+    if (rows.length <= PICKER_MAX_ROWS) {
+        return rows;
+    }
+    const cursor = rows.findIndex((row) =>
+        row.kind === "option" && row.index === selectedIndex
+    );
+    const centered = Math.max(0, cursor) - Math.floor(PICKER_MAX_ROWS / 2);
+    const start = Math.min(
+        Math.max(0, centered),
+        rows.length - PICKER_MAX_ROWS,
+    );
+    return rows.slice(start, start + PICKER_MAX_ROWS);
+}
+
+function isCurrentOption(
+    state: TuiSettingsPickerState,
+    option: TuiSettingsPickerOption,
+): boolean {
+    return state.kind === "model" && option.value === state.initialModel;
+}
+
+function optionMeta(
+    state: TuiSettingsPickerState,
+    option: TuiSettingsPickerOption,
+): string | undefined {
+    return state.kind === "model" && state.query.length > 0
+        ? option.provider
+        : undefined;
+}
+
+function emptyPickerMessage(state: TuiSettingsPickerState): string {
+    if (state.kind !== "session") {
+        return "No matches found";
+    }
+    return state.loading === true
+        ? "Loading conversations…"
+        : "No conversations found";
 }
 
 const THEME_LABEL_WIDTH = 11;
@@ -383,35 +494,8 @@ function renderThemePickerRows(
     state: TuiSettingsPickerState,
     nodes: Renderable[],
 ): void {
-    const header = new BoxRenderable(renderer, {
-        width: "100%",
-        height: 1,
-        flexDirection: "row",
-        justifyContent: "space-between",
-        paddingLeft: 1,
-        paddingRight: 1,
-    });
-    header.add(new TextRenderable(renderer, {
-        content: "Theme",
-        fg: TUI_TEXT,
-        attributes: 1,
-    }));
-    header.add(new TextRenderable(renderer, {
-        content: "esc",
-        fg: TUI_MUTED,
-    }));
-    const search = new TextRenderable(renderer, {
-        content: new StyledText([
-            fg(TUI_MUTED)("⌕  "),
-            fg(state.query.length === 0 ? TUI_MUTED : TUI_ACCENT)(
-                state.query.length === 0 ? "Search" : state.query,
-            ),
-        ]),
-        width: "100%",
-        height: 2,
-        paddingLeft: 1,
-        paddingTop: 1,
-    });
+    const header = dialogHeaderNode(renderer, "Theme");
+    const search = dialogSearchNode(renderer, state.query);
     box.add(header);
     box.add(search);
     nodes.push(header, search);
@@ -434,14 +518,7 @@ function renderThemePickerRows(
         nodes.push(row);
     });
 
-    const footer = new TextRenderable(renderer, {
-        content: "↑↓ move · ⏎ apply · esc cancel",
-        fg: TUI_MUTED,
-        width: "100%",
-        height: 2,
-        paddingLeft: 1,
-        paddingTop: 1,
-    });
+    const footer = dialogFooterNode(renderer, "↑↓ move · ⏎ apply · esc cancel");
     box.add(footer);
     nodes.push(footer);
 }
@@ -475,34 +552,6 @@ function themeSwatchChunks(name: TuiThemeName, matched: boolean): TextChunk[] {
         ...(index === 0 ? [] : [fg(TUI_PANEL)(" ")]),
         fg(matched ? color : TUI_MUTED)("██"),
     ]);
-}
-
-export function renderTuiSettingsPicker(
-    state: TuiSettingsPickerState,
-): string {
-    const rows = state.options.flatMap((option, index) => {
-        const marker = index === state.selectedIndex ? "›" : " ";
-        const current = state.kind === "model"
-            && option.value === state.initialModel ? "●" : " ";
-        const description = state.kind === "model" && state.query.length > 0
-            ? `${option.provider} · ${option.description}`
-            : option.description;
-        const row = `${marker}${current} ${option.label.padEnd(18)} ${description}`;
-        if (state.kind !== "model" || state.query.length > 0) {
-            return [row];
-        }
-        const previous = state.options[index - 1];
-        return previous?.provider === option.provider
-            ? [row]
-            : [`${option.provider ?? "Other"}`, row];
-    });
-    const search = `Search  ${state.query}\n\n`;
-    const empty = state.kind === "session" && rows.length === 0
-        ? state.loading
-            ? "Loading conversations…"
-            : "No conversations found"
-        : rows.join("\n");
-    return `${search}${empty}\n\n↑↓ move · enter select · esc close`;
 }
 
 function searched(
@@ -598,14 +647,14 @@ function pickerSelection(
 
 function pickerTitle(kind: TuiSettingsPickerKind): string {
     return kind === "model"
-        ? " Model "
+        ? "Select model"
         : kind === "reasoning"
-            ? " Reasoning "
+            ? "Reasoning"
             : kind === "permissions"
-                ? " Permissions "
+                ? "Permissions"
                 : kind === "session"
-                    ? " Resume "
-                    : " Themes ";
+                    ? "Resume"
+                    : "Theme";
 }
 
 function unchanged(
