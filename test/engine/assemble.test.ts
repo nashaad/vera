@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { assembleSystemPrompt } from "../../src/engine/assemble.ts";
+import {
+    assembleContextualSystemPrompt,
+    assembleStableSystemPrompt,
+    assembleSystemPrompt,
+} from "../../src/engine/assemble.ts";
 import type { ModelTool } from "../../src/model/types.ts";
 
 test("system prompt sections are assembled from current inputs", () => {
@@ -36,4 +40,22 @@ test("system prompt sections are assembled from current inputs", () => {
         "## Date",
         "Current date: 2026-07-17",
     ].join("\n"));
+});
+
+test("stable and contextual prompt parts combine without changing output", () => {
+    const tools: readonly ModelTool[] = [{
+        name: "inspect",
+        description: "Inspect the current state.",
+        inputSchema: { type: "object" },
+    }];
+    const input = {
+        tools,
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 17),
+    };
+
+    expect(assembleSystemPrompt(input)).toBe([
+        assembleStableSystemPrompt(input),
+        assembleContextualSystemPrompt(input),
+    ].join("\n\n"));
 });
