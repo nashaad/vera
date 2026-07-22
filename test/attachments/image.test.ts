@@ -107,6 +107,17 @@ test("image validation rejects unsupported, corrupt, and huge decoder results", 
         async () => ({ mediaType: "image/jpeg", width: 1_001, height: 1 }),
         "dimensions_exceeded",
     );
+    await expectError(
+        new Uint8Array([1]),
+        LIMITS,
+        async () => ({
+            mediaType: "image/gif",
+            width: 1,
+            height: 1,
+            animated: true,
+        }),
+        "unsupported",
+    );
 });
 
 test("image validation reads decoder metadata properties once", async () => {
