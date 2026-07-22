@@ -155,7 +155,7 @@ test("failing a resident agent drains one typed terminal update", async () => {
     const second = agent.attach();
     await first.receive();
     await second.receive();
-    agent.engine.send({ type: "assistant_delta", text: "partial", seq: 4 });
+    agent.engine.send({ type: "assistant_delta", text: "partial", seq: 1 });
 
     agent.fail("failure-1", "Resident agent stopped unexpectedly");
     agent.fail("failure-2", "duplicate");
@@ -164,13 +164,13 @@ test("failing a resident agent drains one typed terminal update", async () => {
         expect(await attachment.receive()).toEqual({
             type: "assistant_delta",
             text: "partial",
-            seq: 4,
+            seq: 1,
         });
         expect(await attachment.receive()).toEqual({
             type: "agent_failed",
             failureId: "failure-1",
             detail: "Resident agent stopped unexpectedly",
-            seq: 5,
+            seq: 2,
         });
         await expect(attachment.receive()).rejects.toBeInstanceOf(
             ResidentAgentClosedError,
@@ -236,6 +236,91 @@ test("resident agent snapshots commands and isolates attached clients", async ()
         args: { nested: { value: "original" } },
         seq: 1,
     });
+});
+
+test("resident agent rejects malformed producer sequences before broadcast", async () => {
+    for (const invalidSequence of [0, 2]) {
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const client = agent.attach();
+        await client.receive();
+
+        expect(() => agent.engine.send({
+            type: "assistant_delta",
+            text: "invalid",
+            seq: invalidSequence,
+        })).toThrow(
+            `Invalid resident update sequence: expected 1, received ${invalidSequence}`,
+        );
+
+        const valid = {
+            type: "assistant_delta" as const,
+            text: "valid",
+            seq: 1,
+        };
+        agent.engine.send(valid);
+        expect(await client.receive()).toEqual(valid);
+        agent.close();
+    }
+
+    for (const invalidSequence of [
+        -1,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        expect(() => agent.engine.send({
+            type: "status",
+            state: "working",
+            seq: invalidSequence,
+        })).toThrow(
+            "Invalid resident update sequence: expected a non-negative safe integer",
+        );
+        agent.close();
+    }
+
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const client = agent.attach();
+    await client.receive();
+    agent.engine.send({ type: "status", state: "working", seq: 1 });
+    expect(await client.receive()).toMatchObject({ seq: 1 });
+    for (const invalidSequence of [1, 3, 0]) {
+        expect(() => agent.engine.send({
+            type: "status",
+            state: "idle",
+            seq: invalidSequence,
+        })).toThrow(
+            `Invalid resident update sequence: expected 2, received ${invalidSequence}`,
+        );
+    }
+    agent.fail("failure-1", "Resident agent stopped unexpectedly");
+    expect(await client.receive()).toMatchObject({
+        type: "agent_failed",
+        failureId: "failure-1",
+        seq: 2,
+    });
+    agent.close();
+});
+
+test("resident agent checkpoints cannot jump away from current sequence", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const client = agent.attach();
+    await client.receive();
+    agent.engine.send({ type: "status", state: "working", seq: 1 });
+    expect(await client.receive()).toMatchObject({ seq: 1 });
+
+    expect(() => agent.engine.send({
+        type: "history",
+        entries: [],
+        seq: 2,
+    })).toThrow(
+        "Invalid resident update sequence: expected 1, received 2",
+    );
+
+    const checkpoint = { type: "history" as const, entries: [], seq: 1 };
+    agent.engine.send(checkpoint);
+    expect(await client.receive()).toEqual(checkpoint);
+    agent.close();
 });
 
 test("timeline replies stay private without creating shared sequence gaps", async () => {
@@ -348,11 +433,11 @@ test("detached attachment IDs cannot be reused", async () => {
         requestId: "stale-reply",
         boundaries: [],
     });
-    agent.engine.send({ type: "status", state: "idle", seq: 2 });
+    agent.engine.send({ type: "status", state: "idle", seq: 1 });
     expect(await second.receive()).toEqual({
         type: "status",
         state: "idle",
-        seq: 2,
+        seq: 1,
     });
 
     second.send({ type: "list_timeline", requestId: "list-2" });
