@@ -26,6 +26,7 @@ import type { ModelTurnSettings } from "./model-settings.ts";
 import type { ApprovalMode, CommandPrefix } from "./permissions.ts";
 import type { ProjectInstructionMetadata } from "./project-instructions.ts";
 import type { PromptContributionMetadata } from "./prompt-contributions.ts";
+import type { PromptPrefixDrift } from "./prompt-prefix-drift.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -145,6 +146,12 @@ export interface ModelRequestEvent {
     readonly promptContributions: readonly PromptContributionMetadata[];
 }
 
+export interface PromptPrefixDriftEvent {
+    readonly type: "prompt_prefix_drift";
+    readonly cause: PromptPrefixDrift["cause"];
+    readonly changes: PromptPrefixDrift["changes"];
+}
+
 export interface ModelRetryScheduledEvent {
     readonly type: "model_retry_scheduled";
     readonly model: string;
@@ -241,6 +248,7 @@ export type EngineEvent =
     | PermissionsChangedEvent
     | PermissionsRejectedEvent
     | ModelRequestEvent
+    | PromptPrefixDriftEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent
     | ModelLengthContinuationEvent
@@ -304,7 +312,11 @@ export function createJsonlEventLogger(
             options.path,
             `${JSON.stringify({
                 timestamp: now().toISOString(),
-                level: event.type === "model_stream_error" ? "error" : "debug",
+                level: event.type === "model_stream_error"
+                    ? "error"
+                    : event.type === "prompt_prefix_drift"
+                        ? "warn"
+                        : "debug",
                 sessionId: options.sessionId,
                 ...event,
             })}\n`,

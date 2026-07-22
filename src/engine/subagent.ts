@@ -18,6 +18,7 @@ import {
 } from "./message-channel.ts";
 import type { ApprovalMode } from "./permissions.ts";
 import { createProtocolEncoder } from "./protocol.ts";
+import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
@@ -112,6 +113,7 @@ export async function runSubagent(
             events,
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
+            promptPrefixTracker: new PromptPrefixTracker(),
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),

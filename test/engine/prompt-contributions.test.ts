@@ -79,3 +79,18 @@ test("prompt contribution metadata records final order, bytes, and hashes", () =
     expect(metadata.every((entry) => /^[a-f0-9]{64}$/.test(entry.sha256)))
         .toBe(true);
 });
+
+test("prompt contribution hashes cover the rendered heading", () => {
+    const base = {
+        id: "core.identity",
+        owner: "core" as const,
+        target: "stable" as const,
+        content: "same content",
+    };
+
+    const first = promptContributionMetadata([{ ...base, title: "First" }]);
+    const second = promptContributionMetadata([{ ...base, title: "Second" }]);
+
+    expect(first[0]?.sha256).not.toBe(second[0]?.sha256);
+    expect(first[0]?.bytes).not.toBe(second[0]?.bytes);
+});
