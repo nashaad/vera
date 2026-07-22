@@ -3,6 +3,7 @@
 // This is the installed command dispatcher; the interactive client lives in ../tui.
 
 import { stderr, stdout } from "node:process";
+import { createInterface } from "node:readline/promises";
 
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -19,7 +20,7 @@ import {
     type SessionExportFormat,
 } from "../../src/session-export.ts";
 import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts";
-import type { TuiStartTarget } from "../tui/main.ts";
+import type { TuiStartOptions, TuiStartTarget } from "../tui/main.ts";
 import { renderCliHelp, renderCliUsage } from "./help.ts";
 
 interface CliOutput {
@@ -41,10 +42,14 @@ export interface CliDependencies {
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
-    readonly runTui?: (target: TuiStartTarget) => Promise<void>;
+    readonly runTui?: (
+        target: TuiStartTarget,
+        options?: TuiStartOptions,
+    ) => Promise<void>;
     readonly runOpenAICodexLogin?: (
         onAuthorizationUrl: (url: string) => void,
     ) => Promise<void>;
+    readonly stopHost?: () => Promise<number | undefined>;
     readonly version?: string;
 }
 
@@ -55,6 +60,11 @@ export async function runCli(
     const output = dependencies.stdout ?? stdout;
     const errorOutput = dependencies.stderr ?? stderr;
     const runTui = dependencies.runTui ?? runConfiguredTui;
+    const assumeYes = args[0] === "--yes" || args[0] === "-y";
+    if (assumeYes) args = args.slice(1);
+    const tuiOptions: TuiStartOptions = {
+        confirmBusyUpgrade: assumeYes ? () => true : confirmBusyHostUpgrade,
+    };
 
     if (
         args.length === 1
@@ -73,7 +83,7 @@ export async function runCli(
     }
 
     if (args.length === 0) {
-        await runTui({ type: "create", workspace: process.cwd() });
+        await runTui({ type: "create", workspace: process.cwd() }, tuiOptions);
         return 0;
     }
 
@@ -83,7 +93,7 @@ export async function runCli(
         && typeof args[1] === "string"
         && args[1].length > 0
     ) {
-        await runTui({ type: "attach", agentId: args[1] });
+        await runTui({ type: "attach", agentId: args[1] }, tuiOptions);
         return 0;
     }
 
@@ -93,7 +103,7 @@ export async function runCli(
         && typeof args[1] === "string"
         && args[1].length > 0
     ) {
-        await runTui({ type: "resume", sessionPath: args[1] });
+        await runTui({ type: "resume", sessionPath: args[1] }, tuiOptions);
         return 0;
     }
 
@@ -159,6 +169,14 @@ export async function runCli(
         return 0;
     }
 
+    if (args.length === 2 && args[0] === "host" && args[1] === "stop") {
+        const pid = await (dependencies.stopHost ?? stopResidentHost)();
+        output.write(pid === undefined
+            ? "No resident Vera host is running.\n"
+            : `Stopped resident Vera host PID ${pid}.\n`);
+        return 0;
+    }
+
     if (
         (args.length === 1 && args[0] === "login")
         || (args.length === 2
@@ -214,11 +232,26 @@ export async function runCliMain(
 
 export function renderCliFailure(error: unknown): string {
     if (error instanceof HostProtocolMismatchError) {
-        return `Vera host upgrade required: ${error.message}`;
+        return `Vera host upgrade required: ${error.message}\n`
+            + "Close the older Vera client and retry, or run 'vera host stop'.";
     }
     return `Vera failed: ${
         error instanceof Error ? error.message : String(error)
     }`;
+}
+
+async function stopResidentHost(): Promise<number | undefined> {
+    const lockfile = createHostLockfile();
+    try {
+        const record = await lockfile.read();
+        if (record === undefined) return undefined;
+        process.kill(record.pid, "SIGTERM");
+        return record.pid;
+    } catch (error) {
+        if (!(error instanceof HostProtocolMismatchError)) throw error;
+        process.kill(error.pid, "SIGTERM");
+        return error.pid;
+    }
 }
 
 export function renderAgentList(
@@ -274,9 +307,26 @@ async function abortLiveAgent(agentId: string): Promise<void> {
     await abortAgentThroughHost(host.socket_path, agentId);
 }
 
-async function runConfiguredTui(target: TuiStartTarget): Promise<void> {
+async function runConfiguredTui(
+    target: TuiStartTarget,
+    options?: TuiStartOptions,
+): Promise<void> {
     const { startConfiguredTui } = await import("../tui/main.ts");
-    await startConfiguredTui(target);
+    await startConfiguredTui(target, options);
+}
+
+async function confirmBusyHostUpgrade(): Promise<boolean> {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = await prompt.question(
+            "An older Vera host is busy. Restart it and disconnect attached clients? [y/N] ",
+        );
+        return answer.trim().toLowerCase() === "y"
+            || answer.trim().toLowerCase() === "yes";
+    } finally {
+        prompt.close();
+    }
 }
 
 function sourceVersion(): string {

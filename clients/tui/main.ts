@@ -133,6 +133,10 @@ export type TuiStartTarget =
     | AttachTuiTarget
     | ResumeTuiTarget;
 
+export interface TuiStartOptions {
+    readonly confirmBusyUpgrade?: (error: Error) => boolean | Promise<boolean>;
+}
+
 if (import.meta.main) {
     await startConfiguredTui({
         type: "create",
@@ -140,8 +144,15 @@ if (import.meta.main) {
     });
 }
 
-export async function startConfiguredTui(target: TuiStartTarget): Promise<void> {
-    const host = await findOrStartResidentHost();
+export async function startConfiguredTui(
+    target: TuiStartTarget,
+    options: TuiStartOptions = {},
+): Promise<void> {
+    const host = await findOrStartResidentHost({
+        ...(options.confirmBusyUpgrade === undefined
+            ? {}
+            : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
+    });
     let agentId = target.type === "create"
         ? (await createAgentThroughHost(
             host.socket_path,
