@@ -10,7 +10,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera resume <session-path>", description: "Resume a durable session" },
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
-    { usage: "vera send <agent-id> <message>", description: "Send a prompt to a live agent" },
+    { usage: "vera send <agent-id> [--attach <path>]… <message>", description: "Send a prompt with optional images" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn" },
     { usage: "vera host stop", description: "Stop the resident host and attached clients" },
     { usage: "vera login [openai-codex]", description: "Sign in with a Codex subscription" },

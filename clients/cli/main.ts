@@ -33,6 +33,7 @@ export interface CliDependencies {
     readonly sendPrompt?: (
         agentId: string,
         content: string,
+        attachmentPaths?: readonly string[],
     ) => Promise<string>;
     readonly exportSession?: (
         sessionPath: string,
@@ -136,17 +137,14 @@ export async function runCli(
         return 0;
     }
 
-    if (
-        args.length >= 3
-        && args[0] === "send"
-        && typeof args[1] === "string"
-        && args[1].length > 0
-    ) {
-        const content = args.slice(2).join(" ");
+    const sendRequest = parseSendRequest(args);
+    if (sendRequest !== undefined) {
+        const { agentId, content, attachmentPaths } = sendRequest;
         if (content.length > 0) {
             const response = await (dependencies.sendPrompt ?? sendLivePrompt)(
-                args[1],
+                agentId,
                 content,
+                attachmentPaths,
             );
             output.write(`${response}\n`);
             return 0;
@@ -196,6 +194,30 @@ export async function runCli(
 
     errorOutput.write(renderCliUsage());
     return 1;
+}
+
+function parseSendRequest(args: readonly string[]): {
+    readonly agentId: string;
+    readonly content: string;
+    readonly attachmentPaths: readonly string[];
+} | undefined {
+    if (args[0] !== "send" || !args[1]) return undefined;
+    const attachmentPaths: string[] = [];
+    const content: string[] = [];
+    for (let index = 2; index < args.length; index += 1) {
+        if (args[index] === "--attach") {
+            const path = args[index + 1];
+            if (path === undefined || path.length === 0) return undefined;
+            attachmentPaths.push(path);
+            index += 1;
+            continue;
+        }
+        content.push(args[index]!);
+    }
+    const joined = content.join(" ").trim();
+    return joined.length === 0
+        ? undefined
+        : { agentId: args[1], content: joined, attachmentPaths };
 }
 
 function parseExportRequest(
@@ -291,12 +313,15 @@ async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
 async function sendLivePrompt(
     agentId: string,
     content: string,
+    attachmentPaths: readonly string[] = [],
 ): Promise<string> {
     const host = await createHostLockfile().read();
     if (host === undefined) {
         throw new Error("No live Vera host");
     }
-    return sendPromptThroughHost(host.socket_path, agentId, content);
+    return sendPromptThroughHost(host.socket_path, agentId, content, {
+        attachmentPaths,
+    });
 }
 
 async function abortLiveAgent(agentId: string): Promise<void> {
