@@ -89,7 +89,7 @@ import {
     saveTuiThemePreference,
 } from "./theme-preference.ts";
 
-const READY_HINT = "enter send · shift+enter newline · ctrl+c quit";
+const READY_HINT = "ready";
 const WORKING_HINT = "enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
 const APPROVAL_HINT =
@@ -287,9 +287,10 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        paddingLeft: 2,
+        paddingLeft: 3,
         position: "absolute",
-        bottom: 0,
+        left: 1,
+        bottom: 1,
         zIndex: 30,
         bg: theme.background,
     });
@@ -303,27 +304,6 @@ export async function startTui(
         paddingLeft: 2,
         visible: false,
     });
-
-    const activityText = new TextRenderable(renderer, {
-        id: "activity-text",
-        content: "",
-        fg: TUI_TEXT,
-        width: "100%",
-        height: "auto",
-    });
-    const activityBox = new BoxRenderable(renderer, {
-        id: "activity-box",
-        border: ["left"],
-        borderStyle: "heavy",
-        borderColor: TUI_ACCENT,
-        backgroundColor: theme.element,
-        width: "100%",
-        height: 0,
-        paddingX: 2,
-        paddingY: 1,
-        visible: false,
-    });
-    activityBox.add(activityText);
 
     const composer = createTuiComposer(
         renderer,
@@ -379,7 +359,6 @@ export async function startTui(
         },
     });
     app.add(transcript);
-    app.add(activityBox);
     app.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
@@ -407,7 +386,6 @@ export async function startTui(
 
     const statusTimer = setInterval(() => {
         renderStatus();
-        renderActivity();
     }, 200);
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
@@ -1090,7 +1068,6 @@ export async function startTui(
         placeholder.visible = state.entries.length === 0;
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
-        activityBox.visible = state.working;
         approvalView.box.visible = pendingUiRequest?.request.type
             === "tool_approval";
         questionView.box.visible = pendingUiRequest?.request.type
@@ -1175,7 +1152,6 @@ export async function startTui(
         });
 
         renderStatus();
-        renderActivity();
     }
 
     function clearTranscriptNodes(): void {
@@ -1271,9 +1247,6 @@ export async function startTui(
         placeholder.fg = theme.muted;
         statusText.bg = theme.background;
         queuedPromptText.fg = theme.muted;
-        activityText.fg = theme.text;
-        activityBox.backgroundColor = theme.element;
-        activityBox.borderColor = theme.accent;
         commandSuggestionsText.fg = theme.text;
         composerBox.backgroundColor = theme.panel;
         composerBox.borderColor = theme.accent;
@@ -1406,6 +1379,8 @@ export async function startTui(
         statusText.content = renderTuiStatusLine(
             state.modelSettings,
             state.approvalMode,
+            state.contextInputTokens,
+            process.cwd(),
             statusNotice ?? lifecycleHint,
         );
     }
@@ -1443,24 +1418,6 @@ export async function startTui(
         phaseSince = undefined;
     }
 
-    function renderActivity(): void {
-        if (!state.working) {
-            activityBox.visible = false;
-            activityBox.height = 0;
-            return;
-        }
-        const model = state.modelSettings?.model ?? "loading";
-        const supported = state.modelSettings?.availableModels
-            ?.find((candidate) => candidate.model === model);
-        const label = supported?.label ?? model;
-        const provider = supported?.provider ?? "provider loading";
-        const phase = activity.charAt(0).toUpperCase() + activity.slice(1);
-        activityBox.visible = true;
-        activityBox.height = 5;
-        activityBox.borderColor = activityAccentFrame();
-        activityText.content = `${progressFrame()} ${phase} · ${label} · ${provider}\n\nesc interrupt`;
-    }
-
     function elapsedWorkingTime(): string {
         if (workingSince === undefined) {
             return "0s";
@@ -1481,9 +1438,6 @@ export async function startTui(
         return PROGRESS_FRAMES[index] ?? "⠋";
     }
 
-    function activityAccentFrame(): string {
-        return TUI_ACCENT;
-    }
 }
 
 function applyTuiUiRequestUpdate(

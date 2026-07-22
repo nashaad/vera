@@ -587,6 +587,9 @@ function settingsForClient(
     provider: string,
     models: readonly SuggestedModel[] = availableModels(),
 ): ModelTurnSettings {
+    const selected = models.find((model) =>
+        model.provider === provider && model.model === settings.model
+    );
     return {
         ...settings,
         availableReasoningEfforts: availableReasoningEfforts(
@@ -594,5 +597,8 @@ function settingsForClient(
             settings.model,
         ),
         availableModels: models,
+        ...(selected?.contextWindow === undefined
+            ? {}
+            : { contextWindow: selected.contextWindow }),
     };
 }

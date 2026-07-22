@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { RGBA } from "@opentui/core";
+import { BoxRenderable, RGBA, TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -38,6 +38,37 @@ test("clicking composer padding focuses the textarea", async () => {
         expect(composer.focused).toBe(false);
         await setup.mockMouse.click(2, 1);
         expect(composer.focused).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("TUI status sits below the composer with a bottom gutter", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const panel = createTuiComposerPanel(setup.renderer, composer);
+    const app = new BoxRenderable(setup.renderer, {
+        width: "100%",
+        height: "100%",
+        flexDirection: "column",
+    });
+    const transcript = new BoxRenderable(setup.renderer, { flexGrow: 1 });
+    const status = new TextRenderable(setup.renderer, {
+        content: "ready",
+        width: "100%",
+        height: 1,
+        position: "absolute",
+        bottom: 1,
+    });
+    app.add(transcript);
+    app.add(panel);
+    app.add(status);
+    setup.renderer.root.add(app);
+
+    try {
+        await setup.flush();
+        expect(status.screenY - (panel.screenY + panel.height)).toBe(0);
+        expect(setup.renderer.height - (status.screenY + status.height)).toBe(1);
     } finally {
         setup.renderer.destroy();
     }
