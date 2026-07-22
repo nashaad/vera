@@ -1,9 +1,15 @@
 import { attachAgent } from "./attached-client.ts";
+import { randomUUID } from "node:crypto";
+
+export interface SendPromptOptions {
+    readonly attachmentPaths?: readonly string[];
+}
 
 export async function sendPromptThroughHost(
     socketPath: string,
     agentId: string,
     content: string,
+    options: SendPromptOptions = {},
 ): Promise<string> {
     const client = await attachAgent({ socketPath, agentId });
     try {
@@ -12,7 +18,30 @@ export async function sendPromptThroughHost(
             throw new Error("Attached agent did not begin with history");
         }
 
-        await client.send({ type: "prompt", content });
+        const attachmentIds: string[] = [];
+        for (const path of options.attachmentPaths ?? []) {
+            const requestId = randomUUID();
+            await client.send({ type: "attach_image", requestId, path });
+            while (true) {
+                const update = await client.receive();
+                if (
+                    (update.type === "image_attached"
+                        || update.type === "image_attachment_rejected")
+                    && update.requestId === requestId
+                ) {
+                    if (update.type === "image_attachment_rejected") {
+                        throw new Error(`Could not attach ${path}: ${update.error}`);
+                    }
+                    attachmentIds.push(update.attachment.id);
+                    break;
+                }
+            }
+        }
+        await client.send({
+            type: "prompt",
+            content,
+            ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
+        });
         let response = "";
         while (true) {
             const update = await client.receive();
