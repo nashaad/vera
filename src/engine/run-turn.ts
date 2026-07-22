@@ -41,11 +41,8 @@ import type {
     ToolEffectContext,
     ToolOutput,
 } from "../tools/types.ts";
-import { assembleSystemPrompt } from "./assemble.ts";
-import {
-    loadProjectInstructions,
-    projectInstructionMetadata,
-} from "./project-instructions.ts";
+import { loadProjectInstructions } from "./project-instructions.ts";
+import { buildModelRequest } from "./model-request.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
@@ -291,26 +288,19 @@ export async function runTurn(
             const projectInstructions = await loadProjectInstructions(
                 state.toolRuntime.workspace,
             );
-            const systemPrompt = assembleSystemPrompt({
-                tools,
-                workspace: state.toolRuntime.workspace,
-                date: new Date(),
-                projectInstructions,
-            });
-            const request = {
+            const request = buildModelRequest({
                 model: activeModel,
                 maxTokens,
                 ...(turnReasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: turnReasoningEffort }),
-                systemPrompt,
-                messages: state.messages.slice(),
+                messages: state.messages,
                 tools,
-                projectInstructions: projectInstructionMetadata(
-                    projectInstructions,
-                ),
+                workspace: state.toolRuntime.workspace,
+                date: new Date(),
+                projectInstructions,
                 signal: turn.signal,
-            };
+            });
             state.events.emit({
                 type: "model_request",
                 model: request.model,
