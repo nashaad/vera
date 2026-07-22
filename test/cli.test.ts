@@ -23,6 +23,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("Vera coding agent");
     expect(output).toContain("vera attach <agent-id>");
     expect(output).toContain("vera export <session-path>");
+    expect(output).toContain("vera inspect <session-path>");
     expect(output).toContain("vera login [openai-codex]");
     expect(output).toContain("-v, --version");
 
@@ -30,6 +31,22 @@ test("vera help and version are available without starting a client", async () =
     expect(await runCli(["--version"], dependencies)).toBe(0);
     expect(output).toBe("vera source abc1234\n");
     expect(started).toBe(false);
+});
+
+test("vera inspect writes the latest model request", async () => {
+    let sessionPath = "";
+    let output = "";
+
+    expect(await runCli(["inspect", "/sessions/one.jsonl"], {
+        inspectModelRequest: async (path) => {
+            sessionPath = path;
+            return "{\"format_version\":1}\n";
+        },
+        stdout: { write: (text) => output += text },
+    })).toBe(0);
+
+    expect(sessionPath).toBe("/sessions/one.jsonl");
+    expect(output).toBe("{\"format_version\":1}\n");
 });
 
 test("vera export writes Markdown by default and accepts JSON", async () => {

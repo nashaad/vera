@@ -18,6 +18,7 @@ import {
     exportSession,
     type SessionExportFormat,
 } from "../../src/session-export.ts";
+import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts";
 import type { TuiStartTarget } from "../tui/main.ts";
 import { renderCliHelp, renderCliUsage } from "./help.ts";
 
@@ -36,6 +37,7 @@ export interface CliDependencies {
         sessionPath: string,
         format: SessionExportFormat,
     ) => Promise<string>;
+    readonly inspectModelRequest?: (sessionPath: string) => Promise<string>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
@@ -107,6 +109,19 @@ export async function runCli(
             exportRequest.sessionPath,
             exportRequest.format,
         );
+        output.write(rendered);
+        return 0;
+    }
+
+    if (
+        args.length === 2
+        && args[0] === "inspect"
+        && typeof args[1] === "string"
+        && args[1].length > 0
+    ) {
+        const rendered = await (
+            dependencies.inspectModelRequest ?? inspectLatestModelRequest
+        )(args[1]);
         output.write(rendered);
         return 0;
     }
