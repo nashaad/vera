@@ -1,6 +1,7 @@
 import type { ModelTool } from "../model/types.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 import {
+    collectBuiltInPromptContributions,
     collectContextualPromptContributions,
     collectStablePromptContributions,
     type PromptContribution,
@@ -27,13 +28,36 @@ export interface AssembleContextualSystemPromptInput {
     readonly projectInstructions?: ProjectInstructionSnapshot;
 }
 
+export interface SystemPromptProjection {
+    readonly systemPrompt: string;
+    readonly contributions: readonly PromptContribution[];
+}
+
 export function assembleSystemPrompt(
     input: AssembleSystemPromptInput,
 ): string {
-    return [
-        assembleStableSystemPrompt(input),
-        assembleContextualSystemPrompt(input),
-    ].join("\n\n");
+    return projectSystemPrompt(input).systemPrompt;
+}
+
+export function projectSystemPrompt(
+    input: AssembleSystemPromptInput,
+): SystemPromptProjection {
+    const contributions = Object.freeze(
+        collectBuiltInPromptContributions(input).map((entry) =>
+            Object.freeze(entry)
+        ),
+    );
+    const stable = contributions.filter((entry) => entry.target === "stable");
+    const contextual = contributions.filter((entry) =>
+        entry.target === "contextual"
+    );
+    return {
+        systemPrompt: [
+            renderContributions(stable),
+            renderContributions(contextual),
+        ].join("\n\n"),
+        contributions,
+    };
 }
 
 export function assembleStableSystemPrompt(

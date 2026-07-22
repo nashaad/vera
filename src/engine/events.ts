@@ -25,6 +25,7 @@ import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
 import type { ApprovalMode, CommandPrefix } from "./permissions.ts";
 import type { ProjectInstructionMetadata } from "./project-instructions.ts";
+import type { PromptContributionMetadata } from "./prompt-contributions.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -141,6 +142,7 @@ export interface ModelRequestEvent {
     readonly messages: readonly ModelMessage[];
     readonly tools: readonly ModelTool[];
     readonly projectInstructions?: ProjectInstructionMetadata;
+    readonly promptContributions: readonly PromptContributionMetadata[];
 }
 
 export interface ModelRetryScheduledEvent {

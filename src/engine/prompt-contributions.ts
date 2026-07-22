@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ModelTool } from "../model/types.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 
@@ -9,6 +10,15 @@ export interface PromptContribution {
     readonly target: PromptContributionTarget;
     readonly title: string;
     readonly content: string;
+}
+
+export interface PromptContributionMetadata {
+    readonly id: string;
+    readonly owner: "core";
+    readonly target: PromptContributionTarget;
+    readonly order: number;
+    readonly bytes: number;
+    readonly sha256: string;
 }
 
 export interface PromptContributionInput {
@@ -114,6 +124,23 @@ export function collectBuiltInPromptContributions(
         ...collectStablePromptContributions(input),
         ...collectContextualPromptContributions(input),
     ];
+}
+
+export function promptContributionMetadata(
+    contributions: readonly PromptContribution[],
+): readonly PromptContributionMetadata[] {
+    return contributions.map(
+        (contribution, order) => ({
+            id: contribution.id,
+            owner: contribution.owner,
+            target: contribution.target,
+            order,
+            bytes: Buffer.byteLength(contribution.content, "utf8"),
+            sha256: createHash("sha256")
+                .update(contribution.content, "utf8")
+                .digest("hex"),
+        }),
+    );
 }
 
 export function collectStablePromptContributions(

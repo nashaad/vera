@@ -42,7 +42,8 @@ import type {
     ToolOutput,
 } from "../tools/types.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
-import { buildModelRequest } from "./model-request.ts";
+import { promptContributionMetadata } from "./prompt-contributions.ts";
+import { projectModelRequest } from "./model-request.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
@@ -288,7 +289,8 @@ export async function runTurn(
             const projectInstructions = await loadProjectInstructions(
                 state.toolRuntime.workspace,
             );
-            const request = buildModelRequest({
+            const requestDate = new Date();
+            const projection = projectModelRequest({
                 model: activeModel,
                 maxTokens,
                 ...(turnReasoningEffort === undefined
@@ -297,10 +299,11 @@ export async function runTurn(
                 messages: state.messages,
                 tools,
                 workspace: state.toolRuntime.workspace,
-                date: new Date(),
+                date: requestDate,
                 projectInstructions,
                 signal: turn.signal,
             });
+            const request = projection.request;
             state.events.emit({
                 type: "model_request",
                 model: request.model,
@@ -311,6 +314,9 @@ export async function runTurn(
                 systemPrompt: request.systemPrompt,
                 messages: request.messages,
                 tools: request.tools,
+                promptContributions: promptContributionMetadata(
+                    projection.promptContributions,
+                ),
             });
             assistantMessage = await requestModelWithRecovery(
                 adapter,

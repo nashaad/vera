@@ -4,7 +4,10 @@ import {
     assembleContextualSystemPrompt,
     assembleStableSystemPrompt,
 } from "../../src/engine/assemble.ts";
-import { buildModelRequest } from "../../src/engine/model-request.ts";
+import {
+    buildModelRequest,
+    projectModelRequest,
+} from "../../src/engine/model-request.ts";
 import type { ModelMessage, ModelTool } from "../../src/model/types.ts";
 
 test("model request uses one frozen message and tool snapshot", () => {
@@ -125,4 +128,28 @@ test("append-only history and contextual changes preserve the stable prefix", ()
     expect(firstContext).not.toBe(secondContext);
     expect(secondContext).toContain("Current date: 2026-07-22");
     expect(secondContext).toContain("AGENTS.md could not be read");
+});
+
+test("prompt diagnostics stay outside the provider request", () => {
+    const projection = projectModelRequest({
+        model: "test-model",
+        maxTokens: 4096,
+        messages: [],
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    });
+
+    expect(projection.promptContributions.map((entry) => entry.id)).toEqual([
+        "core.identity",
+        "core.tools",
+        "core.workspace",
+        "core.date",
+    ]);
+    expect(Object.keys(projection.request)).not.toContain(
+        "promptContributions",
+    );
+    expect(Object.isFrozen(projection.promptContributions)).toBe(true);
 });

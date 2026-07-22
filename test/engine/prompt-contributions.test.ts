@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { collectBuiltInPromptContributions } from "../../src/engine/prompt-contributions.ts";
+import {
+    collectBuiltInPromptContributions,
+    promptContributionMetadata,
+} from "../../src/engine/prompt-contributions.ts";
 
 test("built-in prompt contributors return attributed plain data in order", () => {
     const contributions = collectBuiltInPromptContributions({
@@ -55,4 +58,24 @@ test("an empty optional contribution does not disturb built-in order", () => {
         "core.workspace",
         "core.date",
     ]);
+});
+
+test("prompt contribution metadata records final order, bytes, and hashes", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+    });
+    const metadata = promptContributionMetadata(contributions);
+
+    expect(metadata.map(({ id, order }) => ({ id, order }))).toEqual([
+        { id: "core.identity", order: 0 },
+        { id: "core.tools", order: 1 },
+        { id: "core.workspace", order: 2 },
+        { id: "core.date", order: 3 },
+    ]);
+    expect(metadata.every((entry) => entry.bytes > 0)).toBe(true);
+    expect(metadata.every((entry) => /^[a-f0-9]{64}$/.test(entry.sha256)))
+        .toBe(true);
 });
