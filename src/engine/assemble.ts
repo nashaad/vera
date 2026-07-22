@@ -5,6 +5,7 @@ import {
     collectContextualPromptContributions,
     collectStablePromptContributions,
     type PromptContribution,
+    renderPromptContribution,
 } from "./prompt-contributions.ts";
 
 // Prompt ordering is a provider KV-cache contract. Treat prefix stability as
@@ -42,15 +43,16 @@ export function assembleSystemPrompt(
 export function projectSystemPrompt(
     input: AssembleSystemPromptInput,
 ): SystemPromptProjection {
-    const contributions = Object.freeze(
+    const collected = Object.freeze(
         collectBuiltInPromptContributions(input).map((entry) =>
             Object.freeze(entry)
         ),
     );
-    const stable = contributions.filter((entry) => entry.target === "stable");
-    const contextual = contributions.filter((entry) =>
+    const stable = collected.filter((entry) => entry.target === "stable");
+    const contextual = collected.filter((entry) =>
         entry.target === "contextual"
     );
+    const contributions = Object.freeze([...stable, ...contextual]);
     return {
         systemPrompt: [
             renderContributions(stable),
@@ -75,7 +77,5 @@ export function assembleContextualSystemPrompt(
 function renderContributions(
     contributions: readonly PromptContribution[],
 ): string {
-    return contributions.map((contribution) =>
-        `## ${contribution.title}\n${contribution.content}`
-    ).join("\n\n");
+    return contributions.map(renderPromptContribution).join("\n\n");
 }

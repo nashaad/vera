@@ -43,6 +43,7 @@ import type {
 } from "../tools/types.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
 import { promptContributionMetadata } from "./prompt-contributions.ts";
+import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
@@ -93,6 +94,7 @@ export interface RunTurnState {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readCommandPrefixes?: () => readonly CommandPrefix[];
+    readonly promptPrefixTracker?: PromptPrefixTracker;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -239,6 +241,7 @@ export async function runHeadlessLoop(
             : { readModelSettings: options.readModelSettings }),
         readApprovalMode,
         readCommandPrefixes,
+        promptPrefixTracker: new PromptPrefixTracker(),
     };
     protocol.checkpoint(state.messages);
 
@@ -304,6 +307,18 @@ export async function runTurn(
                 signal: turn.signal,
             });
             const request = projection.request;
+            const promptContributions = promptContributionMetadata(
+                projection.promptContributions,
+            );
+            const prefixDrift = state.promptPrefixTracker?.observe(
+                promptContributions,
+            );
+            if (prefixDrift !== undefined) {
+                state.events.emit({
+                    type: "prompt_prefix_drift",
+                    ...prefixDrift,
+                });
+            }
             state.events.emit({
                 type: "model_request",
                 model: request.model,
@@ -314,9 +329,7 @@ export async function runTurn(
                 systemPrompt: request.systemPrompt,
                 messages: request.messages,
                 tools: request.tools,
-                promptContributions: promptContributionMetadata(
-                    projection.promptContributions,
-                ),
+                promptContributions,
             });
             assistantMessage = await requestModelWithRecovery(
                 adapter,

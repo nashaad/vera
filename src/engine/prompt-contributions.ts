@@ -130,17 +130,26 @@ export function promptContributionMetadata(
     contributions: readonly PromptContribution[],
 ): readonly PromptContributionMetadata[] {
     return contributions.map(
-        (contribution, order) => ({
-            id: contribution.id,
-            owner: contribution.owner,
-            target: contribution.target,
-            order,
-            bytes: Buffer.byteLength(contribution.content, "utf8"),
-            sha256: createHash("sha256")
-                .update(contribution.content, "utf8")
-                .digest("hex"),
-        }),
+        (contribution, order) => {
+            const rendered = renderPromptContribution(contribution);
+            return {
+                id: contribution.id,
+                owner: contribution.owner,
+                target: contribution.target,
+                order,
+                bytes: Buffer.byteLength(rendered, "utf8"),
+                sha256: createHash("sha256")
+                    .update(rendered, "utf8")
+                    .digest("hex"),
+            };
+        },
     );
+}
+
+export function renderPromptContribution(
+    contribution: PromptContribution,
+): string {
+    return `## ${contribution.title}\n${contribution.content}`;
 }
 
 export function collectStablePromptContributions(

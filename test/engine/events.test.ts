@@ -156,6 +156,39 @@ test("a turn fans out to updates and a per-session event log", async () => {
     }
 });
 
+test("prompt prefix drift is logged as a warning", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const logPath = join(workspace, "events.jsonl");
+    try {
+        const events = new EngineEventBus();
+        events.subscribe(createJsonlEventLogger({
+            path: logPath,
+            sessionId: "session-test",
+        }));
+        events.emit({
+            type: "prompt_prefix_drift",
+            cause: "unexplained",
+            changes: [{
+                id: "core.tools",
+                owner: "core",
+                kind: "content_changed",
+                previousOrder: 1,
+                currentOrder: 1,
+            }],
+        });
+
+        expect(JSON.parse(await readFile(logPath, "utf8"))).toEqual(
+            expect.objectContaining({
+                level: "warn",
+                type: "prompt_prefix_drift",
+                cause: "unexplained",
+            }),
+        );
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 function eventName(event: EngineEvent): string {
     return event.type === "model_stream"
         ? `${event.type}:${event.event.type}`
