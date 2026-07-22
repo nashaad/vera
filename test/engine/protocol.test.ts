@@ -86,6 +86,28 @@ test("projected tool arguments cannot mutate canonical history", () => {
     expect(input.nested.path).toBe("note.txt");
 });
 
+test("terminal model errors survive transcript checkpoints", () => {
+    expect(projectTranscript([{
+        role: "assistant",
+        content: [{ type: "text", text: "Partial answer." }],
+        source: { provider: "faux", api: "test", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: "rate limited after retries",
+    }])).toEqual([
+        { kind: "assistant", text: "Partial answer." },
+        { kind: "error", detail: "rate limited after retries" },
+    ]);
+
+    expect(projectTranscript([{
+        role: "assistant",
+        content: [],
+        source: { provider: "faux", api: "test", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "error",
+    }])).toEqual([{ kind: "error" }]);
+});
+
 test("protocol checkpoints keep the current update sequence", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({

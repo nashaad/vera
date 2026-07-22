@@ -6,7 +6,10 @@ import {
 } from "../engine/protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 
-export const HOST_PROTOCOL_VERSION = 4;
+// Bump this when attached command/update semantics change, even if older peers
+// could still parse the JSON shape. Exact matching keeps resident hosts and
+// clients on one behavioral contract.
+export const HOST_PROTOCOL_VERSION = 5;
 
 export interface HostIdentity {
     readonly pid: number;

@@ -39,7 +39,12 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
         return typeof update.tool === "string" ? value as AgentUpdate : undefined;
     }
     if (update.type === "turn_finished") {
-        return update.error === undefined || typeof update.error === "string"
+        return (update.outcome === undefined
+                || update.outcome === "error"
+                || update.outcome === "aborted")
+            && (update.error === undefined
+                || (typeof update.error === "string"
+                    && update.error.trim().length > 0))
             ? value as AgentUpdate
             : undefined;
     }
@@ -250,6 +255,11 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     const entry = asRecord(value);
     if (entry?.kind === "user" || entry?.kind === "assistant") {
         return typeof entry.text === "string";
+    }
+    if (entry?.kind === "error") {
+        return entry.detail === undefined
+            || (typeof entry.detail === "string"
+                && entry.detail.trim().length > 0);
     }
     return entry?.kind === "tool"
         && typeof entry.tool === "string"

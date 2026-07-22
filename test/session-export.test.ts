@@ -36,7 +36,7 @@ test("session export is read-only and follows the active conversation branch", a
 
         const json = JSON.parse(await exportSession(path, "json"));
         expect(json).toEqual({
-            format_version: 1,
+            format_version: 2,
             session: {
                 id: "session-1",
                 started_at: "2026-07-20T20:00:00.000Z",
@@ -55,7 +55,7 @@ test("session export is read-only and follows the active conversation branch", a
 
 test("Markdown export contains transcript content inside each speaker entry", () => {
     const markdown = renderSessionMarkdown({
-        format_version: 1,
+        format_version: 2,
         session: {
             id: "session-`one`",
             started_at: "2026-07-20T20:00:00.000Z",
@@ -80,6 +80,37 @@ test("Markdown export contains transcript content inside each speaker entry", ()
     expect(markdown).toContain(
         "## Vera\n\n> The fence above is intentionally open.",
     );
+});
+
+test("session export preserves a durable terminal model error", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-session-error-export-"));
+    const path = join(root, "session.jsonl");
+    try {
+        const store = await SessionStore.create(path, {
+            sessionId: "session-error",
+            cwd: "/work/vera",
+        });
+        await store.appendMessage(user("inspect it"));
+        await store.appendMessage({
+            role: "assistant",
+            content: [],
+            source: { provider: "test", api: "test", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "error",
+            errorMessage: "rate limited after retries",
+        });
+
+        const json = JSON.parse(await exportSession(path, "json"));
+        expect(json.transcript.at(-1)).toEqual({
+            kind: "error",
+            detail: "rate limited after retries",
+        });
+        expect(await exportSession(path, "markdown")).toContain(
+            "## Model error\n\n> rate limited after retries",
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
 });
 
 function user(text: string) {

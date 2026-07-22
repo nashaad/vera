@@ -84,6 +84,29 @@ test("TUI shows model failures when a turn finishes", () => {
     });
 });
 
+test("TUI keeps model failures restored from canonical history", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "error", detail: "rate limited after retries" }],
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notice",
+        text: "Model error: rate limited after retries",
+    }]);
+
+    const fallback = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "error" }],
+        seq: 2,
+    });
+    expect(fallback.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "Model error: Model request failed",
+    });
+});
+
 test("TUI applies canonical history and prompts from other clients", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "history",

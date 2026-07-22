@@ -4,7 +4,7 @@ import { readSessionSnapshot } from "./store/session-store.ts";
 export type SessionExportFormat = "markdown" | "json";
 
 export interface SessionExport {
-    readonly format_version: 1;
+    readonly format_version: 2;
     readonly session: {
         readonly id: string;
         readonly started_at: string;
@@ -19,7 +19,7 @@ export async function exportSession(
 ): Promise<string> {
     const snapshot = await readSessionSnapshot(sessionPath);
     const exported: SessionExport = {
-        format_version: 1,
+        format_version: 2,
         session: {
             id: snapshot.header.id,
             started_at: snapshot.header.timestamp,
@@ -45,6 +45,8 @@ export function renderSessionMarkdown(exported: SessionExport): string {
         lines.push("", transcriptHeading(entry), "");
         if (entry.kind === "tool") {
             lines.push(indentJson(entry.args));
+        } else if (entry.kind === "error") {
+            lines.push(quoteMarkdown(entry.detail ?? "Model request failed"));
         } else {
             lines.push(quoteMarkdown(entry.text));
         }
@@ -57,7 +59,9 @@ function transcriptHeading(entry: TranscriptEntry): string {
         ? "## You"
         : entry.kind === "assistant"
             ? "## Vera"
-            : `## Tool · ${escapeHeading(entry.tool)}`;
+            : entry.kind === "error"
+                ? "## Model error"
+                : `## Tool · ${escapeHeading(entry.tool)}`;
 }
 
 function quoteMarkdown(text: string): string {

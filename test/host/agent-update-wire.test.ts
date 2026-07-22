@@ -5,12 +5,32 @@ import { parseAgentUpdate } from "../../src/host/agent-update-wire.ts";
 test("turn finished accepts an optional model error", () => {
     const update = {
         type: "turn_finished" as const,
+        outcome: "error" as const,
         error: "unsupported reasoning effort",
         seq: 1,
     };
 
     expect(parseAgentUpdate(update)).toEqual(update);
     expect(parseAgentUpdate({ ...update, error: 42 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, error: "   " })).toBeUndefined();
+});
+
+test("history accepts durable model errors", () => {
+    const update = {
+        type: "history" as const,
+        entries: [{ kind: "error" as const, detail: "rate limited" }],
+        seq: 1,
+    };
+
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({
+        ...update,
+        entries: [{ kind: "error", detail: "" }],
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...update,
+        entries: [{ kind: "error", detail: "   " }],
+    })).toBeUndefined();
 });
 
 test("host wire validates task notifications", () => {

@@ -32,10 +32,16 @@ export interface ToolTranscriptEntry {
     readonly args: Readonly<Record<string, unknown>>;
 }
 
+export interface ErrorTranscriptEntry {
+    readonly kind: "error";
+    readonly detail?: string;
+}
+
 export type TranscriptEntry =
     | UserTranscriptEntry
     | AssistantTranscriptEntry
-    | ToolTranscriptEntry;
+    | ToolTranscriptEntry
+    | ErrorTranscriptEntry;
 
 export interface PromptCommand {
     readonly type: "prompt";
@@ -140,6 +146,7 @@ export interface ToolFinishedUpdate {
 
 export interface TurnFinishedUpdate {
     readonly type: "turn_finished";
+    readonly outcome?: "error" | "aborted";
     readonly error?: string;
     readonly seq: number;
 }
@@ -640,11 +647,12 @@ export function createProtocolEncoder(
 
         if (event.type === "turn_finished") {
             seq += 1;
+            const outcome = terminalOutcome(event.message);
+            const error = terminalDetail(event.message);
             sender.send({
                 type: "turn_finished",
-                ...(event.message.errorMessage === undefined
-                    ? {}
-                    : { error: event.message.errorMessage }),
+                ...(outcome === undefined ? {} : { outcome }),
+                ...(error === undefined ? {} : { error }),
                 seq,
             });
         }
@@ -692,9 +700,38 @@ export function projectTranscript(
                 });
             }
         }
+        if (message.stopReason === "error") {
+            const detail = terminalDetail(message);
+            entries.push({
+                kind: "error",
+                ...(detail === undefined ? {} : { detail }),
+            });
+        }
     }
 
     return entries;
+}
+
+function terminalOutcome(
+    message: ModelMessage,
+): "error" | "aborted" | undefined {
+    if (message.role !== "assistant") {
+        return undefined;
+    }
+    return message.stopReason === "error" || message.stopReason === "aborted"
+        ? message.stopReason
+        : undefined;
+}
+
+function terminalDetail(message: ModelMessage): string | undefined {
+    if (message.role !== "assistant") {
+        return undefined;
+    }
+    const detail = message.errorMessage?.trim();
+    if (detail !== undefined && detail.length > 0) {
+        return detail;
+    }
+    return undefined;
 }
 
 function textContent(
