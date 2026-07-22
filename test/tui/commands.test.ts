@@ -125,14 +125,6 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/res")).toEqual({
         type: "open_resume_picker",
     });
-    expect(registry.dispatch("/image /tmp/screen.png")).toEqual({
-        type: "attach_image",
-        path: "/tmp/screen.png",
-    });
-    expect(registry.dispatch("/image /tmp/My\\ Image.png")).toEqual({
-        type: "attach_image",
-        path: "/tmp/My Image.png",
-    });
 });
 
 test("ordinary and unknown slash input remain ordinary prompts", () => {
@@ -140,6 +132,7 @@ test("ordinary and unknown slash input remain ordinary prompts", () => {
 
     expect(registry.dispatch("inspect /rewind handling")).toBeUndefined();
     expect(registry.dispatch("/unknown")).toBeUndefined();
+    expect(registry.dispatch("/image /tmp/screen.png")).toBeUndefined();
     expect(registry.dispatch("/rewind-later")).toBeUndefined();
     expect(registry.dispatch("/r")).toBeUndefined();
     expect(registry.dispatch("/Rewind")).toBeUndefined();

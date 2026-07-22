@@ -7,6 +7,7 @@ import {
     type RenderContext,
 } from "@opentui/core";
 import { TUI_ACCENT, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import { pastedImagePath } from "./image-path.ts";
 
 const PASTE_SUMMARY_LINE_THRESHOLD = 3;
 const PASTE_SUMMARY_CHAR_THRESHOLD = 240;
@@ -18,6 +19,7 @@ interface CollapsedPaste {
 
 export class TuiComposer extends TextareaRenderable {
     private collapsedPastes: CollapsedPaste[] = [];
+    onImagePathPaste?: (path: string) => void;
 
     override handleKeyPress(key: Parameters<TextareaRenderable["handleKeyPress"]>[0]): boolean {
         if (
@@ -37,6 +39,11 @@ export class TuiComposer extends TextareaRenderable {
         const text = normalizeLineEndings(
             stripAnsiSequences(decodePasteBytes(event.bytes)),
         );
+        const imagePath = pastedImagePath(text);
+        if (imagePath !== undefined && this.onImagePathPaste !== undefined) {
+            this.onImagePathPaste(imagePath);
+            return;
+        }
         if (!shouldCollapsePaste(text)) {
             this.insertText(text);
             return;
@@ -80,8 +87,9 @@ export class TuiComposer extends TextareaRenderable {
 export function createTuiComposer(
     renderer: RenderContext,
     onSubmit: () => void,
+    onImagePathPaste?: (path: string) => void,
 ): TuiComposer {
-    return new TuiComposer(renderer, {
+    const composer = new TuiComposer(renderer, {
         id: "composer",
         width: "100%",
         height: 3,
@@ -101,6 +109,8 @@ export function createTuiComposer(
         ],
         onSubmit,
     });
+    composer.onImagePathPaste = onImagePathPaste;
+    return composer;
 }
 
 export function createTuiComposerPanel(

@@ -122,6 +122,30 @@ test("TUI composer collapses a large paste and expands it on submit", async () =
     }
 });
 
+test("TUI composer turns a pasted screenshot path into an attachment action", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 20 });
+    const paths: string[] = [];
+    const composer = createTuiComposer(
+        setup.renderer,
+        () => {},
+        (path) => paths.push(path),
+    );
+    setup.renderer.root.add(composer);
+    composer.focus();
+    try {
+        await setup.mockInput.pasteBracketedText(
+            "/var/folders/tmp/Screenshot\\ 2026-07-22\\ at\\ 6.11.40\\ PM.png",
+        );
+        await setup.flush();
+        expect(paths).toEqual([
+            "/var/folders/tmp/Screenshot 2026-07-22 at 6.11.40 PM.png",
+        ]);
+        expect(composer.plainText).toBe("");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("TUI composer keeps the caret at the end after setting text", async () => {
     const setup = await createTestRenderer({
         width: 40,
