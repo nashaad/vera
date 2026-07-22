@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { defaultEventLogPath } from "./engine/events.ts";
+import type { PromptContributionMetadata } from "./engine/prompt-contributions.ts";
 import type { ModelMessage, ModelTool } from "./model/types.ts";
 import { readSessionSnapshot } from "./store/session-store.ts";
 
@@ -15,6 +16,7 @@ export interface InspectedModelRequest {
         readonly system_prompt: string;
         readonly messages: readonly ModelMessage[];
         readonly tools: readonly ModelTool[];
+        readonly prompt_contributions?: readonly PromptContributionMetadata[];
     };
 }
 
@@ -28,6 +30,7 @@ interface LoggedModelRequest {
     readonly systemPrompt: string;
     readonly messages: readonly ModelMessage[];
     readonly tools: readonly ModelTool[];
+    readonly promptContributions?: readonly PromptContributionMetadata[];
 }
 
 export async function inspectLatestModelRequest(
@@ -51,6 +54,9 @@ export async function inspectLatestModelRequest(
             system_prompt: request.systemPrompt,
             messages: request.messages,
             tools: request.tools,
+            ...(request.promptContributions === undefined
+                ? {}
+                : { prompt_contributions: request.promptContributions }),
         },
     };
     return `${JSON.stringify(inspected, null, 2)}\n`;
@@ -108,7 +114,33 @@ function isLoggedModelRequest(value: unknown): value is LoggedModelRequest {
         && Array.isArray(value.messages)
         && value.messages.every(isModelMessage)
         && Array.isArray(value.tools)
-        && value.tools.every(isModelTool);
+        && value.tools.every(isModelTool)
+        && (value.promptContributions === undefined
+            || (
+                Array.isArray(value.promptContributions)
+                && value.promptContributions.every((entry, order) =>
+                    isPromptContributionMetadata(entry)
+                    && entry.order === order
+                )
+            ));
+}
+
+function isPromptContributionMetadata(
+    value: unknown,
+): value is PromptContributionMetadata {
+    return isRecord(value)
+        && typeof value.id === "string"
+        && value.id.length > 0
+        && value.owner === "core"
+        && (value.target === "stable" || value.target === "contextual")
+        && typeof value.order === "number"
+        && Number.isSafeInteger(value.order)
+        && value.order >= 0
+        && typeof value.bytes === "number"
+        && Number.isSafeInteger(value.bytes)
+        && value.bytes >= 0
+        && typeof value.sha256 === "string"
+        && /^[a-f0-9]{64}$/.test(value.sha256);
 }
 
 function isModelMessage(value: unknown): value is ModelMessage {

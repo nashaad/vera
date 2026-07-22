@@ -20,6 +20,7 @@ import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import type { PromptContributionMetadata } from "../../src/engine/prompt-contributions.ts";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
@@ -33,6 +34,7 @@ interface LoggedEventLine {
     readonly type: EngineEvent["type"];
     readonly event?: { readonly type: string };
     readonly systemPrompt?: string;
+    readonly promptContributions?: readonly PromptContributionMetadata[];
 }
 
 test("a turn fans out to updates and a per-session event log", async () => {
@@ -125,6 +127,28 @@ test("a turn fans out to updates and a per-session event log", async () => {
         expect(requestLine?.systemPrompt).toContain(
             `## Workspace\nWorking directory: ${workspace}`,
         );
+        expect(requestLine?.promptContributions).toEqual([
+            expect.objectContaining({
+                id: "core.identity",
+                target: "stable",
+                order: 0,
+            }),
+            expect.objectContaining({
+                id: "core.tools",
+                target: "stable",
+                order: 1,
+            }),
+            expect.objectContaining({
+                id: "core.workspace",
+                target: "stable",
+                order: 2,
+            }),
+            expect.objectContaining({
+                id: "core.date",
+                target: "contextual",
+                order: 3,
+            }),
+        ]);
         expect((await stat(logDirectory)).mode & 0o777).toBe(0o700);
         expect((await stat(logPath)).mode & 0o777).toBe(0o600);
     } finally {

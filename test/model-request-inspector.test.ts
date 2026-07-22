@@ -44,6 +44,7 @@ test("model request inspection returns the latest matching completed event", asy
                     description: "Read a file",
                     inputSchema: { type: "object" },
                 }],
+                prompt_contributions: [promptContribution()],
             },
         });
     } finally {
@@ -79,6 +80,28 @@ test("model request inspection rejects a corrupt latest request", async () => {
     }
 });
 
+test("model request inspection accepts logs written before contribution metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-request-inspection-"));
+    const sessionPath = join(root, "session.jsonl");
+    const logPath = join(root, "events.jsonl");
+    try {
+        await SessionStore.create(sessionPath, {
+            sessionId: "session-1",
+            cwd: "/work/vera",
+        });
+        const event = requestEvent("session-1", "old-model", "old");
+        const { promptContributions: _, ...oldEvent } = event;
+        await writeFile(logPath, `${JSON.stringify(oldEvent)}\n`);
+
+        const inspected = JSON.parse(
+            await inspectLatestModelRequest(sessionPath, logPath),
+        ) as { readonly request: Record<string, unknown> };
+        expect(inspected.request.prompt_contributions).toBeUndefined();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 function requestEvent(sessionId: string, model: string, text: string) {
     return {
         type: "model_request",
@@ -97,5 +120,17 @@ function requestEvent(sessionId: string, model: string, text: string) {
             description: "Read a file",
             inputSchema: { type: "object" },
         }],
+        promptContributions: [promptContribution()],
+    };
+}
+
+function promptContribution() {
+    return {
+        id: "core.identity",
+        owner: "core",
+        target: "stable",
+        order: 0,
+        bytes: 12,
+        sha256: "a".repeat(64),
     };
 }
