@@ -102,13 +102,19 @@ export function encodeOpenAICodexInput(
             input.push({
                 type: "message",
                 role: "user",
-                content: message.content.map((block) => block.type === "text"
-                    ? { type: "input_text", text: block.text }
-                    : {
+                content: message.content.map((block) => {
+                    if (block.type === "text") {
+                        return { type: "input_text" as const, text: block.text };
+                    }
+                    if (block.type === "image_attachment") {
+                        throw new Error("Image attachment was not hydrated");
+                    }
+                    return {
                         type: "input_image",
                         image_url: `data:${block.mediaType};base64,${Buffer.from(block.data).toString("base64")}`,
                         detail: "auto",
-                    }),
+                    };
+                }),
             });
             continue;
         }

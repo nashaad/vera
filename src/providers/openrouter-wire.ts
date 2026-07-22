@@ -40,7 +40,7 @@ export function encodeOpenRouterMessages(
 
     for (const message of messages) {
         if (message.role === "user") {
-            if (message.content.some((block) => block.type === "image")) {
+            if (message.content.some((block) => block.type !== "text")) {
                 throw new Error("OpenRouter image input is not supported yet");
             }
             encoded.push({ role: "user", content: joinText(message.content) });

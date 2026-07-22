@@ -37,6 +37,7 @@ export interface OpenAICodexAdapterOptions extends OpenAICodexAuthorizationOptio
 }
 
 export class OpenAICodexAdapter implements ModelAdapter {
+    readonly supportsImageInput = true;
     private readonly sendResponse: SendOpenAICodexResponse;
 
     constructor(sendResponse: SendOpenAICodexResponse) {
@@ -126,9 +127,13 @@ function snapshotImageInputs(request: ModelRequest): ModelRequest {
             ? message
             : {
                 ...message,
-                content: message.content.map((block) => block.type === "text"
-                    ? block
-                    : { ...block, data: new Uint8Array(block.data) }),
+                content: message.content.map((block) => {
+                    if (block.type === "text") return block;
+                    if (block.type === "image_attachment") {
+                        throw new Error("Image attachment was not hydrated");
+                    }
+                    return { ...block, data: new Uint8Array(block.data) };
+                }),
             }),
     };
 }

@@ -25,7 +25,10 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     if (update.type === "user_prompt") {
-        return typeof update.content === "string" ? value as AgentUpdate : undefined;
+        return typeof update.content === "string"
+                && isOptionalAttachmentIds(update.attachmentIds)
+            ? value as AgentUpdate
+            : undefined;
     }
     if (update.type === "assistant_delta") {
         return typeof update.text === "string" ? value as AgentUpdate : undefined;
@@ -245,6 +248,7 @@ function isTimelineBoundary(value: unknown): boolean {
         && boundary.userMessageId.length > 0
         && typeof boundary.timestamp === "string"
         && typeof boundary.prompt === "string"
+        && isOptionalAttachmentIds(boundary.attachmentIds)
         && isSequence(boundary.position);
 }
 
@@ -261,7 +265,11 @@ function isTimelinePlan(value: unknown): boolean {
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     const entry = asRecord(value);
-    if (entry?.kind === "user" || entry?.kind === "assistant") {
+    if (entry?.kind === "user") {
+        return typeof entry.text === "string"
+            && isOptionalAttachmentIds(entry.attachmentIds);
+    }
+    if (entry?.kind === "assistant") {
         return typeof entry.text === "string";
     }
     if (entry?.kind === "error") {
@@ -272,6 +280,13 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     return entry?.kind === "tool"
         && typeof entry.tool === "string"
         && asRecord(entry.args) !== undefined;
+}
+
+function isOptionalAttachmentIds(value: unknown): boolean {
+    return value === undefined || (
+        Array.isArray(value)
+        && value.every((id) => typeof id === "string" && id.length > 0)
+    );
 }
 
 function isSuggestedModel(value: unknown): boolean {

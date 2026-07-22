@@ -266,8 +266,20 @@ function toTimelineBoundary(
             .filter((block) => block.type === "text")
             .map((block) => block.text)
             .join("\n"),
+        ...attachmentIds(entry.message.content),
         position,
     };
+}
+
+function attachmentIds(
+    content: readonly { readonly type: string; readonly attachmentId?: string }[],
+): { attachmentIds?: readonly string[] } {
+    const ids = content.flatMap((block) =>
+        block.type === "image_attachment" && block.attachmentId !== undefined
+            ? [block.attachmentId]
+            : []
+    );
+    return ids.length === 0 ? {} : { attachmentIds: ids };
 }
 
 function isExternalUserBoundary(

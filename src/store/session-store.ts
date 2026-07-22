@@ -439,8 +439,18 @@ export class SessionStore {
         message: ModelMessage,
         deliveryId?: string,
     ): Promise<SessionMessageEntry> {
-        if (!isModelMessage(message)) {
+        const snapshot = structuredClone(message);
+        if (!isModelMessage(snapshot)) {
             throw new Error("Cannot append an invalid model message");
+        }
+        for (const attachmentId of messageAttachmentIds(snapshot)) {
+            if (!this.attachmentEntries.some(
+                (entry) => entry.attachment.id === attachmentId
+            )) {
+                throw new Error(
+                    `Image attachment ${attachmentId} is not in this session`,
+                );
+            }
         }
         const entry: SessionMessageEntry = {
             type: "message",
@@ -448,7 +458,7 @@ export class SessionStore {
             parentId: this.leafId,
             timestamp: this.now().toISOString(),
             ...(deliveryId === undefined ? {} : { deliveryId }),
-            message,
+            message: snapshot,
         };
         if (this.storedEntries.some((candidate) => candidate.id === entry.id)) {
             throw new Error(`Session entry ID ${entry.id} already exists`);
@@ -793,6 +803,14 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         }
         if (value.type === "message") {
             const entry = parseMessageEntry(path, lineNumber, value);
+            for (const attachmentId of messageAttachmentIds(entry.message)) {
+                if (!knownAttachmentIds.has(attachmentId)) {
+                    throw invalidSession(
+                        path,
+                        `line ${lineNumber} references missing attachment ${attachmentId}`,
+                    );
+                }
+            }
             if (knownMessageIds.has(entry.id)) {
                 throw invalidSession(
                     path,
@@ -1362,7 +1380,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
     if (message.role === "user") {
         return (message.internal === undefined
             || typeof message.internal === "boolean")
-            && message.content.every(isTextContent);
+            && message.content.every((content) =>
+                isTextContent(content) || isImageAttachmentContent(content)
+            );
     }
     if (message.role === "tool_result") {
         return typeof message.toolCallId === "string"
@@ -1418,6 +1438,21 @@ function isTextContent(value: unknown): boolean {
         && value !== null
         && (value as Record<string, unknown>).type === "text"
         && typeof (value as Record<string, unknown>).text === "string";
+}
+
+function isImageAttachmentContent(value: unknown): boolean {
+    return isRecord(value)
+        && value.type === "image_attachment"
+        && typeof value.attachmentId === "string"
+        && value.attachmentId.length > 0;
+}
+
+function messageAttachmentIds(message: ModelMessage): readonly string[] {
+    return message.role === "user"
+        ? message.content.flatMap((content) =>
+            content.type === "image_attachment" ? [content.attachmentId] : []
+        )
+        : [];
 }
 
 function isAssistantContent(value: unknown): boolean {

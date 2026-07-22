@@ -122,7 +122,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ? finished
             : appendEntry(finished, {
                 kind: "notice",
-                text: `Model error: ${error}`,
+                text: error.startsWith("Image attachment unavailable:")
+                    ? `Attachment error: ${error.slice("Image attachment unavailable:".length).trim()}`
+                    : `Model error: ${error}`,
             });
     }
     if (update.type === "agent_failed") {
@@ -151,11 +153,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         };
     }
     if (update.type === "user_prompt") {
+        const text = displayUserPrompt(update.content, update.attachmentIds);
         const last = state.entries.at(-1);
-        if (last?.kind === "user" && last.text === update.content) {
+        if (last?.kind === "user" && last.text === text) {
             return state;
         }
-        return appendEntry(state, { kind: "user", text: update.content });
+        return appendEntry(state, { kind: "user", text });
     }
     if (update.type === "ui_request") {
         return state;
@@ -273,7 +276,15 @@ function toTuiTranscriptEntry(entry: TranscriptEntry): TuiTranscriptEntry {
             text: `Model error: ${entry.detail ?? "Model request failed"}`,
         };
     }
-    return entry;
+    return entry.kind === "user"
+        ? { kind: "user", text: displayUserPrompt(entry.text, entry.attachmentIds) }
+        : entry;
+}
+
+function displayUserPrompt(text: string, attachmentIds?: readonly string[]): string {
+    if (attachmentIds === undefined || attachmentIds.length === 0) return text;
+    const labels = attachmentIds.map(() => "[Attached image]").join("\n");
+    return text.length === 0 ? labels : `${text}\n${labels}`;
 }
 
 function appendAssistantText(state: TuiState, text: string): TuiState {

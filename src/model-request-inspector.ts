@@ -149,7 +149,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
     }
     if (value.role === "user") {
         return (value.internal === undefined || typeof value.internal === "boolean")
-            && value.content.every(isTextContent);
+            && value.content.every((block) =>
+                isTextContent(block) || isImageAttachmentContent(block)
+            );
     }
     if (value.role === "tool_result") {
         return typeof value.toolCallId === "string"
@@ -172,6 +174,13 @@ function isTextContent(value: unknown): boolean {
     return isRecord(value)
         && value.type === "text"
         && typeof value.text === "string";
+}
+
+function isImageAttachmentContent(value: unknown): boolean {
+    return isRecord(value)
+        && value.type === "image_attachment"
+        && typeof value.attachmentId === "string"
+        && value.attachmentId.length > 0;
 }
 
 function isAssistantContent(value: unknown): boolean {

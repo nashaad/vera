@@ -24,7 +24,7 @@ export interface ModelRequestSnapshot {
     readonly signal: AbortSignal;
 }
 
-export interface ProjectedModelRequest extends ModelRequest {
+export interface ProjectedModelRequest extends Omit<ModelRequest, "messages"> {
     readonly maxTokens: number;
     readonly systemPrompt: string;
     readonly messages: readonly ModelMessage[];

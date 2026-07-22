@@ -4,7 +4,7 @@ import { readSessionSnapshot } from "./store/session-store.ts";
 export type SessionExportFormat = "markdown" | "json";
 
 export interface SessionExport {
-    readonly format_version: 3;
+    readonly format_version: 4;
     readonly session: {
         readonly id: string;
         readonly started_at: string;
@@ -24,7 +24,7 @@ export async function exportSession(
 ): Promise<string> {
     const snapshot = await readSessionSnapshot(sessionPath);
     const exported: SessionExport = {
-        format_version: 3,
+        format_version: 4,
         session: {
             id: snapshot.header.id,
             started_at: snapshot.header.timestamp,
@@ -62,7 +62,7 @@ export function renderSessionMarkdown(exported: SessionExport): string {
         } else if (entry.kind === "error") {
             lines.push(quoteMarkdown(entry.detail ?? "Model request failed"));
         } else {
-            lines.push(quoteMarkdown(entry.text));
+            lines.push(quoteMarkdown(renderTranscriptText(entry)));
         }
     }
     if (exported.agent_failure !== undefined) {
@@ -77,6 +77,12 @@ export function renderSessionMarkdown(exported: SessionExport): string {
         );
     }
     return `${lines.join("\n")}\n`;
+}
+
+function renderTranscriptText(entry: Exclude<TranscriptEntry, { kind: "tool" | "error" }>): string {
+    if (entry.kind !== "user" || entry.attachmentIds === undefined) return entry.text;
+    const images = entry.attachmentIds.map((id) => `[Image attachment: ${id}]`).join("\n");
+    return entry.text.length === 0 ? images : `${entry.text}\n${images}`;
 }
 
 function transcriptHeading(entry: TranscriptEntry): string {

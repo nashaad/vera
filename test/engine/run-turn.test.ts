@@ -131,6 +131,128 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     ]);
 });
 
+test("image references are durable while model requests receive verified bytes", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "I see it" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    let capturedRequest: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            capturedRequest = request;
+            return new FauxAdapter([response]).stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        readImageContent: async (attachmentId) => {
+            expect(attachmentId).toBe("image-1.png");
+            return {
+                type: "image",
+                mediaType: "image/png",
+                data: Uint8Array.from([1, 2, 3]),
+            };
+        },
+    };
+
+    channel.client.send({
+        type: "prompt",
+        content: "inspect this",
+        attachmentIds: ["image-1.png"],
+    });
+    await runTurn(adapter, "test", state);
+
+    expect(state.messages[0]).toEqual({
+        role: "user",
+        content: [
+            { type: "text", text: "inspect this" },
+            { type: "image_attachment", attachmentId: "image-1.png" },
+        ],
+    });
+    expect(capturedRequest?.messages[0]).toEqual({
+        role: "user",
+        content: [
+            { type: "text", text: "inspect this" },
+            {
+                type: "image",
+                mediaType: "image/png",
+                data: Uint8Array.from([1, 2, 3]),
+            },
+        ],
+    });
+});
+
+test("an unreadable image rejects the prompt before persistence or provider use", async () => {
+    let providerCalls = 0;
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "recovered" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const adapter: ModelAdapter = {
+        stream(request) {
+            providerCalls += 1;
+            return new FauxAdapter([response]).stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        readImageContent: async () => {
+            throw new Error("stored bytes failed verification");
+        },
+    };
+
+    channel.client.send({
+        type: "prompt",
+        content: "inspect this",
+        attachmentIds: ["bad.png"],
+    });
+    const result = await runTurn(adapter, "test", state);
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toContain("stored bytes failed verification");
+    expect(state.messages).toEqual([]);
+    expect(providerCalls).toBe(0);
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        outcome: "error",
+        error: "Image attachment unavailable: stored bytes failed verification",
+        seq: 1,
+    });
+
+    channel.client.send({ type: "prompt", content: "continue without it" });
+    await runTurn(adapter, "test", state);
+    expect(providerCalls).toBe(1);
+    expect(state.messages).toEqual([
+        {
+            role: "user",
+            content: [{ type: "text", text: "continue without it" }],
+        },
+        response,
+    ]);
+});
+
 test("model settings are snapshotted once when each turn starts", async () => {
     const responses: AssistantMessage[] = [
         {
