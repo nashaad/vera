@@ -12,6 +12,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
     { usage: "vera send <agent-id> <message>", description: "Send a prompt to a live agent" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn" },
+    { usage: "vera host stop", description: "Stop the resident host and attached clients" },
     { usage: "vera login [openai-codex]", description: "Sign in with a Codex subscription" },
     { usage: "vera rpc", description: "Run the NDJSON integration bridge" },
 ] as const;
@@ -23,6 +24,7 @@ export function renderCliHelp(): string {
     ).join("\n");
     return `Vera coding agent\n\nUsage:\n${commands}\n\nOptions:\n`
         + "  -h, --help     Show this help\n"
+        + "  -y, --yes     Approve a required busy-host restart\n"
         + "  -v, --version  Show the source revision\n";
 }
 

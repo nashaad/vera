@@ -177,6 +177,47 @@ test("host discovery leaves a busy incompatible host running", async () => {
     })).rejects.toBe(mismatch);
 });
 
+test("host discovery can confirm and replace a busy older host", async () => {
+    const mismatch = new HostProtocolMismatchError(
+        101,
+        2,
+        runningHost.started_at,
+        runningHost.socket_path,
+    );
+    let reads = 0;
+    let terminated: number | undefined;
+    let starts = 0;
+    const host = await ensureResidentHost({
+        lockfile: {
+            publish(): Promise<HostLockRecord> {
+                throw new Error("not used");
+            },
+            read(): Promise<HostLockRecord | undefined> {
+                reads += 1;
+                if (reads === 1) return Promise.reject(mismatch);
+                if (reads === 2) return Promise.resolve(undefined);
+                return Promise.resolve(runningHost);
+            },
+        },
+        startHost: () => {
+            starts += 1;
+        },
+        shutdownIfIdle: async () => ({
+            type: "shutdown_if_idle_refused",
+            reason: "busy",
+        }),
+        confirmBusyUpgrade: async () => true,
+        terminateHost: async (pid) => {
+            terminated = pid;
+        },
+        wait: async () => {},
+    });
+
+    expect(host).toEqual(runningHost);
+    expect(terminated).toBe(101);
+    expect(starts).toBe(1);
+});
+
 test("host discovery stops at one fixed startup deadline", async () => {
     let now = 0;
     await expect(ensureResidentHost({

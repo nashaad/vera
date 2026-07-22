@@ -25,6 +25,10 @@ export interface EnsureResidentHostOptions {
         socketPath: string,
         identity: HostIdentity,
     ) => Promise<ShutdownIfIdleResponse | undefined>;
+    readonly confirmBusyUpgrade?: (
+        error: HostProtocolMismatchError,
+    ) => boolean | Promise<boolean>;
+    readonly terminateHost?: (pid: number) => void | Promise<void>;
 }
 
 export async function ensureResidentHost(
@@ -68,7 +72,9 @@ export async function ensureResidentHost(
             || response.pid !== error.pid
             || response.started_at !== error.startedAt
         ) {
-            throw error;
+            const approved = await options.confirmBusyUpgrade?.(error) ?? false;
+            if (!approved) throw error;
+            await (options.terminateHost ?? terminateHost)(error.pid);
         }
         const shutdownDeadline = now() + startupTimeoutMs;
         while (true) {
@@ -113,6 +119,10 @@ export async function ensureResidentHost(
         }
         await wait(Math.min(pollIntervalMs, remainingMs));
     }
+}
+
+function terminateHost(pid: number): void {
+    process.kill(pid, "SIGTERM");
 }
 
 function waitFor(delayMs: number): Promise<void> {

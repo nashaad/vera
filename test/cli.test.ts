@@ -215,6 +215,18 @@ test("vera interactive commands select create, attach, and resume targets", asyn
     ]);
 });
 
+test("vera --yes preapproves a busy resident-host restart", async () => {
+    let approved = false;
+    const exitCode = await runCli(["--yes"], {
+        runTui: async (_target, options) => {
+            approved = await options!.confirmBusyUpgrade!(new Error("old host"));
+        },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(approved).toBe(true);
+});
+
 test("vera login runs OpenAI Codex OAuth and prints the authorization URL", async () => {
     let output = "";
     let loggedIn = false;
@@ -243,8 +255,25 @@ test("vera reports host upgrades without a runtime stack trace", async () => {
     expect(exitCode).toBe(1);
     expect(errorOutput).toBe(
         "Vera host upgrade required: Resident Vera host PID 49372 uses protocol 1; "
-        + `stop it and relaunch Vera to use protocol ${HOST_PROTOCOL_VERSION}.\n`,
+        + `stop it and relaunch Vera to use protocol ${HOST_PROTOCOL_VERSION}.\n`
+        + "Close the older Vera client and retry, or run 'vera host stop'.\n",
     );
     expect(errorOutput).not.toContain("clients/tui/main.ts");
     expect(errorOutput).not.toContain("HostProtocolMismatchError:");
+});
+
+test("vera host stop invokes the explicit resident-host shutdown", async () => {
+    let output = "";
+    let stopped = false;
+    const exitCode = await runCli(["host", "stop"], {
+        stopHost: async () => {
+            stopped = true;
+            return 51639;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stopped).toBe(true);
+    expect(output).toBe("Stopped resident Vera host PID 51639.\n");
 });
