@@ -285,7 +285,7 @@ test("model settings results share the ordered agent update sequence", () => {
     ]);
 });
 
-test("permission commands parse only known modes", () => {
+test("permission commands accept built-in and custom profile slugs", () => {
     expect(parseClientCommand({
         type: "get_permissions",
         requestId: "permissions-1",
@@ -306,6 +306,15 @@ test("permission commands parse only known modes", () => {
         type: "update_permissions",
         requestId: "permissions-3",
         mode: "always_allow",
+    })).toEqual({
+        type: "update_permissions",
+        requestId: "permissions-3",
+        mode: "always_allow",
+    });
+    expect(parseClientCommand({
+        type: "update_permissions",
+        requestId: "permissions-4",
+        mode: "../always-allow",
     })).toBeUndefined();
 });
 

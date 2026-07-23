@@ -6,6 +6,7 @@ import {
     isApprovalMode,
     parseApprovalMode,
     type ApprovalMode,
+    type BuiltInPermissionProfileName,
 } from "../sdk/permissions.ts";
 import {
     nestedShellCommands,
@@ -104,6 +105,7 @@ export interface CommandPrefix {
 
 export interface DecideToolPermissionOptions {
     readonly homeDirectory?: string;
+    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
 }
 
 const ROUTINE_RULES: readonly PermissionRule[] = [
@@ -134,7 +136,7 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
 ];
 
 export const BUILT_IN_PERMISSION_PROFILES: Readonly<
-    Record<ApprovalMode, PermissionProfile>
+    Record<BuiltInPermissionProfileName, PermissionProfile>
 > = {
     full_access: {
         name: "full_access",
@@ -194,6 +196,16 @@ const NETWORK_GIT_OPERATIONS = new Map([
     ["push", "git.push"],
 ]);
 
+export const CORE_PERMISSION_OPERATIONS = new Set([
+    "git.clone",
+    "git.commit",
+    "git.fetch",
+    "git.ls_remote",
+    "git.pull",
+    "git.push",
+    "git.remote_update",
+]);
+
 const GIT_OPTIONS_WITH_VALUE = new Set([
     "-C",
     "-c",
@@ -227,7 +239,16 @@ export function decideToolPermission(
         };
     }
 
-    const profile = BUILT_IN_PERMISSION_PROFILES[mode];
+    const profile = builtInPermissionProfile(mode)
+        ?? options.permissionProfiles?.[mode];
+    if (profile === undefined) {
+        return {
+            behavior: "deny",
+            reason: `Permission profile ${mode} is unavailable.`,
+            claims: [],
+            source: "profile",
+        };
+    }
     const decisions = extractPermissionClaims(toolCall, workspace).map((claim) =>
         evaluateClaim(profile, claim)
     );
@@ -269,6 +290,14 @@ export function decideToolPermission(
         claims: decisions,
         source: "profile",
     };
+}
+
+export function builtInPermissionProfile(
+    name: string,
+): PermissionProfile | undefined {
+    return name === "ask" || name === "auto" || name === "full_access"
+        ? BUILT_IN_PERMISSION_PROFILES[name]
+        : undefined;
 }
 
 export function extractPermissionClaims(

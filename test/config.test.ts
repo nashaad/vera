@@ -90,6 +90,7 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         model: "anthropic/example-model",
+        approval_mode: "unattended",
         models: [{
             provider: "openrouter",
             model: "anthropic/claude-opus-4.8",
@@ -106,10 +107,21 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
                 policy: "Allow ordinary actions that follow from the request.",
             },
         },
+        permission_profiles: {
+            unattended: {
+                default: "review",
+                reviewer_profile: "default",
+                rules: [{
+                    when: { capability: "read" },
+                    then: "allow",
+                }],
+            },
+        },
     }));
 
     const config = loadVeraConfig({ path });
     expect(config).toMatchObject({
+        approval_mode: "unattended",
         models: [{
             name: "anthropic_claude_opus_4_8_max_openrouter",
             provider: "openrouter",
@@ -127,6 +139,18 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
                 policy: "Allow ordinary actions that follow from the request.",
             },
         },
+        permission_profiles: {
+            unattended: {
+                name: "unattended",
+                defaultOutcome: "review",
+                reviewerProfile: "default",
+                rules: [{
+                    name: "unattended.rules.0",
+                    when: { capability: "read" },
+                    then: "allow",
+                }],
+            },
+        },
     });
     expect(configuredReviewer(config)).toEqual({
         models: [{
@@ -136,6 +160,10 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
         }],
         policy: "Allow ordinary actions that follow from the request.",
     });
+
+    updateVeraConfigDefaults({ approval_mode: "ask" }, { path });
+    expect(loadVeraConfig({ path }).permission_profiles)
+        .toEqual(config.permission_profiles);
 });
 
 test("Vera config loads an engine model fallback", () => {

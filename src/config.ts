@@ -10,6 +10,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
+    builtInPermissionProfile,
     parseApprovalMode,
     type ApprovalMode,
 } from "./engine/permissions.ts";
@@ -22,6 +23,8 @@ import {
     type VeraCatalogModel,
     type VeraReviewerProfileConfig,
 } from "./config/model-catalog.ts";
+import { parsePermissionProfiles } from "./config/permission-profiles.ts";
+import type { PermissionProfile } from "./engine/permissions.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -56,6 +59,9 @@ export interface VeraConfig {
     readonly model_routes?: Readonly<Record<string, readonly string[]>>;
     readonly reviewer_profiles?: Readonly<
         Record<string, VeraReviewerProfileConfig>
+    >;
+    readonly permission_profiles?: Readonly<
+        Record<string, PermissionProfile>
     >;
 }
 
@@ -137,11 +143,54 @@ export function updateVeraConfigDefaults(
     const directory = dirname(path);
     const temporaryPath = join(directory, `.config-${randomUUID()}.tmp`);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    writeFileSync(temporaryPath, `${JSON.stringify(updated, null, 2)}\n`, {
+    writeFileSync(
+        temporaryPath,
+        `${JSON.stringify(configForDisk(updated), null, 2)}\n`,
+        {
         mode: 0o600,
-    });
+        },
+    );
     renameSync(temporaryPath, path);
     return updated;
+}
+
+function configForDisk(config: VeraConfig): Record<string, unknown> {
+    return {
+        ...config,
+        ...(config.permission_profiles === undefined
+            ? {}
+            : {
+                permission_profiles: Object.fromEntries(
+                    Object.entries(config.permission_profiles).map(
+                        ([name, profile]) => [
+                            name,
+                            {
+                                default: profile.defaultOutcome,
+                                ...(profile.reviewerProfile === undefined
+                                    ? {}
+                                    : {
+                                        reviewer_profile:
+                                            profile.reviewerProfile,
+                                    }),
+                                rules: profile.rules.map((rule) => ({
+                                    when: {
+                                        ...rule.when,
+                                        ...(rule.when.pathScope === undefined
+                                            ? {}
+                                            : {
+                                                path_scope:
+                                                    rule.when.pathScope,
+                                                pathScope: undefined,
+                                            }),
+                                    },
+                                    then: rule.then,
+                                })),
+                            },
+                        ],
+                    ),
+                ),
+            }),
+    };
 }
 
 function parseVeraConfig(value: unknown): VeraConfig | undefined {
@@ -160,12 +209,22 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const hasModelCatalog = config.models !== undefined
         || config.model_routes !== undefined
         || config.reviewer_profiles !== undefined;
+    const permissionProfiles = parsePermissionProfiles(
+        config.permission_profiles,
+        modelCatalog?.reviewer_profiles ?? {},
+    );
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
+    const hasSelectedProfile = approvalMode !== undefined
+        && (
+            builtInPermissionProfile(approvalMode) !== undefined
+            || permissionProfiles?.[approvalMode] !== undefined
+        );
     if (
         (config.reviewer !== undefined && reviewer === undefined)
         || modelCatalog === undefined
+        || permissionProfiles === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
@@ -181,7 +240,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && config.reasoning_effort !== "medium"
             && config.reasoning_effort !== "high"
             && config.reasoning_effort !== "max")
-        || approvalMode === undefined
+        || !hasSelectedProfile
         || (config.fallback !== undefined && fallback === undefined)
         || (fallback !== undefined
             && config.provider === "openai-codex"
@@ -207,6 +266,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
                 reviewer_profiles: modelCatalog.reviewer_profiles,
             }
             : {}),
+        ...(config.permission_profiles === undefined
+            ? {}
+            : { permission_profiles: permissionProfiles }),
     };
 }
 
@@ -261,18 +323,29 @@ function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
 export function configuredReviewer(
     config: VeraConfig,
 ): ToolReviewerSettings | undefined {
+    return configuredReviewers(config).default;
+}
+
+export function configuredReviewers(
+    config: VeraConfig,
+): Readonly<Record<string, ToolReviewerSettings>> {
+    const configured: Record<string, ToolReviewerSettings> = {};
     if (
         config.models !== undefined
         && config.model_routes !== undefined
         && config.reviewer_profiles !== undefined
     ) {
-        const resolved = resolveReviewerProfile({
+        const catalog = {
             models: config.models,
             model_routes: config.model_routes,
             reviewer_profiles: config.reviewer_profiles,
-        }, "default");
-        if (resolved !== undefined) {
-            return {
+        };
+        for (const name of Object.keys(config.reviewer_profiles)) {
+            const resolved = resolveReviewerProfile(catalog, name);
+            if (resolved === undefined) {
+                continue;
+            }
+            configured[name] = {
                 models: resolved.models.map((model) => ({
                     provider: model.provider,
                     model: model.model,
@@ -286,13 +359,14 @@ export function configuredReviewer(
                     : { timeoutMs: resolved.timeout_ms }),
             };
         }
+        return configured;
     }
 
     const reviewer = config.reviewer;
     if (reviewer === undefined) {
-        return undefined;
+        return configured;
     }
-    return {
+    configured.default = {
         models: [{
             model: reviewer.model,
             ...(reviewer.provider === undefined
@@ -306,6 +380,7 @@ export function configuredReviewer(
             ? {}
             : { timeoutMs: reviewer.timeout_ms }),
     };
+    return configured;
 }
 
 export function configuredModelFallback(

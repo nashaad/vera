@@ -28,7 +28,7 @@ export interface UpdateReasoningTuiCommandAction {
 
 export interface UpdatePermissionsTuiCommandAction {
     readonly type: "update_permissions";
-    readonly mode: "ask" | "auto" | "full_access";
+    readonly mode: string;
 }
 
 export interface OpenModelPickerTuiCommandAction {
@@ -357,8 +357,6 @@ function isReasoningEffort(value: string): value is UpdateReasoningTuiCommandAct
         || value === "max";
 }
 
-function isApprovalMode(value: string): value is UpdatePermissionsTuiCommandAction["mode"] {
-    return value === "ask"
-        || value === "auto"
-        || value === "full_access";
+function isApprovalMode(value: string): boolean {
+    return /^[a-z0-9][a-z0-9_-]*$/.test(value);
 }
