@@ -9,10 +9,17 @@ import {
 } from "./rpc.ts";
 import type {
     VeraExtensionApi,
+    VeraExtensionCommandHandler,
+    VeraExtensionCommandSpec,
     VeraExtensionDisposer,
     VeraExtensionModule,
 } from "../sdk/extensions.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
+import {
+    isExtensionCommandName,
+    parseExtensionCommandBody,
+    type ExtensionCommandDeclaration,
+} from "./commands.ts";
 
 interface ActivateParams {
     readonly rpcVersion: number;
@@ -44,6 +51,13 @@ export function runExtensionChildRuntime(
     let activation: Promise<void> | undefined;
     let disposal: Promise<void> | undefined;
     const disposers: VeraExtensionDisposer[] = [];
+    const commandHandlers = new Map<string, VeraExtensionCommandHandler>();
+    const commandNames = new Set<string>();
+    const declarations: ExtensionCommandDeclaration[] = [];
+    const activeCommands = new Set<{
+        readonly controller: AbortController;
+        readonly execution: Promise<unknown>;
+    }>();
     const peer = createExtensionRpcPeer({
         input: process.stdin,
         output: process.stdout,
@@ -74,7 +88,7 @@ export function runExtensionChildRuntime(
         try {
             await activation;
             phase = "active";
-            return { handlers: [] };
+            return { handlers: declarations };
         } catch (error) {
             phase = "failed";
             throw error;
@@ -94,6 +108,11 @@ export function runExtensionChildRuntime(
             const api: VeraExtensionApi = Object.freeze({
                 config: structuredClone(params.config),
                 workspace: params.workspace,
+                commands: Object.freeze({
+                    register(spec: VeraExtensionCommandSpec): void {
+                        registerCommand(spec, params.capabilities);
+                    },
+                }),
                 onDispose(dispose: VeraExtensionDisposer): void {
                     if (phase !== "activating") {
                         throw new Error(
@@ -110,6 +129,49 @@ export function runExtensionChildRuntime(
             });
 
             await extension.activate(api);
+        }
+    });
+
+    peer.register("invoke", async (value, context) => {
+        if (phase !== "active") {
+            throw new ExtensionRpcHandlerError(
+                "disposed",
+                "Extension is not accepting command invocations",
+            );
+        }
+        const request = parseInvokeParams(value);
+        if (request === undefined) {
+            throw new ExtensionRpcHandlerError(
+                "invalid_frame",
+                "Invalid extension invocation parameters",
+            );
+        }
+        const handler = commandHandlers.get(request.handlerId);
+        if (handler === undefined) {
+            throw new ExtensionRpcHandlerError(
+                "unknown_handler",
+                `Unknown extension handler: ${request.handlerId}`,
+            );
+        }
+        const controller = new AbortController();
+        const abort = (): void => controller.abort();
+        context.signal.addEventListener("abort", abort, { once: true });
+        const execution = Promise.resolve(handler({
+            argumentsText: request.argumentsText,
+            signal: controller.signal,
+        }));
+        const active = { controller, execution };
+        activeCommands.add(active);
+        try {
+            const body = await execution;
+            const parsed = parseExtensionCommandBody(body);
+            if (parsed === undefined) {
+                throw new Error("Extension command returned an invalid body");
+            }
+            return parsed;
+        } finally {
+            activeCommands.delete(active);
+            context.signal.removeEventListener("abort", abort);
         }
     });
 
@@ -135,6 +197,12 @@ export function runExtensionChildRuntime(
                 }
             }
             phase = "disposing";
+            for (const command of activeCommands) {
+                command.controller.abort();
+            }
+            await Promise.allSettled(
+                [...activeCommands].map((command) => command.execution),
+            );
             const failures: string[] = [];
             for (const [index, dispose] of disposers.toReversed().entries()) {
                 try {
@@ -156,6 +224,78 @@ export function runExtensionChildRuntime(
     });
 
     return { peer };
+
+    function registerCommand(
+        spec: VeraExtensionCommandSpec,
+        capabilities: readonly string[],
+    ): void {
+        if (phase !== "activating") {
+            throw new Error(
+                "Extension commands must be registered during activation",
+            );
+        }
+        if (!capabilities.includes("commands.register")) {
+            throw new ExtensionRpcHandlerError(
+                "undeclared_capability",
+                "Extension did not declare commands.register",
+            );
+        }
+        if (typeof spec !== "object" || spec === null) {
+            throw new Error("Invalid extension command registration");
+        }
+        const {
+            name,
+            description,
+            usage,
+            run,
+        } = spec;
+        if (
+            typeof name !== "string"
+            || !isExtensionCommandName(name)
+            || typeof description !== "string"
+            || description.trim().length === 0
+            || typeof usage !== "string"
+            || usage.trim().length === 0
+            || typeof run !== "function"
+        ) {
+            throw new Error("Invalid extension command registration");
+        }
+        if (commandNames.has(name)) {
+            throw new Error(
+                `Duplicate extension command: ${name}`,
+            );
+        }
+        const handlerId = `command:${declarations.length + 1}`;
+        commandNames.add(name);
+        commandHandlers.set(handlerId, run);
+        declarations.push({
+            handlerId,
+            kind: "command",
+            name,
+            spec: {
+                description: description.trim(),
+                usage: usage.trim(),
+            },
+        });
+    }
+}
+
+function parseInvokeParams(
+    value: JsonValue,
+): { readonly handlerId: string; readonly argumentsText: string } | undefined {
+    if (
+        !isPlainObject(value)
+        || Object.keys(value).length !== 2
+        || typeof value.handlerId !== "string"
+        || value.handlerId.length === 0
+        || typeof value.argumentsText !== "string"
+    ) {
+        return undefined;
+    }
+    return {
+        handlerId: value.handlerId,
+        argumentsText: value.argumentsText,
+    };
 }
 
 function parseActivateParams(value: JsonValue): ActivateParams | undefined {

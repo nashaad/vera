@@ -57,6 +57,7 @@ test("supervisor activates, attributes diagnostics, and disposes", async () => {
             activationTimeoutMs: 1_000,
             disposeTimeoutMs: 1_000,
             terminateGraceMs: 100,
+            handlerTimeoutMs: 1_000,
             onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
         });
 
@@ -81,6 +82,168 @@ test("supervisor activates, attributes diagnostics, and disposes", async () => {
     }
 });
 
+test("supervisor discovers and invokes a declarative command", async () => {
+    const directory = createExtension(`
+        export function activate(vera) {
+            vera.commands.register({
+                name: "hello",
+                description: "Say hello",
+                usage: "/hello [name]",
+                async run({ argumentsText, signal }) {
+                    if (signal.aborted) throw new Error("cancelled");
+                    return {
+                        kind: "text",
+                        text: "Hello " + (argumentsText || "world"),
+                    };
+                },
+            });
+        }
+    `, ["commands.register"]);
+    const running = await startUserExtension({
+        loaded: loadExtensionManifest(directory),
+        config: null,
+        workspace: createDirectory(),
+        activationTimeoutMs: 1_000,
+        disposeTimeoutMs: 1_000,
+        terminateGraceMs: 100,
+        handlerTimeoutMs: 1_000,
+    });
+
+    expect(running.commands).toEqual([{
+        name: "hello",
+        description: "Say hello",
+        usage: "/hello [name]",
+        source: "test.extension",
+    }]);
+    await expect(running.invokeCommand("hello", "Nash")).resolves.toEqual({
+        version: 1,
+        source: "test.extension/hello",
+        body: {
+            kind: "text",
+            text: "Hello Nash",
+        },
+    });
+    await running.dispose();
+});
+
+test("command timeout aborts the handler and leaves the extension usable", async () => {
+    const workspace = createDirectory();
+    const abortedPath = join(workspace, "aborted.txt");
+    const directory = createExtension(`
+        export function activate(vera) {
+            vera.commands.register({
+                name: "work",
+                description: "Do work",
+                usage: "/work [slow]",
+                async run({ argumentsText, signal }) {
+                    if (argumentsText !== "slow") {
+                        return { kind: "notice", level: "info", text: "ready" };
+                    }
+                    await new Promise((resolve) => {
+                        signal.addEventListener("abort", async () => {
+                            await Bun.write(
+                                ${JSON.stringify(abortedPath)},
+                                "aborted",
+                            );
+                            resolve();
+                        }, { once: true });
+                    });
+                    return { kind: "text", text: "late" };
+                },
+            });
+        }
+    `, ["commands.register"]);
+    const running = await startUserExtension({
+        loaded: loadExtensionManifest(directory),
+        config: null,
+        workspace,
+        activationTimeoutMs: 1_000,
+        disposeTimeoutMs: 1_000,
+        terminateGraceMs: 100,
+        handlerTimeoutMs: 20,
+    });
+
+    await expect(running.invokeCommand("work", "slow")).rejects.toThrow(
+        "timed out",
+    );
+    await waitFor(() => Bun.file(abortedPath).size > 0);
+    await expect(running.invokeCommand("work", "fast")).resolves.toMatchObject({
+        body: { kind: "notice", level: "info", text: "ready" },
+    });
+    await running.dispose();
+});
+
+test("dispose cancels active commands before extension cleanup", async () => {
+    const workspace = createDirectory();
+    const orderPath = join(workspace, "order.txt");
+    const directory = createExtension(`
+        import { appendFile } from "node:fs/promises";
+        export function activate(vera) {
+            vera.commands.register({
+                name: "wait",
+                description: "Wait",
+                usage: "/wait",
+                async run({ signal }) {
+                    await new Promise((resolve) => {
+                        signal.addEventListener("abort", resolve, { once: true });
+                    });
+                    await appendFile(${JSON.stringify(orderPath)}, "handler\\n");
+                    return { kind: "text", text: "done" };
+                },
+            });
+            vera.onDispose(() =>
+                appendFile(${JSON.stringify(orderPath)}, "cleanup\\n")
+            );
+        }
+    `, ["commands.register"]);
+    const running = await startUserExtension({
+        loaded: loadExtensionManifest(directory),
+        config: null,
+        workspace,
+        activationTimeoutMs: 1_000,
+        disposeTimeoutMs: 1_000,
+        terminateGraceMs: 100,
+        handlerTimeoutMs: 1_000,
+    });
+
+    const invocation = running.invokeCommand("wait", "");
+    await Bun.sleep(5);
+    const outcomes = await Promise.allSettled([
+        invocation,
+        running.dispose(),
+    ]);
+
+    expect(outcomes[0]?.status).toBe("rejected");
+    expect(outcomes[1]?.status).toBe("fulfilled");
+    expect(readFileSync(orderPath, "utf8")).toBe("handler\ncleanup\n");
+    await expect(running.invokeCommand("wait", "")).rejects.toMatchObject({
+        code: "disposed",
+    });
+});
+
+test("command registration requires its declared capability", async () => {
+    const directory = createExtension(`
+        export function activate(vera) {
+            vera.commands.register({
+                name: "hidden",
+                description: "Hidden",
+                usage: "/hidden",
+                run() { return { kind: "text", text: "no" }; },
+            });
+        }
+    `);
+
+    await expect(startUserExtension({
+        loaded: loadExtensionManifest(directory),
+        config: null,
+        workspace: createDirectory(),
+        activationTimeoutMs: 1_000,
+        disposeTimeoutMs: 1_000,
+        terminateGraceMs: 100,
+        handlerTimeoutMs: 1_000,
+    })).rejects.toThrow("did not declare commands.register");
+});
+
 test("supervisor attributes activation failure and reaps the child", async () => {
     const directory = createExtension(`
         export function activate() {
@@ -95,6 +258,7 @@ test("supervisor attributes activation failure and reaps the child", async () =>
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,
+        handlerTimeoutMs: 1_000,
     })).rejects.toEqual(
         new ExtensionLoadError(
             "test.extension",
@@ -120,6 +284,7 @@ test("activation timeout kills and reaps the child", async () => {
         activationTimeoutMs: 100,
         disposeTimeoutMs: 20,
         terminateGraceMs: 100,
+        handlerTimeoutMs: 1_000,
     })).rejects.toThrow("timed out");
 
     expectProcessDead(Number(readFileSync(pidPath, "utf8")));
@@ -140,6 +305,7 @@ test("dispose timeout escalates to SIGKILL and reaps the child", async () => {
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 20,
         terminateGraceMs: 20,
+        handlerTimeoutMs: 1_000,
     });
 
     await expect(running.dispose()).rejects.toThrow("timed out");
@@ -160,6 +326,7 @@ test("supervisor reports an unexpected post-activation exit", async () => {
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,
+        handlerTimeoutMs: 1_000,
         onFailure: (failure) => failures.push(failure),
     });
 
@@ -172,14 +339,17 @@ test("supervisor reports an unexpected post-activation exit", async () => {
     await expect(running.dispose()).rejects.toThrow(/exited|closed/);
 });
 
-function createExtension(source: string): string {
+function createExtension(
+    source: string,
+    capabilities: readonly string[] = [],
+): string {
     const directory = createDirectory();
     writeFileSync(join(directory, "vera.extension.json"), JSON.stringify({
         id: "test.extension",
         version: "1.0.0",
         sdk: "1",
         entrypoint: "./extension.ts",
-        capabilities: [],
+        capabilities,
     }));
     writeFileSync(join(directory, "extension.ts"), source);
     return directory;
