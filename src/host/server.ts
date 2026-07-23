@@ -40,6 +40,9 @@ export interface StartHostServerOptions {
     readonly branchAgent?: (
         options: BranchRegisteredAgentOptions,
     ) => Promise<BranchedRegisteredAgent | undefined>;
+    readonly trashSession?: (
+        targetAgentId: string,
+    ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
     readonly canShutdown?: () => boolean;
     readonly onShutdownAccepted?: () => void | Promise<void>;
 }
@@ -141,6 +144,7 @@ export async function startHostServer(
                 new Error("Agent resume is unavailable"),
             )),
             options.branchAgent ?? (() => Promise.resolve(undefined)),
+            options.trashSession ?? (() => Promise.resolve("not_found")),
             () => shutdownFenced,
             requestShutdown,
             attachmentOpened,
@@ -194,6 +198,9 @@ function receiveConnection(
     branchAgent: (
         options: BranchRegisteredAgentOptions,
     ) => Promise<BranchedRegisteredAgent | undefined>,
+    trashSession: (
+        targetAgentId: string,
+    ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
     isShutdownFenced: () => boolean,
     requestShutdown: (
         identity: HostIdentity & { readonly requester_protocol_version: number },
@@ -372,6 +379,30 @@ function receiveConnection(
                             : { prompt: result.prompt }),
                     }),
                 () => send({ type: "agent_branch_failed" }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "trash_session") {
+            clearTimeout(deadline);
+            finished = true;
+            void trashSession(
+                request.target_agent_id,
+            ).then(
+                (result) => result === "trashed"
+                    ? send({
+                        type: "session_trashed",
+                        agent_id: request.target_agent_id,
+                    })
+                    : send({
+                        type: "session_trash_rejected",
+                        agent_id: request.target_agent_id,
+                        reason: result,
+                    }),
+                () => send({
+                    type: "session_trash_rejected",
+                    agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }

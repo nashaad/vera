@@ -25,6 +25,7 @@
     "@openrouter/sdk": "^0.13.55",
     "@opentui/core": "^0.2.6",
     "marked": "^17.0.1",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "trash": "10.1.1"
   }
 }
