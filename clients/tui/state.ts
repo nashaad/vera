@@ -4,7 +4,10 @@ import type { TextChunk } from "@opentui/core";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
-import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type {
+    ApprovalMode,
+    PermissionInspection,
+} from "../../src/engine/permissions.ts";
 import type { TuiTheme } from "./theme.ts";
 import { VERA_TUI_THEME } from "./theme.ts";
 
@@ -26,6 +29,7 @@ export interface TuiState {
     readonly queuedPrompts: readonly string[];
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
+    readonly permissionInspection?: PermissionInspection;
     readonly contextInputTokens?: number;
 }
 
@@ -210,7 +214,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "permissions") {
-        return { ...state, approvalMode: update.mode };
+        return {
+            ...state,
+            approvalMode: update.mode,
+            ...(update.inspection === undefined
+                ? {}
+                : { permissionInspection: update.inspection }),
+        };
     }
     if (update.type === "permissions_rejected") {
         return state;

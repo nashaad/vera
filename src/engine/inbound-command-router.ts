@@ -25,6 +25,7 @@ import type { HookToolCall } from "../sdk/hooks.ts";
 import type {
     ApprovalMode,
     PermissionGrantProposal,
+    PermissionInspection,
 } from "./permissions.ts";
 
 const FULL_USER_AUTHORITY_WARNING =
@@ -104,6 +105,7 @@ export interface InboundCommandRouterOptions {
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
+    readonly readPermissionInspection?: () => PermissionInspection | undefined;
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
@@ -505,11 +507,13 @@ export class InboundCommandRouter {
             });
             return;
         }
+        const inspection = this.options.readPermissionInspection?.();
         this.events.emit({
             type: "permissions_changed",
             requestId,
             mode,
             pending: this.hasPendingTurn(),
+            ...(inspection === undefined ? {} : { inspection }),
         });
     }
 
@@ -538,11 +542,13 @@ export class InboundCommandRouter {
             });
             return;
         }
+        const inspection = this.options.readPermissionInspection?.();
         this.events.emit({
             type: "permissions_changed",
             requestId,
             mode: effective,
             pending: this.hasPendingTurn(),
+            ...(inspection === undefined ? {} : { inspection }),
         });
     }
 

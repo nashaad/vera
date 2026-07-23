@@ -342,6 +342,31 @@ test("settings picker selects permissions with arrows", () => {
     });
 });
 
+test("permissions picker includes configured profile names", () => {
+    const permissions = startTuiSettingsPicker(
+        "permissions",
+        "moonshotai/kimi-k3",
+        "max",
+        "unattended",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        ["ask", "auto", "full_access", "unattended"],
+    );
+
+    expect(permissions.options.map((option) => option.value)).toEqual([
+        "ask",
+        "auto",
+        "full_access",
+        "unattended",
+    ]);
+    expect(permissions.options.at(-1)).toMatchObject({
+        label: "unattended",
+        description: "custom permission profile",
+    });
+});
+
 test("escape closes the settings picker", () => {
     const state = startTuiSettingsPicker(
         "reasoning",

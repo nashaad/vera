@@ -4,6 +4,7 @@ import {
     BUILT_IN_PERMISSION_PROFILES,
     decideToolPermission,
     extractPermissionClaims,
+    inspectPermissions,
     permissionGrantProposals,
     type ApprovalMode,
     type PermissionGrant,
@@ -257,6 +258,25 @@ test("session grants cannot override profile denial or the accident guard", () =
     expect(guarded).toMatchObject({
         behavior: "deny",
         source: "accident_guard",
+    });
+});
+
+test("permission inspection snapshots the selected profile and active grants", () => {
+    const grants: PermissionGrant[] = [{
+        id: "grant-1:0",
+        kind: "capability",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    }];
+    expect(inspectPermissions("auto", {}, grants)).toMatchObject({
+        selected: {
+            name: "auto",
+            defaultOutcome: "review",
+            reviewerProfile: "default",
+        },
+        availableProfiles: ["full_access", "ask", "auto"],
+        activeGrants: grants,
     });
 });
 

@@ -70,6 +70,7 @@ import {
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
 } from "./settings-picker.ts";
+import { renderPermissionInspection } from "./permission-inspection.ts";
 import {
     resolveResumeTarget,
     type TuiStartTarget,
@@ -862,6 +863,12 @@ export async function startTui(
         }
         if (commandAction?.type === "open_permissions_picker") {
             composer.clearComposer();
+            if (state.permissionInspection !== undefined) {
+                state = appendTuiNotice(
+                    state,
+                    renderPermissionInspection(state.permissionInspection),
+                );
+            }
             settingsPicker = startTuiSettingsPicker(
                 "permissions",
                 state.modelSettings?.model,
@@ -869,6 +876,9 @@ export async function startTui(
                 state.approvalMode,
                 state.modelSettings?.availableReasoningEfforts,
                 state.modelSettings?.availableModels,
+                undefined,
+                undefined,
+                state.permissionInspection?.availableProfiles,
             );
             renderState();
             focusActiveSurface();

@@ -440,7 +440,16 @@ test("accepted settings become defaults for new agents in the live host", async 
             settings: { model: "second-model", reasoningEffort: "high" },
         });
         attachment.send({ type: "get_permissions", requestId: "permissions" });
-        expect(await receivePermissions(attachment)).toMatchObject({ mode: "ask" });
+        expect(await receivePermissions(attachment)).toMatchObject({
+            mode: "ask",
+            inspection: {
+                selected: {
+                    name: "ask",
+                    defaultOutcome: "ask",
+                },
+                activeGrants: [],
+            },
+        });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

@@ -200,6 +200,22 @@ test("host wire validates permission results", () => {
         seq: 12,
     })).toBeUndefined();
     expect(parseAgentUpdate({
+        type: "permissions",
+        requestId: "permissions-2",
+        mode: "auto",
+        pending: false,
+        inspection: {
+            selected: {
+                name: "auto",
+                rules: [],
+                defaultOutcome: "review",
+            },
+            availableProfiles: ["auto"],
+            activeGrants: [{ id: "", kind: "capability", when: {} }],
+        },
+        seq: 12,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
         type: "permissions_rejected",
         requestId: "permissions-3",
         reason: "unavailable",

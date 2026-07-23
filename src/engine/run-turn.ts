@@ -60,6 +60,7 @@ import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     decideToolPermission,
+    inspectPermissions,
     permissionGrantProposals,
     type ApprovalMode,
     type PermissionGrant,
@@ -222,6 +223,12 @@ export async function runHeadlessLoop(
             return localApprovalMode;
         });
     const readPermissionGrants = () => store.permissionGrants();
+    const readPermissionInspection = () =>
+        inspectPermissions(
+            readApprovalMode(),
+            options.permissionProfiles,
+            readPermissionGrants(),
+        );
     const addPermissionGrants = async (
         grants: readonly PermissionGrantProposal[],
     ): Promise<void> => {
@@ -251,6 +258,7 @@ export async function runHeadlessLoop(
             ? {}
             : { updateModelSettings: options.updateModelSettings }),
         readApprovalMode,
+        readPermissionInspection,
         updateApprovalMode,
         ...(options.updateSessionName === undefined
             ? {}

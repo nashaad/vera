@@ -15,6 +15,8 @@ import {
 } from "../tools/bash-danger.ts";
 import {
     applyPermissionGrant,
+    isPermissionGrant,
+    isPermissionPredicate,
     permissionPredicateMatches,
     type PermissionGrant,
 } from "./permission-grants.ts";
@@ -77,6 +79,12 @@ export interface PermissionProfile {
     readonly rules: readonly PermissionRule[];
     readonly defaultOutcome: PermissionOutcome;
     readonly reviewerProfile?: string;
+}
+
+export interface PermissionInspection {
+    readonly selected: PermissionProfile;
+    readonly availableProfiles: readonly string[];
+    readonly activeGrants: readonly PermissionGrant[];
 }
 
 export interface PermissionClaimDecision {
@@ -312,6 +320,73 @@ export function builtInPermissionProfile(
     return name === "ask" || name === "auto" || name === "full_access"
         ? BUILT_IN_PERMISSION_PROFILES[name]
         : undefined;
+}
+
+export function inspectPermissions(
+    name: ApprovalMode,
+    customProfiles: Readonly<Record<string, PermissionProfile>> = {},
+    grants: readonly PermissionGrant[] = [],
+): PermissionInspection | undefined {
+    const selected = builtInPermissionProfile(name) ?? customProfiles[name];
+    if (selected === undefined) {
+        return undefined;
+    }
+    return {
+        selected: {
+            name: selected.name,
+            rules: selected.rules.map((rule) => ({
+                name: rule.name,
+                when: { ...rule.when },
+                then: rule.then,
+            })),
+            defaultOutcome: selected.defaultOutcome,
+            ...(selected.reviewerProfile === undefined
+                ? {}
+                : { reviewerProfile: selected.reviewerProfile }),
+        },
+        availableProfiles: [
+            ...Object.keys(BUILT_IN_PERMISSION_PROFILES),
+            ...Object.keys(customProfiles),
+        ],
+        activeGrants: grants.map((grant) => ({
+            id: grant.id,
+            kind: grant.kind,
+            when: { ...grant.when },
+            scope: grant.scope,
+            lifetime: grant.lifetime,
+        })),
+    };
+}
+
+export function isPermissionInspection(
+    value: unknown,
+): value is PermissionInspection {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const selected = isRecord(value.selected) ? value.selected : undefined;
+    return selected !== undefined
+        && typeof selected.name === "string"
+        && selected.name.length > 0
+        && Array.isArray(selected.rules)
+        && selected.rules.every((rule) => {
+            if (!isRecord(rule)) {
+                return false;
+            }
+            return typeof rule.name === "string"
+                && isPermissionPredicate(rule.when)
+                && isPermissionOutcome(rule.then);
+        })
+        && isPermissionOutcome(selected.defaultOutcome)
+        && (selected.reviewerProfile === undefined
+            || (typeof selected.reviewerProfile === "string"
+                && selected.reviewerProfile.length > 0))
+        && Array.isArray(value.availableProfiles)
+        && value.availableProfiles.every((name) =>
+            typeof name === "string" && name.length > 0
+        )
+        && Array.isArray(value.activeGrants)
+        && value.activeGrants.every(isPermissionGrant);
 }
 
 export function extractPermissionClaims(
@@ -572,6 +647,17 @@ function permissionReason(
         .filter((decision) => decision.outcome === effective)
         .map((decision) => `${describeClaim(decision.claim)} (${decision.rule})`);
     return `Permission profile ${profile.name} requires ${effective}: ${matches.join(", ")}.`;
+}
+
+function isPermissionOutcome(value: unknown): value is PermissionOutcome {
+    return value === "allow"
+        || value === "review"
+        || value === "ask"
+        || value === "deny";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function describeClaim(claim: PermissionClaim): string {
