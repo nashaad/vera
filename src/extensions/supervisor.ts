@@ -24,7 +24,6 @@ import {
 export interface StartUserExtensionOptions {
     readonly loaded: LoadedExtensionManifest;
     readonly config: JsonValue;
-    readonly workspace: string;
     readonly activationTimeoutMs: number;
     readonly disposeTimeoutMs: number;
     readonly terminateGraceMs: number;
@@ -50,6 +49,7 @@ export interface RunningUserExtension {
     invokeCommand(
         name: string,
         argumentsText: string,
+        workspace: string,
         options?: ExtensionCommandInvokeOptions,
     ): Promise<ExtensionCommandResult>;
     dispose(): Promise<void>;
@@ -123,7 +123,6 @@ export async function startUserExtension(
             extensionVersion: options.loaded.manifest.version,
             capabilities: [...options.loaded.manifest.capabilities],
             config: structuredClone(options.config),
-            workspace: options.workspace,
         }, {
             timeoutMs: options.activationTimeoutMs,
         });
@@ -170,6 +169,7 @@ export async function startUserExtension(
         async invokeCommand(
             name: string,
             argumentsText: string,
+            workspace: string,
             invokeOptions: ExtensionCommandInvokeOptions = {},
         ): Promise<ExtensionCommandResult> {
             if (disposing || unexpectedExit !== undefined) {
@@ -198,8 +198,9 @@ export async function startUserExtension(
             activeInvocations.add(controller);
             try {
                 const value = await peer.request("invoke", {
-                    handlerId: declaration.handlerId,
-                    argumentsText,
+                handlerId: declaration.handlerId,
+                argumentsText,
+                workspace,
                 }, {
                     timeoutMs: options.handlerTimeoutMs,
                     signal: controller.signal,
