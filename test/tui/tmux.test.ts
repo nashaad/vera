@@ -254,6 +254,109 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "fork prepares a replacement and restores the selected prompt",
+    async () => {
+        const socket = `vera-fork-${process.pid}-${randomUUID()}`;
+        const session = "fork";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-fork-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-fork-session-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/fork");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Fork session");
+            expect(pane).toContain("edit this prompt");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "forking session");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+            expect(JSON.parse(readFileSync(
+                join(home, "fork-session-result.txt"),
+                "utf8",
+            ))).toEqual({
+                agentId: "forked-session",
+                draft: {
+                    text: "edit this prompt",
+                    attachmentIds: ["image-1"],
+                },
+                detached: true,
+                forkBoundary: "prompt-1",
+            });
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "a stalled fork returns control to the source session",
+    async () => {
+        const socket = `vera-fork-timeout-${process.pid}-${randomUUID()}`;
+        const session = "fork-timeout";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-fork-timeout-"));
+        let pane = "";
+
+        try {
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "100",
+                "-y",
+                "30",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    "FORK_TIMEOUT=1"
+                } ${shellQuote(process.execPath)} run ${
+                    shellQuote("test/support/tui-fork-session-child.ts")
+                }`,
+            ]);
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/fork");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Fork session");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Could not fork this session: fork timed out",
+            );
+            expect(pane).toContain("ready");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "resume picker selects another durable conversation",
     async () => {
         const socket = `vera-resume-${process.pid}-${randomUUID()}`;

@@ -12,6 +12,10 @@ export interface OpenRewindTuiCommandAction {
     readonly type: "open_rewind";
 }
 
+export interface OpenForkTuiCommandAction {
+    readonly type: "open_fork";
+}
+
 export interface UpdateModelTuiCommandAction {
     readonly type: "update_model";
     readonly model: string;
@@ -67,6 +71,7 @@ export interface TuiCommandErrorAction {
 
 export type TuiCommandAction =
     | OpenRewindTuiCommandAction
+    | OpenForkTuiCommandAction
     | UpdateModelTuiCommandAction
     | UpdateReasoningTuiCommandAction
     | UpdatePermissionsTuiCommandAction
@@ -85,6 +90,7 @@ export interface TuiCommandDefinition {
     readonly description: string;
     readonly usage: string;
     readonly action?: OpenRewindTuiCommandAction
+        | OpenForkTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
         | CreateSessionTuiCommandAction
@@ -96,6 +102,12 @@ const REWIND_COMMAND = {
     name: "rewind",
     description: "Rewind the active conversation",
     usage: "/rewind",
+} as const satisfies TuiCommandCatalogEntry;
+
+const FORK_COMMAND = {
+    name: "fork",
+    description: "Fork from an earlier prompt",
+    usage: "/fork",
 } as const satisfies TuiCommandCatalogEntry;
 
 const MODEL_COMMAND = {
@@ -148,6 +160,7 @@ const CLONE_COMMAND = {
 
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
+    FORK_COMMAND,
     MODEL_COMMAND,
     REASONING_COMMAND,
     PERMISSIONS_COMMAND,
@@ -283,6 +296,10 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
     registry.registerCommand({
         ...REWIND_COMMAND,
         action: { type: "open_rewind" },
+    });
+    registry.registerCommand({
+        ...FORK_COMMAND,
+        action: { type: "open_fork" },
     });
     registry.registerCommand({
         ...MODEL_COMMAND,

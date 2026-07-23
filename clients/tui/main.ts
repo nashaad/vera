@@ -18,6 +18,7 @@ import {
     type ClientCommand,
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
+import type { UserMessage } from "../../src/model/types.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -116,6 +117,7 @@ const COPY_NOTICE_DURATION_MS = 1_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
+const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
@@ -123,10 +125,21 @@ export interface TuiDependencies {
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly createSession?: () => Promise<TuiAgentClient>;
     readonly cloneSession?: () => Promise<TuiAgentClient>;
+    readonly forkSession?: (
+        boundaryId: string,
+    ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
+    readonly initialDraft?: TuiDraft;
+    readonly sessionSwitchTimeoutMs?: number;
+}
+
+export interface TuiDraft {
+    readonly text: string;
+    readonly attachmentIds: readonly string[];
 }
 
 export interface TuiExit {
     readonly nextClient?: TuiAgentClient;
+    readonly nextDraft?: TuiDraft;
     readonly resumeSessionPath?: string;
 }
 
@@ -177,12 +190,15 @@ export async function startConfiguredTui(
             )).id
             : resolvedTarget.agentId;
     let preparedClient: TuiAgentClient | undefined;
+    let preparedDraft: TuiDraft | undefined;
     while (true) {
         const client = preparedClient ?? await attachAgent({
             socketPath: host.socket_path,
             agentId,
         });
         preparedClient = undefined;
+        const initialDraft = preparedDraft;
+        preparedDraft = undefined;
         try {
             const listAgents = () => listAgentsThroughHost(host.socket_path);
             const exit = await startTui({
@@ -215,9 +231,34 @@ export async function startConfiguredTui(
                         agentId: ready.id,
                     });
                 },
+                forkSession: async (boundaryId) => {
+                    if (client.agentId === undefined) {
+                        throw new Error("Current session ID is unavailable");
+                    }
+                    const ready = await branchAgentThroughHost(
+                        host.socket_path,
+                        client.agentId,
+                        "before",
+                        boundaryId,
+                    );
+                    if (ready.prompt === undefined) {
+                        throw new Error("Host did not return the fork prompt");
+                    }
+                    return {
+                        client: await attachAgent({
+                            socketPath: host.socket_path,
+                            agentId: ready.id,
+                        }),
+                        prompt: ready.prompt,
+                    };
+                },
+                ...(initialDraft === undefined
+                    ? {}
+                    : { initialDraft }),
             });
             if (exit.nextClient !== undefined) {
                 preparedClient = exit.nextClient;
+                preparedDraft = exit.nextDraft;
                 agentId = exit.nextClient.agentId ?? agentId;
                 continue;
             }
@@ -272,6 +313,7 @@ export async function startTui(
     let themeApplicationVersion = 0;
     let resumeSessionPath: string | undefined;
     let nextClient: TuiAgentClient | undefined;
+    let nextDraft: TuiDraft | undefined;
     let resumeListVersion = 0;
     let promptSubmitting = false;
     let sessionSwitchPending = false;
@@ -286,6 +328,12 @@ export async function startTui(
         id?: string;
         name?: string;
     }> = [];
+    if (dependencies.initialDraft !== undefined) {
+        pendingImages = dependencies.initialDraft.attachmentIds.map((id) => ({
+            requestId: randomUUID(),
+            id,
+        }));
+    }
     const finished = Promise.withResolvers<TuiExit>();
     const commandRegistry = createBuiltinTuiCommandRegistry();
 
@@ -363,6 +411,9 @@ export async function startTui(
         submitPrompt,
         attachPastedImage,
     );
+    if (dependencies.initialDraft !== undefined) {
+        composer.setComposerText(dependencies.initialDraft.text);
+    }
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
@@ -433,6 +484,7 @@ export async function startTui(
                 ...(nextClient === undefined
                     ? {}
                     : { nextClient }),
+                ...(nextDraft === undefined ? {} : { nextDraft }),
                 ...(resumeSessionPath === undefined
                     ? {}
                     : { resumeSessionPath }),
@@ -934,6 +986,27 @@ export async function startTui(
             applyTimelineTransition(startTuiTimelinePicker(randomUUID()));
             return;
         }
+        if (commandAction?.type === "open_fork") {
+            if (
+                state.working
+                || state.queuedPrompts.length > 0
+                || pendingUiRequest !== undefined
+                || timelinePicker !== undefined
+            ) {
+                state = appendTuiNotice(
+                    state,
+                    "Fork is available when the agent is idle.",
+                );
+                renderState();
+                return;
+            }
+            composer.clearComposer();
+            applyTimelineTransition(startTuiTimelinePicker(
+                randomUUID(),
+                "fork",
+            ));
+            return;
+        }
 
         if (pendingImages.some((image) => image.id === undefined)) {
             submitAfterImageAttachment = true;
@@ -1217,6 +1290,10 @@ export async function startTui(
         if (transition.command !== undefined) {
             sendCommand(transition.command);
         }
+        if (transition.forkBoundaryId !== undefined) {
+            beginFork(transition.forkBoundaryId);
+            return;
+        }
         if (timelinePicker === undefined) {
             timelinePickerView.box.visible = false;
             if (pendingUiRequest === undefined) {
@@ -1230,6 +1307,65 @@ export async function startTui(
             }
         }
         renderState();
+    }
+
+    function beginFork(boundaryId: string): void {
+        timelinePicker = undefined;
+        timelinePickerView.box.visible = false;
+        if (dependencies.forkSession === undefined) {
+            state = appendTuiNotice(state, "Forking this session is unavailable");
+            composer.focus();
+            renderState();
+            return;
+        }
+        sessionSwitchPending = true;
+        sessionSwitchActivity = "forking session…";
+        renderState();
+        const fork = dependencies.forkSession(boundaryId);
+        let timedOut = false;
+        let timeout: ReturnType<typeof setTimeout>;
+        const deadline = new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+                timedOut = true;
+                reject(new Error("fork timed out"));
+            }, dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
+        });
+        void fork.then((result) => {
+            if (timedOut) {
+                void result.client.detach().catch(() => result.client.close());
+            }
+        }, () => undefined);
+        void Promise.race([fork, deadline]).then(({ client, prompt }) => {
+            clearTimeout(timeout);
+            if (shuttingDown) {
+                void client.detach().catch(() => client.close());
+                return;
+            }
+            nextClient = client;
+            nextDraft = {
+                text: prompt.content
+                    .filter((part) => part.type === "text")
+                    .map((part) => part.text)
+                    .join(""),
+                attachmentIds: prompt.content.flatMap((part) =>
+                    part.type === "image_attachment"
+                        ? [part.attachmentId]
+                        : []
+                ),
+            };
+            renderer.destroy();
+        }).catch((error) => {
+            clearTimeout(timeout);
+            if (shuttingDown) return;
+            sessionSwitchPending = false;
+            const message = error instanceof Error ? error.message : String(error);
+            state = appendTuiNotice(
+                state,
+                `Could not fork this session: ${message}`,
+            );
+            composer.focus();
+            renderState();
+        });
     }
 
     function reportConnectionError(error: unknown): void {
