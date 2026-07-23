@@ -128,9 +128,8 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/clear")).toEqual({
         type: "create_session",
     });
-    expect(registry.dispatch("/c")).toEqual({
-        type: "create_session",
-    });
+    expect(registry.dispatch("/c")).toBeUndefined();
+    expect(registry.dispatch("/cle")).toEqual({ type: "create_session" });
     expect(registry.dispatch("/rename Planning")).toEqual({
         type: "update_session_name",
         name: "Planning",
@@ -139,6 +138,10 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_session_name",
         name: null,
     });
+    expect(registry.dispatch("/clone")).toEqual({
+        type: "clone_session",
+    });
+    expect(registry.dispatch("/clo")).toEqual({ type: "clone_session" });
 });
 
 test("ordinary and unknown slash input remain ordinary prompts", () => {

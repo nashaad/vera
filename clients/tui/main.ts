@@ -23,6 +23,7 @@ import type {
     TuiTimelinePickerTransition,
 } from "./timeline-picker.ts";
 import {
+    branchAgentThroughHost,
     createAgentThroughHost,
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
@@ -121,6 +122,7 @@ export interface TuiDependencies {
     readonly copyText?: (text: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly createSession?: () => Promise<TuiAgentClient>;
+    readonly cloneSession?: () => Promise<TuiAgentClient>;
 }
 
 export interface TuiExit {
@@ -199,6 +201,20 @@ export async function startConfiguredTui(
                         agentId: ready.id,
                     });
                 },
+                cloneSession: async () => {
+                    if (client.agentId === undefined) {
+                        throw new Error("Current session ID is unavailable");
+                    }
+                    const ready = await branchAgentThroughHost(
+                        host.socket_path,
+                        client.agentId,
+                        "at",
+                    );
+                    return attachAgent({
+                        socketPath: host.socket_path,
+                        agentId: ready.id,
+                    });
+                },
             });
             if (exit.nextClient !== undefined) {
                 preparedClient = exit.nextClient;
@@ -259,6 +275,7 @@ export async function startTui(
     let resumeListVersion = 0;
     let promptSubmitting = false;
     let sessionSwitchPending = false;
+    let sessionSwitchActivity = "starting new session…";
     let pendingSessionRename: {
         readonly requestId: string;
         readonly commandText: string;
@@ -817,6 +834,7 @@ export async function startTui(
                 return;
             }
             sessionSwitchPending = true;
+            sessionSwitchActivity = "starting new session…";
             renderStatus();
             void dependencies.createSession().then((client) => {
                 if (shuttingDown) {
@@ -836,6 +854,40 @@ export async function startTui(
                 state = appendTuiNotice(
                     state,
                     `Could not start a new session: ${message}`,
+                );
+                renderState();
+            });
+            return;
+        }
+        if (commandAction?.type === "clone_session") {
+            composer.clearComposer();
+            if (dependencies.cloneSession === undefined) {
+                state = appendTuiNotice(
+                    state,
+                    "Cloning this session is unavailable",
+                );
+                renderState();
+                return;
+            }
+            sessionSwitchPending = true;
+            sessionSwitchActivity = "cloning session…";
+            renderStatus();
+            void dependencies.cloneSession().then((client) => {
+                if (shuttingDown) {
+                    void client.detach().catch(() => client.close());
+                    return;
+                }
+                nextClient = client;
+                renderer.destroy();
+            }).catch((error) => {
+                if (shuttingDown) return;
+                sessionSwitchPending = false;
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                state = appendTuiNotice(
+                    state,
+                    `Could not clone this session: ${message}`,
                 );
                 renderState();
             });
@@ -1512,7 +1564,7 @@ export async function startTui(
         } else if (promptSubmitting) {
             lifecycleHint = "sending prompt with image…";
         } else if (sessionSwitchPending) {
-            lifecycleHint = "starting new session…";
+            lifecycleHint = sessionSwitchActivity;
         } else if (pendingImages.length > 0) {
             lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }

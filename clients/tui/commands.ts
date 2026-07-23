@@ -56,6 +56,10 @@ export interface UpdateSessionNameTuiCommandAction {
     readonly name: string | null;
 }
 
+export interface CloneSessionTuiCommandAction {
+    readonly type: "clone_session";
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -73,6 +77,7 @@ export type TuiCommandAction =
     | OpenResumePickerTuiCommandAction
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
+    | CloneSessionTuiCommandAction
     | TuiCommandErrorAction;
 
 export interface TuiCommandDefinition {
@@ -82,7 +87,8 @@ export interface TuiCommandDefinition {
     readonly action?: OpenRewindTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
-        | CreateSessionTuiCommandAction;
+        | CreateSessionTuiCommandAction
+        | CloneSessionTuiCommandAction;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
 
@@ -134,6 +140,12 @@ const RENAME_COMMAND = {
     usage: "/rename [name]",
 } as const satisfies TuiCommandCatalogEntry;
 
+const CLONE_COMMAND = {
+    name: "clone",
+    description: "Duplicate this conversation",
+    usage: "/clone",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     MODEL_COMMAND,
@@ -143,6 +155,7 @@ export const BUILTIN_COMMANDS = [
     RESUME_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
+    CLONE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
 export class TuiCommandRegistry {
@@ -311,6 +324,10 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
             type: "update_session_name",
             name: argumentsText.length === 0 ? null : argumentsText,
         }),
+    });
+    registry.registerCommand({
+        ...CLONE_COMMAND,
+        action: { type: "clone_session" },
     });
     return registry;
 }
