@@ -165,6 +165,52 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "rename commands name and clear without reaching the model",
+    async () => {
+        const socket = `vera-rename-${process.pid}-${randomUUID()}`;
+        const session = "rename";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-rename-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-rename-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/rename Planning");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "session renamed: Planning",
+            );
+            expect(pane).not.toContain("/rename Planning");
+
+            sendText(socket, session, "/rename");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "session name cleared");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+            expect(readFileSync(join(home, "rename-result.txt"), "utf8"))
+                .toBe("Planning\n<clear>");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "resume picker selects another durable conversation",
     async () => {
         const socket = `vera-resume-${process.pid}-${randomUUID()}`;

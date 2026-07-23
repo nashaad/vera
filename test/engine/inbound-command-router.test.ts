@@ -547,6 +547,9 @@ test("session name commands normalize, clear, and reject invalid names", async (
             names.push(name);
             return name;
         },
+        sendSessionNameReply(_ownerId, reply) {
+            channel.engine.send(reply);
+        },
     });
 
     channel.client.send({
@@ -558,7 +561,6 @@ test("session name commands normalize, clear, and reject invalid names", async (
         type: "session_name",
         requestId: "rename",
         name: "Human name",
-        seq: 1,
     });
 
     channel.client.send({
@@ -570,7 +572,6 @@ test("session name commands normalize, clear, and reject invalid names", async (
         type: "session_name",
         requestId: "clear",
         name: null,
-        seq: 2,
     });
 
     channel.client.send({
@@ -582,7 +583,6 @@ test("session name commands normalize, clear, and reject invalid names", async (
         type: "session_name_rejected",
         requestId: "empty",
         reason: "invalid",
-        seq: 3,
     });
     expect(names).toEqual(["Human name", null]);
 });

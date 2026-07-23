@@ -28,6 +28,29 @@ test("host wire validates requester-owned image attachment results", () => {
     });
 });
 
+test("host wire validates requester-owned session name results", () => {
+    expect(parseAgentUpdate({
+        type: "session_name",
+        requestId: "name-1",
+        name: "Planning",
+    })).toEqual({
+        type: "session_name",
+        requestId: "name-1",
+        name: "Planning",
+    });
+    expect(parseAgentUpdate({
+        type: "session_name",
+        requestId: "name-1",
+        name: null,
+        seq: 1,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "session_name_rejected",
+        requestId: "name-2",
+        reason: "invalid",
+    })).toBeDefined();
+});
+
 test("turn finished accepts an optional model error", () => {
     const update = {
         type: "turn_finished" as const,

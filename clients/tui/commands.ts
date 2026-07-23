@@ -51,6 +51,11 @@ export interface CreateSessionTuiCommandAction {
     readonly type: "create_session";
 }
 
+export interface UpdateSessionNameTuiCommandAction {
+    readonly type: "update_session_name";
+    readonly name: string | null;
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -67,6 +72,7 @@ export type TuiCommandAction =
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
     | CreateSessionTuiCommandAction
+    | UpdateSessionNameTuiCommandAction
     | TuiCommandErrorAction;
 
 export interface TuiCommandDefinition {
@@ -122,6 +128,12 @@ const CLEAR_COMMAND = {
     usage: "/clear",
 } as const satisfies TuiCommandCatalogEntry;
 
+const RENAME_COMMAND = {
+    name: "rename",
+    description: "Name or unname this conversation",
+    usage: "/rename [name]",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     MODEL_COMMAND,
@@ -130,6 +142,7 @@ export const BUILTIN_COMMANDS = [
     THEMES_COMMAND,
     RESUME_COMMAND,
     CLEAR_COMMAND,
+    RENAME_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
 export class TuiCommandRegistry {
@@ -291,6 +304,13 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
     registry.registerCommand({
         ...CLEAR_COMMAND,
         action: { type: "create_session" },
+    });
+    registry.registerCommand({
+        ...RENAME_COMMAND,
+        parse: (argumentsText) => ({
+            type: "update_session_name",
+            name: argumentsText.length === 0 ? null : argumentsText,
+        }),
     });
     return registry;
 }

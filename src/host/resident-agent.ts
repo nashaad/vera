@@ -7,11 +7,13 @@ import type {
     ClientCommand,
     HistoryUpdate,
     ImageAttachedUpdate,
+    SessionNameReplyUpdate,
     TimelineReplyUpdate,
 } from "../engine/protocol.ts";
 import {
     isTimelineCommand,
     isTimelineReplyUpdate,
+    isSessionNameReplyUpdate,
 } from "../engine/protocol.ts";
 import type { MessageChannel } from "../engine/message-channel.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
@@ -163,6 +165,12 @@ export class ResidentAgent {
                                 ownerId: attachmentId,
                                 command: clone(command),
                             }
+                            : command.type === "update_session_name"
+                                ? {
+                                    type: "owned_session_name_command",
+                                    ownerId: attachmentId,
+                                    command: clone(command),
+                                }
                             : clone(command),
                         countsTowardLimit: true,
                     });
@@ -203,6 +211,16 @@ export class ResidentAgent {
     sendTimelineReply(
         ownerId: string,
         reply: TimelineReplyUpdate,
+    ): void {
+        const outgoing = this.attachments.get(ownerId);
+        if (outgoing !== undefined && !this.isClosed) {
+            outgoing.push(clone(reply));
+        }
+    }
+
+    sendSessionNameReply(
+        ownerId: string,
+        reply: SessionNameReplyUpdate,
     ): void {
         const outgoing = this.attachments.get(ownerId);
         if (outgoing !== undefined && !this.isClosed) {
@@ -325,6 +343,9 @@ export class ResidentAgent {
         }
         if (isTimelineReplyUpdate(update)) {
             throw new Error("Timeline replies must target one attachment");
+        }
+        if (isSessionNameReplyUpdate(update)) {
+            throw new Error("Session name replies must target one attachment");
         }
         if (
             update.type === "image_attached"

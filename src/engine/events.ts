@@ -145,18 +145,6 @@ export interface PermissionsRejectedEvent {
     readonly reason: "invalid" | "unavailable";
 }
 
-export interface SessionNameChangedEvent {
-    readonly type: "session_name_changed";
-    readonly requestId: string;
-    readonly name: string | null;
-}
-
-export interface SessionNameRejectedEvent {
-    readonly type: "session_name_rejected";
-    readonly requestId: string;
-    readonly reason: "invalid" | "unavailable";
-}
-
 export interface ModelRequestEvent {
     readonly type: "model_request";
     readonly model: string;
@@ -283,8 +271,6 @@ export type EngineEvent =
     | ModelSettingsRejectedEvent
     | PermissionsChangedEvent
     | PermissionsRejectedEvent
-    | SessionNameChangedEvent
-    | SessionNameRejectedEvent
     | ModelRequestEvent
     | PromptPrefixDriftEvent
     | ModelRetryScheduledEvent

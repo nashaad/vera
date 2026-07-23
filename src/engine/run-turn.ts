@@ -22,7 +22,11 @@ import type {
     PreToolUseHookResult,
 } from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
-import type { AgentUpdate, TimelineReplyUpdate } from "./protocol.ts";
+import type {
+    AgentUpdate,
+    SessionNameReplyUpdate,
+    TimelineReplyUpdate,
+} from "./protocol.ts";
 import { createProtocolEncoder } from "./protocol.ts";
 import {
     TimelineController,
@@ -144,6 +148,10 @@ export interface RunHeadlessLoopOptions {
         ownerId: string,
         reply: TimelineReplyUpdate,
     ) => void;
+    readonly sendSessionNameReply?: (
+        ownerId: string,
+        reply: SessionNameReplyUpdate,
+    ) => void;
     readonly reviewToolCall?: ReviewToolCall;
 }
 
@@ -235,6 +243,8 @@ export async function runHeadlessLoop(
         ...(options.updateSessionName === undefined
             ? {}
             : { updateSessionName: options.updateSessionName }),
+        sendSessionNameReply: options.sendSessionNameReply
+            ?? ((_ownerId, reply): void => endpoint.send(reply)),
         addCommandPrefix,
         handleTimelineCommand: (ownerId, command) =>
             timeline.handle(ownerId, command),

@@ -11,6 +11,7 @@ import type {
 import type {
     AgentUpdate,
     PromptCommand,
+    SessionNameReplyUpdate,
     UiResponseCommand,
 } from "./protocol.ts";
 import { isTimelineCommand, type TimelineCommand } from "./protocol.ts";
@@ -107,6 +108,10 @@ export interface InboundCommandRouterOptions {
     readonly updateSessionName?: (
         name: string | null,
     ) => Promise<string | null | undefined>;
+    readonly sendSessionNameReply?: (
+        ownerId: string,
+        reply: SessionNameReplyUpdate,
+    ) => void;
     readonly addCommandPrefix?: (
         prefix: CommandPrefix,
     ) => Promise<void>;
@@ -299,6 +304,14 @@ export class InboundCommandRouter {
                     );
                     continue;
                 }
+                if (command.type === "owned_session_name_command") {
+                    await this.updateSessionName(
+                        command.ownerId,
+                        command.command.requestId,
+                        command.command.name,
+                    );
+                    continue;
+                }
                 if (command.type === "timeline_owner_detached") {
                     this.options.detachTimelineOwner?.(command.ownerId);
                     continue;
@@ -361,7 +374,11 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "update_session_name") {
-                    await this.updateSessionName(command.requestId, command.name);
+                    await this.updateSessionName(
+                        "direct-client",
+                        command.requestId,
+                        command.name,
+                    );
                     continue;
                 }
 
@@ -428,6 +445,7 @@ export class InboundCommandRouter {
     }
 
     private async updateSessionName(
+        ownerId: string,
         requestId: string,
         requestedName: string | null,
     ): Promise<void> {
@@ -440,7 +458,7 @@ export class InboundCommandRouter {
                 || Buffer.byteLength(name, "utf8") > 200
             )
         ) {
-            this.events.emit({
+            this.sendSessionNameReply(ownerId, {
                 type: "session_name_rejected",
                 requestId,
                 reason: "invalid",
@@ -454,18 +472,25 @@ export class InboundCommandRouter {
             effective = undefined;
         }
         if (effective === undefined) {
-            this.events.emit({
+            this.sendSessionNameReply(ownerId, {
                 type: "session_name_rejected",
                 requestId,
                 reason: "unavailable",
             });
             return;
         }
-        this.events.emit({
-            type: "session_name_changed",
+        this.sendSessionNameReply(ownerId, {
+            type: "session_name",
             requestId,
             name: effective,
         });
+    }
+
+    private sendSessionNameReply(
+        ownerId: string,
+        reply: SessionNameReplyUpdate,
+    ): void {
+        this.options.sendSessionNameReply?.(ownerId, reply);
     }
 
     private sendPermissions(requestId: string): void {

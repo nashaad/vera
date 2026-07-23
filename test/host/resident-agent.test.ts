@@ -451,6 +451,44 @@ test("timeline replies stay private without creating shared sequence gaps", asyn
     });
 });
 
+test("session name replies stay private to their requesting attachment", async () => {
+    const attachmentIds = values("owner-a", "owner-b");
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        createAttachmentId: attachmentIds,
+    });
+    const first = agent.attach();
+    const second = agent.attach();
+    await first.receive();
+    await second.receive();
+
+    first.send({
+        type: "update_session_name",
+        requestId: "same-id",
+        name: "First",
+    });
+    expect(await agent.engine.receive()).toEqual({
+        type: "owned_session_name_command",
+        ownerId: "owner-a",
+        command: {
+            type: "update_session_name",
+            requestId: "same-id",
+            name: "First",
+        },
+    });
+    const reply = {
+        type: "session_name" as const,
+        requestId: "same-id",
+        name: "First",
+    };
+    agent.sendSessionNameReply("owner-a", reply);
+    agent.engine.send({ type: "status", state: "idle", seq: 1 });
+
+    expect(await first.receive()).toEqual(reply);
+    expect(await first.receive()).toMatchObject({ type: "status", seq: 1 });
+    expect(await second.receive()).toMatchObject({ type: "status", seq: 1 });
+    agent.close();
+});
+
 test("shutdown idleness includes attachments, queued prompts, and starting turns", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     expect(agent.idleForShutdown()).toBeTrue();
