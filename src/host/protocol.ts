@@ -9,7 +9,7 @@ import type { RegisteredAgentSummary } from "./agent-registry.ts";
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 14;
+export const HOST_PROTOCOL_VERSION = 15;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -47,6 +47,11 @@ export interface BranchAgentRequest {
     readonly source_agent_id: string;
     readonly position: "before" | "at";
     readonly entry_id?: string;
+}
+
+export interface TrashSessionRequest {
+    readonly type: "trash_session";
+    readonly target_agent_id: string;
 }
 
 export interface HostIdentityResponse {
@@ -117,6 +122,17 @@ export interface AgentBranchFailedResponse {
     readonly type: "agent_branch_failed";
 }
 
+export interface SessionTrashedResponse {
+    readonly type: "session_trashed";
+    readonly agent_id: string;
+}
+
+export interface SessionTrashRejectedResponse {
+    readonly type: "session_trash_rejected";
+    readonly agent_id: string;
+    readonly reason: "busy" | "not_found" | "failed";
+}
+
 export interface ShutdownIfIdleAcceptedResponse {
     readonly type: "shutdown_if_idle_accepted";
     readonly pid: number;
@@ -144,6 +160,7 @@ export type HostRequest =
     | CreateAgentRequest
     | ResumeAgentRequest
     | BranchAgentRequest
+    | TrashSessionRequest
     | AttachRequest;
 export type AttachedClientMessage = ClientCommand | DetachRequest;
 export type HostResponse =
@@ -153,6 +170,8 @@ export type HostResponse =
     | AgentStartFailedResponse
     | AgentBranchedResponse
     | AgentBranchFailedResponse
+    | SessionTrashedResponse
+    | SessionTrashRejectedResponse
     | ShutdownIfIdleResponse
     | AttachedResponse
     | AttachFailedResponse
@@ -222,6 +241,16 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             source_agent_id: value.source_agent_id,
             position: "before",
             entry_id: value.entry_id as string,
+        };
+    }
+    if (
+        value?.type === "trash_session"
+        && typeof value.target_agent_id === "string"
+        && value.target_agent_id.length > 0
+    ) {
+        return {
+            type: "trash_session",
+            target_agent_id: value.target_agent_id,
         };
     }
     if (

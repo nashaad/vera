@@ -87,6 +87,86 @@ test("resident agents keep file tools inside their fixed workspaces", async () =
     }
 });
 
+test("session trash accepts only idle unattached non-current sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-trash-"));
+    const moved: string[][] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "approve_for_me",
+        trashSessionArtifacts: async (artifacts) => {
+            moved.push([
+                artifacts.sessionPath,
+                artifacts.attachmentsPath,
+                artifacts.eventLogPath,
+            ]);
+        },
+    });
+    const currentPath = join(root, "current.jsonl");
+    const targetPath = join(root, "target.jsonl");
+    const targetEvents = join(root, "target-events.jsonl");
+
+    try {
+        await registry.create({
+            id: "current",
+            workspace: root,
+            sessionPath: currentPath,
+        });
+        const target = await registry.create({
+            id: "target",
+            workspace: root,
+            sessionPath: targetPath,
+            eventLogPath: targetEvents,
+        });
+
+        const attachment = target.attach();
+        expect(await registry.trashSession("target")).toBe("busy");
+        attachment.detach();
+
+        expect(await registry.trashSession("target"))
+            .toBe("trashed");
+        expect(moved).toEqual([[
+            targetPath,
+            `${targetPath}.attachments`,
+            targetEvents,
+        ]]);
+        expect(registry.list().map((agent) => agent.id))
+            .toEqual(["current"]);
+        expect(await registry.trashSession("missing"))
+            .toBe("not_found");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("failed session trash restores an available resident agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-trash-failure-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "approve_for_me",
+        trashSessionArtifacts: () =>
+            Promise.reject(new Error("trash unavailable")),
+    });
+    const targetPath = join(root, "target.jsonl");
+
+    try {
+        await registry.create({
+            id: "target",
+            workspace: root,
+            sessionPath: targetPath,
+        });
+
+        expect(await registry.trashSession("target")).toBe("failed");
+        expect(registry.find("target")).toBeDefined();
+        expect(registry.list()).toMatchObject([{ id: "target", status: "idle" }]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("session names override and clear back to first-prompt titles", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-name-"));
     const namedPath = join(root, "named.jsonl");

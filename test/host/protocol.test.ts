@@ -69,6 +69,17 @@ test("host protocol parses identity requests and encodes responses", () => {
         source_agent_id: "source",
         position: "at",
     });
+    expect(parseHostRequest(JSON.stringify({
+        type: "trash_session",
+        target_agent_id: "saved",
+    }))).toEqual({
+        type: "trash_session",
+        target_agent_id: "saved",
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "trash_session",
+        target_agent_id: "",
+    }))).toBeUndefined();
     expect(parseHostRequest('{"type":"create_agent","workspace":""}'))
         .toBeUndefined();
     expect(parseHostRequest('{"type":"resume_agent","session_path":""}'))

@@ -38,6 +38,10 @@ import {
     type AgentAttachment,
     ResidentAgent,
 } from "./resident-agent.ts";
+import {
+    trashSessionArtifacts,
+    type SessionArtifacts,
+} from "./session-trash.ts";
 
 export type RegisteredAgentStatus =
     | "idle"
@@ -79,6 +83,7 @@ export interface AgentRegistryOptions {
     readonly eventLogPathForId?: (agentId: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
+    readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -118,6 +123,7 @@ interface RegisteredAgentEntry {
     readonly kind: RegisteredAgentKind;
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
+    readonly eventLogPath: string;
     modelSettings: ModelTurnSettings;
     approvalMode: ApprovalMode;
     run: Promise<void>;
@@ -134,12 +140,15 @@ export class AgentRegistry {
     private defaultReasoningEffort: ModelReasoningEffort | undefined;
     private defaultApprovalMode: ApprovalMode;
     private isClosed = false;
+    private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
 
     constructor(private readonly options: AgentRegistryOptions) {
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
         this.defaultReasoningEffort = options.reasoningEffort;
         this.defaultApprovalMode = options.approvalMode;
+        this.trashArtifacts = options.trashSessionArtifacts
+            ?? trashSessionArtifacts;
     }
 
     async create(
@@ -229,6 +238,41 @@ export class AgentRegistry {
             };
         } finally {
             this.startingIds.delete(id);
+        }
+    }
+
+    async trashSession(
+        targetId: string,
+    ): Promise<"trashed" | "busy" | "not_found" | "failed"> {
+        const entry = this.agents.get(targetId);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return "not_found";
+        }
+        if (
+            entry.kind !== "interactive"
+            || !entry.agent.idleForShutdown()
+        ) {
+            return "busy";
+        }
+
+        entry.agent.close();
+        await entry.run;
+        this.agents.delete(targetId);
+        try {
+            await this.trashArtifacts({
+                sessionPath: entry.store.path,
+                attachmentsPath: `${entry.store.path}.attachments`,
+                eventLogPath: entry.eventLogPath,
+            });
+            return "trashed";
+        } catch {
+            try {
+                const store = await SessionStore.open(entry.store.path);
+                this.start(store, entry.kind, entry.eventLogPath);
+            } catch {
+                // A partial trash failure can leave the session unavailable.
+            }
+            return "failed";
         }
     }
 
@@ -433,6 +477,7 @@ export class AgentRegistry {
             store,
             kind,
             events,
+            eventLogPath,
             ...(adapter === undefined ? {} : { adapter }),
             modelSettings: storedSettings === undefined
                 ? {
