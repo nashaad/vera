@@ -1103,6 +1103,7 @@ export async function startTui(
                 promptSubmitting = false;
                 if (shuttingDown) return;
                 if (composer.expandedText().trim() === prompt) {
+                    composer.rememberSubmittedText(prompt);
                     composer.clearComposer();
                 }
                 pendingImages = pendingImages.filter(
@@ -1127,6 +1128,7 @@ export async function startTui(
             });
             return;
         }
+        composer.rememberSubmittedText(prompt);
         composer.clearComposer();
         state = state.working
             ? queueTuiPrompt(state, prompt)

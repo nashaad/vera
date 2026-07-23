@@ -19,9 +19,23 @@ interface CollapsedPaste {
 
 export class TuiComposer extends TextareaRenderable {
     private collapsedPastes: CollapsedPaste[] = [];
+    private lastSubmittedText?: string;
     onImagePathPaste?: (path: string) => void;
 
     override handleKeyPress(key: Parameters<TextareaRenderable["handleKeyPress"]>[0]): boolean {
+        if (
+            key.name === "up"
+            && !key.shift
+            && !key.ctrl
+            && !key.meta
+            && !key.super
+            && !key.hyper
+            && this.plainText.length === 0
+            && this.lastSubmittedText !== undefined
+        ) {
+            this.setComposerText(this.lastSubmittedText);
+            return true;
+        }
         if (
             key.name === "enter"
             && !key.shift
@@ -72,6 +86,12 @@ export class TuiComposer extends TextareaRenderable {
 
     clearComposer(): void {
         this.setComposerText("");
+    }
+
+    rememberSubmittedText(text: string): void {
+        if (text.length > 0) {
+            this.lastSubmittedText = text;
+        }
     }
 
     setComposerText(text: string): void {

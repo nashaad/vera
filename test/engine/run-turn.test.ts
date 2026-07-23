@@ -132,6 +132,49 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     ]);
 });
 
+test("a thinking-only stop becomes a visible durable model error", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "thinking",
+            text: "<tool_calls>not a structured call</tool_calls>",
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "read the note" });
+    const result = runTurn(new FauxAdapter([response]), "test", state);
+    await expectUserPrompt(channel, "read the note", 1);
+    expect(await channel.client.receive()).toMatchObject({
+        type: "turn_finished",
+        outcome: "error",
+        error: "Model returned no visible response or structured tool call.",
+    });
+
+    await expect(result).resolves.toMatchObject({
+        stopReason: "error",
+        errorMessage: "Model returned no visible response or structured tool call.",
+    });
+    expect(state.messages.at(-1)).toMatchObject({
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "Model returned no visible response or structured tool call.",
+    });
+});
+
 test("image references are durable while model requests receive verified bytes", async () => {
     const response: AssistantMessage = {
         role: "assistant",
