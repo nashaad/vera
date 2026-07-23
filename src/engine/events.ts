@@ -27,6 +27,10 @@ import type { ApprovalMode, CommandPrefix } from "./permissions.ts";
 import type { ProjectInstructionMetadata } from "./project-instructions.ts";
 import type { PromptContributionMetadata } from "./prompt-contributions.ts";
 import type { PromptPrefixDrift } from "./prompt-prefix-drift.ts";
+import type {
+    ToolReviewRiskLevel,
+    ToolReviewUserAuthorization,
+} from "./reviewer.ts";
 
 export interface TurnStartedEvent {
     readonly type: "turn_started";
@@ -230,6 +234,19 @@ export interface ToolResultChangedEvent {
     readonly effective: ToolResultMessage;
 }
 
+export interface ToolReviewDecidedEvent {
+    readonly type: "tool_review_decided";
+    readonly toolCall: HookToolCall;
+    readonly decision: "allow" | "deny" | "unavailable";
+    readonly reason: string;
+    /**
+     * The reviewer's own scoring. Carried so a surprising decision can be
+     * attributed to how the reviewer read the action rather than guessed at.
+     */
+    readonly riskLevel: ToolReviewRiskLevel;
+    readonly userAuthorization: ToolReviewUserAuthorization;
+}
+
 export interface ToolExecutionFinishedEvent {
     readonly type: "tool_execution_finished";
     readonly toolCall: ToolCallContent;
@@ -266,6 +283,7 @@ export type EngineEvent =
     | ToolHookFailedEvent
     | ToolResultChangedEvent
     | ToolExecutionStartedEvent
+    | ToolReviewDecidedEvent
     | ToolExecutionFinishedEvent
     | TurnFinishedEvent;
 

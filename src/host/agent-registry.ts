@@ -13,6 +13,7 @@ import {
 } from "../engine/model-settings.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { createSubagentEffectApplier } from "../engine/subagent.ts";
+import type { ToolReviewerSettings } from "../engine/reviewer.ts";
 import type {
     ModelAdapter,
     ModelReasoningEffort,
@@ -69,6 +70,8 @@ export interface AgentRegistryOptions {
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
+    /** Overrides the model the automatic approval reviewer runs on. */
+    readonly reviewer?: ToolReviewerSettings;
     readonly availableModels?: readonly SuggestedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
@@ -417,6 +420,9 @@ export class AgentRegistry {
                 eventBus: events,
                 approvalMode: entry.approvalMode,
                 modelFallback: this.options.modelFallback,
+                ...(this.options.reviewer === undefined
+                    ? {}
+                    : { reviewer: this.options.reviewer }),
                 applyToolEffect,
                 enabledToolEffects: [
                     "spawn_subagent",

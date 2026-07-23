@@ -52,6 +52,14 @@ export async function sendPromptThroughHost(
                 // This one-shot command prints only the turn it requested.
                 continue;
             }
+            if (update.type === "tool_review" && update.decision !== "allow") {
+                // A silent denial would look like the agent simply gave up.
+                response += update.decision === "unavailable"
+                    ? `\n[reviewer unavailable for ${update.tool}:`
+                        + ` ${update.reason}]\n`
+                    : `\n[reviewer denied ${update.tool}`
+                        + ` (${update.riskLevel} risk): ${update.reason}]\n`;
+            }
             if (update.type === "ui_request") {
                 throw new Error(
                     "Agent needs an interactive response; use vera attach instead",

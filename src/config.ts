@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ApprovalMode } from "./engine/permissions.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
+import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
@@ -22,6 +23,18 @@ export interface VeraModelFallbackConfig {
     readonly after_failures: number;
 }
 
+/**
+ * Model used by the automatic approval reviewer in `approve_for_me`. Every
+ * boundary crossing costs one of these calls, so it is configured separately
+ * from the agent model rather than inheriting it.
+ */
+export interface VeraReviewerConfig {
+    readonly provider?: VeraProviderId;
+    readonly model: string;
+    readonly reasoning_effort?: ModelReasoningEffort;
+    readonly timeout_ms?: number;
+}
+
 export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
     readonly provider: VeraProviderId;
@@ -29,6 +42,7 @@ export interface VeraConfig {
     readonly reasoning_effort?: ModelReasoningEffort;
     readonly approval_mode: ApprovalMode;
     readonly fallback?: VeraModelFallbackConfig;
+    readonly reviewer?: VeraReviewerConfig;
 }
 
 export interface LoadVeraConfigOptions {
@@ -123,7 +137,10 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
 
     const config = value as Record<string, unknown>;
     const fallback = parseModelFallback(config.fallback, config.model);
+    const reviewer = parseReviewer(config.reviewer);
     if (
+        (config.reviewer !== undefined && reviewer === undefined)
+        ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
             && config.provider !== "openrouter"
@@ -158,6 +175,76 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? {}
             : { reasoning_effort: config.reasoning_effort }),
         ...(fallback === undefined ? {} : { fallback }),
+        ...(reviewer === undefined ? {} : { reviewer }),
+    };
+}
+
+function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
+    if (typeof value !== "object" || value === null) {
+        return undefined;
+    }
+    const reviewer = value as Record<string, unknown>;
+    if (
+        typeof reviewer.model !== "string"
+        || reviewer.model.trim().length === 0
+        || (reviewer.provider !== undefined
+            && reviewer.provider !== "openrouter"
+            && reviewer.provider !== "openai-codex"
+            && reviewer.provider !== "ollama")
+        || (reviewer.reasoning_effort !== undefined
+            && !isReasoningEffort(reviewer.reasoning_effort))
+        || (reviewer.timeout_ms !== undefined
+            && (typeof reviewer.timeout_ms !== "number"
+                || !Number.isInteger(reviewer.timeout_ms)
+                || reviewer.timeout_ms < 1_000
+                || reviewer.timeout_ms > 600_000))
+    ) {
+        return undefined;
+    }
+    return {
+        model: reviewer.model.trim(),
+        ...(reviewer.provider === undefined
+            ? {}
+            : { provider: reviewer.provider as VeraProviderId }),
+        ...(reviewer.reasoning_effort === undefined
+            ? {}
+            : { reasoning_effort: reviewer.reasoning_effort }),
+        ...(reviewer.timeout_ms === undefined
+            ? {}
+            : { timeout_ms: reviewer.timeout_ms }),
+    };
+}
+
+function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
+    return value === "off"
+        || value === "low"
+        || value === "medium"
+        || value === "high"
+        || value === "max";
+}
+
+/**
+ * Maps the reviewer block onto engine settings. Returns `undefined` when no
+ * reviewer is configured, which leaves the reviewer on the agent's own model.
+ */
+export function configuredReviewer(
+    config: VeraConfig,
+): ToolReviewerSettings | undefined {
+    const reviewer = config.reviewer;
+    if (reviewer === undefined) {
+        return undefined;
+    }
+    return {
+        model: reviewer.model,
+        ...(reviewer.provider === undefined
+            ? {}
+            : { provider: reviewer.provider }),
+        ...(reviewer.reasoning_effort === undefined
+            ? {}
+            : { reasoningEffort: reviewer.reasoning_effort }),
+        ...(reviewer.timeout_ms === undefined
+            ? {}
+            : { timeoutMs: reviewer.timeout_ms }),
     };
 }
 

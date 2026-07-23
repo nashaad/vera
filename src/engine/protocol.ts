@@ -13,6 +13,10 @@ import type {
     ModelTurnSettings,
 } from "./model-settings.ts";
 import { isApprovalMode, type ApprovalMode } from "./permissions.ts";
+import type {
+    ToolReviewRiskLevel,
+    ToolReviewUserAuthorization,
+} from "./reviewer.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -146,6 +150,17 @@ export interface ToolStartedUpdate {
     readonly type: "tool_started";
     readonly tool: string;
     readonly args: Readonly<Record<string, unknown>>;
+    readonly seq: number;
+}
+
+export interface ToolReviewUpdate {
+    readonly type: "tool_review";
+    readonly tool: string;
+    readonly decision: "allow" | "deny" | "unavailable";
+    readonly reason: string;
+    /** The reviewer's own scoring, so clients can show what drove the call. */
+    readonly riskLevel: ToolReviewRiskLevel;
+    readonly userAuthorization: ToolReviewUserAuthorization;
     readonly seq: number;
 }
 
@@ -335,6 +350,7 @@ export type AgentUpdate =
     | UserPromptUpdate
     | AssistantDeltaUpdate
     | ToolStartedUpdate
+    | ToolReviewUpdate
     | ToolFinishedUpdate
     | TurnFinishedUpdate
     | AgentFailedUpdate
@@ -651,6 +667,20 @@ export function createProtocolEncoder(
                 type: "tool_started",
                 tool: event.toolCall.name,
                 args: event.toolCall.input,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "tool_review_decided") {
+            seq += 1;
+            sender.send({
+                type: "tool_review",
+                tool: event.toolCall.name,
+                decision: event.decision,
+                reason: event.reason,
+                riskLevel: event.riskLevel,
+                userAuthorization: event.userAuthorization,
                 seq,
             });
             return;

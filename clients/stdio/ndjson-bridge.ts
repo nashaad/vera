@@ -13,6 +13,7 @@ import {
 import type { MessageChannel } from "../../src/engine/message-channel.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../../src/engine/recovery.ts";
+import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 
 interface NdjsonOutput {
@@ -25,6 +26,7 @@ export interface RunNdjsonBridgeOptions {
     readonly eventLogPath?: string;
     readonly approvalMode?: ApprovalMode;
     readonly modelFallback?: ModelFallbackPolicy;
+    readonly reviewer?: ToolReviewerSettings;
 }
 
 export class NdjsonInputEndedError extends Error {
@@ -82,6 +84,7 @@ export async function runNdjsonBridge(
             eventLogPath: options.eventLogPath,
             approvalMode: options.approvalMode,
             modelFallback: options.modelFallback,
+            reviewer: options.reviewer,
         });
     } catch (error) {
         if (!(error instanceof NdjsonInputEndedError)) {

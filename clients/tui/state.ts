@@ -117,6 +117,26 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             text: `∗ ${formatToolCall(update.tool, update.args)}`,
         });
     }
+    if (update.type === "tool_review") {
+        // Allowed reviews stay in the compact tool run; anything else stands
+        // out. The risk level rides along because "denied" alone does not say
+        // whether the reviewer saw something dangerous or just got confused,
+        // and an unavailable reviewer scored nothing at all.
+        if (update.decision === "allow") {
+            return appendEntry(state, {
+                kind: "tool",
+                text: `∗ reviewer allowed ${update.tool}`
+                    + ` (${update.riskLevel} risk): ${update.reason}`,
+            });
+        }
+        return appendEntry(state, {
+            kind: "notice",
+            text: update.decision === "deny"
+                ? `Reviewer denied ${update.tool}`
+                    + ` (${update.riskLevel} risk): ${update.reason}`
+                : `Reviewer unavailable for ${update.tool}: ${update.reason}`,
+        });
+    }
     if (update.type === "tool_finished") {
         return state;
     }

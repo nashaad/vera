@@ -3,13 +3,16 @@ import { stdin, stdout } from "node:process";
 
 import {
     configuredModelFallback,
+    configuredReviewer,
     loadVeraConfig,
+    type VeraConfig,
 } from "../../src/config.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+import { ProviderRoutingAdapter } from "../../src/providers/routing.ts";
 import {
     createStdioApprovalResponse,
     renderStdioApproval,
@@ -32,7 +35,18 @@ interface StdioEndInput {
 type StdioInput = StdioLineInput | StdioEndInput;
 
 const config = loadVeraConfig();
-const adapter = createConfiguredModelAdapter(config);
+const defaultProvider = config.provider ?? "openrouter";
+// Routed, matching the resident host. The reviewer can be configured on a
+// different provider than the agent, and a fixed adapter would silently send
+// those reviews to the agent's backend under the reviewer's model name.
+const adapter = new ProviderRoutingAdapter(
+    (provider) => createConfiguredModelAdapter({
+        ...config,
+        provider: provider as VeraConfig["provider"],
+    }),
+    defaultProvider,
+    createConfiguredModelAdapter(config),
+);
 const channel = createInProcessChannel();
 const lines = createInterface({
     input: stdin,
@@ -52,6 +66,9 @@ try {
         {
             approvalMode: config.approval_mode,
             modelFallback: configuredModelFallback(config),
+            ...(configuredReviewer(config) === undefined
+                ? {}
+                : { reviewer: configuredReviewer(config)! }),
         },
     );
     lines.prompt();
@@ -87,6 +104,17 @@ try {
 
             if (update.type === "task_notification") {
                 stdout.write(renderStdioTaskNotification(update));
+            }
+
+            if (update.type === "tool_review") {
+                stdout.write(
+                    update.decision === "unavailable"
+                        ? `\n[reviewer unavailable for ${update.tool}:`
+                            + ` ${update.reason}]\n`
+                        : `\n[reviewer ${update.decision === "allow" ? "allowed" : "denied"}`
+                            + ` ${update.tool} (${update.riskLevel} risk):`
+                            + ` ${update.reason}]\n`,
+                );
             }
 
             if (update.type === "ui_request") {

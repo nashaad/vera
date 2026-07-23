@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
     configuredModelFallback,
+    configuredReviewer,
     updateVeraConfigDefaults,
     type VeraConfig,
 } from "../config.ts";
@@ -42,6 +43,7 @@ export async function startResidentHost(
     options: StartResidentHostOptions,
 ): Promise<ResidentHost> {
     const modelFallback = configuredModelFallback(options.config);
+    const reviewer = configuredReviewer(options.config);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
     const eventLogDirectory = options.eventLogDirectory;
@@ -74,6 +76,7 @@ export async function startResidentHost(
             ? {}
             : { reasoningEffort: options.config.reasoning_effort }),
         ...(modelFallback === undefined ? {} : { modelFallback }),
+        ...(reviewer === undefined ? {} : { reviewer }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogDirectory === undefined
