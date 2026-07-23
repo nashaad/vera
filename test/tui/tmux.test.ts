@@ -755,6 +755,12 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
                 .toBe("allowed\n");
+            expect(pane).toContain(
+                "Auto review approved bash (risk: low, authorization: high):",
+            );
+            expect(pane.replace(/\s+/g, " ")).toContain(
+                "Routine command requested by the user.",
+            );
             expect(pane).toContain("∗ bash printf auto-review-ran");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Tool approval");

@@ -16,6 +16,7 @@ export type TuiTranscriptEntryKind =
     | "assistant"
     | "tool"
     | "thought"
+    | "review"
     | "notice";
 
 export interface TuiTranscriptEntry {
@@ -122,15 +123,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         });
     }
     if (update.type === "tool_review") {
-        // Allowed reviews stay in the compact tool run; anything else stands
-        // out. The risk level rides along because "denied" alone does not say
-        // whether the reviewer saw something dangerous or just got confused,
-        // and an unavailable reviewer scored nothing at all.
         if (update.decision === "allow") {
             return appendEntry(state, {
-                kind: "tool",
-                text: `∗ reviewer allowed ${update.tool}`
-                    + ` (${update.riskLevel} risk): ${update.reason}`,
+                kind: "review",
+                text: `Auto review approved ${update.tool}`
+                    + ` (risk: ${update.riskLevel},`
+                    + ` authorization: ${update.userAuthorization}):`
+                    + ` ${update.reason}`,
             });
         }
         return appendEntry(state, {
@@ -185,9 +184,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         });
     }
     if (update.type === "history") {
+        const canonicalEntries = update.entries.map(toTuiTranscriptEntry);
         return {
             ...state,
-            entries: update.entries.map(toTuiTranscriptEntry),
+            entries: preserveLiveReviewEntries(
+                state.entries,
+                canonicalEntries,
+            ),
             ...(update.contextInputTokens === undefined
                 ? {}
                 : { contextInputTokens: update.contextInputTokens }),
@@ -280,7 +283,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         });
         return new StyledText(chunks);
     }
-    if (entry.kind === "notice") {
+    if (entry.kind === "notice" || entry.kind === "review") {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
     }
     if (entry.kind === "thought") {
@@ -299,7 +302,10 @@ export function tuiEntryMarginTop(
 
     const entry = entries[index];
     const previous = entries[index - 1];
-    if (entry?.kind === "tool" && previous?.kind === "tool") {
+    if (
+        entry?.kind === "tool"
+        && (previous?.kind === "tool" || previous?.kind === "review")
+    ) {
         return 0;
     }
 
@@ -364,6 +370,33 @@ function appendAssistantText(state: TuiState, text: string): TuiState {
 
 function appendEntry(state: TuiState, entry: TuiTranscriptEntry): TuiState {
     return { ...state, entries: [...state.entries, entry] };
+}
+
+function preserveLiveReviewEntries(
+    current: readonly TuiTranscriptEntry[],
+    canonical: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    const withoutTransientEntries = current.filter((entry) =>
+        entry.kind !== "review" && entry.kind !== "thought"
+    );
+    if (
+        current.some((entry) => entry.kind === "review")
+        && transcriptEntriesEqual(withoutTransientEntries, canonical)
+    ) {
+        return current.filter((entry) => entry.kind !== "thought");
+    }
+    return canonical;
+}
+
+function transcriptEntriesEqual(
+    left: readonly TuiTranscriptEntry[],
+    right: readonly TuiTranscriptEntry[],
+): boolean {
+    return left.length === right.length
+        && left.every((entry, index) =>
+            entry.kind === right[index]?.kind
+            && entry.text === right[index]?.text
+        );
 }
 
 function assertNever(value: never): never {
