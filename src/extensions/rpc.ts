@@ -111,6 +111,16 @@ export class ExtensionRpcRemoteError extends Error {
     }
 }
 
+export class ExtensionRpcHandlerError extends Error {
+    readonly code: ExtensionRpcErrorCode;
+
+    constructor(code: ExtensionRpcErrorCode, message: string) {
+        super(message);
+        this.name = "ExtensionRpcHandlerError";
+        this.code = code;
+    }
+}
+
 export function createExtensionRpcPeer(
     options: ExtensionRpcPeerOptions,
 ): ExtensionRpcPeer {
@@ -362,9 +372,14 @@ export function createExtensionRpcPeer(
                 value: result,
             });
         } catch (error) {
+            const handlerError = error instanceof ExtensionRpcHandlerError
+                ? error
+                : undefined;
             await sendFailure(
                 request.requestId,
-                controller.signal.aborted ? "cancelled" : "handler_failed",
+                controller.signal.aborted
+                    ? "cancelled"
+                    : handlerError?.code ?? "handler_failed",
                 nonEmptyErrorMessage(error),
             );
         } finally {
