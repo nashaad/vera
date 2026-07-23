@@ -100,6 +100,37 @@ test("session store creates a header and reloads one message chain", async () =>
     expect(reopened.messages()).toEqual([user, assistant, toolResult]);
 });
 
+test("session origins persist an immutable branch parent edge", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "child.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "child",
+        cwd: directory,
+        origin: {
+            sessionId: "parent",
+            entryId: "message-2",
+            position: "before",
+        },
+    });
+
+    expect(store.header.origin).toEqual({
+        sessionId: "parent",
+        entryId: "message-2",
+        position: "before",
+    });
+    expect((await SessionStore.open(path)).header.origin)
+        .toEqual(store.header.origin);
+    await expect(SessionStore.create(join(directory, "invalid.jsonl"), {
+        sessionId: "invalid",
+        cwd: directory,
+        origin: {
+            sessionId: "",
+            entryId: null,
+            position: "at",
+        },
+    })).rejects.toThrow("invalid origin");
+});
+
 test("agent failures are durable and idempotent", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "failure.jsonl");

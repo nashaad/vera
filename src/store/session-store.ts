@@ -29,6 +29,13 @@ export interface SessionHeader {
     readonly id: string;
     readonly timestamp: string;
     readonly cwd: string;
+    readonly origin?: SessionOrigin;
+}
+
+export interface SessionOrigin {
+    readonly sessionId: string;
+    readonly entryId: string | null;
+    readonly position: "before" | "at";
 }
 
 export interface SessionMessageEntry {
@@ -115,6 +122,7 @@ export interface SessionRewindEntry {
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
+    readonly origin?: SessionOrigin;
     readonly now?: () => Date;
     readonly createId?: () => string;
 }
@@ -209,6 +217,9 @@ export class SessionStore {
             id: nonEmpty(options.sessionId, "session ID"),
             timestamp: now().toISOString(),
             cwd: nonEmpty(options.cwd, "session cwd"),
+            ...(options.origin === undefined
+                ? {}
+                : { origin: validSessionOrigin(options.origin) }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -1174,10 +1185,39 @@ function parseHeader(path: string, line: string | undefined): SessionHeader {
         || typeof value.timestamp !== "string"
         || typeof value.cwd !== "string"
         || value.cwd.length === 0
+        || (value.origin !== undefined && !isSessionOrigin(value.origin))
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }
     return value as unknown as SessionHeader;
+}
+
+function validSessionOrigin(origin: SessionOrigin): SessionOrigin {
+    if (!isSessionOrigin(origin)) {
+        throw new Error("Cannot create a session with invalid origin");
+    }
+    return {
+        sessionId: origin.sessionId,
+        entryId: origin.entryId,
+        position: origin.position,
+    };
+}
+
+function isSessionOrigin(value: unknown): value is SessionOrigin {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const origin = value as Record<string, unknown>;
+    return typeof origin.sessionId === "string"
+        && origin.sessionId.length > 0
+        && (
+            origin.entryId === null
+            || (
+                typeof origin.entryId === "string"
+                && origin.entryId.length > 0
+            )
+        )
+        && (origin.position === "before" || origin.position === "at");
 }
 
 function parseMessageEntry(
