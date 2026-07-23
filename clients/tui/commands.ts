@@ -116,10 +116,10 @@ const RESUME_COMMAND = {
     usage: "/resume",
 } as const satisfies TuiCommandCatalogEntry;
 
-const NEW_COMMAND = {
-    name: "new",
+const CLEAR_COMMAND = {
+    name: "clear",
     description: "Start a new conversation",
-    usage: "/new",
+    usage: "/clear",
 } as const satisfies TuiCommandCatalogEntry;
 
 export const BUILTIN_COMMANDS = [
@@ -129,7 +129,7 @@ export const BUILTIN_COMMANDS = [
     PERMISSIONS_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
-    NEW_COMMAND,
+    CLEAR_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
 export class TuiCommandRegistry {
@@ -289,7 +289,7 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
         action: { type: "open_resume_picker" },
     });
     registry.registerCommand({
-        ...NEW_COMMAND,
+        ...CLEAR_COMMAND,
         action: { type: "create_session" },
     });
     return registry;

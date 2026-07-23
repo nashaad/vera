@@ -108,7 +108,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "new command leaves the current conversation for a fresh one",
+    "clear command leaves the current conversation for a fresh one",
     async () => {
         const socket = `vera-new-${process.pid}-${randomUUID()}`;
         const session = "new";
@@ -123,7 +123,7 @@ test.skipIf(!tmuxAvailable)(
                 "test/support/tui-new-session-child.ts",
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/new");
+            sendText(socket, session, "/clear");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
                 socket,
@@ -131,7 +131,7 @@ test.skipIf(!tmuxAvailable)(
                 "Could not start a new session: host refused creation",
             );
             expect(pane).toContain("ready");
-            sendText(socket, session, "/new");
+            sendText(socket, session, "/clear");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(
                 socket,
@@ -139,7 +139,7 @@ test.skipIf(!tmuxAvailable)(
                 "starting new session",
             );
             sendKey(socket, session, "C-c");
-            sendText(socket, session, "/new");
+            sendText(socket, session, "/clear");
             sendKey(socket, session, "Enter");
             pane = captureVisiblePane(socket, session);
             expect(pane).toContain("starting new session");
