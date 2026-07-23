@@ -263,6 +263,10 @@ export async function startTui(
     let resumeListVersion = 0;
     let promptSubmitting = false;
     let sessionSwitchPending = false;
+    let pendingSessionRename: {
+        readonly requestId: string;
+        readonly commandText: string;
+    } | undefined;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -636,7 +640,9 @@ export async function startTui(
     });
 
     function submitPrompt(): void {
-        if (promptSubmitting || sessionSwitchPending) return;
+        if (promptSubmitting || sessionSwitchPending || pendingSessionRename) {
+            return;
+        }
         const prompt = composer.expandedText().trim();
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
@@ -839,6 +845,29 @@ export async function startTui(
             });
             return;
         }
+        if (commandAction?.type === "update_session_name") {
+            const requestId = randomUUID();
+            pendingSessionRename = { requestId, commandText: prompt };
+            composer.clearComposer();
+            void client.send({
+                type: "update_session_name",
+                requestId,
+                name: commandAction.name,
+            }).catch((error) => {
+                if (pendingSessionRename?.requestId !== requestId) return;
+                pendingSessionRename = undefined;
+                if (composer.expandedText().length === 0) {
+                    composer.setComposerText(prompt);
+                }
+                reportConnectionError(error);
+            });
+            showStatusNotice(
+                commandAction.name === null
+                    ? "clearing session name…"
+                    : "renaming session…",
+            );
+            return;
+        }
         if (commandAction?.type === "open_rewind") {
             if (
                 state.working
@@ -976,6 +1005,37 @@ export async function startTui(
                         );
                         renderState();
                     }
+                    composer.focus();
+                    continue;
+                }
+                if (
+                    update.type === "session_name"
+                    || update.type === "session_name_rejected"
+                ) {
+                    if (update.requestId !== pendingSessionRename?.requestId) {
+                        continue;
+                    }
+                    const pending = pendingSessionRename;
+                    pendingSessionRename = undefined;
+                    if (update.type === "session_name") {
+                        state = appendTuiNotice(
+                            state,
+                            update.name === null
+                                ? "session name cleared"
+                                : `session renamed: ${update.name}`,
+                        );
+                    } else {
+                        if (composer.expandedText().length === 0) {
+                            composer.setComposerText(pending.commandText);
+                        }
+                        state = appendTuiNotice(
+                            state,
+                            update.reason === "invalid"
+                                ? "Session name must be 1 to 200 UTF-8 bytes"
+                                : "Could not rename this session",
+                        );
+                    }
+                    renderState();
                     composer.focus();
                     continue;
                 }
@@ -1130,6 +1190,14 @@ export async function startTui(
         }
         connectionFailed = true;
         const message = error instanceof Error ? error.message : String(error);
+        const interruptedRename = pendingSessionRename;
+        pendingSessionRename = undefined;
+        if (
+            interruptedRename !== undefined
+            && composer.expandedText().length === 0
+        ) {
+            composer.setComposerText(interruptedRename.commandText);
+        }
         pendingUiRequest = undefined;
         timelinePicker = undefined;
         settingsPicker = undefined;

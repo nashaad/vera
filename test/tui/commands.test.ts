@@ -131,6 +131,14 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/c")).toEqual({
         type: "create_session",
     });
+    expect(registry.dispatch("/rename Planning")).toEqual({
+        type: "update_session_name",
+        name: "Planning",
+    });
+    expect(registry.dispatch("/rename")).toEqual({
+        type: "update_session_name",
+        name: null,
+    });
 });
 
 test("ordinary and unknown slash input remain ordinary prompts", () => {

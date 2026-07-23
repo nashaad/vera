@@ -13,6 +13,7 @@ import type {
     TimelineBoundary,
     TimelineCommand,
     TimelineReplyUpdate,
+    UpdateSessionNameCommand,
 } from "./protocol.ts";
 
 export interface OwnedTimelineCommand {
@@ -26,9 +27,16 @@ export interface TimelineOwnerDetachedCommand {
     readonly ownerId: string;
 }
 
+export interface OwnedSessionNameCommand {
+    readonly type: "owned_session_name_command";
+    readonly ownerId: string;
+    readonly command: UpdateSessionNameCommand;
+}
+
 export type EngineCommand =
     | ClientCommand
     | OwnedTimelineCommand
+    | OwnedSessionNameCommand
     | TimelineOwnerDetachedCommand;
 
 interface StoredTimelinePlan {

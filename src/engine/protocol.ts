@@ -276,15 +276,17 @@ export interface SessionNameUpdate {
     readonly type: "session_name";
     readonly requestId: string;
     readonly name: string | null;
-    readonly seq: number;
 }
 
 export interface SessionNameRejectedUpdate {
     readonly type: "session_name_rejected";
     readonly requestId: string;
     readonly reason: "invalid" | "unavailable";
-    readonly seq: number;
 }
+
+export type SessionNameReplyUpdate =
+    | SessionNameUpdate
+    | SessionNameRejectedUpdate;
 
 export interface TimelineBoundary {
     readonly userMessageId: string;
@@ -383,8 +385,7 @@ export type AgentUpdate =
     | ModelSettingsRejectedUpdate
     | PermissionsUpdate
     | PermissionsRejectedUpdate
-    | SessionNameUpdate
-    | SessionNameRejectedUpdate
+    | SessionNameReplyUpdate
     | TimelineReplyUpdate
     | ImageAttachmentReplyUpdate;
 
@@ -598,6 +599,13 @@ export function isTimelineReplyUpdate(
         || update.type === "timeline_action_rejected";
 }
 
+export function isSessionNameReplyUpdate(
+    update: AgentUpdate,
+): update is SessionNameReplyUpdate {
+    return update.type === "session_name"
+        || update.type === "session_name_rejected";
+}
+
 function parseModelSettingsPatch(
     value: unknown,
 ): ModelSettingsPatch | undefined {
@@ -799,28 +807,6 @@ export function createProtocolEncoder(
             seq += 1;
             sender.send({
                 type: "permissions_rejected",
-                requestId: event.requestId,
-                reason: event.reason,
-                seq,
-            });
-            return;
-        }
-
-        if (event.type === "session_name_changed") {
-            seq += 1;
-            sender.send({
-                type: "session_name",
-                requestId: event.requestId,
-                name: event.name,
-                seq,
-            });
-            return;
-        }
-
-        if (event.type === "session_name_rejected") {
-            seq += 1;
-            sender.send({
-                type: "session_name_rejected",
                 requestId: event.requestId,
                 reason: event.reason,
                 seq,

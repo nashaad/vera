@@ -15,6 +15,11 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (isTimelineReplyType(update.type)) {
         return update.seq === undefined ? parseTimelineReply(value, update) : undefined;
     }
+    if (isSessionNameReplyType(update.type)) {
+        return update.seq === undefined
+            ? parseSessionNameReply(value, update)
+            : undefined;
+    }
     if (isImageAttachmentReplyType(update.type)) {
         return update.seq === undefined
             ? parseImageAttachmentReply(value, update)
@@ -264,6 +269,30 @@ function isTimelineReplyType(value: unknown): boolean {
         || value === "timeline_action_preview"
         || value === "timeline_action_applied"
         || value === "timeline_action_rejected";
+}
+
+function isSessionNameReplyType(value: unknown): boolean {
+    return value === "session_name" || value === "session_name_rejected";
+}
+
+function parseSessionNameReply(
+    value: unknown,
+    update: Record<string, unknown>,
+): AgentUpdate | undefined {
+    if (
+        typeof update.requestId !== "string"
+        || update.requestId.length === 0
+    ) {
+        return undefined;
+    }
+    if (update.type === "session_name") {
+        return typeof update.name === "string" || update.name === null
+            ? value as AgentUpdate
+            : undefined;
+    }
+    return update.reason === "invalid" || update.reason === "unavailable"
+        ? value as AgentUpdate
+        : undefined;
 }
 
 function isImageAttachmentReplyType(value: unknown): boolean {

@@ -456,6 +456,8 @@ export class AgentRegistry {
                     this.updateSessionName(agent.id, name),
                 sendTimelineReply: (ownerId, reply) =>
                     agent.sendTimelineReply(ownerId, reply),
+                sendSessionNameReply: (ownerId, reply) =>
+                    agent.sendSessionNameReply(ownerId, reply),
             },
         ).catch(async (error: unknown) => {
             if (!agent.closed) {
