@@ -61,6 +61,16 @@ import {
     type TuiSettingsPickerTransition,
 } from "./settings-picker.ts";
 import {
+    resolveResumeTarget,
+    type TuiStartTarget,
+} from "./session-target.ts";
+export type {
+    AttachTuiTarget,
+    CreateTuiTarget,
+    ResumeTuiTarget,
+    TuiStartTarget,
+} from "./session-target.ts";
+import {
     applyTuiTimelineReply,
     createTuiTimelinePickerView,
     handleTuiTimelineKey,
@@ -127,26 +137,6 @@ export interface TuiAgentClient {
     close(): void;
 }
 
-export interface CreateTuiTarget {
-    readonly type: "create";
-    readonly workspace: string;
-}
-
-export interface AttachTuiTarget {
-    readonly type: "attach";
-    readonly agentId: string;
-}
-
-export interface ResumeTuiTarget {
-    readonly type: "resume";
-    readonly sessionPath: string;
-}
-
-export type TuiStartTarget =
-    | CreateTuiTarget
-    | AttachTuiTarget
-    | ResumeTuiTarget;
-
 export interface TuiStartOptions {
     readonly confirmBusyUpgrade?: (error: Error) => boolean | Promise<boolean>;
 }
@@ -167,17 +157,23 @@ export async function startConfiguredTui(
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
     });
-    let agentId = target.type === "create"
+    const resolvedTarget = target.type === "resume"
+        ? resolveResumeTarget(
+            await listAgentsThroughHost(host.socket_path),
+            target.sessionPath,
+        )
+        : target;
+    let agentId = resolvedTarget.type === "create"
         ? (await createAgentThroughHost(
             host.socket_path,
-            target.workspace,
+            resolvedTarget.workspace,
         )).id
-        : target.type === "resume"
+        : resolvedTarget.type === "resume"
             ? (await resumeAgentThroughHost(
                 host.socket_path,
-                target.sessionPath,
+                resolvedTarget.sessionPath,
             )).id
-            : target.agentId;
+            : resolvedTarget.agentId;
     let preparedClient: TuiAgentClient | undefined;
     while (true) {
         const client = preparedClient ?? await attachAgent({

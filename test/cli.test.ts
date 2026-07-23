@@ -22,6 +22,7 @@ test("vera help and version are available without starting a client", async () =
     expect(await runCli(["--help"], dependencies)).toBe(0);
     expect(output).toContain("Vera coding agent");
     expect(output).toContain("vera attach <agent-id>");
+    expect(output).toContain("vera resume <session-id|path>");
     expect(output).toContain("vera export <session-path>");
     expect(output).toContain("vera inspect <session-path>");
     expect(output).toContain("vera login [openai-codex]");
