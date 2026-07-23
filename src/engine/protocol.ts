@@ -92,6 +92,12 @@ export interface UpdatePermissionsCommand {
     readonly mode: ApprovalMode;
 }
 
+export interface UpdateSessionNameCommand {
+    readonly type: "update_session_name";
+    readonly requestId: string;
+    readonly name: string | null;
+}
+
 export interface ListTimelineCommand {
     readonly type: "list_timeline";
     readonly requestId: string;
@@ -124,6 +130,7 @@ export type ClientCommand =
     | UpdateModelSettingsCommand
     | GetPermissionsCommand
     | UpdatePermissionsCommand
+    | UpdateSessionNameCommand
     | TimelineCommand;
 
 export interface HistoryUpdate {
@@ -265,6 +272,20 @@ export interface PermissionsRejectedUpdate {
     readonly seq: number;
 }
 
+export interface SessionNameUpdate {
+    readonly type: "session_name";
+    readonly requestId: string;
+    readonly name: string | null;
+    readonly seq: number;
+}
+
+export interface SessionNameRejectedUpdate {
+    readonly type: "session_name_rejected";
+    readonly requestId: string;
+    readonly reason: "invalid" | "unavailable";
+    readonly seq: number;
+}
+
 export interface TimelineBoundary {
     readonly userMessageId: string;
     readonly timestamp: string;
@@ -362,6 +383,8 @@ export type AgentUpdate =
     | ModelSettingsRejectedUpdate
     | PermissionsUpdate
     | PermissionsRejectedUpdate
+    | SessionNameUpdate
+    | SessionNameRejectedUpdate
     | TimelineReplyUpdate
     | ImageAttachmentReplyUpdate;
 
@@ -512,6 +535,17 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             type: "update_permissions",
             requestId: command.requestId,
             mode: command.mode,
+        };
+    }
+    if (
+        command.type === "update_session_name"
+        && isRequestId(command.requestId)
+        && (typeof command.name === "string" || command.name === null)
+    ) {
+        return {
+            type: "update_session_name",
+            requestId: command.requestId,
+            name: command.name,
         };
     }
     if (command.type === "list_timeline" && isRequestId(command.requestId)) {
@@ -765,6 +799,28 @@ export function createProtocolEncoder(
             seq += 1;
             sender.send({
                 type: "permissions_rejected",
+                requestId: event.requestId,
+                reason: event.reason,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "session_name_changed") {
+            seq += 1;
+            sender.send({
+                type: "session_name",
+                requestId: event.requestId,
+                name: event.name,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "session_name_rejected") {
+            seq += 1;
+            sender.send({
+                type: "session_name_rejected",
                 requestId: event.requestId,
                 reason: event.reason,
                 seq,

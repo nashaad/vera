@@ -216,6 +216,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (
+        update.type === "session_name"
+        || update.type === "session_name_rejected"
+    ) {
+        return state;
+    }
+    if (
         update.type === "timeline"
         || update.type === "timeline_action_preview"
         || update.type === "timeline_action_applied"

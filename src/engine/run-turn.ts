@@ -137,6 +137,9 @@ export interface RunHeadlessLoopOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly updateSessionName?: (
+        name: string | null,
+    ) => Promise<string | null | undefined>;
     readonly sendTimelineReply?: (
         ownerId: string,
         reply: TimelineReplyUpdate,
@@ -229,6 +232,9 @@ export async function runHeadlessLoop(
             : { updateModelSettings: options.updateModelSettings }),
         readApprovalMode,
         updateApprovalMode,
+        ...(options.updateSessionName === undefined
+            ? {}
+            : { updateSessionName: options.updateSessionName }),
         addCommandPrefix,
         handleTimelineCommand: (ownerId, command) =>
             timeline.handle(ownerId, command),

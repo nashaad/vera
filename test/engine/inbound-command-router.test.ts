@@ -537,6 +537,56 @@ test("permission commands reject explicitly when no owner is installed", async (
     });
 });
 
+test("session name commands normalize, clear, and reject invalid names", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const names: Array<string | null> = [];
+    new InboundCommandRouter(channel.engine, events, {
+        async updateSessionName(name) {
+            names.push(name);
+            return name;
+        },
+    });
+
+    channel.client.send({
+        type: "update_session_name",
+        requestId: "rename",
+        name: "  Human name  ",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "session_name",
+        requestId: "rename",
+        name: "Human name",
+        seq: 1,
+    });
+
+    channel.client.send({
+        type: "update_session_name",
+        requestId: "clear",
+        name: null,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "session_name",
+        requestId: "clear",
+        name: null,
+        seq: 2,
+    });
+
+    channel.client.send({
+        type: "update_session_name",
+        requestId: "empty",
+        name: "   ",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "session_name_rejected",
+        requestId: "empty",
+        reason: "invalid",
+        seq: 3,
+    });
+    expect(names).toEqual(["Human name", null]);
+});
+
 test("a later settings command cannot change an earlier queued prompt", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
