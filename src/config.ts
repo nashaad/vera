@@ -6,7 +6,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { dirname } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -25,6 +25,7 @@ import {
 } from "./config/model-catalog.ts";
 import { parsePermissionProfiles } from "./config/permission-profiles.ts";
 import type { PermissionProfile } from "./engine/permissions.ts";
+import type { JsonValue } from "./sdk/hooks.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -47,6 +48,12 @@ export interface VeraReviewerConfig {
     readonly timeout_ms?: number;
 }
 
+export interface VeraExtensionConfig {
+    readonly path: string;
+    readonly enabled: boolean;
+    readonly config: JsonValue;
+}
+
 export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
     readonly provider: VeraProviderId;
@@ -63,6 +70,7 @@ export interface VeraConfig {
     readonly permission_profiles?: Readonly<
         Record<string, PermissionProfile>
     >;
+    readonly extensions?: readonly VeraExtensionConfig[];
 }
 
 export interface LoadVeraConfigOptions {
@@ -213,6 +221,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         config.permission_profiles,
         modelCatalog?.reviewer_profiles ?? {},
     );
+    const extensions = parseExtensionConfigs(config.extensions);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -225,6 +234,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         (config.reviewer !== undefined && reviewer === undefined)
         || modelCatalog === undefined
         || permissionProfiles === undefined
+        || extensions === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
@@ -269,7 +279,68 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.permission_profiles === undefined
             ? {}
             : { permission_profiles: permissionProfiles }),
+        ...(config.extensions === undefined ? {} : { extensions }),
     };
+}
+
+function parseExtensionConfigs(
+    value: unknown,
+): readonly VeraExtensionConfig[] | undefined {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+
+    const extensions: VeraExtensionConfig[] = [];
+    for (const item of value) {
+        if (
+            typeof item !== "object"
+            || item === null
+            || Array.isArray(item)
+        ) {
+            return undefined;
+        }
+        const extension = item as Record<string, unknown>;
+        if (
+            typeof extension.path !== "string"
+            || extension.path.trim().length === 0
+            || !isAbsolute(extension.path.trim())
+            || (extension.enabled !== undefined
+                && typeof extension.enabled !== "boolean")
+            || (extension.config !== undefined
+                && !isJsonValue(extension.config))
+        ) {
+            return undefined;
+        }
+        extensions.push({
+            path: extension.path.trim(),
+            enabled: extension.enabled ?? true,
+            config: extension.config === undefined ? {} : extension.config,
+        });
+    }
+    return extensions;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+    if (
+        value === null
+        || typeof value === "string"
+        || typeof value === "boolean"
+    ) {
+        return true;
+    }
+    if (typeof value === "number") {
+        return Number.isFinite(value);
+    }
+    if (Array.isArray(value)) {
+        return value.every(isJsonValue);
+    }
+    if (typeof value !== "object") {
+        return false;
+    }
+    return Object.values(value).every(isJsonValue);
 }
 
 function parseReviewer(value: unknown): VeraReviewerConfig | undefined {

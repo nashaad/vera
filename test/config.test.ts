@@ -74,6 +74,58 @@ test("Vera config loads each approval mode", () => {
     }
 });
 
+test("Vera config loads explicit extension paths and JSON settings", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        extensions: [{
+            path: "  /tmp/context-tools  ",
+            enabled: false,
+            config: {
+                strategy: "hierarchical",
+                levels: 3,
+            },
+        }, {
+            path: "/tmp/session-graph",
+        }],
+    }));
+
+    expect(loadVeraConfig({ path }).extensions).toEqual([{
+        path: "/tmp/context-tools",
+        enabled: false,
+        config: {
+            strategy: "hierarchical",
+            levels: 3,
+        },
+    }, {
+        path: "/tmp/session-graph",
+        enabled: true,
+        config: {},
+    }]);
+});
+
+test("Vera config rejects malformed extension entries", () => {
+    for (const extensions of [
+        {},
+        [null],
+        [{ path: "" }],
+        [{ path: "./context-tools" }],
+        [{ path: "/tmp/example", enabled: "yes" }],
+    ]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            extensions,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow(
+            "Invalid Vera config",
+        );
+    }
+});
+
 test("Vera config migrates the former automatic mode name", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
