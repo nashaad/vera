@@ -16,6 +16,12 @@ import {
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
+import {
+    parseModelCatalogConfig,
+    resolveReviewerProfile,
+    type VeraCatalogModel,
+    type VeraReviewerProfileConfig,
+} from "./config/model-catalog.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -46,6 +52,11 @@ export interface VeraConfig {
     readonly approval_mode: ApprovalMode;
     readonly fallback?: VeraModelFallbackConfig;
     readonly reviewer?: VeraReviewerConfig;
+    readonly models?: readonly VeraCatalogModel[];
+    readonly model_routes?: Readonly<Record<string, readonly string[]>>;
+    readonly reviewer_profiles?: Readonly<
+        Record<string, VeraReviewerProfileConfig>
+    >;
 }
 
 export interface LoadVeraConfigOptions {
@@ -141,11 +152,21 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const config = value as Record<string, unknown>;
     const fallback = parseModelFallback(config.fallback, config.model);
     const reviewer = parseReviewer(config.reviewer);
+    const modelCatalog = parseModelCatalogConfig(
+        config.models,
+        config.model_routes,
+        config.reviewer_profiles,
+    );
+    const hasModelCatalog = config.models !== undefined
+        || config.model_routes !== undefined
+        || config.reviewer_profiles !== undefined;
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
     if (
         (config.reviewer !== undefined && reviewer === undefined)
+        || modelCatalog === undefined
+        || (hasModelCatalog && config.reviewer !== undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
@@ -179,6 +200,13 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : { reasoning_effort: config.reasoning_effort }),
         ...(fallback === undefined ? {} : { fallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
+        ...(hasModelCatalog
+            ? {
+                models: modelCatalog.models,
+                model_routes: modelCatalog.model_routes,
+                reviewer_profiles: modelCatalog.reviewer_profiles,
+            }
+            : {}),
     };
 }
 
@@ -233,18 +261,47 @@ function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
 export function configuredReviewer(
     config: VeraConfig,
 ): ToolReviewerSettings | undefined {
+    if (
+        config.models !== undefined
+        && config.model_routes !== undefined
+        && config.reviewer_profiles !== undefined
+    ) {
+        const resolved = resolveReviewerProfile({
+            models: config.models,
+            model_routes: config.model_routes,
+            reviewer_profiles: config.reviewer_profiles,
+        }, "default");
+        if (resolved !== undefined) {
+            return {
+                models: resolved.models.map((model) => ({
+                    provider: model.provider,
+                    model: model.model,
+                    ...(model.reasoning_effort === undefined
+                        ? {}
+                        : { reasoningEffort: model.reasoning_effort }),
+                })),
+                policy: resolved.policy,
+                ...(resolved.timeout_ms === undefined
+                    ? {}
+                    : { timeoutMs: resolved.timeout_ms }),
+            };
+        }
+    }
+
     const reviewer = config.reviewer;
     if (reviewer === undefined) {
         return undefined;
     }
     return {
-        model: reviewer.model,
-        ...(reviewer.provider === undefined
-            ? {}
-            : { provider: reviewer.provider }),
-        ...(reviewer.reasoning_effort === undefined
-            ? {}
-            : { reasoningEffort: reviewer.reasoning_effort }),
+        models: [{
+            model: reviewer.model,
+            ...(reviewer.provider === undefined
+                ? {}
+                : { provider: reviewer.provider }),
+            ...(reviewer.reasoning_effort === undefined
+                ? {}
+                : { reasoningEffort: reviewer.reasoning_effort }),
+        }],
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeoutMs: reviewer.timeout_ms }),

@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
     configuredModelFallback,
+    configuredReviewer,
     loadVeraConfig,
     updateVeraConfigDefaults,
 } from "../src/config.ts";
@@ -82,6 +83,59 @@ test("Vera config migrates the former automatic mode name", () => {
     }));
 
     expect(loadVeraConfig({ path }).approval_mode).toBe("auto");
+});
+
+test("Vera config loads the shared catalog, routes, and reviewer profiles", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        models: [{
+            provider: "openrouter",
+            model: "anthropic/claude-opus-4.8",
+            reasoning_effort: "max",
+        }],
+        model_routes: {
+            permission_review: [
+                "anthropic_claude_opus_4_8_max_openrouter",
+            ],
+        },
+        reviewer_profiles: {
+            default: {
+                model_route: "permission_review",
+                policy: "Allow ordinary actions that follow from the request.",
+            },
+        },
+    }));
+
+    const config = loadVeraConfig({ path });
+    expect(config).toMatchObject({
+        models: [{
+            name: "anthropic_claude_opus_4_8_max_openrouter",
+            provider: "openrouter",
+            model: "anthropic/claude-opus-4.8",
+            reasoning_effort: "max",
+        }],
+        model_routes: {
+            permission_review: [
+                "anthropic_claude_opus_4_8_max_openrouter",
+            ],
+        },
+        reviewer_profiles: {
+            default: {
+                model_route: "permission_review",
+                policy: "Allow ordinary actions that follow from the request.",
+            },
+        },
+    });
+    expect(configuredReviewer(config)).toEqual({
+        models: [{
+            provider: "openrouter",
+            model: "anthropic/claude-opus-4.8",
+            reasoningEffort: "max",
+        }],
+        policy: "Allow ordinary actions that follow from the request.",
+    });
 });
 
 test("Vera config loads an engine model fallback", () => {
