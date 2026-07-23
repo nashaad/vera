@@ -730,6 +730,50 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "auto reviews a boundary crossing without asking the user",
+    async () => {
+        const socket = `vera-auto-review-${process.pid}-${randomUUID()}`;
+        const session = "auto-review";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-auto-review-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-auto-review-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "run the routine command");
+            sendKey(socket, session, "Enter");
+
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "AUTO REVIEW COMPLETED",
+            );
+            expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
+                .toBe("allowed\n");
+            expect(pane).toContain("∗ bash printf auto-review-ran");
+            expect(pane).toContain("auto");
+            expect(pane).not.toContain("Tool approval");
+            expect(pane).not.toContain("Allow once");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "approval actions stay visible above long details",
     async () => {
         const socket = `vera-approval-layout-${process.pid}-${randomUUID()}`;
