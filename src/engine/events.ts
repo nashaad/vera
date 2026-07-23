@@ -23,7 +23,10 @@ import type {
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
-import type { ApprovalMode, CommandPrefix } from "./permissions.ts";
+import type {
+    ApprovalMode,
+    PermissionGrantProposal,
+} from "./permissions.ts";
 import type { ProjectInstructionMetadata } from "./project-instructions.ts";
 import type { PromptContributionMetadata } from "./prompt-contributions.ts";
 import type { PromptPrefixDrift } from "./prompt-prefix-drift.ts";
@@ -58,12 +61,12 @@ export interface ToolApprovalUiRequest {
     readonly toolCall: HookToolCall;
     readonly reason: string;
     readonly warning: string;
-    readonly commandPrefix?: CommandPrefix;
+    readonly permissionGrants?: readonly PermissionGrantProposal[];
 }
 
 export interface ToolApprovalUiResponse {
     readonly type: "tool_approval";
-    readonly decision: "allow_once" | "allow_prefix" | "deny";
+    readonly decision: "allow_once" | "allow_similar" | "deny";
 }
 
 export interface UserQuestionChoice {

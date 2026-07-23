@@ -22,8 +22,10 @@ import type {
 } from "./model-settings.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
-import type { ApprovalMode } from "./permissions.ts";
-import type { CommandPrefix } from "./permissions.ts";
+import type {
+    ApprovalMode,
+    PermissionGrantProposal,
+} from "./permissions.ts";
 
 const FULL_USER_AUTHORITY_WARNING =
     "If allowed, this command and its child processes run with your full user permissions.";
@@ -31,7 +33,7 @@ const FULL_USER_AUTHORITY_WARNING =
 export interface ToolApprovalOptions {
     readonly timeoutMs: number;
     readonly signal?: AbortSignal;
-    readonly commandPrefix?: CommandPrefix;
+    readonly permissionGrants?: readonly PermissionGrantProposal[];
 }
 
 export interface ToolApprovalAllowed {
@@ -50,7 +52,7 @@ interface PendingApproval {
     readonly timer: ReturnType<typeof setTimeout>;
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
-    readonly commandPrefix?: CommandPrefix;
+    readonly permissionGrants?: readonly PermissionGrantProposal[];
 }
 
 export interface UserQuestionOptions {
@@ -112,8 +114,8 @@ export interface InboundCommandRouterOptions {
         ownerId: string,
         reply: SessionNameReplyUpdate,
     ) => void;
-    readonly addCommandPrefix?: (
-        prefix: CommandPrefix,
+    readonly addPermissionGrants?: (
+        grants: readonly PermissionGrantProposal[],
     ) => Promise<void>;
     readonly handleTimelineCommand?: (
         ownerId: string,
@@ -206,12 +208,12 @@ export class InboundCommandRouter {
             const pending: PendingApproval = {
                 resolve,
                 timer,
-                ...(options.commandPrefix === undefined
+                ...(options.permissionGrants === undefined
                     ? {}
                     : {
-                        commandPrefix: {
-                            tokens: [...options.commandPrefix.tokens],
-                        },
+                        permissionGrants: options.permissionGrants.map(
+                            copyPermissionGrantProposal,
+                        ),
                     }),
                 ...(options.signal === undefined
                     ? {}
@@ -236,12 +238,12 @@ export class InboundCommandRouter {
                 toolCall,
                 reason,
                 warning: FULL_USER_AUTHORITY_WARNING,
-                ...(options.commandPrefix === undefined
+                ...(options.permissionGrants === undefined
                     ? {}
                     : {
-                        commandPrefix: {
-                            tokens: [...options.commandPrefix.tokens],
-                        },
+                        permissionGrants: options.permissionGrants.map(
+                            copyPermissionGrantProposal,
+                        ),
                     }),
             },
         });
@@ -551,21 +553,23 @@ export class InboundCommandRouter {
         ) {
             const pending = this.pendingApprovals.get(command.requestId)!;
             if (
-                command.response.decision === "allow_prefix"
+                command.response.decision === "allow_similar"
                 && (
-                    pending.commandPrefix === undefined
-                    || this.options.addCommandPrefix === undefined
+                    pending.permissionGrants === undefined
+                    || this.options.addPermissionGrants === undefined
                 )
             ) {
                 return;
             }
-            if (command.response.decision === "allow_prefix") {
+            if (command.response.decision === "allow_similar") {
                 try {
-                    await this.options.addCommandPrefix!(pending.commandPrefix!);
+                    await this.options.addPermissionGrants!(
+                        pending.permissionGrants!,
+                    );
                 } catch {
                     this.finishApproval(command.requestId, {
                         behavior: "deny",
-                        reason: "The session command prefix could not be saved.",
+                        reason: "The session permission grants could not be saved.",
                     });
                     return;
                 }
@@ -671,9 +675,20 @@ function approvalResult(
     response: ToolApprovalUiResponse,
 ): ToolApprovalResult {
     return response.decision === "allow_once"
-        || response.decision === "allow_prefix"
+        || response.decision === "allow_similar"
         ? { behavior: "allow" }
         : { behavior: "deny", reason: "Tool use was denied by the user." };
+}
+
+function copyPermissionGrantProposal(
+    proposal: PermissionGrantProposal,
+): PermissionGrantProposal {
+    return {
+        kind: proposal.kind,
+        when: { ...proposal.when },
+        scope: proposal.scope,
+        lifetime: proposal.lifetime,
+    };
 }
 
 function questionResult(

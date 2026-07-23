@@ -11,14 +11,14 @@ export function renderStdioApproval(
         && typeof command === "string"
         ? `$ ${command}`
         : `${update.request.toolCall.name} ${JSON.stringify(update.request.toolCall.input)}`;
-    const prefix = update.request.commandPrefix;
+    const grants = update.request.permissionGrants;
     return [
         tool,
         update.request.reason,
         update.request.warning,
-        ...(prefix === undefined
+        ...(grants === undefined
             ? []
-            : [`Session prefix: ${JSON.stringify(prefix.tokens)}`]),
+            : [`Session grants: ${JSON.stringify(grants)}`]),
     ].join("\n");
 }
 
@@ -29,8 +29,8 @@ export function createStdioApprovalResponse(
     const normalized = answer?.trim();
     const decision = normalized === "1"
         ? "allow_once"
-        : normalized === "2" && update.request.commandPrefix !== undefined
-            ? "allow_prefix"
+        : normalized === "2" && update.request.permissionGrants !== undefined
+            ? "allow_similar"
             : "deny";
     return {
         type: "ui_response",

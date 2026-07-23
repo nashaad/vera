@@ -24,7 +24,12 @@ const request: ToolApprovalUiRequestUpdate = {
         },
         reason: "This command may access the network.",
         warning: "This command runs with your full user permissions.",
-        commandPrefix: { tokens: ["curl", "https://example.com"] },
+        permissionGrants: [{
+            kind: "capability",
+            when: { capability: "network", executable: "curl" },
+            scope: "session",
+            lifetime: "session",
+        }],
     },
     seq: 1,
 };
@@ -36,17 +41,17 @@ test("TUI approval shows the exact command and honest warning", () => {
         "This command may access the network.",
         "This command runs with your full user permissions.",
         "",
-        "Session prefix: $ curl https://example.com",
+        "Session grants: capability: capability=network, executable=curl",
         "",
         "1  Allow once",
-        "2  Allow this command prefix  $ curl https://example.com",
+        "2  Allow similar this session  capability: capability=network, executable=curl",
         "3  Deny  esc",
     ].join("\n"));
 });
 
-test("TUI approval accepts numeric once, prefix, and deny keys", () => {
+test("TUI approval accepts numeric once, similar, and deny keys", () => {
     expect(tuiApprovalDecision({ name: "1" })).toBe("allow_once");
-    expect(tuiApprovalDecision({ name: "2" })).toBe("allow_prefix");
+    expect(tuiApprovalDecision({ name: "2" })).toBe("allow_similar");
     expect(tuiApprovalDecision({ name: "3" })).toBe("deny");
     expect(tuiApprovalDecision({ name: "escape" })).toBe("deny");
     expect(tuiApprovalDecision({ name: "1", ctrl: true })).toBeUndefined();
@@ -59,19 +64,19 @@ test("TUI approval accepts numeric once, prefix, and deny keys", () => {
     expect(createTuiApprovalResponse(request, { name: "2" })).toEqual({
         type: "ui_response",
         requestId: "request-1",
-        response: { type: "tool_approval", decision: "allow_prefix" },
+        response: { type: "tool_approval", decision: "allow_similar" },
     });
 });
 
-test("TUI approval disables session prefix for compound commands", () => {
-    const withoutPrefix = {
+test("TUI approval disables session grants when none can be derived", () => {
+    const withoutGrants = {
         ...request,
-        request: { ...request.request, commandPrefix: undefined },
+        request: { ...request.request, permissionGrants: undefined },
     };
-    expect(createTuiApprovalResponse(withoutPrefix, { name: "2" }))
+    expect(createTuiApprovalResponse(withoutGrants, { name: "2" }))
         .toBeUndefined();
-    expect(renderTuiApproval(withoutPrefix)).toContain(
-        "2  Allow this command prefix  not available for this command",
+    expect(renderTuiApproval(withoutGrants)).toContain(
+        "2  Allow similar this session  not available for this command",
     );
 });
 

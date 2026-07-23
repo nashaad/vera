@@ -441,7 +441,7 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             response.type === "tool_approval"
             && (
                 response.decision === "allow_once"
-                || response.decision === "allow_prefix"
+                || response.decision === "allow_similar"
                 || response.decision === "deny"
             )
         ) {

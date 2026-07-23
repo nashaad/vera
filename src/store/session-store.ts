@@ -16,10 +16,12 @@ import {
 } from "../engine/model-settings.ts";
 import {
     isApprovalMode,
-    isCommandPrefix,
+    isPermissionGrant,
+    isPermissionGrantProposal,
     parseApprovalMode,
     type ApprovalMode,
-    type CommandPrefix,
+    type PermissionGrant,
+    type PermissionGrantProposal,
 } from "../engine/permissions.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
@@ -83,10 +85,11 @@ export interface SessionNameEntry {
     readonly name: string | null;
 }
 
-export interface SessionCommandPrefixEntry {
-    readonly type: "command_prefix";
+export interface SessionPermissionGrantsEntry {
+    readonly type: "permission_grants";
+    readonly id: string;
     readonly timestamp: string;
-    readonly prefix: CommandPrefix;
+    readonly grants: readonly PermissionGrant[];
 }
 
 export interface SessionAttachmentEntry {
@@ -160,7 +163,7 @@ interface LoadedSessionFile {
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly nameEntries: SessionNameEntry[];
-    readonly commandPrefixEntries: SessionCommandPrefixEntry[];
+    readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
     readonly agentFailure?: SessionAgentFailureEntry;
     readonly leafId: string | null;
@@ -179,7 +182,7 @@ export class SessionStore {
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
     private readonly nameEntries: SessionNameEntry[];
-    private readonly commandPrefixEntries: SessionCommandPrefixEntry[];
+    private readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
     private readonly attachmentEntries: SessionAttachmentEntry[];
     private agentFailureEntry: SessionAgentFailureEntry | undefined;
     private leafId: string | null;
@@ -199,7 +202,7 @@ export class SessionStore {
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
         this.nameEntries = loaded.nameEntries;
-        this.commandPrefixEntries = loaded.commandPrefixEntries;
+        this.permissionGrantEntries = loaded.permissionGrantEntries;
         this.attachmentEntries = loaded.attachmentEntries;
         this.agentFailureEntry = loaded.agentFailure;
         this.leafId = loaded.leafId;
@@ -244,7 +247,7 @@ export class SessionStore {
                 modelSettingsEntries: [],
                 permissionsEntries: [],
                 nameEntries: [],
-                commandPrefixEntries: [],
+                permissionGrantEntries: [],
                 attachmentEntries: [],
                 agentFailure: undefined,
                 leafId: null,
@@ -325,10 +328,10 @@ export class SessionStore {
         return this.nameEntries.at(-1)?.name ?? undefined;
     }
 
-    commandPrefixes(): readonly CommandPrefix[] {
-        return this.commandPrefixEntries.map((entry) => ({
-            tokens: [...entry.prefix.tokens],
-        }));
+    permissionGrants(): readonly PermissionGrant[] {
+        return this.permissionGrantEntries.flatMap((entry) =>
+            entry.grants.map(copyPermissionGrant)
+        );
     }
 
     attachmentRecords(): readonly SessionImageAttachmentMetadata[] {
@@ -406,12 +409,12 @@ export class SessionStore {
         return result;
     }
 
-    appendCommandPrefix(
-        prefix: CommandPrefix,
-    ): Promise<SessionCommandPrefixEntry> {
+    appendPermissionGrants(
+        proposals: readonly PermissionGrantProposal[],
+    ): Promise<SessionPermissionGrantsEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitCommandPrefix(prefix);
+            return this.commitPermissionGrants(proposals);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -583,19 +586,27 @@ export class SessionStore {
         return entry;
     }
 
-    private async commitCommandPrefix(
-        prefix: CommandPrefix,
-    ): Promise<SessionCommandPrefixEntry> {
-        if (!isCommandPrefix(prefix)) {
-            throw new Error("Cannot append an invalid command prefix");
+    private async commitPermissionGrants(
+        proposals: readonly PermissionGrantProposal[],
+    ): Promise<SessionPermissionGrantsEntry> {
+        if (
+            proposals.length === 0
+            || !proposals.every(isPermissionGrantProposal)
+        ) {
+            throw new Error("Cannot append invalid permission grants");
         }
-        const entry: SessionCommandPrefixEntry = {
-            type: "command_prefix",
+        const id = this.createId();
+        const entry: SessionPermissionGrantsEntry = {
+            type: "permission_grants",
+            id,
             timestamp: this.now().toISOString(),
-            prefix: { tokens: [...prefix.tokens] },
+            grants: proposals.map((proposal, index) => ({
+                ...copyPermissionGrantProposal(proposal),
+                id: `${id}:${index}`,
+            })),
         };
         await this.appendRecord(entry);
-        this.commandPrefixEntries.push(entry);
+        this.permissionGrantEntries.push(entry);
         return entry;
     }
 
@@ -826,7 +837,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
     const nameEntries: SessionNameEntry[] = [];
-    const commandPrefixEntries: SessionCommandPrefixEntry[] = [];
+    const permissionGrantEntries: SessionPermissionGrantsEntry[] = [];
     const attachmentEntries: SessionAttachmentEntry[] = [];
     let agentFailure: SessionAgentFailureEntry | undefined;
     const knownMessageIds = new Set<string>();
@@ -982,8 +993,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             continue;
         }
         if (value.type === "command_prefix") {
-            commandPrefixEntries.push(
-                parseCommandPrefixEntry(path, lineNumber, value),
+            parseLegacyCommandPrefixEntry(path, lineNumber, value);
+            continue;
+        }
+        if (value.type === "permission_grants") {
+            permissionGrantEntries.push(
+                parsePermissionGrantsEntry(path, lineNumber, value),
             );
             continue;
         }
@@ -1062,7 +1077,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         modelSettingsEntries,
         permissionsEntries,
         nameEntries,
-        commandPrefixEntries,
+        permissionGrantEntries,
         attachmentEntries,
         agentFailure,
         leafId,
@@ -1361,24 +1376,68 @@ function parseSessionNameEntry(
     };
 }
 
-function parseCommandPrefixEntry(
+function parseLegacyCommandPrefixEntry(
     path: string,
     lineNumber: number,
     value: Record<string, unknown>,
-): SessionCommandPrefixEntry {
+): void {
+    const prefix = isRecord(value.prefix) ? value.prefix.tokens : undefined;
     if (
         typeof value.timestamp !== "string"
-        || !isCommandPrefix(value.prefix)
+        || !Array.isArray(prefix)
+        || prefix.length === 0
+        || !prefix.every((token) =>
+            typeof token === "string" && token.length > 0
+        )
     ) {
         throw invalidSession(
             path,
             `line ${lineNumber} is not a valid command prefix entry`,
         );
     }
+}
+
+function parsePermissionGrantsEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionPermissionGrantsEntry {
+    if (
+        typeof value.id !== "string"
+        || value.id.length === 0
+        || typeof value.timestamp !== "string"
+        || !Array.isArray(value.grants)
+        || value.grants.length === 0
+        || !value.grants.every(isPermissionGrant)
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid permission grants entry`,
+        );
+    }
     return {
-        type: "command_prefix",
+        type: "permission_grants",
+        id: value.id,
         timestamp: value.timestamp,
-        prefix: { tokens: [...value.prefix.tokens] },
+        grants: value.grants.map(copyPermissionGrant),
+    };
+}
+
+function copyPermissionGrantProposal(
+    proposal: PermissionGrantProposal,
+): PermissionGrantProposal {
+    return {
+        kind: proposal.kind,
+        when: { ...proposal.when },
+        scope: proposal.scope,
+        lifetime: proposal.lifetime,
+    };
+}
+
+function copyPermissionGrant(grant: PermissionGrant): PermissionGrant {
+    return {
+        id: grant.id,
+        ...copyPermissionGrantProposal(grant),
     };
 }
 

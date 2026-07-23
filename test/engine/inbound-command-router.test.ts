@@ -91,26 +91,31 @@ test("the inbound router matches one approval response by request ID", async () 
     ]);
 });
 
-test("prefix approval is saved before the tool is allowed", async () => {
+test("session grants are saved before the tool is allowed", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
-    const saved: string[][] = [];
+    const saved: unknown[] = [];
     events.subscribe(createProtocolEncoder(channel.engine));
     const router = new InboundCommandRouter(channel.engine, events, {
-        addCommandPrefix: async (prefix) => {
-            saved.push([...prefix.tokens]);
+        addPermissionGrants: async (grants) => {
+            saved.push(grants);
         },
     });
-    const prefix = { tokens: ["git", "push", "origin"] };
+    const grants = [{
+        kind: "capability",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    }] as const;
     const approval = router.requestToolApproval(
         bashToolCall("git push origin"),
         "Bash commands run with your full user permissions.",
-        { timeoutMs: 1_000, commandPrefix: prefix },
+        { timeoutMs: 1_000, permissionGrants: grants },
     );
     const request = await channel.client.receive();
     expect(request).toMatchObject({
         type: "ui_request",
-        request: { commandPrefix: prefix },
+        request: { permissionGrants: grants },
     });
     if (request.type !== "ui_request") {
         throw new Error("Expected a UI request update");
@@ -119,12 +124,54 @@ test("prefix approval is saved before the tool is allowed", async () => {
     channel.client.send({
         type: "ui_response",
         requestId: request.requestId,
-        response: { type: "tool_approval", decision: "allow_prefix" },
+        response: { type: "tool_approval", decision: "allow_similar" },
     });
 
     expect(await approval).toEqual({ behavior: "allow" });
-    expect(saved).toEqual([["git", "push", "origin"]]);
+    expect(saved).toEqual([grants]);
     expect((await channel.client.receive()).type).toBe("ui_request_closed");
+});
+
+test("a failed session grant write denies and closes the approval", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        addPermissionGrants: async () => {
+            throw new Error("disk full");
+        },
+    });
+    const approval = router.requestToolApproval(
+        bashToolCall("git push origin"),
+        "Permission profile ask requires ask.",
+        {
+            timeoutMs: 1_000,
+            permissionGrants: [{
+                kind: "capability",
+                when: { operation: "git.push" },
+                scope: "session",
+                lifetime: "session",
+            }],
+        },
+    );
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "tool_approval", decision: "allow_similar" },
+    });
+
+    expect(await approval).toEqual({
+        behavior: "deny",
+        reason: "The session permission grants could not be saved.",
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "ui_request_closed",
+        requestId: request.requestId,
+    });
 });
 
 test("an unknown approval response is ignored and denial is explicit", async () => {

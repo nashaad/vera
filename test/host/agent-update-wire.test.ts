@@ -212,7 +212,7 @@ test("host wire validates permission results", () => {
     });
 });
 
-test("host wire validates semantic command prefixes on approvals", () => {
+test("host wire validates semantic session grants on approvals", () => {
     const approval = {
         type: "ui_request",
         requestId: "approval-1",
@@ -225,7 +225,12 @@ test("host wire validates semantic command prefixes on approvals", () => {
             },
             reason: "This command may access the network.",
             warning: "This command runs with your full user permissions.",
-            commandPrefix: { tokens: ["git", "push", "origin", "main"] },
+            permissionGrants: [{
+                kind: "capability",
+                when: { operation: "git.push" },
+                scope: "session",
+                lifetime: "session",
+            }],
         },
         seq: 1,
     } as const;
@@ -235,7 +240,7 @@ test("host wire validates semantic command prefixes on approvals", () => {
         ...approval,
         request: {
             ...approval.request,
-            commandPrefix: { tokens: [] },
+            permissionGrants: [],
         },
     })).toBeUndefined();
 });

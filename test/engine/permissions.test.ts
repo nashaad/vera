@@ -4,7 +4,9 @@ import {
     BUILT_IN_PERMISSION_PROFILES,
     decideToolPermission,
     extractPermissionClaims,
+    permissionGrantProposals,
     type ApprovalMode,
+    type PermissionGrant,
 } from "../../src/engine/permissions.ts";
 import type { HookToolCall, JsonObject } from "../../src/sdk/hooks.ts";
 
@@ -179,16 +181,99 @@ test("git operations become named claims", () => {
     )[0]?.operation).toBe("git.commit");
 });
 
+test("session grants lower matching ask and review outcomes to allow", () => {
+    const request = decide("ask", bash("git push origin main"));
+    const proposals = permissionGrantProposals(request);
+    expect(proposals).toEqual([{
+        kind: "capability",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    }]);
+    const grants = proposals.map((proposal, index) => ({
+        ...proposal,
+        id: `grant-1:${index}`,
+    }));
+    const allowed = decide("ask", bash("git push origin main"), grants);
+    expect(allowed).toMatchObject({
+        behavior: "allow",
+        claims: [{ outcome: "allow", grant: "grant-1:0" }],
+    });
+    expect(decide("ask", bash("git fetch origin"), grants).behavior)
+        .toBe("ask");
+});
+
+test("a path grant covers that subtree and no sibling", () => {
+    const grants: PermissionGrant[] = [{
+        id: "grant-1:0",
+        kind: "capability",
+        when: {
+            capability: "delete",
+            path: "/Users/nash/Projects/other-repo",
+            recursive: true,
+        },
+        scope: "session",
+        lifetime: "session",
+    }];
+    expect(decide(
+        "ask",
+        bash("rm -rf /Users/nash/Projects/other-repo/build"),
+        grants,
+    ).behavior).toBe("allow");
+    expect(decide(
+        "ask",
+        bash("rm -rf /Users/nash/Projects/different-repo"),
+        grants,
+    ).behavior).toBe("ask");
+});
+
+test("session grants cannot override profile denial or the accident guard", () => {
+    const grants: PermissionGrant[] = [{
+        id: "grant-1:0",
+        kind: "capability",
+        when: { capability: "delete" },
+        scope: "session",
+        lifetime: "session",
+    }];
+    const permissionProfiles = {
+        locked: {
+            name: "locked",
+            defaultOutcome: "deny" as const,
+            rules: [],
+        },
+    };
+    expect(decideToolPermission(
+        "locked",
+        bash("rm -rf dist"),
+        workspace,
+        grants,
+        { homeDirectory, permissionProfiles },
+    ).behavior).toBe("deny");
+    const guarded = decide(
+        "full_access",
+        bash("rm -rf /Users/nash/Projects/vera"),
+        grants,
+    );
+    expect(guarded).toMatchObject({
+        behavior: "deny",
+        source: "accident_guard",
+    });
+});
+
 function modes(): readonly ApprovalMode[] {
     return ["ask", "auto", "full_access"];
 }
 
-function decide(mode: ApprovalMode, call: HookToolCall) {
+function decide(
+    mode: ApprovalMode,
+    call: HookToolCall,
+    grants: readonly PermissionGrant[] = [],
+) {
     return decideToolPermission(
         mode,
         call,
         workspace,
-        [],
+        grants,
         { homeDirectory },
     );
 }

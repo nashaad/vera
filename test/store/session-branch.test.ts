@@ -15,7 +15,7 @@ test("fork copies history before one prompt and resets execution authority", asy
     const source = await SessionStore.create(sourcePath, {
         sessionId: "source",
         cwd: root,
-        createId: values("user-1", "assistant-1", "user-2"),
+        createId: values("grant-1", "user-1", "assistant-1", "user-2"),
     });
     await source.appendModelSettings({
         provider: "openrouter",
@@ -23,7 +23,12 @@ test("fork copies history before one prompt and resets execution authority", asy
         reasoningEffort: "high",
     });
     await source.appendApprovalMode("full_access");
-    await source.appendCommandPrefix({ tokens: ["git", "status"] });
+    await source.appendPermissionGrants([{
+        kind: "capability",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    }]);
     await source.appendName("Source name");
     await source.appendMessage({
         role: "user",
@@ -61,7 +66,7 @@ test("fork copies history before one prompt and resets execution authority", asy
     });
     expect(branch.store.modelSettings()).toEqual(source.modelSettings());
     expect(branch.store.approvalMode()).toBeUndefined();
-    expect(branch.store.commandPrefixes()).toEqual([]);
+    expect(branch.store.permissionGrants()).toEqual([]);
     expect(branch.store.name()).toBeUndefined();
 });
 

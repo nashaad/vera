@@ -13,9 +13,25 @@ import {
     simpleCommandExecutableIndex,
     tokenizeSimpleCommands,
 } from "../tools/bash-danger.ts";
+import {
+    applyPermissionGrant,
+    permissionPredicateMatches,
+    type PermissionGrant,
+} from "./permission-grants.ts";
 
 export { isApprovalMode, parseApprovalMode };
 export type { ApprovalMode };
+export {
+    isPermissionGrant,
+    isPermissionGrantProposal,
+    isPermissionPredicate,
+    permissionGrantProposals,
+} from "./permission-grants.ts";
+export type {
+    PermissionGrant,
+    PermissionGrantKind,
+    PermissionGrantProposal,
+} from "./permission-grants.ts";
 
 export type PermissionOutcome = "allow" | "review" | "ask" | "deny";
 export type PermissionCapability =
@@ -44,6 +60,7 @@ export interface PermissionPredicate {
     readonly capability?: PermissionCapability;
     readonly confidence?: PermissionConfidence;
     readonly operation?: string;
+    readonly path?: string;
     readonly pathScope?: PermissionPathScope;
     readonly recursive?: boolean;
     readonly executable?: string;
@@ -66,6 +83,7 @@ export interface PermissionClaimDecision {
     readonly claim: PermissionClaim;
     readonly outcome: PermissionOutcome;
     readonly rule: string;
+    readonly grant?: string;
 }
 
 export interface AllowToolPermission {
@@ -98,10 +116,6 @@ export type ToolPermissionDecision =
     | ReviewToolPermission
     | AskToolPermission
     | DenyToolPermission;
-
-export interface CommandPrefix {
-    readonly tokens: readonly string[];
-}
 
 export interface DecideToolPermissionOptions {
     readonly homeDirectory?: string;
@@ -222,7 +236,7 @@ export function decideToolPermission(
     mode: ApprovalMode,
     toolCall: HookToolCall,
     workspace: string,
-    _commandPrefixes: readonly CommandPrefix[] = [],
+    grants: readonly PermissionGrant[] = [],
     options: DecideToolPermissionOptions = {},
 ): ToolPermissionDecision {
     const guardReason = accidentGuardReason(
@@ -249,8 +263,8 @@ export function decideToolPermission(
             source: "profile",
         };
     }
-    const decisions = extractPermissionClaims(toolCall, workspace).map((claim) =>
-        evaluateClaim(profile, claim)
+    const decisions = extractPermissionClaims(toolCall, workspace).map(
+        (claim) => evaluateClaim(profile, claim, grants),
     );
     const effective = decisions.reduce<PermissionOutcome>(
         (outcome, decision) =>
@@ -332,45 +346,25 @@ export function extractPermissionClaims(
 export function evaluateClaim(
     profile: PermissionProfile,
     claim: PermissionClaim,
+    grants: readonly PermissionGrant[] = [],
 ): PermissionClaimDecision {
+    let profileDecision: PermissionClaimDecision;
     for (const rule of profile.rules) {
-        if (predicateMatches(rule.when, claim)) {
-            return { claim, outcome: rule.then, rule: rule.name };
+        if (permissionPredicateMatches(rule.when, claim)) {
+            profileDecision = {
+                claim,
+                outcome: rule.then,
+                rule: rule.name,
+            };
+            return applyPermissionGrant(profileDecision, grants);
         }
     }
-    return {
+    profileDecision = {
         claim,
         outcome: profile.defaultOutcome,
         rule: `${profile.name}.default`,
     };
-}
-
-export function commandPrefixForToolCall(
-    toolCall: HookToolCall,
-): CommandPrefix | undefined {
-    if (toolCall.name !== "bash") {
-        return undefined;
-    }
-    const command = toolCall.input.command;
-    if (typeof command !== "string") {
-        return undefined;
-    }
-    const commands = tokenizeSimpleCommands(command);
-    const words = commands[0];
-    if (commands.length !== 1 || words === undefined || words.length === 0) {
-        return undefined;
-    }
-    return { tokens: [...words] };
-}
-
-export function isCommandPrefix(value: unknown): value is CommandPrefix {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return false;
-    }
-    const tokens = (value as Record<string, unknown>).tokens;
-    return Array.isArray(tokens)
-        && tokens.length > 0
-        && tokens.every((token) => typeof token === "string" && token.length > 0);
+    return applyPermissionGrant(profileDecision, grants);
 }
 
 function pathClaim(
@@ -567,35 +561,6 @@ function rmClaims(
             executable: "rm",
         };
     });
-}
-
-function predicateMatches(
-    predicate: PermissionPredicate,
-    claim: PermissionClaim,
-): boolean {
-    return (predicate.tool === undefined || predicate.tool === claim.tool)
-        && (predicate.capability === undefined
-            || predicate.capability === claim.capability)
-        && (predicate.confidence === undefined
-            || predicate.confidence === claim.confidence)
-        && (predicate.operation === undefined
-            || operationMatches(predicate.operation, claim.operation))
-        && (predicate.pathScope === undefined
-            || predicate.pathScope === claim.pathScope)
-        && (predicate.recursive === undefined
-            || predicate.recursive === claim.recursive)
-        && (predicate.executable === undefined
-            || predicate.executable === claim.executable);
-}
-
-function operationMatches(pattern: string, operation: string | undefined): boolean {
-    if (operation === undefined) {
-        return false;
-    }
-    if (!pattern.endsWith("*")) {
-        return pattern === operation;
-    }
-    return operation.startsWith(pattern.slice(0, -1));
 }
 
 function permissionReason(
