@@ -101,7 +101,7 @@ const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     {
         value: "approve_for_me",
         label: "Approve for me",
-        description: "auto-approve safe commands, ask for risky ones",
+        description: "a reviewer clears the safe ones, you decide the rest",
     },
     {
         value: "full_access",
