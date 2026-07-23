@@ -515,6 +515,67 @@ test("session store rejects invalid model settings before writing", async () => 
     expect(readLines(path)).toHaveLength(1);
 });
 
+test("session names are append-only and clearing restores the fallback", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-23T12:00:00.000Z",
+            "2026-07-23T12:00:01.000Z",
+            "2026-07-23T12:00:02.000Z",
+        ),
+    });
+
+    await store.appendName("  Release planning  ");
+    expect(store.name()).toBe("Release planning");
+
+    await store.appendName(null);
+    expect(store.name()).toBeUndefined();
+    expect(readLines(path).slice(1)).toEqual([
+        {
+            type: "session_name",
+            timestamp: "2026-07-23T12:00:01.000Z",
+            name: "Release planning",
+        },
+        {
+            type: "session_name",
+            timestamp: "2026-07-23T12:00:02.000Z",
+            name: null,
+        },
+    ]);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.name()).toBeUndefined();
+});
+
+test("session names reject empty, oversized, and malformed values", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+
+    await expect(store.appendName("   ")).rejects.toThrow(
+        "Session name must be 1 to 200 UTF-8 bytes",
+    );
+    await expect(store.appendName("a".repeat(201))).rejects.toThrow(
+        "Session name must be 1 to 200 UTF-8 bytes",
+    );
+    expect(readLines(path)).toHaveLength(1);
+
+    appendFileSync(path, `${JSON.stringify({
+        type: "session_name",
+        timestamp: "2026-07-23T12:00:01.000Z",
+        name: 42,
+    })}\n`);
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 2 is not a valid session name entry",
+    );
+});
+
 test("permission records restore the latest mode outside message history", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

@@ -69,6 +69,12 @@ export interface SessionPermissionsEntry {
     readonly mode: ApprovalMode;
 }
 
+export interface SessionNameEntry {
+    readonly type: "session_name";
+    readonly timestamp: string;
+    readonly name: string | null;
+}
+
 export interface SessionCommandPrefixEntry {
     readonly type: "command_prefix";
     readonly timestamp: string;
@@ -144,6 +150,7 @@ interface LoadedSessionFile {
     readonly legacyDeliveryMessageIds: Map<string, string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
+    readonly nameEntries: SessionNameEntry[];
     readonly commandPrefixEntries: SessionCommandPrefixEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
     readonly agentFailure?: SessionAgentFailureEntry;
@@ -162,6 +169,7 @@ export class SessionStore {
     private readonly legacyDeliveryMessageIds: Map<string, string>;
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
+    private readonly nameEntries: SessionNameEntry[];
     private readonly commandPrefixEntries: SessionCommandPrefixEntry[];
     private readonly attachmentEntries: SessionAttachmentEntry[];
     private agentFailureEntry: SessionAgentFailureEntry | undefined;
@@ -181,6 +189,7 @@ export class SessionStore {
         this.legacyDeliveryMessageIds = loaded.legacyDeliveryMessageIds;
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
+        this.nameEntries = loaded.nameEntries;
         this.commandPrefixEntries = loaded.commandPrefixEntries;
         this.attachmentEntries = loaded.attachmentEntries;
         this.agentFailureEntry = loaded.agentFailure;
@@ -222,6 +231,7 @@ export class SessionStore {
                 legacyDeliveryMessageIds: new Map(),
                 modelSettingsEntries: [],
                 permissionsEntries: [],
+                nameEntries: [],
                 commandPrefixEntries: [],
                 attachmentEntries: [],
                 agentFailure: undefined,
@@ -299,6 +309,10 @@ export class SessionStore {
         return this.permissionsEntries.at(-1)?.mode;
     }
 
+    name(): string | undefined {
+        return this.nameEntries.at(-1)?.name ?? undefined;
+    }
+
     commandPrefixes(): readonly CommandPrefix[] {
         return this.commandPrefixEntries.map((entry) => ({
             tokens: [...entry.prefix.tokens],
@@ -360,6 +374,18 @@ export class SessionStore {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
             return this.commitApprovalMode(mode);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendName(name: string | null): Promise<SessionNameEntry> {
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitName(name);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -526,6 +552,22 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.permissionsEntries.push(entry);
+        return entry;
+    }
+
+    private async commitName(
+        requestedName: string | null,
+    ): Promise<SessionNameEntry> {
+        const name = requestedName === null
+            ? null
+            : validSessionName(requestedName);
+        const entry: SessionNameEntry = {
+            type: "session_name",
+            timestamp: this.now().toISOString(),
+            name,
+        };
+        await this.appendRecord(entry);
+        this.nameEntries.push(entry);
         return entry;
     }
 
@@ -771,6 +813,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const legacyDeliveryMessageIds = new Map<string, string>();
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
+    const nameEntries: SessionNameEntry[] = [];
     const commandPrefixEntries: SessionCommandPrefixEntry[] = [];
     const attachmentEntries: SessionAttachmentEntry[] = [];
     let agentFailure: SessionAgentFailureEntry | undefined;
@@ -920,6 +963,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "session_name") {
+            nameEntries.push(
+                parseSessionNameEntry(path, lineNumber, value),
+            );
+            continue;
+        }
         if (value.type === "command_prefix") {
             commandPrefixEntries.push(
                 parseCommandPrefixEntry(path, lineNumber, value),
@@ -1000,6 +1049,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         legacyDeliveryMessageIds,
         modelSettingsEntries,
         permissionsEntries,
+        nameEntries,
         commandPrefixEntries,
         attachmentEntries,
         agentFailure,
@@ -1245,6 +1295,33 @@ function parsePermissionsEntry(
     };
 }
 
+function parseSessionNameEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionNameEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || (
+            value.name !== null
+            && (
+                typeof value.name !== "string"
+                || !isValidSessionName(value.name)
+            )
+        )
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid session name entry`,
+        );
+    }
+    return {
+        type: "session_name",
+        timestamp: value.timestamp,
+        name: value.name,
+    };
+}
+
 function parseCommandPrefixEntry(
     path: string,
     lineNumber: number,
@@ -1481,6 +1558,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function jsonLine(value: object): string {
     return `${JSON.stringify(value)}\n`;
+}
+
+function validSessionName(value: string): string {
+    const name = value.trim();
+    if (!isValidSessionName(name)) {
+        throw new Error("Session name must be 1 to 200 UTF-8 bytes");
+    }
+    return name;
+}
+
+function isValidSessionName(value: string): boolean {
+    return value.length > 0
+        && value === value.trim()
+        && !value.includes("\0")
+        && Buffer.byteLength(value, "utf8") <= 200;
 }
 
 function nonEmpty(value: string, name: string): string {
