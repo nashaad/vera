@@ -154,6 +154,69 @@ test("the resident registry owns session name updates", async () => {
     }
 });
 
+test("the resident registry creates forked and cloned agents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-branch-"));
+    const sourcePath = join(root, "source.jsonl");
+    const registry = createRegistry(() => [
+        textResponse("first answer"),
+        textResponse("second answer"),
+    ]);
+
+    try {
+        const source = await registry.create({
+            id: "source",
+            workspace: root,
+            sessionPath: sourcePath,
+            eventLogPath: join(root, "source-events.jsonl"),
+        });
+        await runPrompt(source.attach(), "first prompt");
+        await runPrompt(source.attach(), "second prompt");
+        const sourceStore = await SessionStore.open(sourcePath);
+        const secondUser = sourceStore.activeEntries().find(
+            (entry) => entry.message.role === "user"
+                && entry.message.content.some(
+                    (content) => content.type === "text"
+                        && content.text === "second prompt",
+                ),
+        );
+
+        const fork = await registry.branch({
+            sourceId: "source",
+            position: "before",
+            entryId: secondUser?.id,
+            id: "fork",
+            sessionPath: join(root, "fork.jsonl"),
+            eventLogPath: join(root, "fork-events.jsonl"),
+        });
+        expect(fork?.agent.id).toBe("fork");
+        expect(fork?.prompt).toEqual({
+            role: "user",
+            content: [{ type: "text", text: "second prompt" }],
+        });
+        expect((await SessionStore.open(join(root, "fork.jsonl"))).messages())
+            .toEqual(sourceStore.messages().slice(0, 2));
+
+        const clone = await registry.branch({
+            sourceId: "source",
+            position: "at",
+            id: "clone",
+            sessionPath: join(root, "clone.jsonl"),
+            eventLogPath: join(root, "clone-events.jsonl"),
+        });
+        expect(clone?.agent.id).toBe("clone");
+        expect(clone?.prompt).toBeUndefined();
+        expect((await SessionStore.open(join(root, "clone.jsonl"))).messages())
+            .toEqual(sourceStore.messages());
+        expect(await registry.branch({
+            sourceId: "missing",
+            position: "at",
+        })).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a resident agent applies new model settings at the next turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-"));
     const faux = new FauxAdapter([

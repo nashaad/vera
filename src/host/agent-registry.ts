@@ -29,6 +29,8 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
+import { createSessionBranch } from "../store/session-branch.ts";
+import type { UserMessage } from "../model/types.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import { ImageAttachmentService } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
@@ -89,6 +91,20 @@ export interface CreateRegisteredAgentOptions {
 export interface ResumeRegisteredAgentOptions {
     readonly sessionPath: string;
     readonly eventLogPath?: string;
+}
+
+export interface BranchRegisteredAgentOptions {
+    readonly sourceId: string;
+    readonly position: "before" | "at";
+    readonly entryId?: string;
+    readonly id?: string;
+    readonly sessionPath?: string;
+    readonly eventLogPath?: string;
+}
+
+export interface BranchedRegisteredAgent {
+    readonly agent: ResidentAgent;
+    readonly prompt?: UserMessage;
 }
 
 interface InheritedAgentSettings {
@@ -171,6 +187,48 @@ export class AgentRegistry {
             return this.start(store, "interactive", options.eventLogPath);
         } finally {
             this.startingIds.delete(store.header.id);
+        }
+    }
+
+    async branch(
+        options: BranchRegisteredAgentOptions,
+    ): Promise<BranchedRegisteredAgent | undefined> {
+        const source = this.agents.get(options.sourceId);
+        if (
+            source === undefined
+            || source.agent.closed
+            || source.agent.failed
+            || source.agent.status !== "idle"
+        ) {
+            return undefined;
+        }
+        const id = options.id ?? randomUUID();
+        this.reserveId(id);
+        try {
+            const created = await createSessionBranch({
+                source: source.store,
+                destinationPath: options.sessionPath
+                    ?? this.options.sessionPathForId?.(id)
+                    ?? defaultSessionPath(id),
+                sessionId: id,
+                position: options.position,
+                ...(options.entryId === undefined
+                    ? {}
+                    : { entryId: options.entryId }),
+            });
+            this.requireOpen();
+            return {
+                agent: this.start(
+                    created.store,
+                    "interactive",
+                    options.eventLogPath,
+                ),
+                ...(created.prompt === undefined
+                    ? {}
+                    : { prompt: created.prompt }),
+            };
+        } finally {
+            this.startingIds.delete(id);
         }
     }
 
