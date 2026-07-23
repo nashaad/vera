@@ -45,6 +45,7 @@ test("TUI uses Vera colors by default", async () => {
     });
 
     expect(theme).toBe(VERA_TUI_THEME);
+    expect(theme.success).toBe("#B8B6D9");
 });
 
 test("TUI system theme falls back to Vera colors when detection fails", async () => {

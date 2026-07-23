@@ -43,6 +43,7 @@ import {
     renderTuiCommandSuggestions,
 } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
+import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { TuiBodyFocusController } from "./body-focus.ts";
 import {
     createTuiPermissionsConfirmView,
@@ -83,8 +84,11 @@ import {
     renderTuiQueuedPrompt,
     tuiEntryMarginTop,
 } from "./state.ts";
-import { resolveTuiTheme } from "./theme.ts";
+import { resolveTuiTheme, VERA_TUI_THEME } from "./theme.ts";
 import {
+    loadTuiActivityAnimationPreference,
+    loadTuiActivityAnimationIntervalPreference,
+    loadTuiActivityAnimationWidthPreference,
     loadTuiThemePreference,
     saveTuiThemePreference,
 } from "./theme-preference.ts";
@@ -98,7 +102,9 @@ const APPROVAL_HINT =
 // carries the waiting phase and the global interrupt.
 const QUESTION_HINT = "question waiting · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
-const PROGRESS_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const STATUS_REFRESH_INTERVAL_MS = 100;
+const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
+const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
@@ -205,6 +211,10 @@ export async function startTui(
         ?? ((text: string) => copyTuiText(text, renderer));
     renderer.setTerminalTitle("Vera");
     let themeName = loadTuiThemePreference();
+    let activityAnimation = loadTuiActivityAnimationPreference();
+    const activityAnimationInterval =
+        loadTuiActivityAnimationIntervalPreference();
+    const activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
     let theme = await resolveTuiTheme(renderer, themeName);
     applyTuiTheme(theme);
     renderer.setBackgroundColor(theme.background);
@@ -386,7 +396,7 @@ export async function startTui(
 
     const statusTimer = setInterval(() => {
         renderStatus();
-    }, 200);
+    }, STATUS_REFRESH_INTERVAL_MS);
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
         const copyableNodes = pendingUiRequest !== undefined
@@ -1360,7 +1370,7 @@ export async function startTui(
         } else if (pendingUiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
-            lifecycleHint = `${progressFrame()} ${activity} · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
+            lifecycleHint = `${activity} · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
         } else if (pendingImages.some((image) => image.id === undefined)) {
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
@@ -1376,13 +1386,34 @@ export async function startTui(
             : state.working || pendingUiRequest !== undefined
                 ? TUI_ACCENT
                 : TUI_MUTED;
-        statusText.content = renderTuiStatusLine(
+        const statusLine = renderTuiStatusLine(
             state.modelSettings,
             state.approvalMode,
             state.contextInputTokens,
             process.cwd(),
             statusNotice ?? lifecycleHint,
         );
+        statusText.content = state.working
+                && statusNotice === undefined
+                && pendingUiRequest === undefined
+                && !abortRequested
+            ? renderTuiActivityAnimation(
+                activityAnimation,
+                activityFrame(),
+                statusLine,
+                {
+                    active: TUI_ACCENT,
+                    // The trail is part of Vera's ActiveGrid identity, not a
+                    // success indicator inherited from the selected theme.
+                    trail: VERA_TUI_THEME.success,
+                    inactive: TUI_MUTED,
+                    text: state.approvalMode === "full_access"
+                        ? "#ff3b30"
+                        : TUI_ACCENT,
+                },
+                activityAnimationWidth,
+            )
+            : statusLine;
     }
 
     function observeActivity(update: AgentUpdate): void {
@@ -1433,9 +1464,12 @@ export async function startTui(
             : `${minutes}m${String(seconds).padStart(2, "0")}s`;
     }
 
-    function progressFrame(): string {
-        const index = Math.floor(Date.now() / 200) % PROGRESS_FRAMES.length;
-        return PROGRESS_FRAMES[index] ?? "⠋";
+    function activityFrame(): number {
+        const interval = activityAnimationInterval
+            ?? (activityAnimation === "symmetric_wave"
+                ? SYMMETRIC_WAVE_FRAME_INTERVAL_MS
+                : DEFAULT_ACTIVITY_FRAME_INTERVAL_MS);
+        return Math.floor(Date.now() / interval);
     }
 
 }
