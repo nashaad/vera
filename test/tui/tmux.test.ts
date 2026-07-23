@@ -211,6 +211,49 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "clone prepares a replacement session before detaching",
+    async () => {
+        const socket = `vera-clone-${process.pid}-${randomUUID()}`;
+        const session = "clone";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-clone-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-clone-session-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/clone");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "cloning session");
+            sendKey(socket, session, "C-c");
+            sendText(socket, session, "/clone");
+            sendKey(socket, session, "Enter");
+            expect(captureVisiblePane(socket, session))
+                .toContain("cloning session");
+            await waitForSessionExit(socket, session);
+            expect(readFileSync(
+                join(home, "clone-session-result.txt"),
+                "utf8",
+            )).toBe("cloned-session\ndetached\nattempts 1");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "resume picker selects another durable conversation",
     async () => {
         const socket = `vera-resume-${process.pid}-${randomUUID()}`;
