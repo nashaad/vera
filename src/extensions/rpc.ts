@@ -34,7 +34,7 @@ export interface ExtensionRpcHandlerContext {
 export type ExtensionRpcHandler = (
     params: JsonValue,
     context: ExtensionRpcHandlerContext,
-) => Promise<JsonValue>;
+) => Promise<unknown>;
 
 export interface ExtensionRpcRequestOptions {
     readonly timeoutMs: number;

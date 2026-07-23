@@ -12,6 +12,14 @@ import {
     ExtensionRpcRemoteError,
     type ExtensionRpcPeer,
 } from "./rpc.ts";
+import {
+    EXTENSION_COMMAND_RESULT_VERSION,
+    parseExtensionCommandBody,
+    parseExtensionCommandDeclarations,
+    type ExtensionCommandDeclaration,
+    type ExtensionCommandDescriptor,
+    type ExtensionCommandResult,
+} from "./commands.ts";
 
 export interface StartUserExtensionOptions {
     readonly loaded: LoadedExtensionManifest;
@@ -20,6 +28,7 @@ export interface StartUserExtensionOptions {
     readonly activationTimeoutMs: number;
     readonly disposeTimeoutMs: number;
     readonly terminateGraceMs: number;
+    readonly handlerTimeoutMs: number;
     readonly onDiagnostic?: (diagnostic: ExtensionDiagnostic) => void;
     readonly onFailure?: (failure: ExtensionRuntimeFailure) => void;
 }
@@ -37,7 +46,17 @@ export interface ExtensionRuntimeFailure {
 export interface RunningUserExtension {
     readonly id: string;
     readonly processId: number;
+    readonly commands: readonly ExtensionCommandDescriptor[];
+    invokeCommand(
+        name: string,
+        argumentsText: string,
+        options?: ExtensionCommandInvokeOptions,
+    ): Promise<ExtensionCommandResult>;
     dispose(): Promise<void>;
+}
+
+export interface ExtensionCommandInvokeOptions {
+    readonly signal?: AbortSignal;
 }
 
 export class ExtensionLoadError extends Error {
@@ -66,6 +85,9 @@ export async function startUserExtension(
     let activated = false;
     let disposal: Promise<void> | undefined;
     let unexpectedExit: ExtensionRpcRemoteError | undefined;
+    let declarations: readonly ExtensionCommandDeclaration[] = [];
+    let disposing = false;
+    const activeInvocations = new Set<AbortController>();
     const peer = createExtensionRpcPeer({
         input: child.stdout,
         output: child.stdin,
@@ -105,13 +127,25 @@ export async function startUserExtension(
         }, {
             timeoutMs: options.activationTimeoutMs,
         });
-        if (!isEmptyActivationResult(result)) {
+        const parsedDeclarations = parseActivationResult(result);
+        if (parsedDeclarations === undefined) {
             throw new Error("returned an invalid activation result");
+        }
+        if (
+            parsedDeclarations.length > 0
+            && !options.loaded.manifest.capabilities.includes(
+                "commands.register",
+            )
+        ) {
+            throw new Error(
+                "returned commands without declaring commands.register",
+            );
         }
         if (unexpectedExit !== undefined) {
             throw unexpectedExit;
         }
         activated = true;
+        declarations = parsedDeclarations;
     } catch (error) {
         intentionalExit = true;
         peer.close();
@@ -127,6 +161,65 @@ export async function startUserExtension(
     return {
         id: extensionId,
         processId: child.pid!,
+        commands: declarations.map((declaration) => ({
+            name: declaration.name,
+            description: declaration.spec.description,
+            usage: declaration.spec.usage,
+            source: extensionId,
+        })),
+        async invokeCommand(
+            name: string,
+            argumentsText: string,
+            invokeOptions: ExtensionCommandInvokeOptions = {},
+        ): Promise<ExtensionCommandResult> {
+            if (disposing || unexpectedExit !== undefined) {
+                throw new ExtensionRpcRemoteError(
+                    unexpectedExit?.code ?? "disposed",
+                    unexpectedExit?.message
+                        ?? `Extension ${extensionId} is disposing`,
+                );
+            }
+            const declaration = declarations.find(
+                (candidate) => candidate.name === name,
+            );
+            if (declaration === undefined) {
+                throw new Error(
+                    `Extension ${extensionId} has no command named ${name}`,
+                );
+            }
+            const controller = new AbortController();
+            const abort = (): void => controller.abort();
+            if (invokeOptions.signal?.aborted) {
+                controller.abort();
+            }
+            invokeOptions.signal?.addEventListener("abort", abort, {
+                once: true,
+            });
+            activeInvocations.add(controller);
+            try {
+                const value = await peer.request("invoke", {
+                    handlerId: declaration.handlerId,
+                    argumentsText,
+                }, {
+                    timeoutMs: options.handlerTimeoutMs,
+                    signal: controller.signal,
+                });
+                const body = parseExtensionCommandBody(value);
+                if (body === undefined) {
+                    throw new Error(
+                        `Extension ${extensionId}/${name} returned an invalid result`,
+                    );
+                }
+                return {
+                    version: EXTENSION_COMMAND_RESULT_VERSION,
+                    source: `${extensionId}/${name}`,
+                    body,
+                };
+            } finally {
+                activeInvocations.delete(controller);
+                invokeOptions.signal?.removeEventListener("abort", abort);
+            }
+        },
         dispose(): Promise<void> {
             disposal ??= dispose();
             return disposal;
@@ -138,6 +231,10 @@ export async function startUserExtension(
             throw new Error(
                 `Extension ${extensionId} cleanup failed: ${unexpectedExit.message}`,
             );
+        }
+        disposing = true;
+        for (const controller of activeInvocations) {
+            controller.abort();
         }
         let failure: unknown;
         try {
@@ -276,13 +373,16 @@ function waitForExit(
     });
 }
 
-function isEmptyActivationResult(
+function parseActivationResult(
     value: JsonValue,
-): value is { readonly handlers: readonly [] } {
-    return isPlainObject(value)
-        && Object.keys(value).length === 1
-        && Array.isArray(value.handlers)
-        && value.handlers.length === 0;
+): readonly ExtensionCommandDeclaration[] | undefined {
+    if (
+        !isPlainObject(value)
+        || Object.keys(value).length !== 1
+    ) {
+        return undefined;
+    }
+    return parseExtensionCommandDeclarations(value.handlers);
 }
 
 function isPlainObject(
