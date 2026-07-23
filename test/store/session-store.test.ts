@@ -656,6 +656,22 @@ test("session store rejects invalid permissions before writing", async () => {
     expect(readLines(path)).toHaveLength(1);
 });
 
+test("session store migrates the former automatic mode name", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    appendFileSync(path, `${JSON.stringify({
+        type: "permissions",
+        timestamp: "2026-07-23T12:00:01.000Z",
+        mode: "approve_for_me",
+    })}\n`);
+
+    expect((await SessionStore.open(path)).approvalMode()).toBe("auto");
+});
+
 test("command prefix grants survive reopening the durable session", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

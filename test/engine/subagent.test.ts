@@ -82,14 +82,14 @@ test("two real subagent effects overlap and create separate sessions", async () 
                 type: "spawn_subagent",
                 description: "slow child",
             }, signal, {
-                approvalMode: "approve_for_me",
+                approvalMode: "auto",
                 model: "test",
             }),
             applyEffect({
                 type: "spawn_subagent",
                 description: "fast child",
             }, signal, {
-                approvalMode: "approve_for_me",
+                approvalMode: "auto",
                 model: "test",
             }),
         ]);
@@ -147,7 +147,7 @@ test("subagent inherits the parent turn model and reasoning", async () => {
             type: "spawn_subagent",
             description: "use the selected model",
         }, new AbortController().signal, {
-            approvalMode: "approve_for_me",
+            approvalMode: "auto",
             model: "selected",
             reasoningEffort: "high",
         });
@@ -205,7 +205,7 @@ test("parent receives the real child final text as its tool result", async () =>
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "full_access",
         enabledToolEffects: ["spawn_subagent"],
         applyToolEffect: createSubagentEffectApplier({
             adapter,
@@ -259,7 +259,7 @@ test("a failed child model request returns an error tool result", async () => {
             type: "spawn_subagent",
             description: "fail before responding",
         }, new AbortController().signal, {
-            approvalMode: "approve_for_me",
+            approvalMode: "auto",
             model: "test",
         });
 
@@ -354,7 +354,7 @@ test("subagent uses fresh context, ordinary tools, and a durable session", async
             model: "test",
             description: "Trace the request path",
             workspace: root,
-            approvalMode: "approve_for_me",
+            approvalMode: "auto",
             sessionId: "child-1",
             sessionPath,
         });
@@ -409,7 +409,7 @@ test("an immediate parent abort stops before the child model call", async () => 
             model: "test",
             description: "do not start",
             workspace: root,
-            approvalMode: "approve_for_me",
+            approvalMode: "auto",
             sessionId: "child-early-abort",
             sessionPath: join(root, "child.jsonl"),
             signal: controller.signal,
@@ -452,7 +452,7 @@ test("aborting the parent signal cancels the child turn", async () => {
             model: "test",
             description: "Work until cancelled",
             workspace: root,
-            approvalMode: "approve_for_me",
+            approvalMode: "auto",
             sessionId: "child-abort",
             sessionPath,
             signal: controller.signal,

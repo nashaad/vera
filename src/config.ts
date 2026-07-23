@@ -9,7 +9,10 @@ import { join } from "node:path";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import type { ApprovalMode } from "./engine/permissions.ts";
+import {
+    parseApprovalMode,
+    type ApprovalMode,
+} from "./engine/permissions.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
@@ -24,7 +27,7 @@ export interface VeraModelFallbackConfig {
 }
 
 /**
- * Model used by the automatic approval reviewer in `approve_for_me`. Every
+ * Model used by the automatic approval reviewer in `auto`. Every
  * boundary crossing costs one of these calls, so it is configured separately
  * from the agent model rather than inheriting it.
  */
@@ -88,7 +91,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, optional approval_mode ask, approve_for_me, or full_access, and optional fallback with a different model and after_failures from 1 to 3. OpenAI Codex fallback requires reasoning_effort to be omitted.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3. OpenAI Codex fallback requires reasoning_effort to be omitted.`,
         );
     }
     return config;
@@ -138,6 +141,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const config = value as Record<string, unknown>;
     const fallback = parseModelFallback(config.fallback, config.model);
     const reviewer = parseReviewer(config.reviewer);
+    const approvalMode = config.approval_mode === undefined
+        ? "auto"
+        : parseApprovalMode(config.approval_mode);
     if (
         (config.reviewer !== undefined && reviewer === undefined)
         ||
@@ -154,10 +160,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && config.reasoning_effort !== "medium"
             && config.reasoning_effort !== "high"
             && config.reasoning_effort !== "max")
-        || (config.approval_mode !== undefined
-            && config.approval_mode !== "ask"
-            && config.approval_mode !== "approve_for_me"
-            && config.approval_mode !== "full_access")
+        || approvalMode === undefined
         || (config.fallback !== undefined && fallback === undefined)
         || (fallback !== undefined
             && config.provider === "openai-codex"
@@ -170,7 +173,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
         provider: config.provider ?? "openrouter",
         model: config.model.trim(),
-        approval_mode: config.approval_mode ?? "approve_for_me",
+        approval_mode: approvalMode,
         ...(config.reasoning_effort === undefined
             ? {}
             : { reasoning_effort: config.reasoning_effort }),

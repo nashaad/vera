@@ -20,7 +20,7 @@ test("Vera config loads the shared model choice", () => {
         schema_version: 1,
         provider: "openrouter",
         model: "anthropic/example-model",
-        approval_mode: "approve_for_me",
+        approval_mode: "auto",
     });
 });
 
@@ -38,7 +38,7 @@ test("Vera config selects OpenAI Codex", () => {
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         reasoning_effort: "off",
-        approval_mode: "approve_for_me",
+        approval_mode: "auto",
     });
 });
 
@@ -56,12 +56,12 @@ test("Vera config selects Ollama without an API key", () => {
         provider: "ollama",
         model: "gemma4:26b",
         reasoning_effort: "off",
-        approval_mode: "approve_for_me",
+        approval_mode: "auto",
     });
 });
 
 test("Vera config loads each approval mode", () => {
-    for (const approval_mode of ["ask", "approve_for_me", "full_access"] as const) {
+    for (const approval_mode of ["ask", "auto", "full_access"] as const) {
         const path = temporaryConfigPath();
         writeFileSync(path, JSON.stringify({
             schema_version: 1,
@@ -71,6 +71,17 @@ test("Vera config loads each approval mode", () => {
 
         expect(loadVeraConfig({ path }).approval_mode).toBe(approval_mode);
     }
+});
+
+test("Vera config migrates the former automatic mode name", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        approval_mode: "approve_for_me",
+    }));
+
+    expect(loadVeraConfig({ path }).approval_mode).toBe("auto");
 });
 
 test("Vera config loads an engine model fallback", () => {
@@ -164,7 +175,7 @@ test("Vera config rejects an unknown approval mode", () => {
     }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "optional approval_mode ask, approve_for_me, or full_access",
+        "optional approval_mode ask, auto, or full_access",
     );
 });
 
@@ -183,7 +194,7 @@ test("settings changes become defaults for newly created chats", () => {
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
         reasoning_effort: "max",
-        approval_mode: "approve_for_me",
+        approval_mode: "auto",
     }));
 
     expect(updateVeraConfigDefaults({

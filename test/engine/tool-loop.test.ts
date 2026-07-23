@@ -73,7 +73,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "full_access",
     };
 
     try {
@@ -169,7 +169,7 @@ test("the turn loop applies a subagent effect and returns its text", async () =>
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "full_access",
         enabledToolEffects: ["spawn_subagent"],
         async applyToolEffect(effect) {
             expect(effect).toEqual({
@@ -248,7 +248,7 @@ test("sibling subagents run concurrently and commit results in call order", asyn
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "full_access",
         enabledToolEffects: ["spawn_subagent"],
         async applyToolEffect(effect) {
             activeChildren += 1;

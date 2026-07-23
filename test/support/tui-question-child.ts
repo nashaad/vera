@@ -36,7 +36,7 @@ const client: TuiAgentClient = {
             updates.push({
                 type: "permissions",
                 requestId: command.requestId,
-                mode: "approve_for_me",
+                mode: "auto",
                 pending: false,
                 seq: seq++,
             });

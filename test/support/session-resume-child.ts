@@ -49,7 +49,7 @@ await runNdjsonBridge(
 function parseApprovalMode(value: string | undefined): ApprovalMode | undefined {
     if (
         value === "ask"
-        || value === "approve_for_me"
+        || value === "auto"
         || value === "full_access"
     ) {
         return value;

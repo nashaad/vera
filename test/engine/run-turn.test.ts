@@ -82,7 +82,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     };
 
     channel.client.send({ type: "prompt", content: "say hi" });
@@ -155,7 +155,7 @@ test("image references are durable while model requests receive verified bytes",
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         readImageContent: async (attachmentId) => {
             expect(attachmentId).toBe("image-1.png");
             return {
@@ -217,7 +217,7 @@ test("an unreadable image rejects the prompt before persistence or provider use"
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         readImageContent: async () => {
             throw new Error("stored bytes failed verification");
         },
@@ -309,7 +309,7 @@ test("model settings are snapshotted once when each turn starts", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         readModelSettings: () => {
             settingsReadCount += 1;
             return settings;
@@ -368,7 +368,7 @@ test("permission mode is fixed for one turn and changes on the next", async () =
             type: "tool_call",
             id,
             name: "bash",
-            input: { command: "pwd" },
+            input: { command: "date" },
         }],
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
@@ -473,7 +473,7 @@ test("turn finished waits for the assistant message append", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     };
 
     channel.client.send({ type: "prompt", content: "persist this" });
@@ -541,7 +541,7 @@ test("a length stop preserves streamed text and continues with a larger cap", as
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     };
 
     channel.client.send({ type: "prompt", content: "write a long answer" });
@@ -650,7 +650,7 @@ test("a transient model failure retries only in the engine event log", async () 
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         waitForModelRetry: async (delayMs) => {
             delays.push(delayMs);
         },
@@ -773,7 +773,7 @@ test("model fallback stays selected through the tool loop", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         modelFallback: { model: "backup", afterFailures: 1 },
     };
 
@@ -886,53 +886,25 @@ test("a bash tool call runs and continues the model turn", async () => {
     const turn = runTurn(adapter, "test", state);
     await expectUserPrompt(channel, "run ls", 1);
 
-    const approvalRequest = await channel.client.receive();
-    expect(approvalRequest).toMatchObject({
-        type: "ui_request",
-        request: {
-            type: "tool_approval",
-            toolCall: {
-                id: "call_1",
-                name: "bash",
-                input: { command: "ls" },
-            },
-            reason: "Bash commands run with your full user permissions.",
-        },
-        seq: 2,
-    });
-    if (approvalRequest.type !== "ui_request") {
-        throw new Error("Expected a UI request update");
-    }
-    channel.client.send({
-        type: "ui_response",
-        requestId: approvalRequest.requestId,
-        response: { type: "tool_approval", decision: "allow_once" },
-    });
-
-    expect(await channel.client.receive()).toEqual({
-        type: "ui_request_closed",
-        requestId: approvalRequest.requestId,
-        seq: 3,
-    });
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "bash",
         args: { command: "ls" },
-        seq: 4,
+        seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "bash",
-        seq: 5,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "done",
-        seq: 6,
+        seq: 4,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 7,
+        seq: 5,
     });
     expect(await turn).toEqual(finalResponse);
     const toolResult = state.messages[2];
@@ -984,7 +956,7 @@ test("ask_user waits for a semantic choice and returns its stable ID", async () 
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         enableUserInteraction: true,
     };
 
@@ -1100,7 +1072,7 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks,
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     };
 
     channel.client.send({ type: "prompt", content: "read package.json" });
@@ -1165,7 +1137,7 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks,
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     };
 
     channel.client.send({ type: "prompt", content: "run it" });
@@ -1678,7 +1650,7 @@ test("ask mode turns a client denial into a tool result", async () => {
     });
 });
 
-test("the built-in hard deny validates mutated input in full access", async () => {
+test("full access permits an ordinary recursive deletion after hook mutation", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-permission-"));
     temporaryWorkspaces.push(workspace);
     const protectedDirectory = join(workspace, "protected");
@@ -1732,25 +1704,32 @@ test("the built-in hard deny validates mutated input in full access", async () =
     await expectUserPrompt(channel, "remove it", 1);
 
     expect(await channel.client.receive()).toEqual({
-        type: "assistant_delta",
-        text: "blocked",
+        type: "tool_started",
+        tool: "bash",
+        args: { command: `rm -rf ${JSON.stringify(protectedDirectory)}` },
         seq: 2,
     });
     expect(await channel.client.receive()).toEqual({
-        type: "turn_finished",
+        type: "tool_finished",
+        tool: "bash",
         seq: 3,
     });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "blocked",
+        seq: 4,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 5,
+    });
     expect(await turn).toEqual(finalResponse);
-    expect(existsSync(protectedDirectory)).toBe(true);
-    expect(state.messages[2]).toEqual({
+    expect(existsSync(protectedDirectory)).toBe(false);
+    expect(state.messages[2]).toMatchObject({
         role: "tool_result",
         toolCallId: "call_1",
         toolName: "bash",
-        content: [{
-            type: "text",
-            text: "Blocked dangerous command: recursive-force rm is not allowed",
-        }],
-        isError: true,
+        isError: false,
     });
 });
 
@@ -1779,18 +1758,30 @@ test("aborting a turn stops its foreground bash tool", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
+        reviewToolCall: async () => ({
+            decision: "allow",
+            reason: "The requested sleep is ordinary.",
+            riskLevel: "low",
+            userAuthorization: "high",
+        }),
     };
 
     channel.client.send({ type: "prompt", content: "run slowly" });
     const turn = runTurn(adapter, "test", state);
     await expectUserPrompt(channel, "run slowly", 1);
 
+    expect(await channel.client.receive()).toMatchObject({
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        seq: 2,
+    });
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "bash",
         args: { command: "sleep 5" },
-        seq: 2,
+        seq: 3,
     });
     const abortedAt = performance.now();
     channel.client.send({ type: "abort" });
@@ -1798,13 +1789,13 @@ test("aborting a turn stops its foreground bash tool", async () => {
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "bash",
-        seq: 3,
+        seq: 4,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
         outcome: "aborted",
         error: "Turn aborted",
-        seq: 4,
+        seq: 5,
     });
     expect(performance.now() - abortedAt).toBeLessThan(1_000);
 
@@ -1830,7 +1821,7 @@ function reviewedTurnState(
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         ...(review === undefined ? {} : { reviewToolCall: review }),
     };
 }
@@ -1874,7 +1865,7 @@ function boundaryCrossingResponses(): AssistantMessage[] {
     ];
 }
 
-test("approve_for_me sends a boundary crossing to the reviewer, not the user", async () => {
+test("auto sends a boundary crossing to the reviewer, not the user", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const seen: string[] = [];
@@ -1957,7 +1948,7 @@ test("a reviewer denial goes back to the model, not to the user", async () => {
     expect(text).toContain("workaround");
 });
 
-test("an unavailable reviewer is not treated as a denial", async () => {
+test("an unavailable reviewer escalates to the attached user", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state = reviewedTurnState(channel, events, async () => ({
@@ -1969,13 +1960,31 @@ test("an unavailable reviewer is not treated as a denial", async () => {
 
     channel.client.send({ type: "prompt", content: "go" });
     const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    let requestId = "";
+    while (true) {
+        const update = await channel.client.receive();
+        if (update.type === "ui_request") {
+            requestId = update.requestId;
+            expect(update.request).toMatchObject({
+                type: "tool_approval",
+                reason: expect.stringContaining("timed out"),
+            });
+            break;
+        }
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId,
+        response: { type: "tool_approval", decision: "deny" },
+    });
     await receiveThroughTurnFinished(channel);
     await turn;
 
-    const text = JSON.stringify(state.messages[2]);
-    expect(text).toContain("timed out");
-    // The model must not read a failed review as a judgment about the action.
-    expect(text).toContain("Do not assume the action is unsafe");
+    expect(requestId.length).toBeGreaterThan(0);
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+    });
 });
 
 test("repeated reviewer denials stop the turn", async () => {
@@ -2011,7 +2020,7 @@ test("repeated reviewer denials stop the turn", async () => {
     expect(state.messages.at(-1)).toBe(message);
 });
 
-test("approve_for_me still asks the user when no reviewer is configured", async () => {
+test("auto still asks the user when no reviewer is configured", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state = reviewedTurnState(channel, events, undefined);

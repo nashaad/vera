@@ -363,7 +363,7 @@ function spawnSessionChild(
     sessionPath: string,
     eventLogPath?: string,
     cwd = process.cwd(),
-    approvalMode?: "ask" | "approve_for_me" | "full_access",
+    approvalMode?: "ask" | "auto" | "full_access",
 ) {
     return Bun.spawn(
         [

@@ -20,7 +20,7 @@ const host = await startResidentHost({
         schema_version: 1,
         provider: "openrouter",
         model: "faux/test",
-        approval_mode: "approve_for_me",
+        approval_mode: "auto",
     },
     createAdapter: () => new FauxAdapter([
         response("FIRST ANSWER"),

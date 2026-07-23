@@ -7,8 +7,8 @@ test("TUI status line shows host-reported model and reasoning", () => {
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
         contextWindow: 258_000,
-    }, "approve_for_me", 64_500, "/workspace", "ready")).toBe(
-        "ready · gpt-5.6-sol · reasoning high · /workspace · approve for me · ctx 25%",
+    }, "auto", 64_500, "/workspace", "ready")).toBe(
+        "ready · gpt-5.6-sol · reasoning high · /workspace · auto · ctx 25%",
     );
 });
 
@@ -26,8 +26,8 @@ test("TUI status starts known context windows at zero percent", () => {
         model: "gemma4:26b",
         reasoningEffort: "low",
         contextWindow: 131_072,
-    }, "approve_for_me", undefined, "/workspace", "ready")).toBe(
-        "ready · gemma4:26b · reasoning low · /workspace · approve for me · ctx 0%",
+    }, "auto", undefined, "/workspace", "ready")).toBe(
+        "ready · gemma4:26b · reasoning low · /workspace · auto · ctx 0%",
     );
 });
 

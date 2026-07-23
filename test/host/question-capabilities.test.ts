@@ -61,7 +61,7 @@ test("background resident agents do not expose ask_user", async () => {
                 );
         },
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "full_access",
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
         eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
     });
@@ -90,7 +90,7 @@ function registryWithAdapter(root: string, adapter: ModelAdapter): AgentRegistry
     return new AgentRegistry({
         createAdapter: () => adapter,
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "full_access",
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
         eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
     });

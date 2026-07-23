@@ -77,7 +77,7 @@ test("a turn fans out to updates and a per-session event log", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     };
 
     try {

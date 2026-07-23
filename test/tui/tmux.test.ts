@@ -659,7 +659,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("PARTIAL xxxxx");
             expect(pane).toContain("redirect now");
             expect(pane).not.toContain("FIRST-END");
-            expect(pane).toContain("approve for me · ctx 25%");
+            expect(pane).toContain("auto · ctx 25%");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
@@ -1031,7 +1031,7 @@ test.skipIf(!tmuxAvailable)(
             schema_version: 1,
             provider: "openrouter",
             model: "faux/test",
-            approval_mode: "approve_for_me",
+            approval_mode: "auto",
         })}\n`);
 
         try {

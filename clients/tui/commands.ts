@@ -28,7 +28,7 @@ export interface UpdateReasoningTuiCommandAction {
 
 export interface UpdatePermissionsTuiCommandAction {
     readonly type: "update_permissions";
-    readonly mode: "ask" | "approve_for_me" | "full_access";
+    readonly mode: "ask" | "auto" | "full_access";
 }
 
 export interface OpenModelPickerTuiCommandAction {
@@ -125,7 +125,7 @@ const REASONING_COMMAND = {
 const PERMISSIONS_COMMAND = {
     name: "permissions",
     description: "Change the session permission mode",
-    usage: "/permissions <ask|approve_for_me|full_access>",
+    usage: "/permissions <ask|auto|full_access>",
 } as const satisfies TuiCommandCatalogEntry;
 
 const THEMES_COMMAND = {
@@ -359,6 +359,6 @@ function isReasoningEffort(value: string): value is UpdateReasoningTuiCommandAct
 
 function isApprovalMode(value: string): value is UpdatePermissionsTuiCommandAction["mode"] {
     return value === "ask"
-        || value === "approve_for_me"
+        || value === "auto"
         || value === "full_access";
 }

@@ -63,7 +63,7 @@ test("the next real prompt drains a delivery preserved across restart", async ()
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     } satisfies RunTurnState;
 
     try {
@@ -127,7 +127,7 @@ test("a failed delivery append leaves live context unchanged", async () => {
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     };
     let modelCalled = false;
     const adapter: ModelAdapter = {
@@ -194,7 +194,7 @@ test("rewind redelivers an abandoned completion once on the new branch", async (
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     } satisfies RunTurnState;
 
     try {
@@ -240,7 +240,7 @@ test("rewind redelivers an abandoned completion once on the new branch", async (
             ),
             events: replacementEvents,
             hooks: new ToolHooks(),
-            approvalMode: "approve_for_me",
+            approvalMode: "auto",
         } satisfies RunTurnState;
         const replacementTurn = runTurn(adapter, "test", replacementState);
         await Bun.sleep(10);
