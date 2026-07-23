@@ -194,3 +194,28 @@ test("TUI composer keeps the caret at the end after setting text", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("Up recalls the last submitted message into an empty composer", async () => {
+    const setup = await createTestRenderer({
+        width: 40,
+        height: 8,
+        kittyKeyboard: true,
+    });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        composer.rememberSubmittedText("read the plan");
+        composer.clearComposer();
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("read the plan");
+        expect(composer.cursorOffset).toBe("read the plan".length);
+
+        composer.setComposerText("draft");
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("draft");
+    } finally {
+        setup.renderer.destroy();
+    }
+});

@@ -26,11 +26,13 @@ const responses: AssistantMessage[] = [
     },
     {
         role: "assistant",
-        content: [],
+        content: [{
+            type: "thinking",
+            text: "<tool_calls>not a structured call</tool_calls>",
+        }],
         source,
         usage: emptyUsage(),
-        stopReason: "error",
-        errorMessage: "rate limited after retries",
+        stopReason: "stop",
     },
     {
         role: "assistant",

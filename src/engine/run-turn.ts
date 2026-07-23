@@ -571,6 +571,7 @@ export async function runTurn(
                         : { wait: state.waitForModelRetry }),
                 },
             );
+            assistantMessage = requireVisibleTerminalResponse(assistantMessage);
             let preparedToolCalls: readonly PreparedToolCall[] = [];
             if (assistantMessage.stopReason === "tool_use") {
                 const prepared = await prepareAssistantToolCalls(
@@ -1030,6 +1031,25 @@ async function executePreparedTool(
     const result = toolResultMessage(toolCall, output);
     const durationMs = performance.now() - startedAt;
     return finishExecutedTool(state, toolCall, hookCall, result, durationMs);
+}
+
+function requireVisibleTerminalResponse(
+    message: AssistantMessage,
+): AssistantMessage {
+    if (
+        message.stopReason !== "stop"
+        || message.content.some((block) =>
+            block.type === "tool_call"
+            || (block.type === "text" && block.text.length > 0)
+        )
+    ) {
+        return message;
+    }
+    return {
+        ...message,
+        stopReason: "error",
+        errorMessage: "Model returned no visible response or structured tool call.",
+    };
 }
 
 async function resolvePermissionToolCall(

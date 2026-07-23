@@ -81,7 +81,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "Model error: rate limited after retries",
+                "Model error: Model returned no visible response or structured tool call.",
             );
             expect(pane).toContain("∗ read package.json");
 
@@ -93,6 +93,15 @@ test.skipIf(!tmuxAvailable)(
                 "RECOVERED AFTER ERROR",
             );
             expect(pane).toContain("try again");
+
+            sendKey(socket, session, "Up");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => occurrences(visible, "try again") >= 2,
+                "the last submitted message in the composer",
+            );
+            expect(occurrences(pane, "try again")).toBeGreaterThanOrEqual(2);
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
