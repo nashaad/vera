@@ -126,6 +126,34 @@ test("session names override and clear back to first-prompt titles", async () =>
     }
 });
 
+test("the resident registry owns session name updates", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-rename-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const registry = createRegistry(() => []);
+
+    try {
+        await registry.create({
+            id: "rename-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "events.jsonl"),
+        });
+
+        expect(await registry.updateSessionName("rename-agent", "  Work  "))
+            .toBe("Work");
+        expect(registry.list()[0]?.title).toBe("Work");
+        expect(await registry.updateSessionName("rename-agent", null))
+            .toBeNull();
+        expect(registry.list()[0]?.title).toBeUndefined();
+        expect((await SessionStore.open(sessionPath)).name()).toBeUndefined();
+        expect(await registry.updateSessionName("missing", "Ignored"))
+            .toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a resident agent applies new model settings at the next turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-"));
     const faux = new FauxAdapter([
