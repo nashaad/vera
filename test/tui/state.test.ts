@@ -403,7 +403,7 @@ test("TUI history and live prompts show attached images", () => {
     });
 });
 
-test("reviewer allow stays in the compact tool run and deny stands out", () => {
+test("reviewer decisions remain visible with their risk and authorization", () => {
     let state = createTuiState();
     state = applyAgentUpdate(state, {
         type: "tool_review",
@@ -425,8 +425,8 @@ test("reviewer allow stays in the compact tool run and deny stands out", () => {
     });
 
     expect(state.entries[0]).toEqual({
-        kind: "tool",
-        text: "∗ reviewer allowed bash (low risk):"
+        kind: "review",
+        text: "Auto review approved bash (risk: low, authorization: unknown):"
             + " Read-only listing of a sibling project.",
     });
     expect(state.entries[1]).toEqual({
@@ -434,4 +434,78 @@ test("reviewer allow stays in the compact tool run and deny stands out", () => {
         text: "Reviewer denied bash (critical risk):"
             + " Deletes files outside the workspace.",
     });
+});
+
+test("a matching history checkpoint preserves a live auto-review notice", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "user_prompt",
+        content: "run it",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        reason: "The command matches the request.",
+        riskLevel: "low",
+        userAuthorization: "high",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "printf done" },
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "assistant_delta",
+        text: "done",
+        seq: 4,
+    });
+
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "run it" },
+            {
+                kind: "tool",
+                tool: "bash",
+                args: { command: "printf done" },
+            },
+            { kind: "assistant", text: "done" },
+        ],
+        seq: 5,
+    });
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "review",
+        "tool",
+        "assistant",
+    ]);
+});
+
+test("a divergent history checkpoint drops stale auto-review notices", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        reason: "Allowed before rewind.",
+        riskLevel: "low",
+        userAuthorization: "high",
+        seq: 1,
+    });
+
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [{ kind: "user", text: "different history" }],
+        seq: 2,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "user",
+        text: "different history",
+    }]);
 });
