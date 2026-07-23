@@ -17,6 +17,7 @@ import {
 import {
     isApprovalMode,
     isCommandPrefix,
+    parseApprovalMode,
     type ApprovalMode,
     type CommandPrefix,
 } from "../engine/permissions.ts";
@@ -1319,10 +1320,8 @@ function parsePermissionsEntry(
     lineNumber: number,
     value: Record<string, unknown>,
 ): SessionPermissionsEntry {
-    if (
-        typeof value.timestamp !== "string"
-        || !isApprovalMode(value.mode)
-    ) {
+    const mode = parseApprovalMode(value.mode);
+    if (typeof value.timestamp !== "string" || mode === undefined) {
         throw invalidSession(
             path,
             `line ${lineNumber} is not a valid permissions entry`,
@@ -1331,7 +1330,7 @@ function parsePermissionsEntry(
     return {
         type: "permissions",
         timestamp: value.timestamp,
-        mode: value.mode,
+        mode,
     };
 }
 

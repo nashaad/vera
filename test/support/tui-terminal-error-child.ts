@@ -46,7 +46,7 @@ void runHeadlessLoop(
     new FauxAdapter(responses),
     "test",
     "off",
-    { approvalMode: "approve_for_me" },
+    { approvalMode: "auto" },
 );
 const client: TuiAgentClient = {
     async send(command): Promise<void> {

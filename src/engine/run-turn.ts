@@ -113,7 +113,7 @@ export interface RunTurnState {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readCommandPrefixes?: () => readonly CommandPrefix[];
-    /** Automatic approval reviewer used by `approve_for_me`. */
+    /** Automatic approval reviewer used by `auto`. */
     readonly reviewToolCall?: ReviewToolCall;
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
@@ -202,7 +202,7 @@ export async function runHeadlessLoop(
     }
     let localApprovalMode = store.approvalMode()
         ?? options.approvalMode
-        ?? "approve_for_me";
+        ?? "auto";
     const readApprovalMode = options.readApprovalMode
         ?? (() => localApprovalMode);
     const updateApprovalMode = options.updateApprovalMode
@@ -873,9 +873,17 @@ async function executePreparedTool(
     if (permission.behavior === "deny") {
         return { result: deniedToolResult(toolCall, permission.reason) };
     }
-    if (permission.behavior === "ask") {
-        let reviewed = false;
-        if (approvalMode === "approve_for_me" && state.reviewToolCall !== undefined) {
+    if (permission.behavior === "review") {
+        if (state.reviewToolCall === undefined) {
+            const approval = await state.inbound.requestToolApproval(
+                hookCall,
+                `${permission.reason} The automatic reviewer is unavailable.`,
+                { timeoutMs: TOOL_APPROVAL_TIMEOUT_MS, signal },
+            );
+            if (approval.behavior === "deny") {
+                return { result: deniedToolResult(toolCall, approval.reason) };
+            }
+        } else {
             const review = await state.reviewToolCall(
                 {
                     toolCall: hookCall,
@@ -893,11 +901,6 @@ async function executePreparedTool(
                 riskLevel: review.riskLevel,
                 userAuthorization: review.userAuthorization,
             });
-            // The reviewer's verdict is final within the turn: a denial goes
-            // back to the model, not to the user. The whole point of this mode
-            // is that the user is not asked, so re-asking on every denial would
-            // put the interruptions right back. The circuit breaker is what
-            // keeps a denied agent from grinding.
             if (review.decision === "deny") {
                 const interrupt = breaker.record("deny");
                 return {
@@ -909,35 +912,37 @@ async function executePreparedTool(
                 };
             }
             if (review.decision === "unavailable") {
-                // Not a verdict, so it is not recorded and the agent is told
-                // not to read it as one.
-                return {
-                    result: deniedToolResult(
-                        toolCall,
-                        `${review.reason}\n\n${REVIEW_TIMEOUT_INSTRUCTIONS}`,
-                    ),
-                };
+                const approval = await state.inbound.requestToolApproval(
+                    hookCall,
+                    `${permission.reason} ${review.reason}`,
+                    { timeoutMs: TOOL_APPROVAL_TIMEOUT_MS, signal },
+                );
+                if (approval.behavior === "deny") {
+                    return {
+                        result: deniedToolResult(toolCall, approval.reason),
+                    };
+                }
+            } else {
+                breaker.record("allow");
             }
-            breaker.record("allow");
-            reviewed = true;
         }
-        if (!reviewed) {
-            const askReason = permission.reason;
-            const commandPrefix = commandPrefixForToolCall(hookCall);
-            const approval = await state.inbound.requestToolApproval(
-                hookCall,
-                askReason,
-                {
-                    timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
-                    signal,
-                    ...(commandPrefix === undefined
-                        ? {}
-                        : { commandPrefix }),
-                },
-            );
-            if (approval.behavior === "deny") {
-                return { result: deniedToolResult(toolCall, approval.reason) };
-            }
+    }
+    if (permission.behavior === "ask") {
+        const askReason = permission.reason;
+        const commandPrefix = commandPrefixForToolCall(hookCall);
+        const approval = await state.inbound.requestToolApproval(
+            hookCall,
+            askReason,
+            {
+                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                signal,
+                ...(commandPrefix === undefined
+                    ? {}
+                    : { commandPrefix }),
+            },
+        );
+        if (approval.behavior === "deny") {
+            return { result: deniedToolResult(toolCall, approval.reason) };
         }
     }
 

@@ -23,7 +23,7 @@ interface DetachedHostResult {
             schema_version: 1,
             provider: "openrouter",
             model: "faux/test",
-            approval_mode: "approve_for_me",
+            approval_mode: "auto",
         })}\n`);
 
         try {

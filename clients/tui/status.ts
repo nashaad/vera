@@ -16,8 +16,8 @@ export function renderTuiStatusLine(
         : settings.reasoningEffort ?? "default";
     const permissions = approvalMode === "full_access"
         ? "FULL ACCESS · RED ZONE"
-        : approvalMode === "approve_for_me"
-            ? "approve for me"
+        : approvalMode === "auto"
+            ? "auto"
             : approvalMode ?? "permissions loading";
     const context = renderContextUsage(contextInputTokens, settings?.contextWindow);
     return `${message} · ${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${context}`;

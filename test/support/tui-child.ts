@@ -21,14 +21,14 @@ void runHeadlessLoop(
     "test",
     "high",
     {
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         readModelSettings: () => ({
             model: "test",
             reasoningEffort: "high",
             contextWindow: 100,
         }),
         updateModelSettings: async () => undefined,
-        readApprovalMode: () => "approve_for_me",
+        readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
     },
 );

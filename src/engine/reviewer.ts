@@ -9,7 +9,7 @@ import { renderReviewTranscript } from "./review-transcript.ts";
 
 /**
  * The automatic approval reviewer. When a tool call crosses the permission
- * boundary in `approve_for_me`, this decides instead of interrupting the user.
+ * boundary in `auto`, this decides instead of interrupting the user.
  *
  * It is deliberately not an agent session: it cannot execute anything and it
  * sees only the turn so far plus the proposed action. Every failure fails

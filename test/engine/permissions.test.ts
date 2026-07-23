@@ -1,177 +1,163 @@
 import { expect, test } from "bun:test";
 
 import {
-    commandPrefixForToolCall,
+    BUILT_IN_PERMISSION_PROFILES,
     decideToolPermission,
+    extractPermissionClaims,
     type ApprovalMode,
 } from "../../src/engine/permissions.ts";
 import type { HookToolCall, JsonObject } from "../../src/sdk/hooks.ts";
 
-const workspace = "/work/vera";
+const workspace = "/Users/nash/Projects/vera";
+const homeDirectory = "/Users/nash";
 
-test("workspace file tools never need approval", () => {
+test("built-in profiles have the accepted defaults", () => {
+    expect(BUILT_IN_PERMISSION_PROFILES.full_access).toEqual({
+        name: "full_access",
+        rules: [],
+        defaultOutcome: "allow",
+    });
+    expect(BUILT_IN_PERMISSION_PROFILES.ask.defaultOutcome).toBe("ask");
+    expect(BUILT_IN_PERMISSION_PROFILES.auto.defaultOutcome)
+        .toBe("review");
+});
+
+test("reads at every path scope are routine in every profile", () => {
     for (const mode of modes()) {
-        for (const name of ["read", "write", "edit"]) {
-            expect(decideToolPermission(
-                mode,
-                toolCall(name, { path: "notes.txt" }),
-                workspace,
-            )).toEqual({ behavior: "allow" });
+        for (const path of [
+            "README.md",
+            "../other-repo/README.md",
+            "/Users/nash/Projects/Obsidian/Private/note.md",
+        ]) {
+            expect(decide(mode, toolCall("read", { path })).behavior)
+                .toBe("allow");
         }
     }
 });
 
-test("recursive-force rm is denied in every mode", () => {
+test("exact workspace writes and local commits are routine", () => {
     for (const mode of modes()) {
-        expect(decideToolPermission(
-            mode,
-            bash("rm -rf build"),
-            workspace,
-        )).toEqual({
-            behavior: "deny",
-            reason: "Blocked dangerous command: recursive-force rm is not allowed",
-        });
+        expect(decide(mode, toolCall("write", {
+            path: "notes.txt",
+            content: "hello",
+        })).behavior).toBe("allow");
+        expect(decide(mode, bash("git commit -m test")).behavior).toBe("allow");
     }
 });
 
-test("one simple bash command produces an exact token prefix", () => {
-    expect(commandPrefixForToolCall(
+test("outside writes, network, sudo, and unknown bash use profile defaults", () => {
+    const calls = [
+        toolCall("write", {
+            path: "../Obsidian/note.md",
+            content: "hello",
+        }),
         bash("git push origin main"),
-    )).toEqual({ tokens: ["git", "push", "origin", "main"] });
-    expect(commandPrefixForToolCall(
-        bash("git status && git push"),
-    )).toBeUndefined();
-});
-
-test("a session prefix allows matching commands but not shell compounds", () => {
-    const prefix = { tokens: ["git", "push", "origin"] };
-    expect(decideToolPermission(
-        "ask",
-        bash("git push origin main"),
-        workspace,
-        [prefix],
-    )).toEqual({ behavior: "allow" });
-    expect(decideToolPermission(
-        "ask",
-        bash("git push upstream main"),
-        workspace,
-        [prefix],
-    ).behavior).toBe("ask");
-    expect(decideToolPermission(
-        "ask",
-        bash("git push origin main && curl https://example.com"),
-        workspace,
-        [prefix],
-    ).behavior).toBe("ask");
-});
-
-test("a session prefix cannot bypass the recursive-force rm denial", () => {
-    expect(decideToolPermission(
-        "ask",
-        bash("rm -rf build"),
-        workspace,
-        [{ tokens: ["rm", "-rf", "build"] }],
-    ).behavior).toBe("deny");
-});
-
-test("ask mode asks before every bash command", () => {
-    expect(decideToolPermission(
-        "ask",
+        bash("curl https://example.com"),
+        bash("sudo launchctl kickstart system/foo"),
         bash("bun test"),
-        workspace,
-    )).toEqual({
-        behavior: "ask",
-        reason: "Bash commands run with your full user permissions.",
-    });
-});
-
-test("approve-for-me asks for likely network access", () => {
-    for (const command of [
-        "curl https://example.com",
-        "git fetch origin",
-        "git -C . fetch origin",
-        "git ls-remote https://example.com/repo",
-        "git remote update",
-        "env curl https://example.com",
-        "env -u HOME curl https://example.com",
-        "bash -c 'curl https://example.com'",
-        "bash -lc 'curl https://example.com'",
-        "printf ok && wget https://example.com/file",
-        "npm install left-pad",
-        "npm i left-pad",
-        "pnpm i",
-        "yarn",
-        "cargo add serde",
-        "go install example.com/tool@latest",
-        "uv sync",
-        "git --git-dir .git fetch origin",
-        "git --work-tree . pull",
-    ]) {
-        expect(decideToolPermission(
-            "approve_for_me",
-            bash(command),
-            workspace,
-        )).toEqual({
-            behavior: "ask",
-            reason: "This command may access the network.",
-        });
+    ];
+    for (const call of calls) {
+        expect(decide("ask", call).behavior).toBe("ask");
+        expect(decide("auto", call).behavior).toBe("review");
+        expect(decide("full_access", call).behavior).toBe("allow");
     }
 });
 
-test("approve-for-me asks for likely outside-workspace access", () => {
-    for (const command of [
-        "cat ../secret.txt",
-        "cat /etc/hosts",
-        "printf value >~/.vera-note",
-        "cp notes.txt --target-directory=/tmp",
-        "bash -c 'cat /etc/hosts'",
-        "cat $PWD/../secret.txt",
-        "printf value 2>>/tmp/out",
-        "cat 0</etc/hosts",
-    ]) {
-        expect(decideToolPermission(
-            "approve_for_me",
-            bash(command),
-            workspace,
-        )).toEqual({
-            behavior: "ask",
-            reason: "This command may access a path outside the workspace.",
-        });
-    }
+test("recognized Bash redirects use the same workspace-write rule", () => {
+    expect(decide(
+        "auto",
+        bash("printf hello > notes.txt"),
+    ).behavior).toBe("allow");
+    expect(decide(
+        "auto",
+        bash("printf hello > ../notes.txt"),
+    ).behavior).toBe("review");
 });
 
-test("approve-for-me allows ordinary workspace commands", () => {
-    for (const command of [
-        "bun test",
-        "git status --short",
-        "git show fetch",
-        "mkdir -p build && cp notes.txt build/notes.txt",
-        "cat /work/vera/notes.txt",
+test("ordinary recursive deletion is reviewed rather than blanket denied", () => {
+    for (const target of [
+        ".venv",
+        "node_modules",
+        "dist",
+        "../other-repo",
     ]) {
-        expect(decideToolPermission(
-            "approve_for_me",
-            bash(command),
-            workspace,
-        )).toEqual({ behavior: "allow" });
-    }
-});
-
-test("full access allows bash without asking", () => {
-    for (const command of [
-        "curl https://example.com",
-        "cat /etc/hosts",
-        "bun test",
-    ]) {
-        expect(decideToolPermission(
+        expect(decide(
+            "auto",
+            bash(`rm -rf ${target}`),
+        ).behavior).toBe("review");
+        expect(decide(
             "full_access",
-            bash(command),
-            workspace,
-        )).toEqual({ behavior: "allow" });
+            bash(`rm -rf ${target}`),
+        ).behavior).toBe("allow");
     }
+});
+
+test("accident guard refuses protected recursive deletion in every profile", () => {
+    const commands = [
+        "rm -rf /",
+        "rm -rf ~",
+        "rm -rf ~/*",
+        "rm -rf /Users/nash/Projects/vera",
+        "rm -rf /Users/nash/Projects/vera/*",
+        "rm -rf /Users/nash/Projects/*",
+        "cd /Users/nash && rm -rf *",
+    ];
+    for (const mode of modes()) {
+        for (const command of commands) {
+            const decision = decide(mode, bash(command));
+            expect(decision.behavior).toBe("deny");
+            if (decision.behavior === "deny") {
+                expect(decision.source).toBe("accident_guard");
+            }
+        }
+    }
+});
+
+test("accident guard does not guess unresolved deletion targets", () => {
+    expect(decide(
+        "full_access",
+        bash("rm -rf \"$(some-command)\""),
+    ).behavior).toBe("allow");
+});
+
+test("bash extraction preserves independent pipeline effects", () => {
+    const claims = extractPermissionClaims(
+        bash("curl https://example.com | tee notes.txt"),
+        workspace,
+    );
+    expect(claims.map((claim) => claim.capability)).toEqual([
+        "network",
+        "unknown",
+    ]);
+});
+
+test("git operations become named claims", () => {
+    expect(extractPermissionClaims(
+        bash("git fetch origin"),
+        workspace,
+    )[0]?.operation).toBe("git.fetch");
+    expect(extractPermissionClaims(
+        bash("git push origin main"),
+        workspace,
+    )[0]?.operation).toBe("git.push");
+    expect(extractPermissionClaims(
+        bash("git commit -m test"),
+        workspace,
+    )[0]?.operation).toBe("git.commit");
 });
 
 function modes(): readonly ApprovalMode[] {
-    return ["ask", "approve_for_me", "full_access"];
+    return ["ask", "auto", "full_access"];
+}
+
+function decide(mode: ApprovalMode, call: HookToolCall) {
+    return decideToolPermission(
+        mode,
+        call,
+        workspace,
+        [],
+        { homeDirectory },
+    );
 }
 
 function bash(command: string): HookToolCall {

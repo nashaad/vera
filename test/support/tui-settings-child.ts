@@ -22,7 +22,7 @@ void runHeadlessLoop(
     "test",
     reasoningEffort,
     {
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         readModelSettings: () => ({ model: "test", reasoningEffort }),
         updateModelSettings: async (patch) => {
             if (patch.reasoningEffort !== undefined) {
@@ -30,8 +30,8 @@ void runHeadlessLoop(
             }
             return { model: "test", reasoningEffort };
         },
-        readApprovalMode: () => "approve_for_me",
-        updateApprovalMode: async () => "approve_for_me",
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => "auto",
     },
 );
 

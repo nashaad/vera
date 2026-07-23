@@ -31,7 +31,7 @@ updates.push({
 updates.push({
     type: "permissions",
     requestId: "permissions-after-approval",
-    mode: "approve_for_me",
+    mode: "auto",
     pending: false,
     seq: 2,
 });

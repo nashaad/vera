@@ -104,8 +104,8 @@ const REASONING_OPTIONS: readonly TuiSettingsPickerOption[] = [
 const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "ask", label: "Ask", description: "ask before every bash command" },
     {
-        value: "approve_for_me",
-        label: "Approve for me",
+        value: "auto",
+        label: "Auto",
         description: "a reviewer clears the safe ones, you decide the rest",
     },
     {

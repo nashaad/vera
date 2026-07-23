@@ -20,7 +20,7 @@ const config = {
     schema_version: 1,
     provider: "openrouter",
     model: "faux/test",
-    approval_mode: "approve_for_me",
+    approval_mode: "auto",
 } as const;
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(

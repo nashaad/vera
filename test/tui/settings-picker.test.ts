@@ -178,7 +178,7 @@ test("model picker keeps the current model selected", async () => {
         "model",
         "z-ai/glm-5.2",
         "high",
-        "approve_for_me",
+        "auto",
         undefined,
         availableModels,
         "default",
@@ -203,7 +203,7 @@ test("model picker filters its choices as the user types", async () => {
         "model",
         "moonshotai/kimi-k3",
         "max",
-        "approve_for_me",
+        "auto",
         undefined,
         availableModels,
         "default",
@@ -237,7 +237,7 @@ test("model picker distinguishes the same model id across providers", async () =
         "model",
         "moonshotai/kimi-k3",
         "off",
-        "approve_for_me",
+        "auto",
         undefined,
         models,
         "default",
@@ -266,7 +266,7 @@ test("every settings picker filters as the user types", async () => {
         "reasoning",
         "z-ai/glm-5.2",
         "high",
-        "approve_for_me",
+        "auto",
     );
     const filteredReasoning = handleTuiSettingsPickerKey(reasoning, {
         name: "m",
@@ -278,7 +278,7 @@ test("every settings picker filters as the user types", async () => {
         "permissions",
         "z-ai/glm-5.2",
         "high",
-        "approve_for_me",
+        "auto",
     );
     let filteredPermissions = permissions;
     for (const name of "full") {
@@ -297,7 +297,7 @@ test("Kimi reasoning picker only offers its supported max effort", () => {
         "reasoning",
         "moonshotai/kimi-k3",
         "low",
-        "approve_for_me",
+        "auto",
         ["max"],
     );
     const selected = handleTuiSettingsPickerKey(reasoning, { name: "enter" });
@@ -313,7 +313,7 @@ test("GLM reasoning picker only offers its supported max effort", () => {
         "reasoning",
         "z-ai/glm-5.2",
         "off",
-        "approve_for_me",
+        "auto",
         ["max"],
     );
 
@@ -327,7 +327,7 @@ test("settings picker selects permissions with arrows", () => {
         "permissions",
         "moonshotai/kimi-k3",
         "max",
-        "approve_for_me",
+        "auto",
     );
     const fullAccess = handleTuiSettingsPickerKey(
         permissions,
@@ -347,7 +347,7 @@ test("escape closes the settings picker", () => {
         "reasoning",
         "moonshotai/kimi-k3",
         "max",
-        "approve_for_me",
+        "auto",
     );
 
     expect(handleTuiSettingsPickerKey(state, { name: "escape" })).toEqual({

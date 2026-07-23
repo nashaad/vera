@@ -93,7 +93,7 @@ test("session trash accepts only idle unattached non-current sessions", async ()
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         trashSessionArtifacts: async (artifacts) => {
             moved.push([
                 artifacts.sessionPath,
@@ -145,7 +145,7 @@ test("failed session trash restores an available resident agent", async () => {
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         trashSessionArtifacts: () =>
             Promise.reject(new Error("trash unavailable")),
     });
@@ -319,7 +319,7 @@ test("a resident agent applies new model settings at the next turn", async () =>
         createAdapter: () => adapter,
         model: "first-model",
         reasoningEffort: "low",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 
     try {
@@ -409,7 +409,7 @@ test("accepted settings become defaults for new agents in the live host", async 
         provider: "openrouter",
         model: "first-model",
         reasoningEffort: "low",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 
     try {
@@ -454,7 +454,7 @@ test("switching models chooses the strongest supported reasoning fallback", asyn
         provider: "openrouter",
         model: "first-model",
         reasoningEffort: "medium",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 
     try {
@@ -504,7 +504,7 @@ test("a registry resumes the same resident agent from its session", async () => 
         }),
         model: "resumed-default",
         reasoningEffort: "medium",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
     try {
         const resumed = await resumedRegistry.resume({
@@ -567,7 +567,7 @@ test("a resumed agent restores its latest durable model settings", async () => {
         createAdapter: () => new FauxAdapter([textResponse("unused")]),
         model: "first-default",
         reasoningEffort: "low",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 
     try {
@@ -609,7 +609,7 @@ test("a resumed agent restores its latest durable model settings", async () => {
         }),
         model: "new-global-default",
         reasoningEffort: "medium",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
     try {
         const resumed = await resumedRegistry.resume({
@@ -704,58 +704,6 @@ test("a resumed agent restores its durable permissions", async () => {
     }
 });
 
-test("a resumed agent restores a session command prefix grant", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-agent-prefix-resume-"));
-    const sessionPath = join(root, "agent.jsonl");
-    const firstRegistry = new AgentRegistry({
-        createAdapter: () => new FauxAdapter(bashScript("first")),
-        model: "faux/test",
-        approvalMode: "ask",
-    });
-
-    try {
-        const original = await firstRegistry.create({
-            id: "durable-prefix-agent",
-            workspace: root,
-            sessionPath,
-            eventLogPath: join(root, "first-events.jsonl"),
-        });
-        const attachment = original.attach();
-        expect((await attachment.receive()).type).toBe("history");
-        attachment.send({ type: "prompt", content: "first turn" });
-        const approval = await receiveToolApproval(attachment);
-        expect(approval.request.commandPrefix).toEqual({ tokens: ["pwd"] });
-        attachment.send({
-            type: "ui_response",
-            requestId: approval.requestId,
-            response: { type: "tool_approval", decision: "allow_prefix" },
-        });
-        await receiveTurnFinished(attachment);
-        expect((await SessionStore.open(sessionPath)).commandPrefixes())
-            .toEqual([{ tokens: ["pwd"] }]);
-    } finally {
-        await firstRegistry.close();
-    }
-
-    const resumedRegistry = new AgentRegistry({
-        createAdapter: () => new FauxAdapter(bashScript("resumed")),
-        model: "faux/test",
-        approvalMode: "ask",
-    });
-    try {
-        const resumed = await resumedRegistry.resume({
-            sessionPath,
-            eventLogPath: join(root, "resumed-events.jsonl"),
-        });
-        const attachment = resumed.attach();
-        expect((await attachment.receive()).type).toBe("history");
-        await expectPromptFinishesWithoutApproval(attachment, "resumed turn");
-    } finally {
-        await resumedRegistry.close();
-        await rm(root, { recursive: true, force: true });
-    }
-});
-
 test("a failed settings append leaves the live selection unchanged", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-failure-"));
     const sessionPath = join(root, "agent.jsonl");
@@ -764,7 +712,7 @@ test("a failed settings append leaves the live selection unchanged", async () =>
         createAdapter: () => new FauxAdapter([textResponse("unused")]),
         model: "stable-model",
         reasoningEffort: "low",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 
     try {
@@ -930,7 +878,7 @@ test("a background agent returns immediately and delivers its final summary", as
             ], { delayMs: 100 });
         },
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
         eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
     });
@@ -1073,7 +1021,7 @@ test("an adapter construction failure does not register an agent", async () => {
             throw new Error("adapter unavailable");
         },
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 
     try {
@@ -1107,7 +1055,7 @@ test("a restarted registry replays a durable resident failure", async () => {
             return new FauxAdapter([textResponse("must not run")]);
         },
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 
     try {
@@ -1298,7 +1246,7 @@ function createRegistry(script: () => AssistantMessage[]): AgentRegistry {
     return new AgentRegistry({
         createAdapter: () => new FauxAdapter(script()),
         model: "faux/test",
-        approvalMode: "approve_for_me",
+        approvalMode: "auto",
     });
 }
 
