@@ -65,7 +65,7 @@ import {
     type CommandPrefix,
 } from "./permissions.ts";
 import {
-    createToolReviewer,
+    createRoutedToolReviewer,
     type ReviewToolCall,
     type ToolReviewerSettings,
 } from "./reviewer.ts";
@@ -271,31 +271,31 @@ export async function runHeadlessLoop(
     let activeReviewer: { key: string; review: ReviewToolCall } | undefined;
     const reviewToolCall: ReviewToolCall = options.reviewToolCall
         ?? ((request, signal) => {
-            const settings = options.reviewer
-                ?? options.readModelSettings?.()
-                ?? { model, ...(reasoningEffort === undefined
-                    ? {}
-                    : { reasoningEffort }) };
+            const configured = options.reviewer;
+            const current = options.readModelSettings?.()
+                ?? {
+                    model,
+                    ...(reasoningEffort === undefined
+                        ? {}
+                        : { reasoningEffort }),
+                };
+            const models = configured?.models ?? [current];
             const key = JSON.stringify([
-                settings.provider,
-                settings.model,
-                settings.reasoningEffort,
+                models,
+                configured?.policy,
+                configured?.timeoutMs,
             ]);
             if (activeReviewer?.key !== key) {
                 activeReviewer = {
                     key,
-                    review: createToolReviewer({
-                        adapter,
-                        model: settings.model,
-                        ...(settings.provider === undefined
+                    review: createRoutedToolReviewer(adapter, {
+                        models,
+                        ...(configured?.policy === undefined
                             ? {}
-                            : { provider: settings.provider }),
-                        ...(settings.reasoningEffort === undefined
+                            : { policy: configured.policy }),
+                        ...(configured?.timeoutMs === undefined
                             ? {}
-                            : { reasoningEffort: settings.reasoningEffort }),
-                        ...(options.reviewer?.timeoutMs === undefined
-                            ? {}
-                            : { timeoutMs: options.reviewer.timeoutMs }),
+                            : { timeoutMs: configured.timeoutMs }),
                     }),
                 };
             }
@@ -366,7 +366,6 @@ export async function runTurn(
             ?? state.approvalMode;
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
-        // Per turn, matching codex: a fresh prompt is a fresh chance.
         const reviewBreaker = createReviewCircuitBreaker();
         const tools = toolDefinitionsForCapabilities(
             state.applyToolEffect === undefined
@@ -628,17 +627,6 @@ export async function runTurn(
                     activeModel,
                     interrupt,
                 );
-                // Committed, not just emitted. Without this the session ends
-                // at the denied tool result, so a reconnect or a replay cannot
-                // see that the breaker stopped anything.
-                //
-                // It stays out of the next model request, because
-                // `transformMessages` drops assistant messages that stopped on
-                // an error. That matches codex, which reports the interrupt as
-                // a UI warning event and aborts the turn without writing it
-                // into the conversation. The model already has the denied tool
-                // results, which is the part that should shape what it does
-                // next; the count of denials is the user's business.
                 await commitMessage(state, assistantMessage);
                 break;
             }
@@ -723,22 +711,12 @@ function escapeXml(value: string): string {
         .replaceAll("'", "&apos;");
 }
 
-/**
- * Told to the model when the reviewer denies, so it stops rather than routing
- * around the denial. Adapted from `GUARDIAN_REJECTION_INSTRUCTIONS` in
- * openai/codex (Apache-2.0), `codex-rs/core/src/guardian/review.rs`.
- */
 const REVIEW_REJECTION_INSTRUCTIONS =
     "Do not attempt to achieve the same outcome via workaround, indirect"
     + " execution, or policy circumvention. Proceed only with a materially safer"
     + " alternative, or if the user explicitly approves the action after being"
     + " informed of the risk. Otherwise, stop and request user input.";
 
-/**
- * Told to the model when the reviewer never answered, so it does not read a
- * failed review as a judgment. Adapted from `GUARDIAN_TIMEOUT_INSTRUCTIONS` in
- * openai/codex (Apache-2.0), `codex-rs/core/src/guardian/review.rs`.
- */
 const REVIEW_TIMEOUT_INSTRUCTIONS =
     "The automatic permission approval review did not finish. Do not assume the"
     + " action is unsafe on that basis. You may retry once, or ask the user for"
