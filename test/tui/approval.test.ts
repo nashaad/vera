@@ -38,7 +38,9 @@ test("TUI approval shows the exact command and honest warning", () => {
         "",
         "Session prefix: $ curl https://example.com",
         "",
-        "[1]once [2]prefix [3/esc]deny",
+        "1  Allow once",
+        "2  Allow this command prefix  $ curl https://example.com",
+        "3  Deny  esc",
     ].join("\n"));
 });
 
@@ -68,7 +70,9 @@ test("TUI approval disables session prefix for compound commands", () => {
     };
     expect(createTuiApprovalResponse(withoutPrefix, { name: "2" }))
         .toBeUndefined();
-    expect(renderTuiApproval(withoutPrefix)).toContain("[2]n/a");
+    expect(renderTuiApproval(withoutPrefix)).toContain(
+        "2  Allow this command prefix  not available for this command",
+    );
 });
 
 test("TUI approval closes only for its matching request ID", () => {
@@ -102,7 +106,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         let frame = setup.captureCharFrame();
         expect(frame).toContain("Tool approval");
         expect(frame).toContain("$ grep");
-        expect(frame).toContain("[1]once");
+        expect(frame).toContain("1  Allow once");
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
         expect(view.box.zIndex).toBe(20);
         expect(view.actions.screenY).toBeLessThan(18);
@@ -112,7 +116,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         frame = setup.captureCharFrame();
         expect(frame).toContain("Tool approval");
         expect(frame).toContain("$ grep");
-        expect(frame).toContain("[1]once");
+        expect(frame).toContain("1  Allow once");
         expect(view.actions.screenY).toBeLessThan(10);
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(9);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
@@ -123,15 +127,14 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(view.details.scrollTop).toBeGreaterThan(0);
         expect(view.actions.screenY).toBe(actionsY);
         expect(setup.captureCharFrame()).toContain(
-            "[1]once",
+            "1  Allow once",
         );
 
         setup.resize(24, 6);
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(frame).toContain("[1]once");
-        expect(frame).toContain("[3/esc]");
-        expect(frame).toContain("deny");
+        expect(frame).toContain("1  Allow once");
+        expect(frame).toContain("3  Deny");
         expect(view.actions.screenY + view.actions.height).toBeLessThanOrEqual(5);
     } finally {
         setup.renderer.destroy();
@@ -173,7 +176,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         expect(view.box.height).toBeLessThanOrEqual(16);
         expect(view.box.screenY + view.box.height).toBe(17);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
-        expect(setup.captureCharFrame()).toContain("[1]once");
+        expect(setup.captureCharFrame()).toContain("1  Allow once");
     } finally {
         setup.renderer.destroy();
     }

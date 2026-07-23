@@ -1267,7 +1267,6 @@ export async function startTui(
         composer.cursorColor = theme.accent;
         approvalView.box.backgroundColor = theme.panel;
         approvalView.detailsText.fg = theme.text;
-        approvalView.actions.fg = theme.text;
         questionView.box.backgroundColor = theme.panel;
         questionView.detailsText.fg = theme.text;
         questionView.choiceAction.fg = theme.muted;

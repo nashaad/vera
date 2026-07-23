@@ -11,12 +11,20 @@ import type {
     UiResponseCommand,
 } from "../../src/engine/protocol.ts";
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
-import { TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
-import { dialogHeaderNode } from "./dialog-chrome.ts";
+import { TUI_PANEL, TUI_TEXT } from "./state.ts";
+import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
 
-const APPROVAL_ACTIONS = "[1]once [2]prefix [3/esc]deny";
-const APPROVAL_ACTIONS_WITHOUT_PREFIX =
-    "[1]once [2]n/a [3/esc]deny";
+/**
+ * The approval choices are rendered as numbered rows rather than one muted
+ * hint line, because against a tall block of command detail a single grey line
+ * reads as chrome and the user misses that it is the thing to act on. This
+ * mirrors the question overlay, which already does it this way.
+ */
+const APPROVAL_ROWS = [
+    { key: "1", label: "Allow once" },
+    { key: "2", label: "Allow this command prefix" },
+    { key: "3", label: "Deny", meta: "esc" },
+] as const;
 
 export type TuiApprovalDecision = "allow_once" | "allow_prefix" | "deny";
 
@@ -31,7 +39,7 @@ export interface TuiApprovalView {
     readonly box: BoxRenderable;
     readonly details: ScrollBoxRenderable;
     readonly detailsText: TextRenderable;
-    readonly actions: TextRenderable;
+    readonly actions: BoxRenderable;
     focus(): void;
     update(update: ToolApprovalUiRequestUpdate): void;
 }
@@ -63,16 +71,40 @@ export function createTuiApprovalView(
     });
     details.add(detailsText);
 
-    const actions = new TextRenderable(renderer, {
+    const actions = new BoxRenderable(renderer, {
         id: "approval-actions",
-        content: APPROVAL_ACTIONS,
-        fg: TUI_MUTED,
         width: "100%",
         height: "auto",
-        maxHeight: 2,
-        wrapMode: "word",
         flexShrink: 0,
+        flexDirection: "column",
     });
+    let actionRows: BoxRenderable[] = [];
+
+    function renderActions(update: ToolApprovalUiRequestUpdate): void {
+        for (const row of actionRows) {
+            row.destroy();
+        }
+        actionRows = [];
+        const prefix = update.request.commandPrefix;
+        for (const action of APPROVAL_ROWS) {
+            // Prefix approval is unavailable for compound commands, so the row
+            // stays in place to keep the numbering stable and says why.
+            const unavailable = action.key === "2" && prefix === undefined;
+            const row = dialogOptionRow(renderer, {
+                label: action.label,
+                leading: `${action.key}  `,
+                active: false,
+                ...("meta" in action ? { meta: action.meta } : {}),
+                ...(unavailable
+                    ? { description: "not available for this command" }
+                    : action.key === "2"
+                    ? { description: `$ ${formatPrefix(prefix!.tokens)}` }
+                    : {}),
+            });
+            actions.add(row);
+            actionRows.push(row);
+        }
+    }
 
     const header = dialogHeaderNode(renderer, "Tool approval");
     // Kept tight (no vertical padding, single row gap) so the prompt still fits
@@ -112,7 +144,7 @@ export function createTuiApprovalView(
             }
             currentRequestId = update.requestId;
             detailsText.content = renderTuiApprovalDetails(update);
-            actions.content = approvalActions(update);
+            renderActions(update);
             details.scrollTo(0);
         },
     };
@@ -206,9 +238,19 @@ function formatToolCall(update: ToolApprovalUiRequestUpdate): string {
 }
 
 function approvalActions(update: ToolApprovalUiRequestUpdate): string {
-    return update.request.commandPrefix === undefined
-        ? APPROVAL_ACTIONS_WITHOUT_PREFIX
-        : APPROVAL_ACTIONS;
+    const prefix = update.request.commandPrefix;
+    return [
+        ...APPROVAL_ROWS.map((action) => {
+            if (action.key !== "2") {
+                return "meta" in action
+                    ? `${action.key}  ${action.label}  ${action.meta}`
+                    : `${action.key}  ${action.label}`;
+            }
+            return prefix === undefined
+                ? `${action.key}  ${action.label}  not available for this command`
+                : `${action.key}  ${action.label}  $ ${formatPrefix(prefix.tokens)}`;
+        }),
+    ].join("\n");
 }
 
 function formatPrefix(tokens: readonly string[]): string {
