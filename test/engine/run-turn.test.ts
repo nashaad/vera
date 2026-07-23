@@ -1818,6 +1818,226 @@ test("aborting a turn stops its foreground bash tool", async () => {
     });
 });
 
+function reviewedTurnState(
+    channel: InProcessChannel,
+    events: EngineEventBus,
+    review: RunTurnState["reviewToolCall"],
+): RunTurnState {
+    return {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "approve_for_me",
+        ...(review === undefined ? {} : { reviewToolCall: review }),
+    };
+}
+
+function repeatedBoundaryCrossings(count: number): AssistantMessage[] {
+    return Array.from({ length: count }, (_unused, index) => ({
+        role: "assistant" as const,
+        content: [{
+            type: "tool_call" as const,
+            id: `call_${index + 1}`,
+            name: "bash",
+            input: { command: "echo $HOME" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use" as const,
+    }));
+}
+
+function boundaryCrossingResponses(): AssistantMessage[] {
+    return [
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: { command: "echo $HOME" },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        },
+    ];
+}
+
+test("approve_for_me sends a boundary crossing to the reviewer, not the user", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const seen: string[] = [];
+    const state = reviewedTurnState(channel, events, async (request) => {
+        seen.push(String(request.toolCall.input.command));
+        return {
+            decision: "allow",
+            reason: "Reads an environment variable.",
+            riskLevel: "low",
+            userAuthorization: "unknown",
+        };
+    });
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+
+    const updates: string[] = [];
+    while (true) {
+        const update = await channel.client.receive();
+        updates.push(update.type);
+        if (update.type === "tool_review") {
+            expect(update).toMatchObject({
+                type: "tool_review",
+                tool: "bash",
+                decision: "allow",
+                reason: "Reads an environment variable.",
+                riskLevel: "low",
+                userAuthorization: "unknown",
+            });
+        }
+        if (update.type === "turn_finished") {
+            break;
+        }
+    }
+    await turn;
+
+    expect(seen).toEqual(["echo $HOME"]);
+    expect(updates).toContain("tool_review");
+    expect(updates).toContain("tool_started");
+    expect(updates).not.toContain("ui_request");
+});
+
+test("a reviewer denial goes back to the model, not to the user", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state = reviewedTurnState(channel, events, async () => ({
+        decision: "deny",
+        reason: "Not needed for the task.",
+        riskLevel: "medium",
+        userAuthorization: "unknown",
+    }));
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+
+    const updates: string[] = [];
+    while (true) {
+        const update = await channel.client.receive();
+        updates.push(update.type);
+        if (update.type === "turn_finished") {
+            break;
+        }
+    }
+    await turn;
+
+    // The whole point of this mode is that the user is not interrupted, so a
+    // denial resolves the tool call rather than raising a prompt.
+    expect(updates).toContain("tool_review");
+    expect(updates).not.toContain("ui_request");
+    expect(updates).not.toContain("tool_started");
+    const result = state.messages[2];
+    expect(result).toMatchObject({
+        role: "tool_result",
+        toolName: "bash",
+        isError: true,
+    });
+    const text = JSON.stringify(result);
+    expect(text).toContain("Not needed for the task.");
+    // The agent is told not to route around the denial.
+    expect(text).toContain("workaround");
+});
+
+test("an unavailable reviewer is not treated as a denial", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state = reviewedTurnState(channel, events, async () => ({
+        decision: "unavailable",
+        reason: "The approval reviewer was unavailable (timed out).",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+    }));
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    const text = JSON.stringify(state.messages[2]);
+    expect(text).toContain("timed out");
+    // The model must not read a failed review as a judgment about the action.
+    expect(text).toContain("Do not assume the action is unsafe");
+});
+
+test("repeated reviewer denials stop the turn", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let reviews = 0;
+    const state = reviewedTurnState(channel, events, async () => {
+        reviews += 1;
+        return {
+            decision: "deny",
+            reason: "Writes outside the workspace.",
+            riskLevel: "high",
+            userAuthorization: "unknown",
+        };
+    });
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(
+        new FauxAdapter(repeatedBoundaryCrossings(5)),
+        "test",
+        state,
+    );
+    await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    // Three denials in a row is the breaker's limit, so the fourth crossing is
+    // never reviewed: the turn stops with the reason instead.
+    expect(reviews).toBe(3);
+    expect(message.stopReason).toBe("error");
+    expect(message.errorMessage).toContain("denied 3 actions in a row");
+    // Persisted, not just emitted. A session that ends at the last denied
+    // tool result cannot tell anyone why it stopped after a reconnect.
+    expect(state.messages.at(-1)).toBe(message);
+});
+
+test("approve_for_me still asks the user when no reviewer is configured", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state = reviewedTurnState(channel, events, undefined);
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+
+    let requestId = "";
+    while (true) {
+        const update = await channel.client.receive();
+        if (update.type === "ui_request") {
+            requestId = update.requestId;
+            break;
+        }
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId,
+        response: { type: "tool_approval", decision: "deny" },
+    });
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(requestId.length).toBeGreaterThan(0);
+});
+
 function createTestEvents(sender: AgentUpdateSender): EngineEventBus {
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(sender));

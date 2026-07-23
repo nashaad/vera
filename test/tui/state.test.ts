@@ -391,3 +391,36 @@ test("TUI history and live prompts show attached images", () => {
         text: "new image\n[Attached image]",
     });
 });
+
+test("reviewer allow stays in the compact tool run and deny stands out", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        reason: "Read-only listing of a sibling project.",
+        riskLevel: "low",
+        userAuthorization: "unknown",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "bash",
+        decision: "deny",
+        reason: "Deletes files outside the workspace.",
+        riskLevel: "critical",
+        userAuthorization: "unknown",
+        seq: 2,
+    });
+
+    expect(state.entries[0]).toEqual({
+        kind: "tool",
+        text: "∗ reviewer allowed bash (low risk):"
+            + " Read-only listing of a sibling project.",
+    });
+    expect(state.entries[1]).toEqual({
+        kind: "notice",
+        text: "Reviewer denied bash (critical risk):"
+            + " Deletes files outside the workspace.",
+    });
+});

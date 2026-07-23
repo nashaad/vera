@@ -44,6 +44,17 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "tool_review") {
+        return typeof update.tool === "string"
+                && (update.decision === "allow"
+                    || update.decision === "deny"
+                    || update.decision === "unavailable")
+                && typeof update.reason === "string"
+                && isRiskLevel(update.riskLevel)
+                && isUserAuthorization(update.userAuthorization)
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "tool_finished") {
         return typeof update.tool === "string" ? value as AgentUpdate : undefined;
     }
@@ -358,6 +369,20 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function isSequence(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isRiskLevel(value: unknown): boolean {
+    return value === "low"
+        || value === "medium"
+        || value === "high"
+        || value === "critical";
+}
+
+function isUserAuthorization(value: unknown): boolean {
+    return value === "unknown"
+        || value === "low"
+        || value === "medium"
+        || value === "high";
 }
 
 function isModelReasoningEffort(value: unknown): boolean {

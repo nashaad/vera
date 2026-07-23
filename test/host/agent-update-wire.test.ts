@@ -286,3 +286,25 @@ test("host wire validates targeted timeline replies", () => {
         reason: "overwrite_files",
     })).toBeUndefined();
 });
+
+test("host wire validates reviewer decisions", () => {
+    const update = {
+        type: "tool_review" as const,
+        tool: "bash",
+        decision: "allow" as const,
+        riskLevel: "low" as const,
+        userAuthorization: "unknown" as const,
+        reason: "Read-only listing of a sibling project.",
+        seq: 3,
+    };
+
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, decision: "deny" }))
+        .toEqual({ ...update, decision: "deny" });
+    expect(parseAgentUpdate({ ...update, decision: "maybe" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, reason: 42 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, tool: undefined })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, riskLevel: "spicy" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, userAuthorization: undefined }))
+        .toBeUndefined();
+});

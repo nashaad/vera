@@ -61,6 +61,15 @@ import {
     type CommandPrefix,
 } from "./permissions.ts";
 import {
+    createToolReviewer,
+    type ReviewToolCall,
+    type ToolReviewerSettings,
+} from "./reviewer.ts";
+import {
+    createReviewCircuitBreaker,
+    type ReviewCircuitBreaker,
+} from "./review-circuit-breaker.ts";
+import {
     DEFAULT_MODEL_MAX_TOKENS,
     nextLengthContinuation,
     requestModelWithRecovery,
@@ -100,11 +109,15 @@ export interface RunTurnState {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readCommandPrefixes?: () => readonly CommandPrefix[];
+    /** Automatic approval reviewer used by `approve_for_me`. */
+    readonly reviewToolCall?: ReviewToolCall;
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
 }
 
 export interface RunHeadlessLoopOptions {
+    /** Overrides the model the automatic approval reviewer runs on. */
+    readonly reviewer?: ToolReviewerSettings;
     readonly sessionStore?: SessionStore;
     readonly sessionId?: string;
     readonly sessionPath?: string;
@@ -128,6 +141,7 @@ export interface RunHeadlessLoopOptions {
         ownerId: string,
         reply: TimelineReplyUpdate,
     ) => void;
+    readonly reviewToolCall?: ReviewToolCall;
 }
 
 export async function runHeadlessLoop(
@@ -228,6 +242,49 @@ export async function runHeadlessLoop(
                 ? {}
                 : { modelFallback: options.modelFallback }),
         });
+    // A configured reviewer wins, because the point of configuring one is to
+    // pay for a cheaper model than the agent. Without it the reviewer reads the
+    // agent's model settings at review time, not the model this loop started
+    // with, and it does not follow a fallback model the turn may have switched
+    // to.
+    //
+    // The reviewer instance is kept across reviews so it can send transcript
+    // deltas instead of the whole turn every time. Its conversation belongs to
+    // the model that answered it, so changed settings start a new one rather
+    // than continuing someone else's session.
+    let activeReviewer: { key: string; review: ReviewToolCall } | undefined;
+    const reviewToolCall: ReviewToolCall = options.reviewToolCall
+        ?? ((request, signal) => {
+            const settings = options.reviewer
+                ?? options.readModelSettings?.()
+                ?? { model, ...(reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort }) };
+            const key = JSON.stringify([
+                settings.provider,
+                settings.model,
+                settings.reasoningEffort,
+            ]);
+            if (activeReviewer?.key !== key) {
+                activeReviewer = {
+                    key,
+                    review: createToolReviewer({
+                        adapter,
+                        model: settings.model,
+                        ...(settings.provider === undefined
+                            ? {}
+                            : { provider: settings.provider }),
+                        ...(settings.reasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: settings.reasoningEffort }),
+                        ...(options.reviewer?.timeoutMs === undefined
+                            ? {}
+                            : { timeoutMs: options.reviewer.timeoutMs }),
+                    }),
+                };
+            }
+            return activeReviewer.review(request, signal);
+        });
     const state: RunTurnState = {
         messages,
         store,
@@ -248,6 +305,7 @@ export async function runHeadlessLoop(
             : { readModelSettings: options.readModelSettings }),
         readApprovalMode,
         readCommandPrefixes,
+        reviewToolCall,
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
@@ -292,6 +350,8 @@ export async function runTurn(
             ?? state.approvalMode;
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
+        // Per turn, matching codex: a fresh prompt is a fresh chance.
+        const reviewBreaker = createReviewCircuitBreaker();
         const tools = toolDefinitionsForCapabilities(
             state.applyToolEffect === undefined
                 ? []
@@ -482,10 +542,11 @@ export async function runTurn(
             }
 
             let toolIndex = 0;
+            let interrupt: string | undefined;
             while (toolIndex < preparedToolCalls.length) {
                 const first = preparedToolCalls[toolIndex]!;
                 if (!toolMayRunInParallel(first.toolCall.name)) {
-                    await finishToolCalls(state, [
+                    interrupt = await finishToolCalls(state, [
                         executePreparedTool(
                             state,
                             first,
@@ -499,8 +560,12 @@ export async function runTurn(
                                         reasoningEffort: turnReasoningEffort,
                                     }),
                             },
+                            reviewBreaker,
                         ),
                     ]);
+                    if (interrupt !== undefined) {
+                        break;
+                    }
                     toolIndex += 1;
                     continue;
                 }
@@ -515,7 +580,7 @@ export async function runTurn(
                     parallelCalls.push(preparedToolCalls[toolIndex]!);
                     toolIndex += 1;
                 }
-                await finishToolCalls(
+                interrupt = await finishToolCalls(
                     state,
                     parallelCalls.map((prepared) =>
                         executePreparedTool(
@@ -531,9 +596,35 @@ export async function runTurn(
                                         reasoningEffort: turnReasoningEffort,
                                     }),
                             },
+                            reviewBreaker,
                         )
                     ),
                 );
+                if (interrupt !== undefined) {
+                    break;
+                }
+            }
+            if (interrupt !== undefined) {
+                // The results are already committed, so the transcript shows
+                // what was denied. The turn stops here rather than handing the
+                // model another chance to work around the reviewer.
+                assistantMessage = reviewInterruptedMessage(
+                    activeModel,
+                    interrupt,
+                );
+                // Committed, not just emitted. Without this the session ends
+                // at the denied tool result, so a reconnect or a replay cannot
+                // see that the breaker stopped anything.
+                //
+                // It stays out of the next model request, because
+                // `transformMessages` drops assistant messages that stopped on
+                // an error. That matches codex, which reports the interrupt as
+                // a UI warning event and aborts the turn without writing it
+                // into the conversation. The model already has the denied tool
+                // results, which is the part that should shape what it does
+                // next; the count of denials is the user's business.
+                await commitMessage(state, assistantMessage);
+                break;
             }
         }
     } finally {
@@ -550,6 +641,20 @@ function requireImageReader(
     return state.readImageContent ?? (async (attachmentId) => {
         throw new Error(`Image attachment ${attachmentId} cannot be read`);
     });
+}
+
+function reviewInterruptedMessage(
+    model: string,
+    detail: string,
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [],
+        source: { provider: "vera", api: "review", model },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: detail,
+    };
 }
 
 function attachmentErrorMessage(model: string, detail: string): AssistantMessage {
@@ -602,8 +707,31 @@ function escapeXml(value: string): string {
         .replaceAll("'", "&apos;");
 }
 
+/**
+ * Told to the model when the reviewer denies, so it stops rather than routing
+ * around the denial. Adapted from `GUARDIAN_REJECTION_INSTRUCTIONS` in
+ * openai/codex (Apache-2.0), `codex-rs/core/src/guardian/review.rs`.
+ */
+const REVIEW_REJECTION_INSTRUCTIONS =
+    "Do not attempt to achieve the same outcome via workaround, indirect"
+    + " execution, or policy circumvention. Proceed only with a materially safer"
+    + " alternative, or if the user explicitly approves the action after being"
+    + " informed of the risk. Otherwise, stop and request user input.";
+
+/**
+ * Told to the model when the reviewer never answered, so it does not read a
+ * failed review as a judgment. Adapted from `GUARDIAN_TIMEOUT_INSTRUCTIONS` in
+ * openai/codex (Apache-2.0), `codex-rs/core/src/guardian/review.rs`.
+ */
+const REVIEW_TIMEOUT_INSTRUCTIONS =
+    "The automatic permission approval review did not finish. Do not assume the"
+    + " action is unsafe on that basis. You may retry once, or ask the user for"
+    + " guidance or explicit approval.";
+
 interface CompletedToolCall {
     readonly result: ToolResultMessage;
+    /** Set when the turn must stop after this result is committed. */
+    readonly interrupt?: string;
 }
 
 interface PreparedToolCall {
@@ -697,6 +825,7 @@ async function executePreparedTool(
     signal: AbortSignal,
     approvalMode: ApprovalMode,
     modelSettings: ModelTurnSettings,
+    breaker: ReviewCircuitBreaker,
 ): Promise<CompletedToolCall> {
     const toolCall = prepared.toolCall;
     const hookCall = hookToolCall(toolCall);
@@ -729,20 +858,70 @@ async function executePreparedTool(
         return { result: deniedToolResult(toolCall, permission.reason) };
     }
     if (permission.behavior === "ask") {
-        const commandPrefix = commandPrefixForToolCall(hookCall);
-        const approval = await state.inbound.requestToolApproval(
-            hookCall,
-            permission.reason,
-            {
-                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+        let reviewed = false;
+        if (approvalMode === "approve_for_me" && state.reviewToolCall !== undefined) {
+            const review = await state.reviewToolCall(
+                {
+                    toolCall: hookCall,
+                    workspace: state.toolRuntime.workspace,
+                    reason: permission.reason,
+                    transcript: state.messages,
+                },
                 signal,
-                ...(commandPrefix === undefined
-                    ? {}
-                    : { commandPrefix }),
-            },
-        );
-        if (approval.behavior === "deny") {
-            return { result: deniedToolResult(toolCall, approval.reason) };
+            );
+            state.events.emit({
+                type: "tool_review_decided",
+                toolCall: hookCall,
+                decision: review.decision,
+                reason: review.reason,
+                riskLevel: review.riskLevel,
+                userAuthorization: review.userAuthorization,
+            });
+            // The reviewer's verdict is final within the turn: a denial goes
+            // back to the model, not to the user. The whole point of this mode
+            // is that the user is not asked, so re-asking on every denial would
+            // put the interruptions right back. The circuit breaker is what
+            // keeps a denied agent from grinding.
+            if (review.decision === "deny") {
+                const interrupt = breaker.record("deny");
+                return {
+                    result: deniedToolResult(
+                        toolCall,
+                        `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
+                    ),
+                    ...(interrupt === undefined ? {} : { interrupt }),
+                };
+            }
+            if (review.decision === "unavailable") {
+                // Not a verdict, so it is not recorded and the agent is told
+                // not to read it as one.
+                return {
+                    result: deniedToolResult(
+                        toolCall,
+                        `${review.reason}\n\n${REVIEW_TIMEOUT_INSTRUCTIONS}`,
+                    ),
+                };
+            }
+            breaker.record("allow");
+            reviewed = true;
+        }
+        if (!reviewed) {
+            const askReason = permission.reason;
+            const commandPrefix = commandPrefixForToolCall(hookCall);
+            const approval = await state.inbound.requestToolApproval(
+                hookCall,
+                askReason,
+                {
+                    timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                    signal,
+                    ...(commandPrefix === undefined
+                        ? {}
+                        : { commandPrefix }),
+                },
+            );
+            if (approval.behavior === "deny") {
+                return { result: deniedToolResult(toolCall, approval.reason) };
+            }
         }
     }
 
@@ -867,10 +1046,11 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+/** Returns the interrupt reason when one of the calls asked the turn to stop. */
 async function finishToolCalls(
     state: RunTurnState,
     pending: readonly Promise<CompletedToolCall>[],
-): Promise<void> {
+): Promise<string | undefined> {
     const settled = await Promise.allSettled(pending);
     const completed = settled.flatMap((toolCall) =>
         toolCall.status === "fulfilled" ? [toolCall.value] : []
@@ -884,6 +1064,8 @@ async function finishToolCalls(
     if (rejected?.status === "rejected") {
         throw rejected.reason;
     }
+    return completed.find((toolCall) => toolCall.interrupt !== undefined)
+        ?.interrupt;
 }
 
 async function applyToolExecution(
