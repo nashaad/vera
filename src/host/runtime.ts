@@ -109,6 +109,7 @@ export async function startResidentHost(
             listAgents: () => registry.list(),
             createAgent: (workspace) => registry.create({ workspace }),
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
+            branchAgent: (options) => registry.branch(options),
             canShutdown: () => registry.idleForShutdown(),
             onShutdownAccepted: () => closeResidentHost(server, registry),
         });
