@@ -41,6 +41,7 @@ const PREDICATE_FIELDS = new Set([
     "capability",
     "confidence",
     "operation",
+    "path",
     "path_scope",
     "recursive",
     "executable",
@@ -154,6 +155,7 @@ function parsePredicate(value: unknown): PermissionPredicate | undefined {
         || (value.operation !== undefined
             && (!isNonEmptyString(value.operation)
                 || !validOperationPattern(value.operation)))
+        || (value.path !== undefined && !isNonEmptyString(value.path))
         || (value.path_scope !== undefined
             && !PATH_SCOPES.has(value.path_scope as PermissionPathScope))
         || (value.recursive !== undefined
@@ -174,6 +176,7 @@ function parsePredicate(value: unknown): PermissionPredicate | undefined {
         ...(typeof value.operation === "string"
             ? { operation: value.operation }
             : {}),
+        ...(typeof value.path === "string" ? { path: value.path } : {}),
         ...(value.path_scope === undefined
             ? {}
             : { pathScope: value.path_scope as PermissionPathScope }),

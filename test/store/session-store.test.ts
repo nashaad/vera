@@ -672,7 +672,7 @@ test("session store migrates the former automatic mode name", async () => {
     expect((await SessionStore.open(path)).approvalMode()).toBe("auto");
 });
 
-test("command prefix grants survive reopening the durable session", async () => {
+test("permission grants survive reopening the durable session", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
     const store = await SessionStore.create(path, {
@@ -682,25 +682,51 @@ test("command prefix grants survive reopening the durable session", async () => 
             "2026-07-17T12:00:00.000Z",
             "2026-07-17T12:00:01.000Z",
         ),
+        createId: values("grant-1"),
     });
 
-    await store.appendCommandPrefix({ tokens: ["git", "push", "origin"] });
-    expect(store.commandPrefixes()).toEqual([
-        { tokens: ["git", "push", "origin"] },
-    ]);
+    const proposal = {
+        kind: "capability",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    } as const;
+    await store.appendPermissionGrants([proposal]);
+    expect(store.permissionGrants()).toEqual([{
+        ...proposal,
+        id: "grant-1:0",
+    }]);
     expect(readLines(path).at(-1)).toEqual({
-        type: "command_prefix",
+        type: "permission_grants",
+        id: "grant-1",
         timestamp: "2026-07-17T12:00:01.000Z",
-        prefix: { tokens: ["git", "push", "origin"] },
+        grants: [{ ...proposal, id: "grant-1:0" }],
     });
 
     const reopened = await SessionStore.open(path);
-    expect(reopened.commandPrefixes()).toEqual([
-        { tokens: ["git", "push", "origin"] },
-    ]);
+    expect(reopened.permissionGrants()).toEqual([{
+        ...proposal,
+        id: "grant-1:0",
+    }]);
 });
 
-test("session store rejects malformed command prefix grants", async () => {
+test("legacy command-prefix records remain readable but grant no authority", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    appendFileSync(path, `${JSON.stringify({
+        type: "command_prefix",
+        timestamp: "2026-07-17T12:00:01.000Z",
+        prefix: { tokens: ["git", "push", "origin"] },
+    })}\n`);
+
+    expect((await SessionStore.open(path)).permissionGrants()).toEqual([]);
+});
+
+test("session store rejects malformed permission grants", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
     const store = await SessionStore.create(path, {
@@ -708,8 +734,8 @@ test("session store rejects malformed command prefix grants", async () => {
         cwd: directory,
     });
 
-    await expect(store.appendCommandPrefix({ tokens: [] })).rejects.toThrow(
-        "Cannot append an invalid command prefix",
+    await expect(store.appendPermissionGrants([])).rejects.toThrow(
+        "Cannot append invalid permission grants",
     );
     expect(readLines(path)).toHaveLength(1);
 });

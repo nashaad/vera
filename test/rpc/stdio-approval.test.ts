@@ -4,9 +4,9 @@ import {
     createStdioApprovalResponse,
     renderStdioApproval,
 } from "../../clients/stdio/approval.ts";
-import type { UiRequestUpdate } from "../../src/engine/protocol.ts";
+import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 
-const request: UiRequestUpdate = {
+const request: ToolApprovalUiRequestUpdate = {
     type: "ui_request",
     requestId: "request-1",
     request: {
@@ -18,7 +18,12 @@ const request: UiRequestUpdate = {
         },
         reason: "This command may access the network.",
         warning: "This command runs with your full user permissions.",
-        commandPrefix: { tokens: ["curl", "https://example.com"] },
+        permissionGrants: [{
+            kind: "capability",
+            when: { capability: "network", executable: "curl" },
+            scope: "session",
+            lifetime: "session",
+        }],
     },
     seq: 1,
 };
@@ -34,7 +39,7 @@ test("stdio approval shows the command and returns a typed answer", () => {
     });
     expect(createStdioApprovalResponse(request, "2").response).toEqual({
         type: "tool_approval",
-        decision: "allow_prefix",
+        decision: "allow_similar",
     });
     expect(createStdioApprovalResponse(request, "anything else").response)
         .toEqual({ type: "tool_approval", decision: "deny" });

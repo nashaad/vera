@@ -4,7 +4,7 @@ import type {
 } from "../engine/protocol.ts";
 import {
     isApprovalMode,
-    isCommandPrefix,
+    isPermissionGrantProposal,
 } from "../engine/permissions.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
@@ -168,8 +168,14 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof request.reason === "string"
                 && typeof request.warning === "string"
                 && (
-                    request.commandPrefix === undefined
-                    || isCommandPrefix(request.commandPrefix)
+                    request.permissionGrants === undefined
+                    || (
+                        Array.isArray(request.permissionGrants)
+                        && request.permissionGrants.length > 0
+                        && request.permissionGrants.every(
+                            isPermissionGrantProposal,
+                        )
+                    )
                 )
                 && typeof toolCall?.id === "string"
                 && typeof toolCall.name === "string"

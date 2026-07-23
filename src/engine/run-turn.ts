@@ -59,10 +59,11 @@ import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
-    commandPrefixForToolCall,
     decideToolPermission,
+    permissionGrantProposals,
     type ApprovalMode,
-    type CommandPrefix,
+    type PermissionGrant,
+    type PermissionGrantProposal,
     type PermissionProfile,
 } from "./permissions.ts";
 import {
@@ -113,7 +114,7 @@ export interface RunTurnState {
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
-    readonly readCommandPrefixes?: () => readonly CommandPrefix[];
+    readonly readPermissionGrants?: () => readonly PermissionGrant[];
     readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
     /** Automatic approval reviewer used by `auto`. */
     readonly reviewToolCall?: ReviewToolCall;
@@ -220,9 +221,11 @@ export async function runHeadlessLoop(
             localApprovalMode = mode;
             return localApprovalMode;
         });
-    const readCommandPrefixes = () => store.commandPrefixes();
-    const addCommandPrefix = async (prefix: CommandPrefix): Promise<void> => {
-        await store.appendCommandPrefix(prefix);
+    const readPermissionGrants = () => store.permissionGrants();
+    const addPermissionGrants = async (
+        grants: readonly PermissionGrantProposal[],
+    ): Promise<void> => {
+        await store.appendPermissionGrants(grants);
     };
     const events = options.eventBus ?? new EngineEventBus();
     const protocol = createProtocolEncoder(endpoint);
@@ -254,7 +257,7 @@ export async function runHeadlessLoop(
             : { updateSessionName: options.updateSessionName }),
         sendSessionNameReply: options.sendSessionNameReply
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
-        addCommandPrefix,
+        addPermissionGrants,
         handleTimelineCommand: (ownerId, command) =>
             timeline.handle(ownerId, command),
         detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),
@@ -329,7 +332,7 @@ export async function runHeadlessLoop(
             ? {}
             : { readModelSettings: options.readModelSettings }),
         readApprovalMode,
-        readCommandPrefixes,
+        readPermissionGrants,
         ...(options.permissionProfiles === undefined
             ? {}
             : { permissionProfiles: options.permissionProfiles }),
@@ -891,12 +894,13 @@ async function executePreparedTool(
         approvalMode,
         hookCall,
         state.toolRuntime.workspace,
-        state.readCommandPrefixes?.() ?? [],
+        state.readPermissionGrants?.() ?? [],
         { permissionProfiles: state.permissionProfiles },
     );
     if (permission.behavior === "deny") {
         return { result: deniedToolResult(toolCall, permission.reason) };
     }
+    const grantProposals = permissionGrantProposals(permission);
     if (permission.behavior === "review") {
         const reviewCall = state.reviewToolCallForProfile === undefined
             ? state.reviewToolCall
@@ -950,7 +954,13 @@ async function executePreparedTool(
                 const approval = await state.inbound.requestToolApproval(
                     hookCall,
                     `${permission.reason} ${review.reason}`,
-                    { timeoutMs: TOOL_APPROVAL_TIMEOUT_MS, signal },
+                    {
+                        timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                        signal,
+                        ...(grantProposals.length === 0
+                            ? {}
+                            : { permissionGrants: grantProposals }),
+                    },
                 );
                 if (approval.behavior === "deny") {
                     return {
@@ -964,16 +974,15 @@ async function executePreparedTool(
     }
     if (permission.behavior === "ask") {
         const askReason = permission.reason;
-        const commandPrefix = commandPrefixForToolCall(hookCall);
         const approval = await state.inbound.requestToolApproval(
             hookCall,
             askReason,
             {
                 timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
                 signal,
-                ...(commandPrefix === undefined
+                ...(grantProposals.length === 0
                     ? {}
-                    : { commandPrefix }),
+                    : { permissionGrants: grantProposals }),
             },
         );
         if (approval.behavior === "deny") {

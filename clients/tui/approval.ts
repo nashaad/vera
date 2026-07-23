@@ -22,11 +22,11 @@ import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
  */
 const APPROVAL_ROWS = [
     { key: "1", label: "Allow once" },
-    { key: "2", label: "Allow this command prefix" },
+    { key: "2", label: "Allow similar this session" },
     { key: "3", label: "Deny", meta: "esc" },
 ] as const;
 
-export type TuiApprovalDecision = "allow_once" | "allow_prefix" | "deny";
+export type TuiApprovalDecision = "allow_once" | "allow_similar" | "deny";
 
 export interface TuiApprovalKey {
     readonly name: string;
@@ -85,11 +85,11 @@ export function createTuiApprovalView(
             row.destroy();
         }
         actionRows = [];
-        const prefix = update.request.commandPrefix;
+        const grants = update.request.permissionGrants;
         for (const action of APPROVAL_ROWS) {
-            // Prefix approval is unavailable for compound commands, so the row
-            // stays in place to keep the numbering stable and says why.
-            const unavailable = action.key === "2" && prefix === undefined;
+            // Keep the row in place when no honest reusable grant can be
+            // derived so the approval key numbering stays stable.
+            const unavailable = action.key === "2" && grants === undefined;
             const row = dialogOptionRow(renderer, {
                 label: action.label,
                 leading: `${action.key}  `,
@@ -98,7 +98,7 @@ export function createTuiApprovalView(
                 ...(unavailable
                     ? { description: "not available for this command" }
                     : action.key === "2"
-                    ? { description: `$ ${formatPrefix(prefix!.tokens)}` }
+                    ? { description: formatGrants(grants!) }
                     : {}),
             });
             actions.add(row);
@@ -161,21 +161,21 @@ export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
 export function renderTuiApprovalDetails(
     update: ToolApprovalUiRequestUpdate,
 ): string {
-    const prefix = update.request.commandPrefix;
+    const grants = update.request.permissionGrants;
     return [
         formatToolCall(update),
         "",
         update.request.reason,
         update.request.warning,
-        ...(prefix === undefined
+        ...(grants === undefined
             ? []
-            : ["", `Session prefix: $ ${formatPrefix(prefix.tokens)}`]),
+            : ["", `Session grants: ${formatGrants(grants)}`]),
     ].join("\n");
 }
 
 export function tuiApprovalDecision(
     key: TuiApprovalKey,
-    prefixAvailable = true,
+    grantsAvailable = true,
 ): TuiApprovalDecision | undefined {
     if (key.ctrl || key.meta || key.shift) {
         return undefined;
@@ -183,8 +183,8 @@ export function tuiApprovalDecision(
     if (key.name === "1") {
         return "allow_once";
     }
-    if (key.name === "2" && prefixAvailable) {
-        return "allow_prefix";
+    if (key.name === "2" && grantsAvailable) {
+        return "allow_similar";
     }
     if (key.name === "3" || key.name === "escape") {
         return "deny";
@@ -198,7 +198,7 @@ export function createTuiApprovalResponse(
 ): UiResponseCommand | undefined {
     const decision = tuiApprovalDecision(
         key,
-        update.request.commandPrefix !== undefined,
+        update.request.permissionGrants !== undefined,
     );
     if (decision === undefined) {
         return undefined;
@@ -238,7 +238,7 @@ function formatToolCall(update: ToolApprovalUiRequestUpdate): string {
 }
 
 function approvalActions(update: ToolApprovalUiRequestUpdate): string {
-    const prefix = update.request.commandPrefix;
+    const grants = update.request.permissionGrants;
     return [
         ...APPROVAL_ROWS.map((action) => {
             if (action.key !== "2") {
@@ -246,19 +246,20 @@ function approvalActions(update: ToolApprovalUiRequestUpdate): string {
                     ? `${action.key}  ${action.label}  ${action.meta}`
                     : `${action.key}  ${action.label}`;
             }
-            return prefix === undefined
+            return grants === undefined
                 ? `${action.key}  ${action.label}  not available for this command`
-                : `${action.key}  ${action.label}  $ ${formatPrefix(prefix.tokens)}`;
+                : `${action.key}  ${action.label}  ${formatGrants(grants)}`;
         }),
     ].join("\n");
 }
 
-function formatPrefix(tokens: readonly string[]): string {
-    return tokens.map(formatShellToken).join(" ");
-}
-
-function formatShellToken(token: string): string {
-    return /^[A-Za-z0-9_./:@%+=,-]+$/.test(token)
-        ? token
-        : `'${token.replaceAll("'", `'\\''`)}'`;
+function formatGrants(
+    grants: NonNullable<ToolApprovalUiRequestUpdate["request"]["permissionGrants"]>,
+): string {
+    return grants.map((grant) => {
+        const fields = Object.entries(grant.when)
+            .map(([name, value]) => `${name}=${String(value)}`)
+            .join(", ");
+        return `${grant.kind}: ${fields}`;
+    }).join("; ");
 }

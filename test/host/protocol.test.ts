@@ -215,11 +215,11 @@ test("host protocol parses messages after attach", () => {
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",
         requestId: "request-2",
-        response: { type: "tool_approval", decision: "allow_prefix" },
+        response: { type: "tool_approval", decision: "allow_similar" },
     }))).toEqual({
         type: "ui_response",
         requestId: "request-2",
-        response: { type: "tool_approval", decision: "allow_prefix" },
+        response: { type: "tool_approval", decision: "allow_similar" },
     });
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",
