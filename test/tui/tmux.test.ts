@@ -406,6 +406,138 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "session picker confirms and trashes one idle conversation",
+    async () => {
+        const socket = `vera-trash-${process.pid}-${randomUUID()}`;
+        const session = "trash";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-trash-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-trash-session-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Continue the theme picker",
+            );
+            expect(pane).toContain("del trash");
+            sendKey(socket, session, "DC");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Move conversation to Trash?",
+            );
+            sendKey(socket, session, "Enter");
+            expect(captureVisiblePane(socket, session))
+                .toContain("Move conversation to Trash?");
+            sendText(socket, session, "1");
+            sendKey(socket, session, "Enter");
+            sendKey(socket, session, "C-c");
+            expect(captureVisiblePane(socket, session))
+                .toContain("Move conversation to Trash?");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "No conversations found",
+            );
+            expect(pane).toContain("moved to");
+            sendKey(socket, session, "Escape");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+            expect(readFileSync(
+                join(home, "trash-session-result.txt"),
+                "utf8",
+            )).toBe("saved-session\nlist calls 2");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "session trash rejection keeps the picker usable",
+    async () => {
+        const socket = `vera-trash-busy-${process.pid}-${randomUUID()}`;
+        const session = "trash-busy";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-trash-busy-"));
+        let pane = "";
+
+        try {
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "100",
+                "-y",
+                "30",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    "TRASH_BUSY=1"
+                } ${shellQuote(process.execPath)} run ${
+                    shellQuote("test/support/tui-trash-session-child.ts")
+                }`,
+            ]);
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "Continue the theme picker",
+            );
+            sendKey(socket, session, "DC");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "Move conversation to Trash?",
+            );
+            sendText(socket, session, "1");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => current.includes("Continue the theme picker")
+                    && !current.includes("Move conversation to Trash?"),
+                "restored session picker after trash rejection",
+            );
+            expect(pane).toContain("Continue the theme picker");
+            expect(pane).toContain("That con");
+            sendKey(socket, session, "Escape");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "settings picker restores the composer and the next Enter submits",
     async () => {
         const socket = `vera-settings-${process.pid}-${randomUUID()}`;

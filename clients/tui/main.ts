@@ -30,6 +30,10 @@ import {
 } from "../../src/host/agent-start-client.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import {
+    trashSessionThroughHost,
+    type TrashSessionResult,
+} from "../../src/host/session-trash-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import {
@@ -51,6 +55,10 @@ import {
     createTuiPermissionsConfirmView,
     handleTuiPermissionsConfirmKey,
 } from "./permissions-confirm.ts";
+import {
+    createTuiSessionTrashConfirmView,
+    handleTuiSessionTrashConfirmKey,
+} from "./session-trash-confirm.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import { renderTuiStatusLine } from "./status.ts";
@@ -130,6 +138,7 @@ export interface TuiDependencies {
     ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
     readonly initialDraft?: TuiDraft;
     readonly sessionSwitchTimeoutMs?: number;
+    readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
 }
 
 export interface TuiDraft {
@@ -154,6 +163,28 @@ export interface TuiAgentClient {
 
 export interface TuiStartOptions {
     readonly confirmBusyUpgrade?: (error: Error) => boolean | Promise<boolean>;
+}
+
+function removeSessionPickerOption(
+    picker: TuiSettingsPickerState | undefined,
+    sessionId: string,
+): TuiSettingsPickerState | undefined {
+    if (picker?.kind !== "session") return picker;
+    const allOptions = picker.allOptions.filter(
+        (option) => option.sessionId !== sessionId,
+    );
+    const options = picker.options.filter(
+        (option) => option.sessionId !== sessionId,
+    );
+    return {
+        ...picker,
+        allOptions,
+        options,
+        selectedIndex: Math.min(
+            picker.selectedIndex,
+            Math.max(0, options.length - 1),
+        ),
+    };
 }
 
 if (import.meta.main) {
@@ -252,6 +283,8 @@ export async function startConfiguredTui(
                         prompt: ready.prompt,
                     };
                 },
+                trashSession: (sessionId) =>
+                    trashSessionThroughHost(host.socket_path, sessionId),
                 ...(initialDraft === undefined
                     ? {}
                     : { initialDraft }),
@@ -306,6 +339,11 @@ export async function startTui(
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiSettingsPickerState | undefined;
     let confirmingFullAccess = false;
+    let sessionTrashCandidate: {
+        readonly sessionId: string;
+        readonly label: string;
+    } | undefined;
+    let sessionTrashPending = false;
     let commandSuggestionIndex = 0;
     let workingSince: number | undefined;
     let phaseSince: number | undefined;
@@ -417,6 +455,8 @@ export async function startTui(
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
+    const sessionTrashConfirmView =
+        createTuiSessionTrashConfirmView(renderer);
     const approvalView = createTuiApprovalView(renderer);
     const questionView = createTuiQuestionView(renderer);
 
@@ -456,7 +496,8 @@ export async function startTui(
             const blocked = pendingUiRequest !== undefined
                 || timelinePicker !== undefined
                 || settingsPicker !== undefined
-                || confirmingFullAccess;
+                || confirmingFullAccess
+                || sessionTrashCandidate !== undefined;
             if (bodyFocus.release(blocked)) {
                 composer.focus();
             }
@@ -469,6 +510,7 @@ export async function startTui(
     app.add(timelinePickerView.box);
     app.add(settingsPickerView.box);
     app.add(permissionsConfirmView.box);
+    app.add(sessionTrashConfirmView.box);
     app.add(commandSuggestionsBox);
     app.add(composerBox);
     app.add(statusText);
@@ -565,6 +607,28 @@ export async function startTui(
                 renderState();
                 return;
             }
+        }
+
+        if (sessionTrashCandidate !== undefined) {
+            if (sessionTrashPending) {
+                key.preventDefault();
+                key.stopPropagation();
+                return;
+            }
+            const result = handleTuiSessionTrashConfirmKey(key);
+            key.preventDefault();
+            key.stopPropagation();
+            if (result !== undefined) {
+                if (result === "confirm") {
+                    beginSessionTrash(sessionTrashCandidate);
+                } else {
+                    sessionTrashCandidate = undefined;
+                    state = appendTuiNotice(state, "conversation kept");
+                    focusActiveSurface();
+                    renderState();
+                }
+            }
+            return;
         }
 
         if (timelinePicker !== undefined) {
@@ -1269,12 +1333,16 @@ export async function startTui(
             timelinePickerView.box.focus();
             return;
         }
-        if (settingsPicker !== undefined) {
-            settingsPickerView.box.focus();
-            return;
-        }
         if (confirmingFullAccess) {
             permissionsConfirmView.box.focus();
+            return;
+        }
+        if (sessionTrashCandidate !== undefined) {
+            sessionTrashConfirmView.box.focus();
+            return;
+        }
+        if (settingsPicker !== undefined) {
+            settingsPickerView.box.focus();
             return;
         }
         composer.focus();
@@ -1386,6 +1454,8 @@ export async function startTui(
         timelinePicker = undefined;
         settingsPicker = undefined;
         confirmingFullAccess = false;
+        sessionTrashCandidate = undefined;
+        sessionTrashPending = false;
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
@@ -1412,20 +1482,27 @@ export async function startTui(
         settingsPickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
             && settingsPicker !== undefined;
         permissionsConfirmView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
+            && sessionTrashCandidate === undefined
             && confirmingFullAccess;
+        sessionTrashConfirmView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && sessionTrashCandidate !== undefined;
         transcript.opacity = approvalView.box.visible
                 || questionView.box.visible
                 || timelinePickerView.box.visible
                 || settingsPickerView.box.visible
                 || permissionsConfirmView.box.visible
+                || sessionTrashConfirmView.box.visible
             ? 0.35
             : 1;
         composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
             && settingsPicker === undefined;
         renderCommandSuggestions();
         if (
@@ -1445,6 +1522,9 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
+        }
+        if (sessionTrashCandidate !== undefined) {
+            sessionTrashConfirmView.update(sessionTrashCandidate.label);
         }
 
         while (entryNodes.length > state.entries.length) {
@@ -1502,6 +1582,9 @@ export async function startTui(
         if (transition.previewTheme !== undefined) {
             void applySelectedTheme(transition.previewTheme, false);
         }
+        if (transition.trashCandidate !== undefined) {
+            sessionTrashCandidate = transition.trashCandidate;
+        }
         if (transition.selection !== undefined) {
             const selection = transition.selection;
             if (selection.kind === "model") {
@@ -1541,7 +1624,11 @@ export async function startTui(
             }
             settingsPicker = undefined;
         }
-        if (settingsPicker === undefined) {
+        if (sessionTrashCandidate !== undefined) {
+            composer.blur();
+            sessionTrashConfirmView.update(sessionTrashCandidate.label);
+            sessionTrashConfirmView.box.focus();
+        } else if (settingsPicker === undefined) {
             settingsPickerView.box.visible = false;
             if (pendingUiRequest === undefined) {
                 composer.focus();
@@ -1551,6 +1638,89 @@ export async function startTui(
             settingsPickerView.update(settingsPicker);
             settingsPickerView.box.focus();
         }
+        renderState();
+    }
+
+    function beginSessionTrash(candidate: {
+        readonly sessionId: string;
+        readonly label: string;
+    }): void {
+        if (dependencies.trashSession === undefined) {
+            sessionTrashCandidate = undefined;
+            state = appendTuiNotice(
+                state,
+                "Moving conversations to Trash is unavailable",
+            );
+            renderState();
+            return;
+        }
+        sessionTrashPending = true;
+        sessionSwitchPending = true;
+        sessionSwitchActivity = "moving conversation to Trash…";
+        renderState();
+        void performSessionTrash(candidate);
+    }
+
+    async function performSessionTrash(candidate: {
+        readonly sessionId: string;
+        readonly label: string;
+    }): Promise<void> {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const result = await Promise.race([
+                dependencies.trashSession!(candidate.sessionId),
+                new Promise<TrashSessionResult>((resolve) => {
+                    timeout = setTimeout(() => {
+                        resolve({ status: "rejected", reason: "failed" });
+                    }, dependencies.sessionSwitchTimeoutMs
+                        ?? SESSION_SWITCH_TIMEOUT_MS);
+                }),
+            ]);
+            clearTimeout(timeout);
+            if (shuttingDown) return;
+            if (result.status === "trashed") {
+                state = appendTuiNotice(
+                    state,
+                    `moved to Trash: ${candidate.label}`,
+                );
+                if (dependencies.listAgents !== undefined) {
+                    try {
+                        settingsPicker = startTuiSessionPicker(
+                            await dependencies.listAgents(),
+                            client.agentId,
+                        );
+                    } catch {
+                        settingsPicker = removeSessionPickerOption(
+                            settingsPicker,
+                            candidate.sessionId,
+                        );
+                    }
+                }
+            } else {
+                state = appendTuiNotice(
+                    state,
+                    result.reason === "busy"
+                        ? "That conversation is active in another client"
+                        : result.reason === "not_found"
+                        ? "That conversation is no longer available"
+                        : "Could not move that conversation to Trash",
+                );
+            }
+        } catch {
+            clearTimeout(timeout);
+            if (shuttingDown) return;
+            sessionTrashPending = false;
+            sessionSwitchPending = false;
+            sessionTrashCandidate = undefined;
+            state = appendTuiNotice(
+                state,
+                    "Could not move that conversation to Trash",
+                );
+            }
+            sessionTrashPending = false;
+            sessionSwitchPending = false;
+            sessionTrashCandidate = undefined;
+        focusActiveSurface();
         renderState();
     }
 

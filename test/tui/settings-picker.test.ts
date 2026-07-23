@@ -55,6 +55,13 @@ test("session picker filters durable interactive conversations and selects an ag
     expect(frame).not.toContain("22222222");
     expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
         .toEqual({ kind: "session", sessionPath: "/sessions/first.jsonl" });
+    expect(handleTuiSettingsPickerKey(
+        state,
+        { name: "delete" },
+    ).trashCandidate).toEqual({
+        sessionId: "11111111-first-session",
+        label: "Fix the deployment race",
+    });
 
     let searched = state;
     for (const name of "11111111-first-session") {

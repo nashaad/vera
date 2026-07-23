@@ -44,6 +44,7 @@ export interface TuiSettingsPickerOption {
     readonly searchText?: string;
     readonly provider?: string;
     readonly model?: string;
+    readonly sessionId?: string;
 }
 
 export interface TuiSettingsPickerState {
@@ -81,6 +82,10 @@ export interface TuiSettingsPickerTransition {
     readonly selection?: TuiSettingsPickerSelection;
     readonly handled: boolean;
     readonly previewTheme?: TuiThemeName;
+    readonly trashCandidate?: {
+        readonly sessionId: string;
+        readonly label: string;
+    };
 }
 
 export interface TuiSettingsPickerView {
@@ -183,6 +188,7 @@ export function startTuiSessionPicker(
             label: truncateSessionTitle(agent.title!),
             description: sessionDescription(agent, now),
             searchText: `${agent.id} ${agent.workspace}`,
+            sessionId: agent.id,
         }));
     return {
         kind: "session",
@@ -259,6 +265,22 @@ export function handleTuiSettingsPickerKey(
     state: TuiSettingsPickerState,
     key: TuiSettingsPickerKey,
 ): TuiSettingsPickerTransition {
+    if (
+        state.kind === "session"
+        && key.name === "delete"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        return selected?.sessionId === undefined
+            ? unchanged(state, true)
+            : {
+                state,
+                trashCandidate: {
+                    sessionId: selected.sessionId,
+                    label: selected.label,
+                },
+                handled: true,
+            };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
@@ -418,7 +440,12 @@ function renderListPickerRows(
         nodes.push(node);
     });
 
-    const footer = dialogFooterNode(renderer, "↑↓ move · ⏎ select · esc close");
+    const footer = dialogFooterNode(
+        renderer,
+        state.kind === "session"
+            ? "↑↓ move · ⏎ select · del trash · esc close"
+            : "↑↓ move · ⏎ select · esc close",
+    );
     box.add(footer);
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT;
