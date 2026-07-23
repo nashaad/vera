@@ -108,6 +108,63 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "new command leaves the current conversation for a fresh one",
+    async () => {
+        const socket = `vera-new-${process.pid}-${randomUUID()}`;
+        const session = "new";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-new-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-new-session-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/new");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Could not start a new session: host refused creation",
+            );
+            expect(pane).toContain("ready");
+            sendText(socket, session, "/new");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "starting new session",
+            );
+            sendKey(socket, session, "C-c");
+            sendText(socket, session, "/new");
+            sendKey(socket, session, "Enter");
+            pane = captureVisiblePane(socket, session);
+            expect(pane).toContain("starting new session");
+            await waitForSessionExit(socket, session);
+            expect(readFileSync(
+                join(home, "new-session-result.txt"),
+                "utf8",
+            )).toBe(
+                "new-session-id\ndetached\nnext attached\nattempts 2",
+            );
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "resume picker selects another durable conversation",
     async () => {
         const socket = `vera-resume-${process.pid}-${randomUUID()}`;

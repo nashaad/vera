@@ -125,6 +125,12 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/res")).toEqual({
         type: "open_resume_picker",
     });
+    expect(registry.dispatch("/new")).toEqual({
+        type: "create_session",
+    });
+    expect(registry.dispatch("/n")).toEqual({
+        type: "create_session",
+    });
 });
 
 test("ordinary and unknown slash input remain ordinary prompts", () => {
