@@ -24,6 +24,17 @@ test("the rewind command returns a client-owned action", () => {
     expect(registry.dispatch("  /rewind  ")).toEqual({ type: "open_rewind" });
 });
 
+test("the fork command opens the prompt picker", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/fork")).toEqual({ type: "open_fork" });
+    expect(registry.dispatch("/for")).toEqual({ type: "open_fork" });
+    expect(registry.dispatch("/fork now")).toEqual({
+        type: "command_error",
+        message: "Usage: /fork",
+    });
+});
+
 test("typing slash exposes the built-in rewind command", () => {
     const registry = createBuiltinTuiCommandRegistry();
 

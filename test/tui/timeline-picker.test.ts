@@ -127,6 +127,29 @@ test("timeline picker correlates list, preview, and apply requests", () => {
     expect(transition.composerText).toBe("Add stale-file protection");
 });
 
+test("fork picker returns the selected prompt without rewinding", () => {
+    let transition = startTuiTimelinePicker("list-fork", "fork");
+    let state = requiredState(transition.state);
+    transition = applyTuiTimelineReply(state, {
+        type: "timeline",
+        requestId: "list-fork",
+        boundaries: [firstBoundary, secondBoundary],
+    }, values("unused"));
+    state = requiredState(transition.state);
+
+    transition = handleTuiTimelineKey(
+        state,
+        key("return"),
+        values("unused"),
+    );
+
+    expect(transition).toEqual({
+        forkBoundaryId: "message-3",
+        handled: true,
+    });
+    expect(transition.command).toBeUndefined();
+});
+
 test("timeline picker searches, moves, goes back, and closes locally", async () => {
     let state = selectState();
     state = requiredState(handleTuiTimelineKey(

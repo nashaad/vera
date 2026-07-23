@@ -21,6 +21,7 @@ import {
 } from "./dialog-chrome.ts";
 
 interface TimelinePickerBase {
+    readonly operation?: "rewind" | "fork";
     readonly boundaries: readonly TimelineBoundary[];
     readonly query: string;
     readonly selectedIndex: number;
@@ -29,6 +30,7 @@ interface TimelinePickerBase {
 
 export interface TimelinePickerLoadingState {
     readonly screen: "loading";
+    readonly operation?: "rewind" | "fork";
     readonly requestId: string;
     readonly notice?: string;
 }
@@ -70,6 +72,7 @@ export interface TuiTimelinePickerTransition {
     readonly state?: TuiTimelinePickerState;
     readonly command?: ClientCommand;
     readonly composerText?: string;
+    readonly forkBoundaryId?: string;
     readonly handled: boolean;
 }
 
@@ -80,9 +83,10 @@ export interface TuiTimelinePickerView {
 
 export function startTuiTimelinePicker(
     requestId: string,
+    operation: "rewind" | "fork" = "rewind",
 ): TuiTimelinePickerTransition {
     return {
-        state: { screen: "loading", requestId },
+        state: { screen: "loading", requestId, operation },
         command: { type: "list_timeline", requestId },
         handled: true,
     };
@@ -101,6 +105,7 @@ export function applyTuiTimelineReply(
         return {
             state: {
                 screen: "select",
+                operation: state.operation,
                 boundaries,
                 query: "",
                 selectedIndex: 0,
@@ -394,9 +399,17 @@ function handleSelectKey(
         return changed({ ...state, selectedIndex, notice: undefined });
     }
     if (key.name === "return" || key.name === "kpenter") {
-        return filtered.length === 0
-            ? unchanged(state)
-            : changed({
+        if (filtered.length === 0) {
+            return unchanged(state);
+        }
+        if (state.operation === "fork") {
+            return {
+                forkBoundaryId: filtered[clampedIndex(state, filtered)]!
+                    .userMessageId,
+                handled: true,
+            };
+        }
+        return changed({
                 ...state,
                 screen: "actions",
                 selectedIndex: clampedIndex(state, filtered),
@@ -549,6 +562,9 @@ function clampedIndex(
 
 function baseState(state: TimelinePickerBase): TimelinePickerBase {
     return {
+        ...(state.operation === undefined
+            ? {}
+            : { operation: state.operation }),
         boundaries: state.boundaries,
         query: state.query,
         selectedIndex: state.selectedIndex,
@@ -621,6 +637,9 @@ function refreshTimeline(
 }
 
 function timelineTitle(state: TuiTimelinePickerState): string {
+    if (state.operation === "fork") {
+        return state.screen === "loading" ? "Loading prompts" : "Fork session";
+    }
     if (state.screen === "select" || state.screen === "loading") {
         return "Rewind: select a point";
     }
