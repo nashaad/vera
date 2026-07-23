@@ -274,6 +274,18 @@ export class AgentRegistry {
         return entry.approvalMode;
     }
 
+    async updateSessionName(
+        id: string,
+        name: string | null,
+    ): Promise<string | null | undefined> {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return undefined;
+        }
+        await entry.store.appendName(name);
+        return entry.store.name() ?? null;
+    }
+
     list(): RegisteredAgentSummary[] {
         return [...this.agents.values()]
             .map((entry) => {
