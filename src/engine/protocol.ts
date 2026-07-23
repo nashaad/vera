@@ -12,7 +12,11 @@ import type {
     ModelSettingsPatch,
     ModelTurnSettings,
 } from "./model-settings.ts";
-import { isApprovalMode, type ApprovalMode } from "./permissions.ts";
+import {
+    isApprovalMode,
+    type ApprovalMode,
+    type PermissionInspection,
+} from "./permissions.ts";
 import type {
     ToolReviewRiskLevel,
     ToolReviewUserAuthorization,
@@ -262,6 +266,7 @@ export interface PermissionsUpdate {
     readonly requestId: string;
     readonly mode: ApprovalMode;
     readonly pending: boolean;
+    readonly inspection?: PermissionInspection;
     readonly seq: number;
 }
 
@@ -798,6 +803,9 @@ export function createProtocolEncoder(
                 requestId: event.requestId,
                 mode: event.mode,
                 pending: event.pending,
+                ...(event.inspection === undefined
+                    ? {}
+                    : { inspection: event.inspection }),
                 seq,
             });
             return;

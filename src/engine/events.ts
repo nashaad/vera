@@ -26,6 +26,7 @@ import type { ModelTurnSettings } from "./model-settings.ts";
 import type {
     ApprovalMode,
     PermissionGrantProposal,
+    PermissionInspection,
 } from "./permissions.ts";
 import type { ProjectInstructionMetadata } from "./project-instructions.ts";
 import type { PromptContributionMetadata } from "./prompt-contributions.ts";
@@ -140,6 +141,7 @@ export interface PermissionsChangedEvent {
     readonly requestId: string;
     readonly mode: ApprovalMode;
     readonly pending: boolean;
+    readonly inspection?: PermissionInspection;
 }
 
 export interface PermissionsRejectedEvent {

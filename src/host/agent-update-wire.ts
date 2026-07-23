@@ -4,6 +4,7 @@ import type {
 } from "../engine/protocol.ts";
 import {
     isApprovalMode,
+    isPermissionInspection,
     isPermissionGrantProposal,
 } from "../engine/permissions.ts";
 
@@ -139,6 +140,8 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && update.requestId.length > 0
                 && isApprovalMode(update.mode)
                 && typeof update.pending === "boolean"
+                && (update.inspection === undefined
+                    || isPermissionInspection(update.inspection))
             ? value as AgentUpdate
             : undefined;
     }

@@ -216,15 +216,26 @@ test("TUI state keeps host-reported model settings", () => {
 });
 
 test("TUI state keeps host-reported permissions", () => {
+    const inspection = {
+        selected: {
+            name: "full_access",
+            rules: [],
+            defaultOutcome: "allow",
+        },
+        availableProfiles: ["ask", "auto", "full_access"],
+        activeGrants: [],
+    } as const;
     const state = applyAgentUpdate(createTuiState(), {
         type: "permissions",
         requestId: "permissions-1",
         mode: "full_access",
         pending: false,
+        inspection,
         seq: 1,
     });
 
     expect(state.approvalMode).toBe("full_access");
+    expect(state.permissionInspection).toEqual(inspection);
     expect(state.entries).toEqual([]);
 });
 
