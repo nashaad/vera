@@ -59,7 +59,7 @@ export interface ExtensionRpcPeer {
         method: ExtensionRpcMethod,
         handler: ExtensionRpcHandler,
     ): () => void;
-    close(): void;
+    close(error?: Error): void;
     readonly closed: boolean;
 }
 
@@ -239,8 +239,8 @@ export function createExtensionRpcPeer(
                 }
             };
         },
-        close(): void {
-            fail(new Error(`${options.label} extension RPC closed`));
+        close(error?: Error): void {
+            fail(error ?? new Error(`${options.label} extension RPC closed`));
         },
         get closed(): boolean {
             return closed;
