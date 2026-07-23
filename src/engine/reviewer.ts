@@ -6,11 +6,13 @@ import type {
     ModelReasoningEffort,
 } from "../model/types.ts";
 import { renderReviewTranscript } from "./review-transcript.ts";
+import type { ReviewerPathFacts } from "./reviewer-path-facts.ts";
 
 export interface ToolReviewRequest {
     readonly toolCall: HookToolCall;
     readonly workspace: string;
     readonly reason: string;
+    readonly pathFacts?: readonly ReviewerPathFacts[];
     readonly transcript?: readonly ModelMessage[];
 }
 
@@ -380,6 +382,14 @@ function buildReviewPrompt(
         "```",
         `Working directory: ${request.workspace}`,
         `Routed for review because: ${request.reason}`,
+        ...(request.pathFacts === undefined || request.pathFacts.length === 0
+            ? []
+            : [
+                "Path facts (engine-produced metadata, no file contents):",
+                "```json",
+                JSON.stringify(request.pathFacts, null, 2),
+                "```",
+            ]),
         ">>> APPROVAL REQUEST END",
     ].join("\n");
 }

@@ -73,6 +73,7 @@ import {
     type ReviewToolCall,
     type ToolReviewerSettings,
 } from "./reviewer.ts";
+import { collectReviewerPathFacts } from "./reviewer-path-facts.ts";
 import {
     createReviewCircuitBreaker,
     type ReviewCircuitBreaker,
@@ -942,6 +943,12 @@ async function executePreparedTool(
                     toolCall: hookCall,
                     workspace: state.toolRuntime.workspace,
                     reason: permission.reason,
+                    pathFacts: await collectReviewerPathFacts(
+                        permissionContext.workspace,
+                        hookCall,
+                        permission.claims,
+                        signal,
+                    ),
                     transcript: state.messages,
                 },
                 signal,
