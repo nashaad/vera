@@ -1,8 +1,13 @@
 import { connectHost } from "./connection.ts";
+import type { UserMessage } from "../model/types.ts";
 
 export interface ReadyAgent {
     readonly id: string;
     readonly workspace: string;
+}
+
+export interface BranchedAgent extends ReadyAgent {
+    readonly prompt?: UserMessage;
 }
 
 export class AgentStartError extends Error {
@@ -30,6 +35,46 @@ export function resumeAgentThroughHost(
         type: "resume_agent",
         session_path: sessionPath,
     });
+}
+
+export async function branchAgentThroughHost(
+    socketPath: string,
+    sourceAgentId: string,
+    position: "before" | "at",
+    entryId?: string,
+): Promise<BranchedAgent> {
+    const connection = await connectHost({ socketPath });
+    try {
+        await connection.send({
+            type: "branch_agent",
+            source_agent_id: sourceAgentId,
+            position,
+            ...(entryId === undefined ? {} : { entry_id: entryId }),
+        });
+        const response = asRecord(await connection.receive());
+        if (response?.type === "agent_branch_failed") {
+            throw new Error("Resident agent branch failed");
+        }
+        if (
+            response?.type !== "agent_branched"
+            || typeof response.agent_id !== "string"
+            || response.agent_id.length === 0
+            || typeof response.workspace !== "string"
+            || response.workspace.length === 0
+            || !isOptionalUserPrompt(response.prompt)
+        ) {
+            throw new Error("Host returned an invalid agent branch response");
+        }
+        return {
+            id: response.agent_id,
+            workspace: response.workspace,
+            ...(response.prompt === undefined
+                ? {}
+                : { prompt: structuredClone(response.prompt) }),
+        };
+    } finally {
+        connection.close();
+    }
 }
 
 interface CreateAgentMessage {
@@ -84,4 +129,22 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     return typeof value === "object" && value !== null && !Array.isArray(value)
         ? value as Record<string, unknown>
         : undefined;
+}
+
+function isOptionalUserPrompt(value: unknown): value is UserMessage | undefined {
+    if (value === undefined) return true;
+    const prompt = asRecord(value);
+    return prompt?.role === "user"
+        && Array.isArray(prompt.content)
+        && prompt.content.every((item) => {
+            const content = asRecord(item);
+            return (
+                content?.type === "text"
+                && typeof content.text === "string"
+            ) || (
+                content?.type === "image_attachment"
+                && typeof content.attachmentId === "string"
+                && content.attachmentId.length > 0
+            );
+        });
 }

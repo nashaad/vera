@@ -16,7 +16,11 @@ import {
     type HostIdentity,
     type ShutdownIfIdleResponse,
 } from "./protocol.ts";
-import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type {
+    BranchedRegisteredAgent,
+    BranchRegisteredAgentOptions,
+    RegisteredAgentSummary,
+} from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import { acquireHostStartupClaim } from "./startup-claim.ts";
 
@@ -33,6 +37,9 @@ export interface StartHostServerOptions {
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
     readonly createAgent?: (workspace: string) => Promise<ResidentAgent>;
     readonly resumeAgent?: (sessionPath: string) => Promise<ResidentAgent>;
+    readonly branchAgent?: (
+        options: BranchRegisteredAgentOptions,
+    ) => Promise<BranchedRegisteredAgent | undefined>;
     readonly canShutdown?: () => boolean;
     readonly onShutdownAccepted?: () => void | Promise<void>;
 }
@@ -133,6 +140,7 @@ export async function startHostServer(
             options.resumeAgent ?? (() => Promise.reject(
                 new Error("Agent resume is unavailable"),
             )),
+            options.branchAgent ?? (() => Promise.resolve(undefined)),
             () => shutdownFenced,
             requestShutdown,
             attachmentOpened,
@@ -183,6 +191,9 @@ function receiveConnection(
     listAgents: () => readonly RegisteredAgentSummary[],
     createAgent: (workspace: string) => Promise<ResidentAgent>,
     resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
+    branchAgent: (
+        options: BranchRegisteredAgentOptions,
+    ) => Promise<BranchedRegisteredAgent | undefined>,
     isShutdownFenced: () => boolean,
     requestShutdown: (
         identity: HostIdentity & { readonly requester_protocol_version: number },
@@ -338,6 +349,30 @@ function receiveConnection(
             clearTimeout(deadline);
             finished = true;
             startAgent("resume", () => resumeAgent(request.session_path));
+            return;
+        }
+        if (request?.type === "branch_agent") {
+            clearTimeout(deadline);
+            finished = true;
+            void branchAgent({
+                sourceId: request.source_agent_id,
+                position: request.position,
+                ...(request.entry_id === undefined
+                    ? {}
+                    : { entryId: request.entry_id }),
+            }).then(
+                (result) => result === undefined
+                    ? send({ type: "agent_branch_failed" })
+                    : send({
+                        type: "agent_branched",
+                        agent_id: result.agent.id,
+                        workspace: result.agent.workspace,
+                        ...(result.prompt === undefined
+                            ? {}
+                            : { prompt: result.prompt }),
+                    }),
+                () => send({ type: "agent_branch_failed" }),
+            ).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type !== "attach") {

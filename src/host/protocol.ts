@@ -9,7 +9,7 @@ import type { RegisteredAgentSummary } from "./agent-registry.ts";
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 13;
+export const HOST_PROTOCOL_VERSION = 14;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -40,6 +40,13 @@ export interface CreateAgentRequest {
 export interface ResumeAgentRequest {
     readonly type: "resume_agent";
     readonly session_path: string;
+}
+
+export interface BranchAgentRequest {
+    readonly type: "branch_agent";
+    readonly source_agent_id: string;
+    readonly position: "before" | "at";
+    readonly entry_id?: string;
 }
 
 export interface HostIdentityResponse {
@@ -90,6 +97,26 @@ export interface AgentStartFailedResponse {
     readonly operation: "create" | "resume";
 }
 
+export interface AgentBranchedResponse {
+    readonly type: "agent_branched";
+    readonly agent_id: string;
+    readonly workspace: string;
+    readonly prompt?: {
+        readonly role: "user";
+        readonly content: readonly (
+            | { readonly type: "text"; readonly text: string }
+            | {
+                readonly type: "image_attachment";
+                readonly attachmentId: string;
+            }
+        )[];
+    };
+}
+
+export interface AgentBranchFailedResponse {
+    readonly type: "agent_branch_failed";
+}
+
 export interface ShutdownIfIdleAcceptedResponse {
     readonly type: "shutdown_if_idle_accepted";
     readonly pid: number;
@@ -116,6 +143,7 @@ export type HostRequest =
     | ShutdownIfIdleRequest
     | CreateAgentRequest
     | ResumeAgentRequest
+    | BranchAgentRequest
     | AttachRequest;
 export type AttachedClientMessage = ClientCommand | DetachRequest;
 export type HostResponse =
@@ -123,6 +151,8 @@ export type HostResponse =
     | AgentListResponse
     | AgentReadyResponse
     | AgentStartFailedResponse
+    | AgentBranchedResponse
+    | AgentBranchFailedResponse
     | ShutdownIfIdleResponse
     | AttachedResponse
     | AttachFailedResponse
@@ -167,6 +197,32 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && value.session_path.length > 0
     ) {
         return { type: "resume_agent", session_path: value.session_path };
+    }
+    if (
+        value?.type === "branch_agent"
+        && typeof value.source_agent_id === "string"
+        && value.source_agent_id.length > 0
+        && (value.position === "before" || value.position === "at")
+        && (
+            value.position === "at"
+                ? value.entry_id === undefined
+                : typeof value.entry_id === "string"
+                    && value.entry_id.length > 0
+        )
+    ) {
+        if (value.position === "at") {
+            return {
+                type: "branch_agent",
+                source_agent_id: value.source_agent_id,
+                position: "at",
+            };
+        }
+        return {
+            type: "branch_agent",
+            source_agent_id: value.source_agent_id,
+            position: "before",
+            entry_id: value.entry_id as string,
+        };
     }
     if (
         value?.type === "attach"
