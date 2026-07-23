@@ -195,7 +195,7 @@ test("host wire validates permission results", () => {
     expect(parseAgentUpdate({
         type: "permissions",
         requestId: "permissions-2",
-        mode: "always_allow",
+        mode: "../always-allow",
         pending: false,
         seq: 12,
     })).toBeUndefined();

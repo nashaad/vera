@@ -651,7 +651,7 @@ test("session store rejects invalid permissions before writing", async () => {
     });
 
     await expect(store.appendApprovalMode(
-        "always_allow" as "full_access",
+        "../always-allow" as "full_access",
     )).rejects.toThrow("Cannot append invalid permissions mode");
     expect(readLines(path)).toHaveLength(1);
 });

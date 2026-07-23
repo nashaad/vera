@@ -63,6 +63,7 @@ import {
     decideToolPermission,
     type ApprovalMode,
     type CommandPrefix,
+    type PermissionProfile,
 } from "./permissions.ts";
 import {
     createRoutedToolReviewer,
@@ -113,8 +114,14 @@ export interface RunTurnState {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readCommandPrefixes?: () => readonly CommandPrefix[];
+    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
     /** Automatic approval reviewer used by `auto`. */
     readonly reviewToolCall?: ReviewToolCall;
+    readonly reviewToolCallForProfile?: (
+        profile: string,
+        request: Parameters<ReviewToolCall>[0],
+        signal: AbortSignal,
+    ) => ReturnType<ReviewToolCall>;
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
 }
@@ -122,6 +129,7 @@ export interface RunTurnState {
 export interface RunHeadlessLoopOptions {
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
+    readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly sessionStore?: SessionStore;
     readonly sessionId?: string;
     readonly sessionPath?: string;
@@ -129,6 +137,7 @@ export interface RunHeadlessLoopOptions {
     readonly eventLogPath?: string;
     readonly eventBus?: EngineEventBus;
     readonly approvalMode?: ApprovalMode;
+    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
@@ -321,7 +330,15 @@ export async function runHeadlessLoop(
             : { readModelSettings: options.readModelSettings }),
         readApprovalMode,
         readCommandPrefixes,
+        ...(options.permissionProfiles === undefined
+            ? {}
+            : { permissionProfiles: options.permissionProfiles }),
         reviewToolCall,
+        reviewToolCallForProfile: createReviewerProfileRouter(
+            reviewToolCall,
+            adapter,
+            options.reviewers,
+        ),
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
@@ -340,6 +357,34 @@ export async function runHeadlessLoop(
             protocol.checkpoint(state.messages);
         }
     }
+}
+
+function createReviewerProfileRouter(
+    defaultReviewer: ReviewToolCall,
+    adapter: ModelAdapter,
+    profiles: Readonly<Record<string, ToolReviewerSettings>> | undefined,
+): NonNullable<RunTurnState["reviewToolCallForProfile"]> {
+    const reviewers = new Map<string, ReviewToolCall>();
+    return (profile, request, signal) => {
+        if (profile === "default") {
+            return defaultReviewer(request, signal);
+        }
+        let reviewer = reviewers.get(profile);
+        if (reviewer === undefined) {
+            const settings = profiles?.[profile];
+            if (settings === undefined) {
+                return Promise.resolve({
+                    decision: "unavailable",
+                    reason: `Reviewer profile ${profile} is unavailable.`,
+                    riskLevel: "high",
+                    userAuthorization: "unknown",
+                });
+            }
+            reviewer = createRoutedToolReviewer(adapter, settings);
+            reviewers.set(profile, reviewer);
+        }
+        return reviewer(request, signal);
+    };
 }
 
 export async function runTurn(
@@ -847,12 +892,24 @@ async function executePreparedTool(
         hookCall,
         state.toolRuntime.workspace,
         state.readCommandPrefixes?.() ?? [],
+        { permissionProfiles: state.permissionProfiles },
     );
     if (permission.behavior === "deny") {
         return { result: deniedToolResult(toolCall, permission.reason) };
     }
     if (permission.behavior === "review") {
-        if (state.reviewToolCall === undefined) {
+        const reviewCall = state.reviewToolCallForProfile === undefined
+            ? state.reviewToolCall
+            : (
+                request: Parameters<ReviewToolCall>[0],
+                nextSignal: AbortSignal,
+            ) =>
+                state.reviewToolCallForProfile!(
+                    permission.reviewerProfile,
+                    request,
+                    nextSignal,
+                );
+        if (reviewCall === undefined) {
             const approval = await state.inbound.requestToolApproval(
                 hookCall,
                 `${permission.reason} The automatic reviewer is unavailable.`,
@@ -862,7 +919,7 @@ async function executePreparedTool(
                 return { result: deniedToolResult(toolCall, approval.reason) };
             }
         } else {
-            const review = await state.reviewToolCall(
+            const review = await reviewCall(
                 {
                     toolCall: hookCall,
                     workspace: state.toolRuntime.workspace,

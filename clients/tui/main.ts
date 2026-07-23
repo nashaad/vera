@@ -1724,7 +1724,7 @@ export async function startTui(
         renderState();
     }
 
-    function requestPermissionsChange(mode: "ask" | "auto" | "full_access"): void {
+    function requestPermissionsChange(mode: string): void {
         sendCommand({
             type: "update_permissions",
             requestId: randomUUID(),

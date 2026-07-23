@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
-import { isApprovalMode, type ApprovalMode } from "../engine/permissions.ts";
+import {
+    builtInPermissionProfile,
+    isApprovalMode,
+    type ApprovalMode,
+    type PermissionProfile,
+} from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import {
     availableModels,
@@ -78,6 +83,8 @@ export interface AgentRegistryOptions {
     readonly modelFallback?: ModelFallbackPolicy;
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
+    readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
     readonly availableModels?: readonly SuggestedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
@@ -366,6 +373,10 @@ export class AgentRegistry {
             || entry.agent.closed
             || entry.agent.failed
             || !isApprovalMode(mode)
+            || (
+                builtInPermissionProfile(mode) === undefined
+                && this.options.permissionProfiles?.[mode] === undefined
+            )
         ) {
             return undefined;
         }
@@ -539,6 +550,12 @@ export class AgentRegistry {
                 ...(this.options.reviewer === undefined
                     ? {}
                     : { reviewer: this.options.reviewer }),
+                ...(this.options.reviewers === undefined
+                    ? {}
+                    : { reviewers: this.options.reviewers }),
+                ...(this.options.permissionProfiles === undefined
+                    ? {}
+                    : { permissionProfiles: this.options.permissionProfiles }),
                 applyToolEffect,
                 enabledToolEffects: [
                     "spawn_subagent",

@@ -103,6 +103,10 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_permissions",
         mode: "ask",
     });
+    expect(registry.dispatch("/permissions unattended")).toEqual({
+        type: "update_permissions",
+        mode: "unattended",
+    });
     expect(registry.dispatch("/reas")).toEqual({
         type: "open_reasoning_picker",
     });

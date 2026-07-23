@@ -74,6 +74,39 @@ test("recognized Bash redirects use the same workspace-write rule", () => {
     ).behavior).toBe("review");
 });
 
+test("custom profiles use the same ordered evaluator", () => {
+    const permissionProfiles = {
+        quiet: {
+            name: "quiet",
+            defaultOutcome: "review" as const,
+            reviewerProfile: "careful",
+            rules: [{
+                name: "quiet.rules.0",
+                when: { capability: "network" as const },
+                then: "allow" as const,
+            }],
+        },
+    };
+    expect(decideToolPermission(
+        "quiet",
+        bash("curl https://example.com"),
+        workspace,
+        [],
+        { homeDirectory, permissionProfiles },
+    ).behavior).toBe("allow");
+    const decision = decideToolPermission(
+        "quiet",
+        bash("bun install"),
+        workspace,
+        [],
+        { homeDirectory, permissionProfiles },
+    );
+    expect(decision).toMatchObject({
+        behavior: "review",
+        reviewerProfile: "careful",
+    });
+});
+
 test("ordinary recursive deletion is reviewed rather than blanket denied", () => {
     for (const target of [
         ".venv",

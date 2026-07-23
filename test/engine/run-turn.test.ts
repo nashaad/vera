@@ -1908,6 +1908,44 @@ test("auto sends a boundary crossing to the reviewer, not the user", async () =>
     expect(updates).not.toContain("ui_request");
 });
 
+test("a custom permission profile routes to its named reviewer", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const seenProfiles: string[] = [];
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, undefined),
+        approvalMode: "unattended",
+        permissionProfiles: {
+            unattended: {
+                name: "unattended",
+                rules: [],
+                defaultOutcome: "review",
+                reviewerProfile: "careful",
+            },
+        },
+        reviewToolCallForProfile: async (profile) => {
+            seenProfiles.push(profile);
+            return {
+                decision: "allow",
+                reason: "The action follows from the request.",
+                riskLevel: "low",
+                userAuthorization: "medium",
+            };
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(
+        new FauxAdapter(boundaryCrossingResponses()),
+        "test",
+        state,
+    );
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(seenProfiles).toEqual(["careful"]);
+});
+
 test("a reviewer denial goes back to the model, not to the user", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
