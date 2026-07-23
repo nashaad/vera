@@ -1984,9 +1984,11 @@ test("auto reviews and executes a structured write outside the workspace", async
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const reasons: string[] = [];
+    const reviewedPathFacts: unknown[] = [];
     const state: RunTurnState = {
         ...reviewedTurnState(channel, events, async (request) => {
             reasons.push(request.reason);
+            reviewedPathFacts.push(request.pathFacts);
             return {
                 decision: "allow",
                 reason: "The named note is authorized.",
@@ -2010,6 +2012,15 @@ test("auto reviews and executes a structured write outside the workspace", async
     expect(reasons[0]).toContain(
         `write ${join(realpathSync(root), "outside.txt")}`,
     );
+    expect(reviewedPathFacts).toEqual([[
+        expect.objectContaining({
+            requestedPath: "../outside.txt",
+            resolvedPath: join(realpathSync(root), "outside.txt"),
+            scope: "outside_workspace",
+            exists: false,
+            type: "missing",
+        }),
+    ]]);
     expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("updated");
 });
 

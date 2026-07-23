@@ -211,6 +211,34 @@ test("the reviewer sees the turn and the action but is given no tools", async ()
     expect(text.text).toContain("(no transcript available)");
 });
 
+test("the reviewer sees bounded engine-produced path facts", async () => {
+    const adapter = new ScriptedAdapter(assistantText('{"outcome":"allow"}'));
+    const review = createToolReviewer({ adapter, model: "test" });
+
+    await review({
+        ...request,
+        pathFacts: [{
+            requestedPath: "../note.md",
+            resolvedPath: "/Users/nash/Projects/note.md",
+            scope: "outside_workspace",
+            exists: true,
+            type: "file",
+            totalBytes: 42,
+            trackedGitState: "dirty",
+        }],
+    }, new AbortController().signal);
+
+    const prompt = adapter.requests[0]?.messages[0];
+    if (prompt?.role !== "user" || prompt.content[0]?.type !== "text") {
+        throw new Error("Expected the review request to carry text");
+    }
+    expect(prompt.content[0].text).toContain(
+        "Path facts (engine-produced metadata, no file contents):",
+    );
+    expect(prompt.content[0].text).toContain('"totalBytes": 42');
+    expect(prompt.content[0].text).toContain('"trackedGitState": "dirty"');
+});
+
 test("the turn so far reaches the reviewer", async () => {
     const adapter = new ScriptedAdapter(assistantText('{"outcome":"allow"}'));
     const review = createToolReviewer({ adapter, model: "test" });
