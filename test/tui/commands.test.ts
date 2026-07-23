@@ -125,10 +125,10 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/res")).toEqual({
         type: "open_resume_picker",
     });
-    expect(registry.dispatch("/new")).toEqual({
+    expect(registry.dispatch("/clear")).toEqual({
         type: "create_session",
     });
-    expect(registry.dispatch("/n")).toEqual({
+    expect(registry.dispatch("/c")).toEqual({
         type: "create_session",
     });
 });
