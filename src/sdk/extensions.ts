@@ -3,7 +3,6 @@ import type { ExtensionCommandBody } from "../extensions/commands.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
-    readonly workspace: string;
     readonly commands: VeraExtensionCommands;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
@@ -27,6 +26,7 @@ export interface VeraExtensionCommandSpec {
 
 export interface VeraExtensionCommandRequest {
     readonly argumentsText: string;
+    readonly workspace: string;
     readonly signal: AbortSignal;
 }
 

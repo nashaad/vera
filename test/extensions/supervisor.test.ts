@@ -35,7 +35,7 @@ test("supervisor activates, attributes diagnostics, and disposes", async () => {
         export async function activate(vera) {
             console.log("loaded", process.env.VERA_EXTENSION_ID);
             await Bun.write(
-                vera.workspace + "/environment.json",
+                vera.config.environmentPath,
                 JSON.stringify({
                     id: process.env.VERA_EXTENSION_ID,
                     secret: process.env.VERA_TEST_SECRET,
@@ -43,7 +43,7 @@ test("supervisor activates, attributes diagnostics, and disposes", async () => {
                 }),
             );
             vera.onDispose(() =>
-                appendFile(vera.workspace + "/cleanup.txt", "done")
+                appendFile(vera.config.cleanupPath, "done")
             );
         }
     `);
@@ -52,8 +52,11 @@ test("supervisor activates, attributes diagnostics, and disposes", async () => {
     try {
         const running = await startUserExtension({
             loaded: loadExtensionManifest(directory),
-            config: { enabled: true },
-            workspace,
+            config: {
+                enabled: true,
+                environmentPath: join(workspace, "environment.json"),
+                cleanupPath: join(workspace, "cleanup.txt"),
+            },
             activationTimeoutMs: 1_000,
             disposeTimeoutMs: 1_000,
             terminateGraceMs: 100,
@@ -68,7 +71,11 @@ test("supervisor activates, attributes diagnostics, and disposes", async () => {
             "utf8",
         ))).toEqual({
             id: "test.extension",
-            config: { enabled: true },
+            config: {
+                enabled: true,
+                environmentPath: join(workspace, "environment.json"),
+                cleanupPath: join(workspace, "cleanup.txt"),
+            },
         });
         await running.dispose();
         expect(readFileSync(join(workspace, "cleanup.txt"), "utf8"))
@@ -89,11 +96,12 @@ test("supervisor discovers and invokes a declarative command", async () => {
                 name: "hello",
                 description: "Say hello",
                 usage: "/hello [name]",
-                async run({ argumentsText, signal }) {
+                async run({ argumentsText, workspace, signal }) {
                     if (signal.aborted) throw new Error("cancelled");
                     return {
                         kind: "text",
-                        text: "Hello " + (argumentsText || "world"),
+                        text: workspace + ":Hello "
+                            + (argumentsText || "world"),
                     };
                 },
             });
@@ -102,7 +110,6 @@ test("supervisor discovers and invokes a declarative command", async () => {
     const running = await startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace: createDirectory(),
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,
@@ -115,12 +122,17 @@ test("supervisor discovers and invokes a declarative command", async () => {
         usage: "/hello [name]",
         source: "test.extension",
     }]);
-    await expect(running.invokeCommand("hello", "Nash")).resolves.toEqual({
+    const commandWorkspace = createDirectory();
+    await expect(running.invokeCommand(
+        "hello",
+        "Nash",
+        commandWorkspace,
+    )).resolves.toEqual({
         version: 1,
         source: "test.extension/hello",
         body: {
             kind: "text",
-            text: "Hello Nash",
+            text: `${commandWorkspace}:Hello Nash`,
         },
     });
     await running.dispose();
@@ -156,18 +168,25 @@ test("command timeout aborts the handler and leaves the extension usable", async
     const running = await startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace,
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,
         handlerTimeoutMs: 20,
     });
 
-    await expect(running.invokeCommand("work", "slow")).rejects.toThrow(
+    await expect(running.invokeCommand(
+        "work",
+        "slow",
+        workspace,
+    )).rejects.toThrow(
         "timed out",
     );
     await waitFor(() => Bun.file(abortedPath).size > 0);
-    await expect(running.invokeCommand("work", "fast")).resolves.toMatchObject({
+    await expect(running.invokeCommand(
+        "work",
+        "fast",
+        workspace,
+    )).resolves.toMatchObject({
         body: { kind: "notice", level: "info", text: "ready" },
     });
     await running.dispose();
@@ -199,14 +218,13 @@ test("dispose cancels active commands before extension cleanup", async () => {
     const running = await startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace,
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,
         handlerTimeoutMs: 1_000,
     });
 
-    const invocation = running.invokeCommand("wait", "");
+    const invocation = running.invokeCommand("wait", "", workspace);
     await Bun.sleep(5);
     const outcomes = await Promise.allSettled([
         invocation,
@@ -216,7 +234,11 @@ test("dispose cancels active commands before extension cleanup", async () => {
     expect(outcomes[0]?.status).toBe("rejected");
     expect(outcomes[1]?.status).toBe("fulfilled");
     expect(readFileSync(orderPath, "utf8")).toBe("handler\ncleanup\n");
-    await expect(running.invokeCommand("wait", "")).rejects.toMatchObject({
+    await expect(running.invokeCommand(
+        "wait",
+        "",
+        workspace,
+    )).rejects.toMatchObject({
         code: "disposed",
     });
 });
@@ -236,7 +258,6 @@ test("command registration requires its declared capability", async () => {
     await expect(startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace: createDirectory(),
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,
@@ -254,7 +275,6 @@ test("supervisor attributes activation failure and reaps the child", async () =>
     await expect(startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace: createDirectory(),
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,
@@ -280,7 +300,6 @@ test("activation timeout kills and reaps the child", async () => {
     await expect(startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace,
         activationTimeoutMs: 100,
         disposeTimeoutMs: 20,
         terminateGraceMs: 100,
@@ -301,7 +320,6 @@ test("dispose timeout escalates to SIGKILL and reaps the child", async () => {
     const running = await startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace,
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 20,
         terminateGraceMs: 20,
@@ -322,7 +340,6 @@ test("supervisor reports an unexpected post-activation exit", async () => {
     const running = await startUserExtension({
         loaded: loadExtensionManifest(directory),
         config: null,
-        workspace: createDirectory(),
         activationTimeoutMs: 1_000,
         disposeTimeoutMs: 1_000,
         terminateGraceMs: 100,

@@ -36,7 +36,7 @@ test("child runtime activates an extension and redirects console output", async 
             console.log("extension says", vera.config.name);
             console.table([{ console: "stays on stderr" }]);
             await Bun.write(
-                vera.workspace + "/activated.txt",
+                vera.config.outputPath,
                 String(vera.config.name),
             );
         }
@@ -51,8 +51,10 @@ test("child runtime activates an extension and redirects console output", async 
         extensionId: "test.extension",
         extensionVersion: "1.0.0",
         capabilities: [],
-        config: { name: "Vera" },
-        workspace,
+        config: {
+            name: "Vera",
+            outputPath: join(workspace, "activated.txt"),
+        },
     }, { timeoutMs: 1_000 })).resolves.toEqual({ handlers: [] });
     await expect(Bun.file(join(workspace, "activated.txt")).text())
         .resolves.toBe("Vera");
@@ -74,9 +76,9 @@ test("child runtime rejects overlapping activation", async () => {
     const child = startChild(entrypoint);
     const peer = createHostPeer(child);
 
-    const first = activate(peer, directory);
+    const first = activate(peer);
     await Bun.sleep(10);
-    await expect(activate(peer, directory)).rejects.toThrow(
+    await expect(activate(peer)).rejects.toThrow(
         "already activated",
     );
     await expect(first).resolves.toEqual({ handlers: [] });
@@ -97,7 +99,7 @@ test("child runtime disposes registrations in reverse order", async () => {
     const child = startChild(entrypoint);
     const peer = createHostPeer(child);
 
-    await activate(peer, directory);
+    await activate(peer);
     await expect(peer.request(
         "dispose",
         null,
@@ -113,7 +115,7 @@ test("child runtime attributes a missing activate export", async () => {
     const child = startChild(entrypoint);
     const peer = createHostPeer(child);
 
-    await expect(activate(peer, createDirectory())).rejects.toThrow(
+    await expect(activate(peer)).rejects.toThrow(
         "must export an activate function",
     );
     peer.close();
@@ -134,7 +136,7 @@ test("concurrent disposal waits for the same failing cleanup", async () => {
     `);
     const child = startChild(entrypoint);
     const peer = createHostPeer(child);
-    await activate(peer, directory);
+    await activate(peer);
 
     const first = peer.request("dispose", null, { timeoutMs: 1_000 });
     const second = peer.request("dispose", null, { timeoutMs: 1_000 });
@@ -166,7 +168,6 @@ test("child runtime returns protocol mismatch explicitly", async () => {
         extensionVersion: "1.0.0",
         capabilities: [],
         config: null,
-        workspace: createDirectory(),
     }, { timeoutMs: 1_000 })).rejects.toMatchObject({
         code: "protocol_mismatch",
     });
@@ -215,7 +216,6 @@ function createHostPeer(child: ChildProcess): ExtensionRpcPeer {
 
 function activate(
     peer: ExtensionRpcPeer,
-    workspace: string,
 ): Promise<unknown> {
     return peer.request("activate", {
         rpcVersion: EXTENSION_RPC_VERSION,
@@ -223,7 +223,6 @@ function activate(
         extensionVersion: "1.0.0",
         capabilities: [],
         config: null,
-        workspace,
     }, { timeoutMs: 1_000 });
 }
 

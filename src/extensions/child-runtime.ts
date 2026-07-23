@@ -27,7 +27,6 @@ interface ActivateParams {
     readonly extensionVersion: string;
     readonly capabilities: readonly string[];
     readonly config: JsonValue;
-    readonly workspace: string;
 }
 
 interface ChildRuntime {
@@ -107,7 +106,6 @@ export function runExtensionChildRuntime(
 
             const api: VeraExtensionApi = Object.freeze({
                 config: structuredClone(params.config),
-                workspace: params.workspace,
                 commands: Object.freeze({
                     register(spec: VeraExtensionCommandSpec): void {
                         registerCommand(spec, params.capabilities);
@@ -158,6 +156,7 @@ export function runExtensionChildRuntime(
         context.signal.addEventListener("abort", abort, { once: true });
         const execution = Promise.resolve(handler({
             argumentsText: request.argumentsText,
+            workspace: request.workspace,
             signal: controller.signal,
         }));
         const active = { controller, execution };
@@ -282,19 +281,26 @@ export function runExtensionChildRuntime(
 
 function parseInvokeParams(
     value: JsonValue,
-): { readonly handlerId: string; readonly argumentsText: string } | undefined {
+): {
+    readonly handlerId: string;
+    readonly argumentsText: string;
+    readonly workspace: string;
+} | undefined {
     if (
         !isPlainObject(value)
-        || Object.keys(value).length !== 2
+        || Object.keys(value).length !== 3
         || typeof value.handlerId !== "string"
         || value.handlerId.length === 0
         || typeof value.argumentsText !== "string"
+        || typeof value.workspace !== "string"
+        || value.workspace.length === 0
     ) {
         return undefined;
     }
     return {
         handlerId: value.handlerId,
         argumentsText: value.argumentsText,
+        workspace: value.workspace,
     };
 }
 
@@ -309,8 +315,6 @@ function parseActivateParams(value: JsonValue): ActivateParams | undefined {
         || !Array.isArray(value.capabilities)
         || !value.capabilities.every((item) => typeof item === "string")
         || !isJsonValue(value.config)
-        || typeof value.workspace !== "string"
-        || value.workspace.length === 0
     ) {
         return undefined;
     }
@@ -320,7 +324,6 @@ function parseActivateParams(value: JsonValue): ActivateParams | undefined {
         extensionVersion: value.extensionVersion,
         capabilities: value.capabilities,
         config: value.config,
-        workspace: value.workspace,
     };
 }
 
