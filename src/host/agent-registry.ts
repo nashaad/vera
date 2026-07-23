@@ -283,7 +283,7 @@ export class AgentRegistry {
                         && candidate.message.internal !== true,
                 );
                 const firstUserMessage = firstUserEntry?.message;
-                const title = firstUserMessage?.role === "user"
+                const fallbackTitle = firstUserMessage?.role === "user"
                     ? firstUserMessage.content
                         .flatMap((content) => content.type === "text"
                             ? [content.text]
@@ -292,6 +292,7 @@ export class AgentRegistry {
                         .replaceAll(/\s+/g, " ")
                         .trim()
                     : undefined;
+                const title = entry.store.name() ?? fallbackTitle;
                 return {
                     id: entry.agent.id,
                     workspace: entry.agent.workspace,

@@ -87,6 +87,45 @@ test("resident agents keep file tools inside their fixed workspaces", async () =
     }
 });
 
+test("session names override and clear back to first-prompt titles", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-name-"));
+    const namedPath = join(root, "named.jsonl");
+    const named = await SessionStore.create(namedPath, {
+        sessionId: "named",
+        cwd: root,
+    });
+    await named.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "fallback prompt" }],
+    });
+    await named.appendName("Human name");
+
+    const clearedPath = join(root, "cleared.jsonl");
+    const cleared = await SessionStore.create(clearedPath, {
+        sessionId: "cleared",
+        cwd: root,
+    });
+    await cleared.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "cleared fallback" }],
+    });
+    await cleared.appendName("Temporary name");
+    await cleared.appendName(null);
+
+    const registry = createRegistry(() => []);
+    try {
+        await registry.resume({ sessionPath: namedPath });
+        await registry.resume({ sessionPath: clearedPath });
+        expect(registry.list().find((agent) => agent.id === "named")?.title)
+            .toBe("Human name");
+        expect(registry.list().find((agent) => agent.id === "cleared")?.title)
+            .toBe("cleared fallback");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a resident agent applies new model settings at the next turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-"));
     const faux = new FauxAdapter([
