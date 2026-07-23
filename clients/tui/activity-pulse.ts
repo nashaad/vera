@@ -1,0 +1,126 @@
+import { fg, StyledText, type TextChunk } from "@opentui/core";
+
+export interface TuiActivityPulseColors {
+    readonly active: string;
+    readonly trail: string;
+    readonly inactive: string;
+    readonly text: string;
+}
+
+export type TuiActivityAnimation =
+    | "conveyor"
+    | "symmetric_wave"
+    | "braille"
+    | "off";
+
+const DEFAULT_PULSE_WIDTH = 7;
+const DEFAULT_SYMMETRIC_WAVE_WIDTH = 5;
+const BRAILLE_FRAMES = [
+    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+] as const;
+
+export function renderTuiActivityAnimation(
+    animation: TuiActivityAnimation,
+    frame: number,
+    message: string,
+    colors: TuiActivityPulseColors,
+    width?: number,
+): StyledText {
+    if (animation === "conveyor") {
+        return renderTuiActivityPulse(
+            frame,
+            message,
+            colors,
+            width ?? DEFAULT_PULSE_WIDTH,
+        );
+    }
+    if (animation === "symmetric_wave") {
+        return renderSymmetricWave(
+            frame,
+            message,
+            colors,
+            oddWidth(width ?? DEFAULT_SYMMETRIC_WAVE_WIDTH),
+        );
+    }
+    if (animation === "braille") {
+        const glyph = BRAILLE_FRAMES[positiveModulo(
+            frame,
+            BRAILLE_FRAMES.length,
+        )] ?? "⠋";
+        return new StyledText([
+            fg(colors.active)(glyph),
+            fg(colors.text)(` ${message}`),
+        ]);
+    }
+    return new StyledText([fg(colors.text)(message)]);
+}
+
+export function renderTuiActivityPulse(
+    frame: number,
+    message: string,
+    colors: TuiActivityPulseColors,
+    width = DEFAULT_PULSE_WIDTH,
+): StyledText {
+    const head = positiveModulo(frame, width);
+    const chunks: TextChunk[] = [];
+
+    for (let index = 0; index < width; index += 1) {
+        const distance = circularDistance(index, head, width);
+        if (distance === 0) {
+            chunks.push(fg(colors.active)("█"));
+        } else if (distance === 1) {
+            chunks.push(fg(colors.trail)("▓"));
+        } else if (distance === 2) {
+            chunks.push(fg(colors.trail)("▒"));
+        } else {
+            chunks.push(fg(colors.inactive)("░"));
+        }
+    }
+
+    chunks.push(fg(colors.text)(` ${message}`));
+    return new StyledText(chunks);
+}
+
+function circularDistance(left: number, right: number, width: number): number {
+    const direct = Math.abs(left - right);
+    return Math.min(direct, width - direct);
+}
+
+function renderSymmetricWave(
+    frame: number,
+    message: string,
+    colors: TuiActivityPulseColors,
+    width: number,
+): StyledText {
+    if (width === 2) {
+        const active = positiveModulo(frame, 2) === 0;
+        return new StyledText([
+            fg(active ? colors.active : colors.inactive)(active ? "▪▪" : "··"),
+            fg(colors.text)(` ${message}`),
+        ]);
+    }
+    const center = Math.floor(width / 2);
+    const cycle = center * 2;
+    const step = positiveModulo(frame, cycle);
+    const distance = step <= center ? center - step : step - center;
+    const left = center - distance;
+    const right = center + distance;
+    const chunks = Array.from({ length: width }, (_, index) =>
+        fg(index === left || index === right ? colors.active : colors.inactive)(
+            index === left || index === right ? "▪" : "·",
+        )
+    );
+    chunks.push(fg(colors.text)(` ${message}`));
+    return new StyledText(chunks);
+}
+
+function oddWidth(width: number): number {
+    if (width === 2) {
+        return width;
+    }
+    return width % 2 === 0 ? width - 1 : width;
+}
+
+function positiveModulo(value: number, divisor: number): number {
+    return ((value % divisor) + divisor) % divisor;
+}

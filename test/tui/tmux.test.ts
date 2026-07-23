@@ -185,7 +185,10 @@ test.skipIf(!tmuxAvailable)(
                 "theme changed: nightowl",
             );
             expect(JSON.parse(readFileSync(join(home, ".vera", "tui.json"), "utf8")))
-                .toEqual({ theme: "nightowl" });
+                .toEqual({
+                    theme: "nightowl",
+                    animation: "conveyor",
+                });
 
             sendText(socket, session, "/reasoning");
             sendKey(socket, session, "Enter");
@@ -251,18 +254,18 @@ test.skipIf(!tmuxAvailable)(
                 } run test/support/tui-child.ts`,
             ]);
 
-            pane = await waitForPane(socket, session, "Start a conversation");
-            expect(pane).toContain("test · reasoning high");
+            pane = await waitForPane(socket, session, "test · reasoning high");
+            expect(pane).toContain("Start a conversation");
             expect(pane).not.toContain("shift+enter newline");
             sendText(socket, session, "start streaming");
             sendKey(socket, session, "Enter");
 
             pane = await waitForPane(socket, session, "enter queue");
-            expect(pane).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (thinking|responding) · \d+s/);
+            expect(pane).toMatch(/[░▒▓█]{7} (thinking|responding) · \d+s/);
             expect(pane).toContain("esc redirect/stop");
 
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
-            expect(pane).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] responding · \d+s/);
+            expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
             expect(pane).toContain("esc redirect/stop");
             expect(pane).toMatch(/\+ Thought: \d+\.\d+s/);
             sendText(socket, session, "redirect now");

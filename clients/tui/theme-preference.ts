@@ -4,6 +4,14 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { TuiThemeName } from "./theme.ts";
+import type { TuiActivityAnimation } from "./activity-pulse.ts";
+
+interface TuiClientPreferences {
+    readonly theme: TuiThemeName;
+    readonly animation: TuiActivityAnimation;
+    readonly animation_interval_ms?: number;
+    readonly animation_width?: number;
+}
 
 export function tuiThemePreferencePath(): string {
     return join(homedir(), ".vera", "tui.json");
@@ -12,30 +20,103 @@ export function tuiThemePreferencePath(): string {
 export function loadTuiThemePreference(
     path = tuiThemePreferencePath(),
 ): TuiThemeName {
-    try {
-        const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
-        if (typeof value === "object" && value !== null) {
-            const theme = Reflect.get(value, "theme");
-            if (isTuiThemeName(theme)) {
-                return theme;
-            }
-        }
-    } catch {
-        // Missing or malformed client preferences must not prevent startup.
-    }
-    return "default";
+    return loadTuiClientPreferences(path).theme;
 }
 
 export function saveTuiThemePreference(
     theme: TuiThemeName,
     path = tuiThemePreferencePath(),
 ): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        theme,
+    }, path);
+}
+
+export function loadTuiActivityAnimationPreference(
+    path = tuiThemePreferencePath(),
+): TuiActivityAnimation {
+    return loadTuiClientPreferences(path).animation;
+}
+
+export function saveTuiActivityAnimationPreference(
+    animation: TuiActivityAnimation,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        animation,
+    }, path);
+}
+
+export function loadTuiActivityAnimationIntervalPreference(
+    path = tuiThemePreferencePath(),
+): number | undefined {
+    return loadTuiClientPreferences(path).animation_interval_ms;
+}
+
+export function loadTuiActivityAnimationWidthPreference(
+    path = tuiThemePreferencePath(),
+): number | undefined {
+    return loadTuiClientPreferences(path).animation_width;
+}
+
+function loadTuiClientPreferences(path: string): TuiClientPreferences {
+    try {
+        const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+        if (typeof value === "object" && value !== null) {
+            const theme = Reflect.get(value, "theme");
+            const animation = Reflect.get(value, "animation");
+            const interval = boundedInteger(
+                Reflect.get(value, "animation_interval_ms"),
+                80,
+                2_000,
+            );
+            const width = boundedInteger(
+                Reflect.get(value, "animation_width"),
+                2,
+                15,
+            );
+            return {
+                theme: isTuiThemeName(theme) ? theme : "default",
+                animation: isTuiActivityAnimation(animation)
+                    ? animation
+                    : "conveyor",
+                ...(interval === undefined
+                    ? {}
+                    : { animation_interval_ms: interval }),
+                ...(width === undefined ? {} : { animation_width: width }),
+            };
+        }
+    } catch {
+        // Missing or malformed client preferences must not prevent startup.
+    }
+    return { theme: "default", animation: "conveyor" };
+}
+
+function saveTuiClientPreferences(
+    preferences: TuiClientPreferences,
+    path: string,
+): void {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const temporaryPath = `${path}.${randomUUID()}.tmp`;
-    writeFileSync(temporaryPath, `${JSON.stringify({ theme }, null, 2)}\n`, {
+    writeFileSync(temporaryPath, `${JSON.stringify(preferences, null, 2)}\n`, {
         mode: 0o600,
     });
     renameSync(temporaryPath, path);
+}
+
+function boundedInteger(
+    value: unknown,
+    minimum: number,
+    maximum: number,
+): number | undefined {
+    return typeof value === "number"
+            && Number.isInteger(value)
+            && value >= minimum
+            && value <= maximum
+        ? value
+        : undefined;
 }
 
 export function isTuiThemeName(value: unknown): value is TuiThemeName {
@@ -46,4 +127,13 @@ export function isTuiThemeName(value: unknown): value is TuiThemeName {
         || value === "synthwave"
         || value === "nightowl"
         || value === "github";
+}
+
+export function isTuiActivityAnimation(
+    value: unknown,
+): value is TuiActivityAnimation {
+    return value === "conveyor"
+        || value === "symmetric_wave"
+        || value === "braille"
+        || value === "off";
 }
