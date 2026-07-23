@@ -44,6 +44,7 @@ import {
     toolResultMessage,
 } from "../tools/execute.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
+import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
     ApplyToolEffect,
     ToolExecutionResult,
@@ -898,10 +899,14 @@ async function executePreparedTool(
         return finishExecutedTool(state, toolCall, hookCall, replacement, 0);
     }
 
+    const permissionContext = await resolvePermissionToolCall(
+        state.toolRuntime.workspace,
+        hookCall,
+    );
     const permission = decideToolPermission(
         approvalMode,
-        hookCall,
-        state.toolRuntime.workspace,
+        permissionContext.toolCall,
+        permissionContext.workspace,
         state.readPermissionGrants?.() ?? [],
         { permissionProfiles: state.permissionProfiles },
     );
@@ -1025,6 +1030,17 @@ async function executePreparedTool(
     const result = toolResultMessage(toolCall, output);
     const durationMs = performance.now() - startedAt;
     return finishExecutedTool(state, toolCall, hookCall, result, durationMs);
+}
+
+async function resolvePermissionToolCall(
+    workspace: string,
+    toolCall: HookToolCall,
+): Promise<{ readonly workspace: string; readonly toolCall: HookToolCall }> {
+    try {
+        return await resolveFileToolPermissionContext(workspace, toolCall);
+    } catch {
+        return { workspace, toolCall };
+    }
 }
 
 async function finishExecutedTool(

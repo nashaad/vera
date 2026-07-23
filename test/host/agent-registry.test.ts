@@ -29,7 +29,7 @@ import {
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
-test("resident agents keep file tools inside their fixed workspaces", async () => {
+test("resident agents resolve relative file paths from their fixed workspaces", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-registry-"));
     const firstWorkspace = join(root, "first");
     const secondWorkspace = join(root, "second");

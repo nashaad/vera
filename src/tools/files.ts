@@ -1,12 +1,13 @@
 import { lstat, realpath } from "node:fs/promises";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import type { RegisteredTool } from "./types.ts";
+import type { HookToolCall } from "../sdk/hooks.ts";
 
 export const readTool: RegisteredTool = {
     definition: {
         name: "read",
-        description: "Read a UTF-8 text file inside the workspace.",
+        description: "Read a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
         inputSchema: {
             type: "object",
             properties: {
@@ -32,7 +33,7 @@ export const readTool: RegisteredTool = {
 export const writeTool: RegisteredTool = {
     definition: {
         name: "write",
-        description: "Write a UTF-8 text file inside the workspace.",
+        description: "Write a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
         inputSchema: {
             type: "object",
             properties: {
@@ -47,7 +48,7 @@ export const writeTool: RegisteredTool = {
         const path = requiredString(input, "path", "write");
         const content = requiredString(input, "content", "write");
         return context.enqueueFileMutation(async () => {
-            const safePath = await safeWritePath(context.workspace, path);
+            const safePath = await resolveWritePath(context.workspace, path);
             const bytesWritten = await Bun.write(safePath, content);
             context.recordFileSnapshot(safePath, content);
             return {
@@ -65,25 +66,18 @@ export async function resolveReadPath(
 ): Promise<string> {
     const root = await realpath(workspace);
     const candidate = resolve(root, requestedPath);
-    assertInsideWorkspace(root, candidate);
-
-    const target = await realpath(candidate);
-    assertInsideWorkspace(root, target);
-    return target;
+    return realpath(candidate);
 }
 
-async function safeWritePath(
+export async function resolveWritePath(
     workspace: string,
     requestedPath: string,
 ): Promise<string> {
     const root = await realpath(workspace);
     const candidate = resolve(root, requestedPath);
-    assertInsideWorkspace(root, candidate);
 
     try {
-        const target = await realpath(candidate);
-        assertInsideWorkspace(root, target);
-        return target;
+        return await realpath(candidate);
     } catch (error) {
         if (!isMissingPathError(error)) {
             throw error;
@@ -95,14 +89,41 @@ async function safeWritePath(
     }
 
     const parent = await realpath(dirname(candidate));
-    assertInsideWorkspace(root, parent);
     return join(parent, basename(candidate));
 }
 
-function assertInsideWorkspace(root: string, candidate: string): void {
-    if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) {
-        throw new Error(`Path is outside the workspace: ${candidate}`);
+export async function resolveFileToolPermissionCall(
+    workspace: string,
+    toolCall: HookToolCall,
+): Promise<HookToolCall> {
+    if (
+        toolCall.name !== "read"
+        && toolCall.name !== "write"
+        && toolCall.name !== "edit"
+    ) {
+        return toolCall;
     }
+    const requestedPath = toolCall.input.path;
+    if (typeof requestedPath !== "string") {
+        return toolCall;
+    }
+    const path = toolCall.name === "write"
+        ? await resolveWritePath(workspace, requestedPath)
+        : await resolveReadPath(workspace, requestedPath);
+    return {
+        ...toolCall,
+        input: { ...toolCall.input, path },
+    };
+}
+
+export async function resolveFileToolPermissionContext(
+    workspace: string,
+    toolCall: HookToolCall,
+): Promise<{ readonly workspace: string; readonly toolCall: HookToolCall }> {
+    return {
+        workspace: await realpath(workspace),
+        toolCall: await resolveFileToolPermissionCall(workspace, toolCall),
+    };
 }
 
 async function pathEntryExists(path: string): Promise<boolean> {

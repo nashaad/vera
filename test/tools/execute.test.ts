@@ -3,6 +3,7 @@ import {
     mkdir,
     mkdtemp,
     readFile,
+    realpath,
     rm,
     symlink,
     writeFile,
@@ -17,6 +18,7 @@ import {
     toolDefinitionsForCapabilities,
 } from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
+import { resolveFileToolPermissionCall } from "../../src/tools/files.ts";
 
 test("subagent is exposed only when the engine can apply effects", async () => {
     const ordinary = toolDefinitionsForCapabilities([]).map((tool) => tool.name);
@@ -87,7 +89,17 @@ test("file tools read and write inside the workspace", async () => {
     }
 });
 
-test("file tools reject paths outside the workspace", async () => {
+test("file tool guidance describes its permission-gated path reach", () => {
+    const definitions = toolDefinitionsForCapabilities([]);
+    expect(definitions.find((tool) => tool.name === "read")?.description).toBe(
+        "Read a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
+    );
+    expect(definitions.find((tool) => tool.name === "write")?.description).toBe(
+        "Write a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
+    );
+});
+
+test("file tools execute resolved paths outside the workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-files-"));
     const workspace = join(root, "workspace");
     await mkdir(workspace);
@@ -104,7 +116,7 @@ test("file tools reject paths outside the workspace", async () => {
         const parentWrite = await executeToolCall(toolCall(
             "call_2",
             "write",
-            { path: "../escape.txt", content: "no" },
+            { path: "../escape.txt", content: "parent" },
         ), runtime);
         const symlinkRead = await executeToolCall(toolCall(
             "call_3",
@@ -114,13 +126,51 @@ test("file tools reject paths outside the workspace", async () => {
         const symlinkWrite = await executeToolCall(toolCall(
             "call_4",
             "write",
-            { path: "outside-link/escape.txt", content: "no" },
+            { path: "outside-link/symlink.txt", content: "symlink" },
+        ), runtime);
+        const parentEdit = await executeToolCall(toolCall(
+            "call_5",
+            "edit",
+            {
+                path: "../outside.txt",
+                edits: [{ old_string: "secret", new_string: "edited" }],
+            },
         ), runtime);
 
-        for (const result of [parentRead, parentWrite, symlinkRead, symlinkWrite]) {
-            expect(result.isError).toBe(true);
-            expect(result.content[0]?.text).toContain("Path is outside the workspace");
-        }
+        expect(parentRead.isError).toBe(false);
+        expect(parentRead.content[0]?.text).toBe("secret");
+        expect(parentWrite.isError).toBe(false);
+        expect(symlinkRead.isError).toBe(false);
+        expect(symlinkRead.content[0]?.text).toBe("secret");
+        expect(symlinkWrite.isError).toBe(false);
+        expect(parentEdit.isError).toBe(false);
+        expect(await readFile(join(root, "outside.txt"), "utf8")).toBe("edited");
+        expect(await readFile(join(root, "escape.txt"), "utf8")).toBe("parent");
+        expect(await readFile(join(root, "symlink.txt"), "utf8")).toBe("symlink");
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("file permission preflight resolves symlinks to their effective target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-file-preflight-"));
+    const workspace = join(root, "workspace");
+    await mkdir(workspace);
+    await writeFile(join(root, "outside.txt"), "secret");
+    await symlink(root, join(workspace, "outside-link"));
+
+    try {
+        const resolved = await resolveFileToolPermissionCall(workspace, {
+            id: "call_1",
+            name: "write",
+            input: {
+                path: "outside-link/outside.txt",
+                content: "updated",
+            },
+        });
+        expect(resolved.input.path).toBe(
+            join(await realpath(root), "outside.txt"),
+        );
     } finally {
         await rm(root, { recursive: true, force: true });
     }

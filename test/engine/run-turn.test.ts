@@ -4,6 +4,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    realpathSync,
     rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1865,6 +1866,30 @@ function boundaryCrossingResponses(): AssistantMessage[] {
     ];
 }
 
+function outsideWriteResponses(path: string): AssistantMessage[] {
+    return [
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "call_1",
+                name: "write",
+                input: { path, content: "updated" },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        },
+    ];
+}
+
 test("auto sends a boundary crossing to the reviewer, not the user", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
@@ -1906,6 +1931,121 @@ test("auto sends a boundary crossing to the reviewer, not the user", async () =>
     expect(updates).toContain("tool_review");
     expect(updates).toContain("tool_started");
     expect(updates).not.toContain("ui_request");
+});
+
+test("auto reviews and executes a structured write outside the workspace", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-outside-write-"));
+    temporaryWorkspaces.push(root);
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace);
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const reasons: string[] = [];
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async (request) => {
+            reasons.push(request.reason);
+            return {
+                decision: "allow",
+                reason: "The named note is authorized.",
+                riskLevel: "low",
+                userAuthorization: "high",
+            };
+        }),
+        toolRuntime: new ToolRuntime(workspace),
+    };
+
+    channel.client.send({ type: "prompt", content: "update the note" });
+    const turn = runTurn(
+        new FauxAdapter(outsideWriteResponses("../outside.txt")),
+        "test",
+        state,
+    );
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toContain(
+        `write ${join(realpathSync(root), "outside.txt")}`,
+    );
+    expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("updated");
+});
+
+test("full access executes a structured outside write without review", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-full-outside-write-"));
+    temporaryWorkspaces.push(root);
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace);
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, undefined),
+        toolRuntime: new ToolRuntime(workspace),
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "update the note" });
+    const turn = runTurn(
+        new FauxAdapter(outsideWriteResponses("../outside.txt")),
+        "test",
+        state,
+    );
+    const updateTypes: string[] = [];
+    while (true) {
+        const update = await channel.client.receive();
+        updateTypes.push(update.type);
+        if (update.type === "turn_finished") {
+            break;
+        }
+    }
+    await turn;
+
+    expect(updateTypes).not.toContain("ui_request");
+    expect(updateTypes).not.toContain("tool_review");
+    expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("updated");
+});
+
+test("ask requests approval before a structured outside write", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-ask-outside-write-"));
+    temporaryWorkspaces.push(root);
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace);
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, undefined),
+        toolRuntime: new ToolRuntime(workspace),
+        approvalMode: "ask",
+    };
+
+    channel.client.send({ type: "prompt", content: "update the note" });
+    const turn = runTurn(
+        new FauxAdapter(outsideWriteResponses("../outside.txt")),
+        "test",
+        state,
+    );
+    let requestId = "";
+    while (true) {
+        const update = await channel.client.receive();
+        if (update.type === "ui_request") {
+            requestId = update.requestId;
+            expect(update.request).toMatchObject({
+                type: "tool_approval",
+                reason: expect.stringContaining(
+                    `write ${join(realpathSync(root), "outside.txt")}`,
+                ),
+            });
+            break;
+        }
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId,
+        response: { type: "tool_approval", decision: "allow_once" },
+    });
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("updated");
 });
 
 test("a custom permission profile routes to its named reviewer", async () => {
