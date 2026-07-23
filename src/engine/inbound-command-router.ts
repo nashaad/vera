@@ -104,6 +104,9 @@ export interface InboundCommandRouterOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly updateSessionName?: (
+        name: string | null,
+    ) => Promise<string | null | undefined>;
     readonly addCommandPrefix?: (
         prefix: CommandPrefix,
     ) => Promise<void>;
@@ -357,6 +360,11 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "update_session_name") {
+                    await this.updateSessionName(command.requestId, command.name);
+                    continue;
+                }
+
                 if (command.type === "abort" && this.activeTurn !== undefined) {
                     this.events.emit({ type: "abort_requested" });
                     this.activeTurn.abort(new Error("Turn aborted"));
@@ -417,6 +425,47 @@ export class InboundCommandRouter {
 
     private hasPendingTurn(): boolean {
         return this.activeTurn !== undefined || this.pendingPromptCount > 0;
+    }
+
+    private async updateSessionName(
+        requestId: string,
+        requestedName: string | null,
+    ): Promise<void> {
+        const name = requestedName === null ? null : requestedName.trim();
+        if (
+            name !== null
+            && (
+                name.length === 0
+                || name.includes("\0")
+                || Buffer.byteLength(name, "utf8") > 200
+            )
+        ) {
+            this.events.emit({
+                type: "session_name_rejected",
+                requestId,
+                reason: "invalid",
+            });
+            return;
+        }
+        let effective: string | null | undefined;
+        try {
+            effective = await this.options.updateSessionName?.(name);
+        } catch {
+            effective = undefined;
+        }
+        if (effective === undefined) {
+            this.events.emit({
+                type: "session_name_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "session_name_changed",
+            requestId,
+            name: effective,
+        });
     }
 
     private sendPermissions(requestId: string): void {

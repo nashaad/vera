@@ -452,6 +452,8 @@ export class AgentRegistry {
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
+                updateSessionName: (name) =>
+                    this.updateSessionName(agent.id, name),
                 sendTimelineReply: (ownerId, reply) =>
                     agent.sendTimelineReply(ownerId, reply),
             },

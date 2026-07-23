@@ -346,6 +346,58 @@ test("permission results share the ordered agent update sequence", () => {
     ]);
 });
 
+test("session name commands and results preserve clear semantics", () => {
+    expect(parseClientCommand({
+        type: "update_session_name",
+        requestId: "name-1",
+        name: "Human name",
+    })).toEqual({
+        type: "update_session_name",
+        requestId: "name-1",
+        name: "Human name",
+    });
+    expect(parseClientCommand({
+        type: "update_session_name",
+        requestId: "name-2",
+        name: null,
+    })).toEqual({
+        type: "update_session_name",
+        requestId: "name-2",
+        name: null,
+    });
+
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    protocol({
+        type: "session_name_changed",
+        requestId: "name-1",
+        name: "Human name",
+    });
+    protocol({
+        type: "session_name_rejected",
+        requestId: "name-2",
+        reason: "unavailable",
+    });
+    expect(updates).toEqual([
+        {
+            type: "session_name",
+            requestId: "name-1",
+            name: "Human name",
+            seq: 1,
+        },
+        {
+            type: "session_name_rejected",
+            requestId: "name-2",
+            reason: "unavailable",
+            seq: 2,
+        },
+    ]);
+});
+
 test("user question responses parse selected choices and cancellation", () => {
     expect(parseClientCommand({
         type: "ui_response",
