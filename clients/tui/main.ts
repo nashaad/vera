@@ -110,14 +110,17 @@ export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly createSession?: () => Promise<TuiAgentClient>;
 }
 
 export interface TuiExit {
+    readonly nextClient?: TuiAgentClient;
     readonly resumeSessionPath?: string;
 }
 
 export interface TuiAgentClient {
     readonly agentId?: string;
+    readonly workspace?: string;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     detach(): Promise<void>;
@@ -175,16 +178,37 @@ export async function startConfiguredTui(
                 target.sessionPath,
             )).id
             : target.agentId;
+    let preparedClient: TuiAgentClient | undefined;
     while (true) {
-        const client = await attachAgent({
+        const client = preparedClient ?? await attachAgent({
             socketPath: host.socket_path,
             agentId,
         });
+        preparedClient = undefined;
         try {
+            const listAgents = () => listAgentsThroughHost(host.socket_path);
             const exit = await startTui({
                 client,
-                listAgents: () => listAgentsThroughHost(host.socket_path),
+                listAgents,
+                createSession: async () => {
+                    if (client.workspace === undefined) {
+                        throw new Error("Current session workspace is unavailable");
+                    }
+                    const ready = await createAgentThroughHost(
+                        host.socket_path,
+                        client.workspace,
+                    );
+                    return attachAgent({
+                        socketPath: host.socket_path,
+                        agentId: ready.id,
+                    });
+                },
             });
+            if (exit.nextClient !== undefined) {
+                preparedClient = exit.nextClient;
+                agentId = exit.nextClient.agentId ?? agentId;
+                continue;
+            }
             if (exit.resumeSessionPath === undefined) {
                 return;
             }
@@ -235,8 +259,10 @@ export async function startTui(
     let activity = "thinking";
     let themeApplicationVersion = 0;
     let resumeSessionPath: string | undefined;
+    let nextClient: TuiAgentClient | undefined;
     let resumeListVersion = 0;
     let promptSubmitting = false;
+    let sessionSwitchPending = false;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -387,6 +413,9 @@ export async function startTui(
         clearInterval(statusTimer);
         void client.detach().catch(() => client.close()).then(() => {
             finished.resolve({
+                ...(nextClient === undefined
+                    ? {}
+                    : { nextClient }),
                 ...(resumeSessionPath === undefined
                     ? {}
                     : { resumeSessionPath }),
@@ -413,6 +442,11 @@ export async function startTui(
 
     renderer.keyInput.on("keypress", (key) => {
         if (parseRawInputEvent(key)?.type === "interrupt") {
+            if (sessionSwitchPending) {
+                key.preventDefault();
+                key.stopPropagation();
+                return;
+            }
             const action = tuiInterruptAction(
                 key,
                 state.working,
@@ -602,7 +636,7 @@ export async function startTui(
     });
 
     function submitPrompt(): void {
-        if (promptSubmitting) return;
+        if (promptSubmitting || sessionSwitchPending) return;
         const prompt = composer.expandedText().trim();
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
@@ -620,6 +654,7 @@ export async function startTui(
             connectionFailed
             && commandAction?.type !== "open_resume_picker"
             && commandAction?.type !== "open_theme_picker"
+            && commandAction?.type !== "create_session"
         ) {
             renderStatus();
             return;
@@ -763,6 +798,44 @@ export async function startTui(
                     focusActiveSurface();
                     renderState();
                 }
+            });
+            return;
+        }
+        if (commandAction?.type === "create_session") {
+            composer.clearComposer();
+            if (dependencies.createSession === undefined) {
+                state = appendTuiNotice(
+                    state,
+                    "Starting a new session is unavailable",
+                );
+                renderState();
+                return;
+            }
+            if (sessionSwitchPending) {
+                return;
+            }
+            sessionSwitchPending = true;
+            renderStatus();
+            void dependencies.createSession().then((client) => {
+                if (shuttingDown) {
+                    void client.detach().catch(() => client.close());
+                    return;
+                }
+                nextClient = client;
+                renderer.destroy();
+            }).catch((error) => {
+                if (shuttingDown) {
+                    return;
+                }
+                sessionSwitchPending = false;
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                state = appendTuiNotice(
+                    state,
+                    `Could not start a new session: ${message}`,
+                );
+                renderState();
             });
             return;
         }
@@ -1374,6 +1447,8 @@ export async function startTui(
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
             lifecycleHint = "sending prompt with image…";
+        } else if (sessionSwitchPending) {
+            lifecycleHint = "starting new session…";
         } else if (pendingImages.length > 0) {
             lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }
