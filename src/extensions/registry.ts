@@ -8,6 +8,7 @@ import {
     startUserExtension,
     type RunningUserExtension,
 } from "./supervisor.ts";
+import { BUNDLED_CLIENT_COMMAND_NAMES } from "./bundled-client.ts";
 
 const DEFAULT_ACTIVATION_TIMEOUT_MS = 5_000;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
@@ -114,6 +115,13 @@ export async function startExtensionRegistry(
                 );
             }
             for (const descriptor of running.commands) {
+                if (BUNDLED_CLIENT_COMMAND_NAMES.includes(
+                    descriptor.name as typeof BUNDLED_CLIENT_COMMAND_NAMES[number],
+                )) {
+                    throw new Error(
+                        `Extension command /${descriptor.name} from ${running.id} collides with a bundled client command`,
+                    );
+                }
                 const existing = commands.get(descriptor.name);
                 if (existing !== undefined) {
                     throw new Error(
