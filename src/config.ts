@@ -181,16 +181,7 @@ function configForDisk(config: VeraConfig): Record<string, unknown> {
                                             profile.reviewerProfile,
                                     }),
                                 rules: profile.rules.map((rule) => ({
-                                    when: {
-                                        ...rule.when,
-                                        ...(rule.when.pathScope === undefined
-                                            ? {}
-                                            : {
-                                                path_scope:
-                                                    rule.when.pathScope,
-                                                pathScope: undefined,
-                                            }),
-                                    },
+                                    when: { ...rule.when },
                                     then: rule.then,
                                 })),
                             },

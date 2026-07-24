@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { collectReviewerPathFacts } from "../../src/engine/reviewer-path-facts.ts";
-import type { PermissionClaimDecision } from "../../src/engine/permissions.ts";
+import type { PermissionActionDecision } from "../../src/engine/permissions.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -37,7 +37,7 @@ test("reviewer path facts describe files and bounded directory trees without con
             name: "write",
             input: { path: "../outside" },
         },
-        [pathClaim(outside)],
+        [pathAction(outside)],
     );
 
     expect(facts[0]).toEqual({
@@ -71,7 +71,7 @@ test("reviewer path facts disclose a symlink target and a missing destination", 
             name: "read",
             input: { path: "linked.txt" },
         },
-        [pathClaim(target, "read")],
+        [pathAction(target, "read")],
     );
     expect(linked[0]).toMatchObject({
         requestedPath: "linked.txt",
@@ -90,7 +90,7 @@ test("reviewer path facts disclose a symlink target and a missing destination", 
             name: "write",
             input: { path: "../new-note.md", content: "new" },
         },
-        [pathClaim(missingPath)],
+        [pathAction(missingPath)],
     );
     expect(missing[0]).toMatchObject({
         requestedPath: "../new-note.md",
@@ -118,7 +118,7 @@ test("reviewer directory facts stop at the fixed metadata bound", async () => {
             name: "write",
             input: { path: "../outside" },
         },
-        [pathClaim(outside)],
+        [pathAction(outside)],
     );
 
     expect(facts[0]).toMatchObject({
@@ -142,7 +142,7 @@ test("reviewer path inspection stops before work when the turn is cancelled", as
             name: "write",
             input: { path: "../outside.txt", content: "new" },
         },
-        [pathClaim(join(root, "outside.txt"))],
+        [pathAction(join(root, "outside.txt"))],
         controller.signal,
     )).rejects.toMatchObject({ name: "AbortError" });
 });
@@ -153,17 +153,16 @@ function temporaryDirectory(): string {
     return path;
 }
 
-function pathClaim(
+function pathAction(
     path: string,
-    capability: "read" | "write" = "write",
-): PermissionClaimDecision {
+    verb: "read" | "write" = "write",
+): PermissionActionDecision {
     return {
-        claim: {
-            tool: capability,
-            capability,
-            confidence: "exact",
+        action: {
+            tool: verb,
+            verb,
             path,
-            pathScope: "outside_workspace",
+            scope: "outside_workspace",
         },
         outcome: "review",
         rule: "profile.default",

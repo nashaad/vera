@@ -11,7 +11,7 @@ import {
 } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
-import type { PermissionClaimDecision } from "./permissions.ts";
+import type { PermissionActionDecision } from "./permissions.ts";
 
 const MAX_DIRECTORY_ENTRIES = 1_000;
 const GIT_CHECK_TIMEOUT_MS = 1_000;
@@ -55,10 +55,10 @@ interface DirectorySummary {
 export async function collectReviewerPathFacts(
     workspace: string,
     toolCall: HookToolCall,
-    claims: readonly PermissionClaimDecision[],
+    actions: readonly PermissionActionDecision[],
     signal?: AbortSignal,
 ): Promise<readonly ReviewerPathFacts[]> {
-    const candidates = pathCandidates(workspace, toolCall, claims);
+    const candidates = pathCandidates(workspace, toolCall, actions);
     const facts: ReviewerPathFacts[] = [];
     const seen = new Set<string>();
 
@@ -79,7 +79,7 @@ export async function collectReviewerPathFacts(
 function pathCandidates(
     workspace: string,
     toolCall: HookToolCall,
-    claims: readonly PermissionClaimDecision[],
+    actions: readonly PermissionActionDecision[],
 ): readonly PathCandidate[] {
     const candidates: PathCandidate[] = [];
     const structuredPath = toolCall.input.path;
@@ -94,8 +94,8 @@ function pathCandidates(
             absolutePath: resolve(workspace, structuredPath),
         });
     }
-    for (const decision of claims) {
-        const path = decision.claim.path;
+    for (const decision of actions) {
+        const path = decision.action.path;
         if (path !== undefined) {
             candidates.push({
                 requestedPath: path,

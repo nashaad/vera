@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { basename, dirname, parse, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, parse, resolve, sep } from "node:path";
 
 import type { HookToolCall } from "../sdk/hooks.ts";
 import {
@@ -36,35 +36,43 @@ export type {
 } from "./permission-grants.ts";
 
 export type PermissionOutcome = "allow" | "review" | "ask" | "deny";
-export type PermissionCapability =
-    | "read"
-    | "write"
-    | "delete"
-    | "execute"
-    | "network"
-    | "unknown";
-export type PermissionConfidence = "exact" | "partial" | "unknown";
-export type PermissionPathScope = "workspace" | "outside_workspace";
+export type PermissionVerb = "read" | "write" | "delete" | "unknown";
+export type PermissionScope = "workspace" | "outside_workspace";
 
-export interface PermissionClaim {
+/**
+ * One recognized effect of a tool call. A call that Vera cannot describe
+ * safely produces an `unknown` action rather than a concrete one, so it can
+ * never match an allow rule by accident.
+ */
+export interface PermissionAction {
     readonly tool: string;
-    readonly capability: PermissionCapability;
-    readonly confidence: PermissionConfidence;
-    readonly operation?: string;
+    readonly verb: PermissionVerb;
+    /** Resolved absolute path. Absent when no path could be resolved. */
     readonly path?: string;
-    readonly pathScope?: PermissionPathScope;
-    readonly recursive?: boolean;
+    /** Set only alongside `path`. */
+    readonly scope?: PermissionScope;
+    /**
+     * Label for a deliberately recognized operation such as `git.commit`.
+     * Not a claim that every runtime side effect has been discovered.
+     */
+    readonly operation?: string;
+    /** Literal command name for Bash actions, e.g. `git`, `rm`. */
     readonly executable?: string;
+}
+
+/** A complete tool call, which may produce zero or more actions. */
+export interface PermissionRequest {
+    readonly toolCall: HookToolCall;
+    readonly workspace: string;
+    readonly homeDirectory: string;
 }
 
 export interface PermissionPredicate {
     readonly tool?: string;
-    readonly capability?: PermissionCapability;
-    readonly confidence?: PermissionConfidence;
-    readonly operation?: string;
+    readonly verb?: PermissionVerb;
     readonly path?: string;
-    readonly pathScope?: PermissionPathScope;
-    readonly recursive?: boolean;
+    readonly scope?: PermissionScope;
+    readonly operation?: string;
     readonly executable?: string;
 }
 
@@ -87,8 +95,8 @@ export interface PermissionInspection {
     readonly activeGrants: readonly PermissionGrant[];
 }
 
-export interface PermissionClaimDecision {
-    readonly claim: PermissionClaim;
+export interface PermissionActionDecision {
+    readonly action: PermissionAction;
     readonly outcome: PermissionOutcome;
     readonly rule: string;
     readonly grant?: string;
@@ -96,26 +104,26 @@ export interface PermissionClaimDecision {
 
 export interface AllowToolPermission {
     readonly behavior: "allow";
-    readonly claims: readonly PermissionClaimDecision[];
+    readonly actions: readonly PermissionActionDecision[];
 }
 
 export interface ReviewToolPermission {
     readonly behavior: "review";
     readonly reason: string;
-    readonly claims: readonly PermissionClaimDecision[];
+    readonly actions: readonly PermissionActionDecision[];
     readonly reviewerProfile: string;
 }
 
 export interface AskToolPermission {
     readonly behavior: "ask";
     readonly reason: string;
-    readonly claims: readonly PermissionClaimDecision[];
+    readonly actions: readonly PermissionActionDecision[];
 }
 
 export interface DenyToolPermission {
     readonly behavior: "deny";
     readonly reason: string;
-    readonly claims: readonly PermissionClaimDecision[];
+    readonly actions: readonly PermissionActionDecision[];
     readonly source: "profile" | "accident_guard";
 }
 
@@ -138,16 +146,14 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
     },
     {
         name: "routine.read",
-        when: { capability: "read" },
+        when: { verb: "read" },
         then: "allow",
     },
     {
+        // `scope` is only ever set alongside a resolved absolute path, so this
+        // rule cannot match a write whose destination is unresolved.
         name: "routine.workspace_write",
-        when: {
-            capability: "write",
-            confidence: "exact",
-            pathScope: "workspace",
-        },
+        when: { verb: "write", scope: "workspace" },
         then: "allow",
     },
     {
@@ -196,18 +202,6 @@ const READ_COMMANDS = new Set([
     "pwd",
 ]);
 
-const NETWORK_COMMANDS = new Set([
-    "curl",
-    "ftp",
-    "nc",
-    "ncat",
-    "scp",
-    "sftp",
-    "ssh",
-    "telnet",
-    "wget",
-]);
-
 const REDIRECT_ONLY_COMMANDS = new Set(["echo", "printf"]);
 
 const NETWORK_GIT_OPERATIONS = new Map([
@@ -247,16 +241,13 @@ export function decideToolPermission(
     grants: readonly PermissionGrant[] = [],
     options: DecideToolPermissionOptions = {},
 ): ToolPermissionDecision {
-    const guardReason = accidentGuardReason(
-        toolCall,
-        workspace,
-        options.homeDirectory ?? homedir(),
-    );
+    const homeDirectory = options.homeDirectory ?? homedir();
+    const guardReason = accidentGuardReason(toolCall, workspace, homeDirectory);
     if (guardReason !== undefined) {
         return {
             behavior: "deny",
             reason: guardReason,
-            claims: [],
+            actions: [],
             source: "accident_guard",
         };
     }
@@ -267,13 +258,17 @@ export function decideToolPermission(
         return {
             behavior: "deny",
             reason: `Permission profile ${mode} is unavailable.`,
-            claims: [],
+            actions: [],
             source: "profile",
         };
     }
-    const decisions = extractPermissionClaims(toolCall, workspace).map(
-        (claim) => evaluateClaim(profile, claim, grants),
-    );
+    const decisions = extractPermissionActions({
+        toolCall,
+        workspace,
+        homeDirectory,
+    }).map((action) => evaluateAction(profile, action, grants));
+    // Every action is evaluated; the strictest outcome wins. A recognized read
+    // followed by an unresolved command still falls back to the profile.
     const effective = decisions.reduce<PermissionOutcome>(
         (outcome, decision) =>
             OUTCOME_WEIGHT[decision.outcome] > OUTCOME_WEIGHT[outcome]
@@ -283,7 +278,7 @@ export function decideToolPermission(
     );
 
     if (effective === "allow") {
-        return { behavior: "allow", claims: decisions };
+        return { behavior: "allow", actions: decisions };
     }
 
     const reason = permissionReason(profile, decisions, effective);
@@ -292,24 +287,24 @@ export function decideToolPermission(
             return {
                 behavior: "deny",
                 reason: `Permission profile ${profile.name} routes to review but has no reviewer profile.`,
-                claims: decisions,
+                actions: decisions,
                 source: "profile",
             };
         }
         return {
             behavior: "review",
             reason,
-            claims: decisions,
+            actions: decisions,
             reviewerProfile: profile.reviewerProfile,
         };
     }
     if (effective === "ask") {
-        return { behavior: "ask", reason, claims: decisions };
+        return { behavior: "ask", reason, actions: decisions };
     }
     return {
         behavior: "deny",
         reason,
-        claims: decisions,
+        actions: decisions,
         source: "profile",
     };
 }
@@ -389,195 +384,223 @@ export function isPermissionInspection(
         && value.activeGrants.every(isPermissionGrant);
 }
 
-export function extractPermissionClaims(
-    toolCall: HookToolCall,
-    workspace: string,
-): readonly PermissionClaim[] {
+export function extractPermissionActions(
+    request: PermissionRequest,
+): readonly PermissionAction[] {
+    const { toolCall, workspace } = request;
     if (toolCall.name === "read") {
-        return [pathClaim(toolCall, "read", workspace)];
+        return [pathAction(toolCall, "read", workspace)];
     }
     if (toolCall.name === "write" || toolCall.name === "edit") {
-        return [pathClaim(toolCall, "write", workspace)];
+        return [pathAction(toolCall, "write", workspace)];
     }
     if (toolCall.name !== "bash") {
-        return [{
-            tool: toolCall.name,
-            capability: "unknown",
-            confidence: "unknown",
-        }];
+        return [{ tool: toolCall.name, verb: "unknown" }];
     }
 
     const command = toolCall.input.command;
     if (typeof command !== "string") {
-        return [{
-            tool: "bash",
-            capability: "unknown",
-            confidence: "unknown",
-        }];
+        return [{ tool: "bash", verb: "unknown" }];
     }
-    return extractBashClaims(command, workspace);
+    return extractBashActions(
+        command,
+        workspace,
+        request.homeDirectory,
+        resolve(workspace),
+        0,
+    );
 }
 
-export function evaluateClaim(
+export function evaluateAction(
     profile: PermissionProfile,
-    claim: PermissionClaim,
+    action: PermissionAction,
     grants: readonly PermissionGrant[] = [],
-): PermissionClaimDecision {
-    let profileDecision: PermissionClaimDecision;
+): PermissionActionDecision {
     for (const rule of profile.rules) {
-        if (permissionPredicateMatches(rule.when, claim)) {
-            profileDecision = {
-                claim,
+        if (permissionPredicateMatches(rule.when, action)) {
+            return applyPermissionGrant({
+                action,
                 outcome: rule.then,
                 rule: rule.name,
-            };
-            return applyPermissionGrant(profileDecision, grants);
+            }, grants);
         }
     }
-    profileDecision = {
-        claim,
+    return applyPermissionGrant({
+        action,
         outcome: profile.defaultOutcome,
         rule: `${profile.name}.default`,
-    };
-    return applyPermissionGrant(profileDecision, grants);
+    }, grants);
 }
 
-function pathClaim(
+function pathAction(
     toolCall: HookToolCall,
-    capability: "read" | "write",
+    verb: "read" | "write",
     workspace: string,
-): PermissionClaim {
+): PermissionAction {
     const requestedPath = toolCall.input.path;
-    if (typeof requestedPath !== "string") {
-        return {
-            tool: toolCall.name,
-            capability,
-            confidence: "unknown",
-        };
+    if (typeof requestedPath !== "string" || requestedPath.length === 0) {
+        return { tool: toolCall.name, verb: "unknown" };
     }
+    // Structured tool inputs are literal paths, not shell words.
     const path = resolve(workspace, requestedPath);
     return {
         tool: toolCall.name,
-        capability,
-        confidence: "exact",
+        verb,
         path,
-        pathScope: pathScope(path, workspace),
+        scope: pathScope(path, workspace),
     };
 }
 
-function extractBashClaims(
+function extractBashActions(
     command: string,
     workspace: string,
-    depth = 0,
-): readonly PermissionClaim[] {
+    homeDirectory: string,
+    initialDirectory: string | undefined,
+    depth: number,
+): readonly PermissionAction[] {
     const commands = tokenizeSimpleCommands(command);
-    const claims = commands.flatMap((words) =>
-        claimsForSimpleCommand(words, workspace)
-    );
+    const actions: PermissionAction[] = [];
+    let workingDirectory = initialDirectory;
+
+    for (const words of commands) {
+        actions.push(
+            ...actionsForSimpleCommand(
+                words,
+                workspace,
+                workingDirectory,
+                homeDirectory,
+            ),
+        );
+        workingDirectory = nextWorkingDirectory(
+            words,
+            workingDirectory,
+            homeDirectory,
+        );
+    }
+
     if (depth >= MAX_NESTED_SHELL_DEPTH) {
-        return claims;
+        return actions;
     }
     return [
-        ...claims,
+        ...actions,
         ...nestedShellCommands(command, commands).flatMap((nested) =>
-            extractBashClaims(nested, workspace, depth + 1)
+            extractBashActions(
+                nested,
+                workspace,
+                homeDirectory,
+                workingDirectory,
+                depth + 1,
+            )
         ),
     ];
 }
 
-function claimsForSimpleCommand(
+/**
+ * Tracks `cd` so later relative paths are resolved against the right
+ * directory. A `cd` we cannot resolve makes the directory unknown, which turns
+ * every later relative path into an `unknown` action instead of a guess.
+ */
+function nextWorkingDirectory(
+    words: readonly string[],
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): string | undefined {
+    const executableIndex = simpleCommandExecutableIndex(words);
+    if (basename(words[executableIndex] ?? "") !== "cd") {
+        return workingDirectory;
+    }
+    const target = words[executableIndex + 1];
+    return target === undefined
+        ? resolve(homeDirectory)
+        : resolveShellTarget(target, workingDirectory, homeDirectory);
+}
+
+function actionsForSimpleCommand(
     words: readonly string[],
     workspace: string,
-): readonly PermissionClaim[] {
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): readonly PermissionAction[] {
     const executableIndex = simpleCommandExecutableIndex(words);
     const executable = basename(words[executableIndex] ?? "");
     if (executable.length === 0) {
-        return [{
-            tool: "bash",
-            capability: "unknown",
-            confidence: "unknown",
-        }];
+        return [{ tool: "bash", verb: "unknown" }];
     }
 
-    const redirectClaims = outputRedirectClaims(words, workspace);
+    const redirects = outputRedirectActions(
+        words,
+        workspace,
+        workingDirectory,
+        homeDirectory,
+    );
     if (executable === "git") {
-        return [...gitClaims(words, executableIndex), ...redirectClaims];
-    }
-    if (NETWORK_COMMANDS.has(executable)) {
-        return [{
-            tool: "bash",
-            capability: "network",
-            confidence: "exact",
-            executable,
-        }, ...redirectClaims];
+        return [...gitActions(words, executableIndex), ...redirects];
     }
     if (executable === "rm") {
         return [
-            ...rmClaims(words, executableIndex, workspace),
-            ...redirectClaims,
+            ...rmActions(
+                words,
+                executableIndex,
+                workspace,
+                workingDirectory,
+                homeDirectory,
+            ),
+            ...redirects,
         ];
     }
     if (READ_COMMANDS.has(executable)) {
-        return [{
-            tool: "bash",
-            capability: "read",
-            confidence: "partial",
-            executable,
-        }, ...redirectClaims];
+        return [{ tool: "bash", verb: "read", executable }, ...redirects];
     }
-    if (REDIRECT_ONLY_COMMANDS.has(executable) && redirectClaims.length > 0) {
-        return redirectClaims;
+    if (REDIRECT_ONLY_COMMANDS.has(executable) && redirects.length > 0) {
+        return redirects;
     }
-    return [{
-        tool: "bash",
-        capability: "unknown",
-        confidence: "unknown",
-        executable,
-    }, ...redirectClaims];
+    return [{ tool: "bash", verb: "unknown", executable }, ...redirects];
 }
 
-function outputRedirectClaims(
+function outputRedirectActions(
     words: readonly string[],
     workspace: string,
-): readonly PermissionClaim[] {
-    const claims: PermissionClaim[] = [];
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): readonly PermissionAction[] {
+    const actions: PermissionAction[] = [];
     for (let index = 0; index < words.length; index += 1) {
-        const word = words[index] ?? "";
-        const inline = word.match(/^\d*(?:>|>>)(.+)$/);
-        const separate = /^\d*(?:>|>>)$/.test(word)
-            ? words[index + 1]
-            : undefined;
-        const target = inline?.[1] ?? separate;
+        // `>>` must be tried before `>`, or `>>` parses as `>` with the second
+        // `>` captured as the target.
+        const redirect = (words[index] ?? "").match(/^\d*(?:>>|>)(.*)$/);
+        if (redirect === null) {
+            continue;
+        }
+        const attached = redirect[1] ?? "";
+        const target = attached.length > 0 ? attached : words[index + 1];
+        if (attached.length === 0) {
+            index += 1;
+        }
         if (target === undefined || target.length === 0) {
             continue;
         }
-        const path = resolve(workspace, target);
-        claims.push({
-            tool: "bash",
-            capability: "write",
-            confidence: hasShellExpansion(target) ? "unknown" : "exact",
-            path,
-            pathScope: pathScope(path, workspace),
-            executable: "shell_redirect",
-        });
-        if (separate !== undefined) {
-            index += 1;
-        }
+        actions.push(shellPathAction(
+            "write",
+            target,
+            "shell_redirect",
+            workspace,
+            workingDirectory,
+            homeDirectory,
+        ));
     }
-    return claims;
+    return actions;
 }
 
-function gitClaims(
+function gitActions(
     words: readonly string[],
     executableIndex: number,
-): readonly PermissionClaim[] {
+): readonly PermissionAction[] {
     const subcommandIndex = gitSubcommandIndex(words, executableIndex + 1);
     const subcommand = words[subcommandIndex] ?? "";
     if (subcommand === "commit") {
         return [{
             tool: "bash",
-            capability: "write",
-            confidence: "exact",
+            verb: "write",
             operation: "git.commit",
             executable: "git",
         }];
@@ -586,8 +609,7 @@ function gitClaims(
     if (networkOperation !== undefined) {
         return [{
             tool: "bash",
-            capability: "network",
-            confidence: "exact",
+            verb: "unknown",
             operation: networkOperation,
             executable: "git",
         }];
@@ -595,57 +617,72 @@ function gitClaims(
     if (subcommand === "remote" && words[subcommandIndex + 1] === "update") {
         return [{
             tool: "bash",
-            capability: "network",
-            confidence: "exact",
+            verb: "unknown",
             operation: "git.remote_update",
             executable: "git",
         }];
     }
-    return [{
-        tool: "bash",
-        capability: "unknown",
-        confidence: "partial",
-        executable: "git",
-    }];
+    return [{ tool: "bash", verb: "unknown", executable: "git" }];
 }
 
-function rmClaims(
+function rmActions(
     words: readonly string[],
     executableIndex: number,
     workspace: string,
-): readonly PermissionClaim[] {
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): readonly PermissionAction[] {
     const parsed = parseRm(words.slice(executableIndex + 1));
     if (parsed.targets.length === 0) {
-        return [{
-            tool: "bash",
-            capability: "delete",
-            confidence: "unknown",
-            recursive: parsed.recursive,
-            executable: "rm",
-        }];
+        return [{ tool: "bash", verb: "unknown", executable: "rm" }];
     }
-    return parsed.targets.map((target) => {
-        const path = resolve(workspace, target);
-        return {
+    return parsed.targets.map((target) =>
+        shellPathAction(
+            "delete",
+            target,
+            "rm",
+            workspace,
+            workingDirectory,
+            homeDirectory,
+        )
+    );
+}
+
+/**
+ * A shell word that resolves to a literal path becomes a concrete action.
+ * Anything else (variable, command substitution, glob, unknown directory)
+ * becomes an `unknown` action rather than a guessed path.
+ */
+function shellPathAction(
+    verb: "write" | "delete",
+    target: string,
+    executable: string,
+    workspace: string,
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): PermissionAction {
+    const path = resolveShellTarget(target, workingDirectory, homeDirectory);
+    return path === undefined
+        ? { tool: "bash", verb: "unknown", executable }
+        : {
             tool: "bash",
-            capability: "delete",
-            confidence: hasShellExpansion(target) ? "unknown" : "exact",
+            verb,
             path,
-            pathScope: pathScope(path, workspace),
-            recursive: parsed.recursive,
-            executable: "rm",
+            scope: pathScope(path, workspace),
+            executable,
         };
-    });
 }
 
 function permissionReason(
     profile: PermissionProfile,
-    decisions: readonly PermissionClaimDecision[],
+    decisions: readonly PermissionActionDecision[],
     effective: PermissionOutcome,
 ): string {
     const matches = decisions
         .filter((decision) => decision.outcome === effective)
-        .map((decision) => `${describeClaim(decision.claim)} (${decision.rule})`);
+        .map((decision) =>
+            `${describeAction(decision.action)} (${decision.rule})`
+        );
     return `Permission profile ${profile.name} requires ${effective}: ${matches.join(", ")}.`;
 }
 
@@ -660,19 +697,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function describeClaim(claim: PermissionClaim): string {
-    if (claim.operation !== undefined) {
-        return claim.operation;
+function describeAction(action: PermissionAction): string {
+    if (action.operation !== undefined) {
+        return action.operation;
     }
-    if (claim.path !== undefined) {
-        return `${claim.capability} ${claim.path}`;
+    if (action.path !== undefined) {
+        return `${action.verb} ${action.path}`;
     }
-    return claim.executable === undefined
-        ? `${claim.tool}:${claim.capability}`
-        : `${claim.executable}:${claim.capability}`;
+    return action.executable === undefined
+        ? `${action.tool}:${action.verb}`
+        : `${action.executable}:${action.verb}`;
 }
 
-function pathScope(path: string, workspace: string): PermissionPathScope {
+function pathScope(path: string, workspace: string): PermissionScope {
     const root = resolve(workspace);
     return path === root || path.startsWith(`${root}${sep}`)
         ? "workspace"
@@ -698,23 +735,25 @@ function accidentGuardForBash(
     command: string,
     workspace: string,
     homeDirectory: string,
-    initialDirectory: string,
+    initialDirectory: string | undefined,
     depth: number,
 ): string | undefined {
     const commands = tokenizeSimpleCommands(command);
-    let workingDirectory = resolve(initialDirectory);
+    let workingDirectory = initialDirectory === undefined
+        ? undefined
+        : resolve(initialDirectory);
     for (const words of commands) {
         const executableIndex = simpleCommandExecutableIndex(words);
         const executable = basename(words[executableIndex] ?? "");
         if (executable === "cd") {
-            const target = words[executableIndex + 1];
-            if (target !== undefined && !hasShellExpansion(target)) {
-                workingDirectory = resolveShellPath(
-                    target,
-                    workingDirectory,
-                    homeDirectory,
-                );
-            }
+            // A `cd` the guard cannot resolve makes the working directory
+            // unknown. The guard refuses only positively recognized targets,
+            // so later relative targets stop being recognizable at all.
+            workingDirectory = nextWorkingDirectory(
+                words,
+                workingDirectory,
+                homeDirectory,
+            );
             continue;
         }
         if (executable !== "rm") {
@@ -757,19 +796,19 @@ function accidentGuardForBash(
 
 function prohibitedDeletionReason(
     target: string,
-    workingDirectory: string,
+    workingDirectory: string | undefined,
     workspace: string,
     homeDirectory: string,
 ): string | undefined {
-    if (hasUnresolvedExpansion(target)) {
-        return undefined;
-    }
     const broadGlob = isBroadImmediateGlob(target);
-    const resolvedTarget = resolveShellPath(
+    const resolvedTarget = resolveShellTarget(
         broadGlob ? dirname(target) : target,
         workingDirectory,
         homeDirectory,
     );
+    if (resolvedTarget === undefined) {
+        return undefined;
+    }
     const root = parse(resolvedTarget).root;
     const protectedReason =
         isFilesystemOrVolumeRoot(resolvedTarget, root)
@@ -826,6 +865,34 @@ function resolveShellPath(
         return resolve(homeDirectory, target.slice(2));
     }
     return resolve(workingDirectory, target);
+}
+
+/**
+ * Resolves a shell word to an absolute path, or `undefined` when it cannot be
+ * resolved statically. Callers turn `undefined` into an `unknown` action.
+ */
+function resolveShellTarget(
+    target: string,
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): string | undefined {
+    if (target.length === 0 || hasShellExpansion(target)) {
+        return undefined;
+    }
+    if (target === "~" || target.startsWith("~/")) {
+        return resolveShellPath(target, homeDirectory, homeDirectory);
+    }
+    if (target.startsWith("~")) {
+        // `~someone` means that user's home directory, which Vera cannot
+        // look up.
+        return undefined;
+    }
+    if (isAbsolute(target)) {
+        return resolve(target);
+    }
+    return workingDirectory === undefined
+        ? undefined
+        : resolve(workingDirectory, target);
 }
 
 function isWorkspaceOrAncestor(candidate: string, workspace: string): boolean {

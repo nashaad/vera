@@ -25,8 +25,8 @@ const request: ToolApprovalUiRequestUpdate = {
         reason: "This command may access the network.",
         warning: "This command runs with your full user permissions.",
         permissionGrants: [{
-            kind: "capability",
-            when: { capability: "network", executable: "curl" },
+            kind: "command",
+            when: { tool: "bash", executable: "curl" },
             scope: "session",
             lifetime: "session",
         }],
@@ -41,10 +41,10 @@ test("TUI approval shows the exact command and honest warning", () => {
         "This command may access the network.",
         "This command runs with your full user permissions.",
         "",
-        "Session grants: capability: capability=network, executable=curl",
+        "Session grants: command: tool=bash, executable=curl",
         "",
         "1  Allow once",
-        "2  Allow similar this session  capability: capability=network, executable=curl",
+        "2  Allow similar this session  command: tool=bash, executable=curl",
         "3  Deny  esc",
     ].join("\n"));
 });

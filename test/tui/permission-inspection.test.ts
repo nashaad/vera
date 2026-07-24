@@ -8,7 +8,7 @@ test("permission inspection renders rules and active grants", () => {
             name: "auto",
             rules: [{
                 name: "routine.read",
-                when: { capability: "read" },
+                when: { verb: "read" },
                 then: "allow",
             }],
             defaultOutcome: "review",
@@ -17,7 +17,7 @@ test("permission inspection renders rules and active grants", () => {
         availableProfiles: ["ask", "auto", "full_access"],
         activeGrants: [{
             id: "grant-1:0",
-            kind: "capability",
+            kind: "action",
             when: { operation: "git.push" },
             scope: "session",
             lifetime: "session",
@@ -27,8 +27,8 @@ test("permission inspection renders rules and active grants", () => {
         "Default: review",
         "Reviewer: default",
         "Rules:",
-        "  routine.read: capability=read -> allow",
+        "  routine.read: verb=read -> allow",
         "Session grants:",
-        "  grant-1:0 [capability]: operation=git.push",
+        "  grant-1:0 [action]: operation=git.push",
     ].join("\n"));
 });

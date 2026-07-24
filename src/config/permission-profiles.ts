@@ -1,9 +1,7 @@
+import { migratePermissionPredicate } from "../engine/permission-compat.ts";
 import {
     CORE_PERMISSION_OPERATIONS,
-    type PermissionCapability,
-    type PermissionConfidence,
     type PermissionOutcome,
-    type PermissionPathScope,
     type PermissionPredicate,
     type PermissionProfile,
     type PermissionRule,
@@ -16,35 +14,17 @@ const OUTCOMES = new Set<PermissionOutcome>([
     "deny",
 ]);
 
-const CAPABILITIES = new Set<PermissionCapability>([
-    "read",
-    "write",
-    "delete",
-    "execute",
-    "network",
-    "unknown",
-]);
-
-const CONFIDENCES = new Set<PermissionConfidence>([
-    "exact",
-    "partial",
-    "unknown",
-]);
-
-const PATH_SCOPES = new Set<PermissionPathScope>([
-    "workspace",
-    "outside_workspace",
-]);
-
 const PREDICATE_FIELDS = new Set([
     "tool",
-    "capability",
-    "confidence",
+    "verb",
     "operation",
     "path",
-    "path_scope",
-    "recursive",
+    "scope",
     "executable",
+    // Legacy claim-shaped fields, accepted only when they can be migrated
+    // without changing what the rule matches. See permission-compat.ts.
+    "capability",
+    "path_scope",
 ]);
 
 export function parsePermissionProfiles(
@@ -147,46 +127,18 @@ function parsePredicate(value: unknown): PermissionPredicate | undefined {
         !isRecord(value)
         || Object.keys(value).length === 0
         || Object.keys(value).some((field) => !PREDICATE_FIELDS.has(field))
-        || (value.tool !== undefined && !isNonEmptyString(value.tool))
-        || (value.capability !== undefined
-            && !CAPABILITIES.has(value.capability as PermissionCapability))
-        || (value.confidence !== undefined
-            && !CONFIDENCES.has(value.confidence as PermissionConfidence))
-        || (value.operation !== undefined
-            && (!isNonEmptyString(value.operation)
-                || !validOperationPattern(value.operation)))
-        || (value.path !== undefined && !isNonEmptyString(value.path))
-        || (value.path_scope !== undefined
-            && !PATH_SCOPES.has(value.path_scope as PermissionPathScope))
-        || (value.recursive !== undefined
-            && typeof value.recursive !== "boolean")
-        || (value.executable !== undefined
-            && !isNonEmptyString(value.executable))
     ) {
         return undefined;
     }
-    return {
-        ...(typeof value.tool === "string" ? { tool: value.tool } : {}),
-        ...(value.capability === undefined
-            ? {}
-            : { capability: value.capability as PermissionCapability }),
-        ...(value.confidence === undefined
-            ? {}
-            : { confidence: value.confidence as PermissionConfidence }),
-        ...(typeof value.operation === "string"
-            ? { operation: value.operation }
-            : {}),
-        ...(typeof value.path === "string" ? { path: value.path } : {}),
-        ...(value.path_scope === undefined
-            ? {}
-            : { pathScope: value.path_scope as PermissionPathScope }),
-        ...(typeof value.recursive === "boolean"
-            ? { recursive: value.recursive }
-            : {}),
-        ...(typeof value.executable === "string"
-            ? { executable: value.executable }
-            : {}),
-    };
+    const predicate = migratePermissionPredicate(value);
+    if (
+        predicate === undefined
+        || (predicate.operation !== undefined
+            && !validOperationPattern(predicate.operation))
+    ) {
+        return undefined;
+    }
+    return predicate;
 }
 
 function validOperationPattern(pattern: string): boolean {
@@ -202,10 +154,6 @@ function validOperationPattern(pattern: string): boolean {
 
 function isOutcome(value: unknown): value is PermissionOutcome {
     return OUTCOMES.has(value as PermissionOutcome);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-    return typeof value === "string" && value.trim().length > 0;
 }
 
 function isConfigName(value: string): boolean {

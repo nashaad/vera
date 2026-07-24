@@ -19,8 +19,8 @@ const request: ToolApprovalUiRequestUpdate = {
         reason: "This command may access the network.",
         warning: "This command runs with your full user permissions.",
         permissionGrants: [{
-            kind: "capability",
-            when: { capability: "network", executable: "curl" },
+            kind: "command",
+            when: { tool: "bash", executable: "curl" },
             scope: "session",
             lifetime: "session",
         }],

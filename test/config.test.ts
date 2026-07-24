@@ -164,7 +164,7 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
                 default: "review",
                 reviewer_profile: "default",
                 rules: [{
-                    when: { capability: "read" },
+                    when: { verb: "read" },
                     then: "allow",
                 }],
             },
@@ -198,7 +198,7 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
                 reviewerProfile: "default",
                 rules: [{
                     name: "unattended.rules.0",
-                    when: { capability: "read" },
+                    when: { verb: "read" },
                     then: "allow",
                 }],
             },

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import {
     BUILT_IN_PERMISSION_PROFILES,
     decideToolPermission,
-    extractPermissionClaims,
+    extractPermissionActions,
     inspectPermissions,
     permissionGrantProposals,
     type ApprovalMode,
@@ -77,6 +77,76 @@ test("recognized Bash redirects use the same workspace-write rule", () => {
     ).behavior).toBe("review");
 });
 
+test("redirects outside the workspace are never routine", () => {
+    // Regression: redirect targets were resolved against the workspace instead
+    // of the shell, so `~/notes.md` became `<workspace>/~/notes.md` and was
+    // treated as a routine inside-workspace write.
+    for (
+        const command of [
+            "printf hi > ~/notes.md",
+            "cat README.md > ~/notes.md",
+            "printf hi >> ~/notes.md",
+            "printf hi > /Users/nash/notes.md",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+        expect(decide("ask", bash(command)).behavior).toBe("ask");
+    }
+    expect(
+        extractPermissionActions({
+            toolCall: bash("printf hi > ~/notes.md"),
+            workspace,
+            homeDirectory,
+        }),
+    ).toEqual([{
+        tool: "bash",
+        verb: "write",
+        path: "/Users/nash/notes.md",
+        scope: "outside_workspace",
+        executable: "shell_redirect",
+    }]);
+});
+
+test("a redirect after cd is resolved against that directory", () => {
+    expect(decide("auto", bash("cd /tmp && printf hi > notes.txt")).behavior)
+        .toBe("review");
+    expect(
+        extractPermissionActions({
+            toolCall: bash("cd /tmp && printf hi > notes.txt"),
+            workspace,
+            homeDirectory,
+        }).map((action) => action.path),
+    ).toEqual([undefined, "/tmp/notes.txt"]);
+});
+
+test("targets Vera cannot resolve become unknown actions, not guessed paths", () => {
+    for (
+        const command of [
+            "printf hi > $OUT",
+            "printf hi > \"$(mktemp)\"",
+            "rm -rf $BUILD_DIR",
+            "cd \"$WORK\" && printf hi > notes.txt",
+        ]
+    ) {
+        const actions = extractPermissionActions({
+            toolCall: bash(command),
+            workspace,
+            homeDirectory,
+        });
+        expect(actions.every((action) => action.path === undefined)).toBe(true);
+        expect(actions.some((action) => action.verb === "unknown")).toBe(true);
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+    }
+});
+
+test("a routine action never allows the rest of the tool call", () => {
+    // A recognized read plus an unresolved command still falls back.
+    expect(decide("auto", bash("cat README.md && bun install")).behavior)
+        .toBe("review");
+    expect(decide("auto", bash("cat README.md | tee notes.txt")).behavior)
+        .toBe("review");
+});
+
 test("custom profiles use the same ordered evaluator", () => {
     const permissionProfiles = {
         quiet: {
@@ -85,7 +155,7 @@ test("custom profiles use the same ordered evaluator", () => {
             reviewerProfile: "careful",
             rules: [{
                 name: "quiet.rules.0",
-                when: { capability: "network" as const },
+                when: { tool: "bash", executable: "curl" },
                 then: "allow" as const,
             }],
         },
@@ -156,37 +226,61 @@ test("accident guard does not guess unresolved deletion targets", () => {
     ).behavior).toBe("allow");
 });
 
+test("an unresolved cd leaves later relative targets unrecognized", () => {
+    // The guard refuses positively recognized targets only. It cannot know
+    // where `cd "$DIR"` landed, so `*` is no longer the workspace contents.
+    for (
+        const command of [
+            "cd \"$DIR\" && rm -rf *",
+            "cd $DIR && rm -rf .",
+            "cd \"$(mktemp -d)\" && rm -rf *",
+        ]
+    ) {
+        expect(decide("full_access", bash(command)).behavior).toBe("allow");
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+        expect(decide("ask", bash(command)).behavior).toBe("ask");
+    }
+});
+
+test("an unresolved cd still leaves absolute targets recognized", () => {
+    for (
+        const command of [
+            "cd \"$DIR\" && rm -rf /",
+            "cd \"$DIR\" && rm -rf ~",
+            "cd \"$DIR\" && rm -rf /Users/nash/Projects/vera",
+        ]
+    ) {
+        const decision = decide("full_access", bash(command));
+        expect(decision.behavior).toBe("deny");
+        if (decision.behavior === "deny") {
+            expect(decision.source).toBe("accident_guard");
+        }
+    }
+});
+
 test("bash extraction preserves independent pipeline effects", () => {
-    const claims = extractPermissionClaims(
-        bash("curl https://example.com | tee notes.txt"),
-        workspace,
-    );
-    expect(claims.map((claim) => claim.capability)).toEqual([
-        "network",
-        "unknown",
+    expect(actions("curl https://example.com | tee notes.txt")).toEqual([
+        { tool: "bash", verb: "unknown", executable: "curl" },
+        { tool: "bash", verb: "unknown", executable: "tee" },
     ]);
 });
 
-test("git operations become named claims", () => {
-    expect(extractPermissionClaims(
-        bash("git fetch origin"),
-        workspace,
-    )[0]?.operation).toBe("git.fetch");
-    expect(extractPermissionClaims(
-        bash("git push origin main"),
-        workspace,
-    )[0]?.operation).toBe("git.push");
-    expect(extractPermissionClaims(
-        bash("git commit -m test"),
-        workspace,
-    )[0]?.operation).toBe("git.commit");
+test("git operations become named actions", () => {
+    expect(actions("git fetch origin")[0]?.operation).toBe("git.fetch");
+    expect(actions("git push origin main")[0]?.operation).toBe("git.push");
+    expect(actions("git commit -m test")[0]).toEqual({
+        tool: "bash",
+        verb: "write",
+        operation: "git.commit",
+        executable: "git",
+    });
 });
 
 test("session grants lower matching ask and review outcomes to allow", () => {
     const request = decide("ask", bash("git push origin main"));
     const proposals = permissionGrantProposals(request);
     expect(proposals).toEqual([{
-        kind: "capability",
+        kind: "action",
         when: { operation: "git.push" },
         scope: "session",
         lifetime: "session",
@@ -198,7 +292,7 @@ test("session grants lower matching ask and review outcomes to allow", () => {
     const allowed = decide("ask", bash("git push origin main"), grants);
     expect(allowed).toMatchObject({
         behavior: "allow",
-        claims: [{ outcome: "allow", grant: "grant-1:0" }],
+        actions: [{ outcome: "allow", grant: "grant-1:0" }],
     });
     expect(decide("ask", bash("git fetch origin"), grants).behavior)
         .toBe("ask");
@@ -207,12 +301,8 @@ test("session grants lower matching ask and review outcomes to allow", () => {
 test("a path grant covers that subtree and no sibling", () => {
     const grants: PermissionGrant[] = [{
         id: "grant-1:0",
-        kind: "capability",
-        when: {
-            capability: "delete",
-            path: "/Users/nash/Projects/other-repo",
-            recursive: true,
-        },
+        kind: "action",
+        when: { verb: "delete", path: "/Users/nash/Projects/other-repo" },
         scope: "session",
         lifetime: "session",
     }];
@@ -231,8 +321,8 @@ test("a path grant covers that subtree and no sibling", () => {
 test("session grants cannot override profile denial or the accident guard", () => {
     const grants: PermissionGrant[] = [{
         id: "grant-1:0",
-        kind: "capability",
-        when: { capability: "delete" },
+        kind: "action",
+        when: { verb: "delete" },
         scope: "session",
         lifetime: "session",
     }];
@@ -264,7 +354,7 @@ test("session grants cannot override profile denial or the accident guard", () =
 test("permission inspection snapshots the selected profile and active grants", () => {
     const grants: PermissionGrant[] = [{
         id: "grant-1:0",
-        kind: "capability",
+        kind: "action",
         when: { operation: "git.push" },
         scope: "session",
         lifetime: "session",
@@ -296,6 +386,14 @@ function decide(
         grants,
         { homeDirectory },
     );
+}
+
+function actions(command: string) {
+    return extractPermissionActions({
+        toolCall: bash(command),
+        workspace,
+        homeDirectory,
+    });
 }
 
 function bash(command: string): HookToolCall {
