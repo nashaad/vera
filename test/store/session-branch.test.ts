@@ -24,7 +24,7 @@ test("fork copies history before one prompt and resets execution authority", asy
     });
     await source.appendApprovalMode("full_access");
     await source.appendPermissionGrants([{
-        kind: "capability",
+        kind: "action",
         when: { operation: "git.push" },
         scope: "session",
         lifetime: "session",

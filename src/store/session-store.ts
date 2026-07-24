@@ -14,6 +14,7 @@ import {
     isModelTurnSettings,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
+import { migratePermissionGrant } from "../engine/permission-compat.ts";
 import {
     isApprovalMode,
     isPermissionGrant,
@@ -1408,18 +1409,30 @@ function parsePermissionGrantsEntry(
         || typeof value.timestamp !== "string"
         || !Array.isArray(value.grants)
         || value.grants.length === 0
-        || !value.grants.every(isPermissionGrant)
     ) {
         throw invalidSession(
             path,
             `line ${lineNumber} is not a valid permission grants entry`,
         );
     }
+    // Grants written before the permission model was simplified are migrated
+    // when the rename preserves meaning, and dropped otherwise. Dropping a
+    // grant only means the user is asked again, so it is the safe direction.
+    const grants: PermissionGrant[] = [];
+    for (const grant of value.grants) {
+        const migrated = isPermissionGrant(grant)
+            ? grant
+            : migratePermissionGrant(grant);
+        if (migrated === undefined) {
+            continue;
+        }
+        grants.push(copyPermissionGrant(migrated));
+    }
     return {
         type: "permission_grants",
         id: value.id,
         timestamp: value.timestamp,
-        grants: value.grants.map(copyPermissionGrant),
+        grants,
     };
 }
 

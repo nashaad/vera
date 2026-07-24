@@ -102,7 +102,7 @@ test("session grants are saved before the tool is allowed", async () => {
         },
     });
     const grants = [{
-        kind: "capability",
+        kind: "action",
         when: { operation: "git.push" },
         scope: "session",
         lifetime: "session",
@@ -147,7 +147,7 @@ test("a failed session grant write denies and closes the approval", async () => 
         {
             timeoutMs: 1_000,
             permissionGrants: [{
-                kind: "capability",
+                kind: "action",
                 when: { operation: "git.push" },
                 scope: "session",
                 lifetime: "session",

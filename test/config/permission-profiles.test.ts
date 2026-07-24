@@ -11,15 +11,11 @@ test("custom permission profiles preserve ordered declarative rules", () => {
             reviewer_profile: "careful",
             rules: [
                 {
-                    when: { capability: "read" },
+                    when: { verb: "read" },
                     then: "allow",
                 },
                 {
-                    when: {
-                        capability: "write",
-                        confidence: "exact",
-                        path_scope: "workspace",
-                    },
+                    when: { verb: "write", scope: "workspace" },
                     then: "allow",
                 },
                 {
@@ -36,16 +32,12 @@ test("custom permission profiles preserve ordered declarative rules", () => {
             rules: [
                 {
                     name: "unattended.rules.0",
-                    when: { capability: "read" },
+                    when: { verb: "read" },
                     then: "allow",
                 },
                 {
                     name: "unattended.rules.1",
-                    when: {
-                        capability: "write",
-                        confidence: "exact",
-                        pathScope: "workspace",
-                    },
+                    when: { verb: "write", scope: "workspace" },
                     then: "allow",
                 },
                 {
@@ -56,6 +48,35 @@ test("custom permission profiles preserve ordered declarative rules", () => {
             ],
         },
     });
+});
+
+test("legacy claim-shaped rules migrate only when the meaning is preserved", () => {
+    const migrated = parsePermissionProfiles({
+        legacy: {
+            default: "allow",
+            rules: [
+                { when: { capability: "delete" }, then: "ask" },
+                { when: { capability: "write", path_scope: "workspace" }, then: "allow" },
+            ],
+        },
+    }, reviewers);
+    expect(migrated?.legacy?.rules.map((rule) => rule.when)).toEqual([
+        { verb: "delete" },
+        { verb: "write", scope: "workspace" },
+    ]);
+
+    for (
+        const when of [
+            { capability: "write", confidence: "exact" },
+            { capability: "delete", recursive: true },
+            { capability: "network" },
+            { capability: "execute" },
+        ]
+    ) {
+        expect(parsePermissionProfiles({
+            legacy: { default: "allow", rules: [{ when, then: "ask" }] },
+        }, reviewers)).toBeUndefined();
+    }
 });
 
 test("profiles reject unknown operations and reviewer references", () => {

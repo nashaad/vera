@@ -686,7 +686,7 @@ test("permission grants survive reopening the durable session", async () => {
     });
 
     const proposal = {
-        kind: "capability",
+        kind: "action",
         when: { operation: "git.push" },
         scope: "session",
         lifetime: "session",
@@ -707,6 +707,51 @@ test("permission grants survive reopening the durable session", async () => {
     expect(reopened.permissionGrants()).toEqual([{
         ...proposal,
         id: "grant-1:0",
+    }]);
+});
+
+test("legacy claim-shaped grants migrate when the meaning is preserved", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    appendFileSync(path, `${JSON.stringify({
+        type: "permission_grants",
+        id: "grant-1",
+        timestamp: "2026-07-17T12:00:01.000Z",
+        grants: [
+            {
+                id: "grant-1:0",
+                kind: "capability",
+                when: { capability: "write", pathScope: "workspace" },
+                scope: "session",
+                lifetime: "session",
+            },
+            {
+                id: "grant-1:1",
+                kind: "capability",
+                when: { capability: "delete", recursive: true },
+                scope: "session",
+                lifetime: "session",
+            },
+            {
+                id: "grant-1:2",
+                kind: "capability",
+                when: { capability: "network", confidence: "exact" },
+                scope: "session",
+                lifetime: "session",
+            },
+        ],
+    })}\n`);
+
+    expect((await SessionStore.open(path)).permissionGrants()).toEqual([{
+        id: "grant-1:0",
+        kind: "action",
+        when: { verb: "write", scope: "workspace" },
+        scope: "session",
+        lifetime: "session",
     }]);
 });
 

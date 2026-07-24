@@ -211,7 +211,7 @@ test("host wire validates permission results", () => {
                 defaultOutcome: "review",
             },
             availableProfiles: ["auto"],
-            activeGrants: [{ id: "", kind: "capability", when: {} }],
+            activeGrants: [{ id: "", kind: "action", when: {} }],
         },
         seq: 12,
     })).toBeUndefined();
@@ -242,7 +242,7 @@ test("host wire validates semantic session grants on approvals", () => {
             reason: "This command may access the network.",
             warning: "This command runs with your full user permissions.",
             permissionGrants: [{
-                kind: "capability",
+                kind: "action",
                 when: { operation: "git.push" },
                 scope: "session",
                 lifetime: "session",

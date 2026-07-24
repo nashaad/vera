@@ -1,13 +1,13 @@
 import { sep } from "node:path";
 
 import type {
-    PermissionClaim,
-    PermissionClaimDecision,
+    PermissionAction,
+    PermissionActionDecision,
     PermissionPredicate,
     ToolPermissionDecision,
 } from "./permissions.ts";
 
-export type PermissionGrantKind = "capability" | "command";
+export type PermissionGrantKind = "action" | "command";
 
 export interface PermissionGrant {
     readonly id: string;
@@ -24,15 +24,30 @@ export interface PermissionGrantProposal {
     readonly lifetime: "session";
 }
 
+const PREDICATE_FIELDS = [
+    "tool",
+    "verb",
+    "path",
+    "scope",
+    "operation",
+    "executable",
+] as const;
+
+const VERBS = ["read", "write", "delete", "unknown"];
+
+/**
+ * Grants only ever lower `review` or `ask` to `allow`. They can never override
+ * a profile denial, and they are consulted after the accident guard.
+ */
 export function applyPermissionGrant(
-    decision: PermissionClaimDecision,
+    decision: PermissionActionDecision,
     grants: readonly PermissionGrant[],
-): PermissionClaimDecision {
+): PermissionActionDecision {
     if (decision.outcome !== "ask" && decision.outcome !== "review") {
         return decision;
     }
     const grant = grants.find((candidate) =>
-        permissionPredicateMatches(candidate.when, decision.claim)
+        permissionPredicateMatches(candidate.when, decision.action)
     );
     return grant === undefined
         ? decision
@@ -46,19 +61,16 @@ export function permissionGrantProposals(
         return [];
     }
     const proposals: PermissionGrantProposal[] = [];
-    for (const claimDecision of decision.claims) {
+    for (const actionDecision of decision.actions) {
         if (
-            claimDecision.outcome !== "ask"
-            && claimDecision.outcome !== "review"
+            actionDecision.outcome !== "ask"
+            && actionDecision.outcome !== "review"
         ) {
             continue;
         }
-        const proposal = grantProposalForClaim(claimDecision.claim);
+        const proposal = grantProposalForAction(actionDecision.action);
         if (
-            proposal !== undefined
-            && !proposals.some((existing) =>
-                sameGrantProposal(existing, proposal)
-            )
+            !proposals.some((existing) => sameGrantProposal(existing, proposal))
         ) {
             proposals.push(proposal);
         }
@@ -73,7 +85,7 @@ export function isPermissionGrantProposal(
         return false;
     }
     return hasExactKeys(value, ["kind", "when", "scope", "lifetime"])
-        && (value.kind === "capability" || value.kind === "command")
+        && isPermissionGrantKind(value.kind)
         && value.scope === "session"
         && value.lifetime === "session"
         && isPermissionPredicate(value.when);
@@ -84,10 +96,16 @@ export function isPermissionGrant(value: unknown): value is PermissionGrant {
         && hasExactKeys(value, ["id", "kind", "when", "scope", "lifetime"])
         && typeof value.id === "string"
         && value.id.length > 0
-        && (value.kind === "capability" || value.kind === "command")
+        && isPermissionGrantKind(value.kind)
         && value.scope === "session"
         && value.lifetime === "session"
         && isPermissionPredicate(value.when);
+}
+
+export function isPermissionGrantKind(
+    value: unknown,
+): value is PermissionGrantKind {
+    return value === "action" || value === "command";
 }
 
 export function isPermissionPredicate(
@@ -99,114 +117,74 @@ export function isPermissionPredicate(
     const keys = Object.keys(value);
     return keys.length > 0
         && keys.every((key) =>
-            [
-                "tool",
-                "capability",
-                "confidence",
-                "operation",
-                "path",
-                "pathScope",
-                "recursive",
-                "executable",
-            ].includes(key)
+            (PREDICATE_FIELDS as readonly string[]).includes(key)
         )
         && (value.tool === undefined || isNonEmptyString(value.tool))
-        && (value.capability === undefined
-            || [
-                "read",
-                "write",
-                "delete",
-                "execute",
-                "network",
-                "unknown",
-            ].includes(value.capability as string))
-        && (value.confidence === undefined
-            || ["exact", "partial", "unknown"].includes(
-                value.confidence as string,
-            ))
+        && (value.verb === undefined || VERBS.includes(value.verb as string))
         && (value.operation === undefined
             || isNonEmptyString(value.operation))
         && (value.path === undefined || isNonEmptyString(value.path))
-        && (value.pathScope === undefined
-            || value.pathScope === "workspace"
-            || value.pathScope === "outside_workspace")
-        && (value.recursive === undefined
-            || typeof value.recursive === "boolean")
+        && (value.scope === undefined
+            || value.scope === "workspace"
+            || value.scope === "outside_workspace")
         && (value.executable === undefined
             || isNonEmptyString(value.executable));
 }
 
+/** Every field present on the predicate must match; absent fields are ignored. */
 export function permissionPredicateMatches(
     predicate: PermissionPredicate,
-    claim: PermissionClaim,
+    action: PermissionAction,
 ): boolean {
-    return (predicate.tool === undefined || predicate.tool === claim.tool)
-        && (predicate.capability === undefined
-            || predicate.capability === claim.capability)
-        && (predicate.confidence === undefined
-            || predicate.confidence === claim.confidence)
+    return (predicate.tool === undefined || predicate.tool === action.tool)
+        && (predicate.verb === undefined || predicate.verb === action.verb)
         && (predicate.operation === undefined
-            || operationMatches(predicate.operation, claim.operation))
+            || operationMatches(predicate.operation, action.operation))
         && (predicate.path === undefined
-            || claim.path === predicate.path
-            || claim.path?.startsWith(`${predicate.path}${sep}`) === true)
-        && (predicate.pathScope === undefined
-            || predicate.pathScope === claim.pathScope)
-        && (predicate.recursive === undefined
-            || predicate.recursive === claim.recursive)
+            || action.path === predicate.path
+            || action.path?.startsWith(`${predicate.path}${sep}`) === true)
+        && (predicate.scope === undefined || predicate.scope === action.scope)
         && (predicate.executable === undefined
-            || predicate.executable === claim.executable);
+            || predicate.executable === action.executable);
 }
 
-function grantProposalForClaim(
-    claim: PermissionClaim,
-): PermissionGrantProposal | undefined {
+function grantProposalForAction(
+    action: PermissionAction,
+): PermissionGrantProposal {
     const base = {
         scope: "session" as const,
         lifetime: "session" as const,
     };
-    if (claim.operation !== undefined) {
-        return {
-            ...base,
-            kind: "capability",
-            when: { operation: claim.operation },
-        };
+    if (action.operation !== undefined) {
+        return { ...base, kind: "action", when: { operation: action.operation } };
     }
-    if (claim.path !== undefined && claim.confidence === "exact") {
+    if (action.path !== undefined) {
         return {
             ...base,
-            kind: "capability",
-            when: {
-                capability: claim.capability,
-                path: claim.path,
-                ...(claim.recursive === undefined
-                    ? {}
-                    : { recursive: claim.recursive }),
-            },
+            kind: "action",
+            when: { verb: action.verb, path: action.path },
         };
     }
     if (
-        claim.tool === "bash"
-        && claim.executable !== undefined
-        && claim.capability === "unknown"
+        action.tool === "bash"
+        && action.executable !== undefined
+        && action.verb === "unknown"
     ) {
         return {
             ...base,
             kind: "command",
-            when: { tool: "bash", executable: claim.executable },
+            when: { tool: "bash", executable: action.executable },
         };
     }
     return {
         ...base,
-        kind: "capability",
+        kind: "action",
         when: {
-            capability: claim.capability,
-            ...(claim.pathScope === undefined
+            verb: action.verb,
+            ...(action.scope === undefined ? {} : { scope: action.scope }),
+            ...(action.executable === undefined
                 ? {}
-                : { pathScope: claim.pathScope }),
-            ...(claim.executable === undefined
-                ? {}
-                : { executable: claim.executable }),
+                : { executable: action.executable }),
         },
     };
 }

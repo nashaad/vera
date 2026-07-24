@@ -946,7 +946,7 @@ async function executePreparedTool(
                     pathFacts: await collectReviewerPathFacts(
                         permissionContext.workspace,
                         hookCall,
-                        permission.claims,
+                        permission.actions,
                         signal,
                     ),
                     transcript: state.messages,
