@@ -14,6 +14,133 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
+    "bundled help opens the searchable command palette",
+    async () => {
+        const socket = `vera-help-${process.pid}-${randomUUID()}`;
+        const session = "help";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-help-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/help");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Commands");
+            expect(pane).toContain("/themes");
+            expect(pane).toContain("/help");
+            sendText(socket, session, "themes");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "⌕  themes",
+            );
+            expect(pane).toContain("Change the TUI theme");
+            expect(pane).not.toContain("/rename");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Theme");
+            expect(pane).toContain("System");
+            expect(pane).not.toContain("/help");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "an open help palette gains late extension commands",
+    async () => {
+        const socket = `vera-help-late-${process.pid}-${randomUUID()}`;
+        const session = "help-late";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-help-late-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-extension-command-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/help");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Commands");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "/hello  Say hello from an extension",
+            );
+            expect(pane).toContain("/help");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "turn completion keeps focus in an open help palette",
+    async () => {
+        const socket = `vera-help-focus-${process.pid}-${randomUUID()}`;
+        const session = "help-focus";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-help-focus-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-help-active-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "start");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "STREAM");
+            sendText(socket, session, "/help");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Commands");
+            await waitForVisiblePane(socket, session, "ready · test");
+            sendText(socket, session, "themes");
+            pane = await waitForVisiblePane(socket, session, "⌕  themes");
+            expect(pane).toContain("/themes");
+            expect(pane).not.toContain("/rename");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "resident stream failure becomes a recoverable disconnected TUI",
     async () => {
         const socket = `vera-connection-error-${process.pid}-${randomUUID()}`;

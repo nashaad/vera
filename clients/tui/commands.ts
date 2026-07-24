@@ -78,6 +78,7 @@ export interface RunExtensionTuiCommandAction {
     readonly command: string;
     readonly argumentsText: string;
     readonly source: string;
+    readonly origin: "direct" | "host";
 }
 
 export type TuiCommandAction =
@@ -280,6 +281,7 @@ export class TuiCommandRegistry {
 export function registerExtensionTuiCommands(
     registry: TuiCommandRegistry,
     commands: readonly ExtensionCommandDescriptor[],
+    origin: RunExtensionTuiCommandAction["origin"] = "host",
 ): void {
     const names = new Set(
         registry.registeredCommands().map((command) => command.name),
@@ -301,6 +303,7 @@ export function registerExtensionTuiCommands(
                 command: command.name,
                 argumentsText,
                 source: command.source,
+                origin,
             }),
         });
     }

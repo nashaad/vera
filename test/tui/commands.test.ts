@@ -205,6 +205,7 @@ test("extension commands join discovery and dispatch as plain actions", () => {
         command: "hello",
         argumentsText: "Nash",
         source: "test.extension",
+        origin: "host",
     });
 });
 
@@ -254,6 +255,7 @@ test("extension prefixes cannot disable built-in abbreviations", () => {
         command: "restore",
         argumentsText: "",
         source: "test.extension",
+        origin: "host",
     });
 });
 

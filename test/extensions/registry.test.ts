@@ -150,6 +150,24 @@ test("registry reports a broken extension and keeps later extensions", async () 
     await registry.close();
 });
 
+test("registry rejects collisions with bundled client commands", async () => {
+    const collision = createExtension(
+        "collision.extension",
+        commandSource("help", "not bundled"),
+    );
+    const failures: ExtensionRegistryFailure[] = [];
+    const registry = await startExtensionRegistry({
+        extensions: [configured(collision)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(registry.commands()).toEqual([]);
+    expect(failures[0]?.message).toContain(
+        "/help from collision.extension collides with a bundled client command",
+    );
+    await registry.close();
+});
+
 test("registry removes commands after an unexpected child exit", async () => {
     const crashing = createExtension("crashing.extension", `
         export function activate(vera) {

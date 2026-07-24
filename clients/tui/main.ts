@@ -19,6 +19,8 @@ import {
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
 import type { UserMessage } from "../../src/model/types.ts";
+import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
+import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -47,6 +49,13 @@ import {
     createTuiQuestionView,
 } from "./question.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
+import {
+    createTuiCommandPaletteView,
+    handleTuiCommandPaletteKey,
+    startTuiCommandPalette,
+    updateTuiCommandPaletteCommands,
+    type TuiCommandPaletteState,
+} from "./command-palette.ts";
 import {
     createBuiltinTuiCommandRegistry,
     extensionCommandResultText,
@@ -129,6 +138,7 @@ const APPROVAL_HINT =
 const QUESTION_HINT = "question waiting · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
+const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
@@ -346,6 +356,7 @@ export async function startTui(
     let pendingUiRequest: UiRequestUpdate | undefined;
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiSettingsPickerState | undefined;
+    let commandPalette: TuiCommandPaletteState | undefined;
     let confirmingFullAccess = false;
     let sessionTrashCandidate: {
         readonly sessionId: string;
@@ -386,6 +397,23 @@ export async function startTui(
     }
     const finished = Promise.withResolvers<TuiExit>();
     const commandRegistry = createBuiltinTuiCommandRegistry();
+    const directClientExtensions = bundledClientExtensions();
+    for (const extension of directClientExtensions) {
+        if (
+            extension.commands.some(
+                (command) => command.source !== extension.id,
+            )
+        ) {
+            throw new Error(
+                `Direct extension ${extension.id} returned a command for another source`,
+            );
+        }
+        registerExtensionTuiCommands(
+            commandRegistry,
+            extension.commands,
+            "direct",
+        );
+    }
 
     let markdownStyle = createMarkdownStyle(theme);
     function createMarkdownStyle(activeTheme: typeof theme): SyntaxStyle {
@@ -466,6 +494,7 @@ export async function startTui(
     }
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
+    const commandPaletteView = createTuiCommandPaletteView(renderer);
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
     const sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(renderer);
@@ -521,6 +550,7 @@ export async function startTui(
     app.add(questionView.box);
     app.add(timelinePickerView.box);
     app.add(settingsPickerView.box);
+    app.add(commandPaletteView.box);
     app.add(permissionsConfirmView.box);
     app.add(sessionTrashConfirmView.box);
     app.add(commandSuggestionsBox);
@@ -684,6 +714,26 @@ export async function startTui(
             }
         }
 
+        if (commandPalette !== undefined) {
+            const transition = handleTuiCommandPaletteKey(commandPalette, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                commandPalette = transition.state;
+                if (transition.selection !== undefined) {
+                    const selected = transition.selection;
+                    commandPalette = undefined;
+                    composer.setComposerText(`/${selected.name}`);
+                    renderState();
+                    submitPrompt();
+                } else {
+                    renderState();
+                    focusActiveSurface();
+                }
+                return;
+            }
+        }
+
         if (
             composer.plainText === "/"
             && commandSuggestionsBox.visible
@@ -816,7 +866,12 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "run_extension") {
-            if (state.working) {
+            const directExtension = directClientExtensions.find(
+                (extension) =>
+                    commandAction.origin === "direct"
+                    && extension.id === commandAction.source,
+            );
+            if (state.working && commandAction.origin === "host") {
                 state = appendTuiNotice(
                     state,
                     "Extension commands are available when the agent is idle",
@@ -827,7 +882,12 @@ export async function startTui(
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
-            if (client.runExtensionCommand === undefined) {
+            if (
+                (commandAction.origin === "direct"
+                    && directExtension === undefined)
+                || (commandAction.origin === "host"
+                    && client.runExtensionCommand === undefined)
+            ) {
                 composer.setComposerText(prompt);
                 state = appendTuiNotice(
                     state,
@@ -839,17 +899,37 @@ export async function startTui(
             extensionCommandPending = true;
             extensionCommandActivity = `running /${commandAction.command}`;
             renderStatus();
-            void client.runExtensionCommand(
-                commandAction.command,
-                commandAction.argumentsText,
-            ).then((result) => {
+            const invocation = commandAction.origin === "host"
+                ? client.runExtensionCommand!(
+                    commandAction.command,
+                    commandAction.argumentsText,
+                )
+                : invokeDirectClientExtensionCommand(
+                    directExtension!,
+                    commandAction.command,
+                    commandAction.argumentsText,
+                    { timeoutMs: DIRECT_EXTENSION_COMMAND_TIMEOUT_MS },
+                );
+            void invocation.then((result) => {
                 if (shuttingDown) {
                     return;
                 }
-                state = appendTuiNotice(
-                    state,
-                    extensionCommandResultText(result),
-                );
+                if (result.body.kind === "client_action") {
+                    if (result.body.action === "show_commands") {
+                        commandPalette = startTuiCommandPalette(
+                            commandRegistry.registeredCommands(),
+                        );
+                    }
+                } else {
+                    state = appendTuiNotice(
+                        state,
+                        extensionCommandResultText({
+                            version: 1,
+                            source: result.source,
+                            body: result.body,
+                        }),
+                    );
+                }
             }).catch((error) => {
                 if (shuttingDown) {
                     return;
@@ -1393,7 +1473,7 @@ export async function startTui(
                 renderState();
 
                 if (update.type === "agent_failed") {
-                    composer.focus();
+                    focusActiveSurface();
                     return;
                 }
 
@@ -1402,7 +1482,7 @@ export async function startTui(
                     && pendingUiRequest === undefined
                     && timelinePicker === undefined
                 ) {
-                    composer.focus();
+                    focusActiveSurface();
                 }
             }
         } catch (error) {
@@ -1439,6 +1519,12 @@ export async function startTui(
                         `${source}: ${message}`,
                     );
                 }
+            }
+            if (commandPalette !== undefined) {
+                commandPalette = updateTuiCommandPaletteCommands(
+                    commandPalette,
+                    commandRegistry.registeredCommands(),
+                );
             }
             renderCommandSuggestions();
             renderState();
@@ -1477,6 +1563,10 @@ export async function startTui(
         }
         if (timelinePicker !== undefined) {
             timelinePickerView.box.focus();
+            return;
+        }
+        if (commandPalette !== undefined) {
+            commandPaletteView.box.focus();
             return;
         }
         if (confirmingFullAccess) {
@@ -1599,6 +1689,7 @@ export async function startTui(
         pendingUiRequest = undefined;
         timelinePicker = undefined;
         settingsPicker = undefined;
+        commandPalette = undefined;
         confirmingFullAccess = false;
         sessionTrashCandidate = undefined;
         sessionTrashPending = false;
@@ -1630,6 +1721,12 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker !== undefined;
+        commandPaletteView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette !== undefined;
         permissionsConfirmView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
@@ -1641,6 +1738,7 @@ export async function startTui(
                 || questionView.box.visible
                 || timelinePickerView.box.visible
                 || settingsPickerView.box.visible
+                || commandPaletteView.box.visible
                 || permissionsConfirmView.box.visible
                 || sessionTrashConfirmView.box.visible
             ? 0.35
@@ -1649,7 +1747,8 @@ export async function startTui(
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
-            && settingsPicker === undefined;
+            && settingsPicker === undefined
+            && commandPalette === undefined;
         renderCommandSuggestions();
         if (
             pendingUiRequest !== undefined
@@ -1668,6 +1767,9 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
+        }
+        if (commandPalette !== undefined) {
+            commandPaletteView.update(commandPalette);
         }
         if (sessionTrashCandidate !== undefined) {
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
@@ -1917,6 +2019,7 @@ export async function startTui(
             timelinePickerView.update(timelinePicker);
         }
         settingsPickerView.box.backgroundColor = theme.panel;
+        commandPaletteView.box.backgroundColor = theme.panel;
 
         if (announce) {
             state = appendTuiNotice(state, `theme changed: ${selectedTheme}`);
