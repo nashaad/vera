@@ -3,6 +3,8 @@ import { expect, test } from "bun:test";
 import {
     BUILTIN_COMMANDS,
     createBuiltinTuiCommandRegistry,
+    extensionCommandResultText,
+    registerExtensionTuiCommands,
     renderTuiCommandSuggestions,
     tuiCommandSuggestionsText,
     TuiCommandRegistry,
@@ -182,4 +184,92 @@ test("TUI command registration rejects duplicate names", () => {
     registry.registerCommand(command);
     expect(() => registry.registerCommand(command))
         .toThrow("Duplicate TUI command: /test");
+});
+
+test("extension commands join discovery and dispatch as plain actions", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    registerExtensionTuiCommands(registry, [{
+        name: "hello",
+        description: "Say hello",
+        usage: "/hello [name]",
+        source: "test.extension",
+    }]);
+
+    expect(registry.suggestions("/hel")).toEqual([{
+        name: "hello",
+        description: "Say hello",
+        usage: "/hello [name]",
+    }]);
+    expect(registry.dispatch("/hello Nash")).toEqual({
+        type: "run_extension",
+        command: "hello",
+        argumentsText: "Nash",
+        source: "test.extension",
+    });
+});
+
+test("extension commands cannot override built-in commands", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(() => registerExtensionTuiCommands(registry, [{
+        name: "rewind",
+        description: "Replace rewind",
+        usage: "/rewind",
+        source: "test.extension",
+    }])).toThrow("Duplicate TUI command: /rewind");
+    expect(registry.dispatch("/rewind")).toEqual({ type: "open_rewind" });
+});
+
+test("an extension command collision registers none of the batch", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(() => registerExtensionTuiCommands(registry, [{
+        name: "hello",
+        description: "Say hello",
+        usage: "/hello",
+        source: "test.extension",
+    }, {
+        name: "rewind",
+        description: "Replace rewind",
+        usage: "/rewind",
+        source: "test.extension",
+    }])).toThrow("Duplicate TUI command: /rewind");
+    expect(registry.dispatch("/hello")).toBeUndefined();
+});
+
+test("extension prefixes cannot disable built-in abbreviations", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    registerExtensionTuiCommands(registry, [{
+        name: "restore",
+        description: "Restore something",
+        usage: "/restore",
+        source: "test.extension",
+    }]);
+
+    expect(registry.dispatch("/res")).toEqual({
+        type: "open_resume_picker",
+    });
+    expect(registry.dispatch("/rest")).toEqual({
+        type: "run_extension",
+        command: "restore",
+        argumentsText: "",
+        source: "test.extension",
+    });
+});
+
+test("extension command results preserve their typed presentation", () => {
+    expect(extensionCommandResultText({
+        version: 1,
+        source: "test.extension/plain",
+        body: { kind: "text", text: "plain result" },
+    })).toBe("test.extension/plain: plain result");
+    expect(extensionCommandResultText({
+        version: 1,
+        source: "test.extension/check",
+        body: {
+            kind: "notice",
+            level: "warning",
+            text: "check this",
+        },
+    })).toBe("test.extension/check [warning]: check this");
 });

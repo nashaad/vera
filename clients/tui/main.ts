@@ -28,7 +28,10 @@ import {
     createAgentThroughHost,
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
-import { attachAgent } from "../../src/host/attached-client.ts";
+import {
+    attachAgent,
+    type AttachedAgentClient,
+} from "../../src/host/attached-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
     trashSessionThroughHost,
@@ -46,6 +49,8 @@ import {
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createBuiltinTuiCommandRegistry,
+    extensionCommandResultText,
+    registerExtensionTuiCommands,
     renderTuiCommandSuggestions,
 } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
@@ -158,6 +163,8 @@ export interface TuiAgentClient {
     readonly workspace?: string;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
+    listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];
+    runExtensionCommand?: AttachedAgentClient["runExtensionCommand"];
     detach(): Promise<void>;
     close(): void;
 }
@@ -357,6 +364,10 @@ export async function startTui(
     let promptSubmitting = false;
     let sessionSwitchPending = false;
     let sessionSwitchActivity = "starting new session…";
+    let extensionCommandPending = false;
+    let extensionCommandActivity: string | undefined;
+    let extensionCommandsLoading =
+        dependencies.client.listExtensionCommands !== undefined;
     let pendingSessionRename: {
         readonly requestId: string;
         readonly commandText: string;
@@ -760,6 +771,7 @@ export async function startTui(
     });
 
     void receiveAgentUpdates();
+    void loadExtensionCommands();
     sendCommand({
         type: "get_model_settings",
         requestId: randomUUID(),
@@ -770,7 +782,12 @@ export async function startTui(
     });
 
     function submitPrompt(): void {
-        if (promptSubmitting || sessionSwitchPending || pendingSessionRename) {
+        if (
+            promptSubmitting
+            || sessionSwitchPending
+            || pendingSessionRename
+            || extensionCommandPending
+        ) {
             return;
         }
         const prompt = composer.expandedText().trim();
@@ -781,9 +798,81 @@ export async function startTui(
         const commandAction = prompt.length === 0
             ? undefined
             : commandRegistry.dispatch(prompt);
+        if (
+            commandAction === undefined
+            && extensionCommandsLoading
+            && prompt.startsWith("/")
+        ) {
+            state = appendTuiNotice(
+                state,
+                "Extension commands are still loading",
+            );
+            renderState();
+            return;
+        }
         if (commandAction?.type === "command_error") {
             state = appendTuiNotice(state, commandAction.message);
             renderState();
+            return;
+        }
+        if (commandAction?.type === "run_extension") {
+            if (state.working) {
+                state = appendTuiNotice(
+                    state,
+                    "Extension commands are available when the agent is idle",
+                );
+                renderState();
+                return;
+            }
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            if (client.runExtensionCommand === undefined) {
+                composer.setComposerText(prompt);
+                state = appendTuiNotice(
+                    state,
+                    `${commandAction.source}: command unavailable`,
+                );
+                renderState();
+                return;
+            }
+            extensionCommandPending = true;
+            extensionCommandActivity = `running /${commandAction.command}`;
+            renderStatus();
+            void client.runExtensionCommand(
+                commandAction.command,
+                commandAction.argumentsText,
+            ).then((result) => {
+                if (shuttingDown) {
+                    return;
+                }
+                state = appendTuiNotice(
+                    state,
+                    extensionCommandResultText(result),
+                );
+            }).catch((error) => {
+                if (shuttingDown) {
+                    return;
+                }
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                state = appendTuiNotice(
+                    state,
+                    `${commandAction.source}/${commandAction.command}: ${message}`,
+                );
+                if (composer.plainText.length === 0) {
+                    composer.setComposerText(prompt);
+                    renderCommandSuggestions();
+                }
+            }).finally(() => {
+                if (!shuttingDown) {
+                    extensionCommandPending = false;
+                    extensionCommandActivity = undefined;
+                    renderState();
+                    focusActiveSurface();
+                }
+            });
             return;
         }
         if (
@@ -1323,6 +1412,51 @@ export async function startTui(
 
     function sendCommand(command: ClientCommand): void {
         void client.send(command).catch(reportConnectionError);
+    }
+
+    async function loadExtensionCommands(): Promise<void> {
+        if (client.listExtensionCommands === undefined) {
+            return;
+        }
+        try {
+            const commands = await client.listExtensionCommands();
+            const commandsBySource = Map.groupBy(
+                commands,
+                (command) => command.source,
+            );
+            for (const [source, sourceCommands] of commandsBySource) {
+                try {
+                    registerExtensionTuiCommands(
+                        commandRegistry,
+                        sourceCommands,
+                    );
+                } catch (error) {
+                    const message = error instanceof Error
+                        ? error.message
+                        : String(error);
+                    state = appendTuiNotice(
+                        state,
+                        `${source}: ${message}`,
+                    );
+                }
+            }
+            renderCommandSuggestions();
+            renderState();
+        } catch (error) {
+            if (shuttingDown) {
+                return;
+            }
+            const message = error instanceof Error
+                ? error.message
+                : String(error);
+            state = appendTuiNotice(
+                state,
+                `Could not load extension commands: ${message}`,
+            );
+            renderState();
+        } finally {
+            extensionCommandsLoading = false;
+        }
     }
 
     function focusActiveSurface(): void {
@@ -1883,6 +2017,9 @@ export async function startTui(
             lifecycleHint = "sending prompt with image…";
         } else if (sessionSwitchPending) {
             lifecycleHint = sessionSwitchActivity;
+        } else if (extensionCommandPending) {
+            lifecycleHint =
+                `${extensionCommandActivity ?? "running extension command"} · ctrl+c quit`;
         } else if (pendingImages.length > 0) {
             lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }
@@ -1891,7 +2028,9 @@ export async function startTui(
             ? "#ff3b30"
             : statusNotice !== undefined
             ? TUI_NOTICE
-            : state.working || pendingUiRequest !== undefined
+            : state.working
+                    || pendingUiRequest !== undefined
+                    || extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
         const statusLine = renderTuiStatusLine(

@@ -1,5 +1,9 @@
 import { fg, StyledText, type TextChunk } from "@opentui/core";
 
+import type {
+    ExtensionCommandDescriptor,
+    ExtensionCommandResult,
+} from "../../src/extensions/commands.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 
 export interface TuiCommandCatalogEntry {
@@ -69,6 +73,13 @@ export interface TuiCommandErrorAction {
     readonly message: string;
 }
 
+export interface RunExtensionTuiCommandAction {
+    readonly type: "run_extension";
+    readonly command: string;
+    readonly argumentsText: string;
+    readonly source: string;
+}
+
 export type TuiCommandAction =
     | OpenRewindTuiCommandAction
     | OpenForkTuiCommandAction
@@ -83,12 +94,14 @@ export type TuiCommandAction =
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
     | CloneSessionTuiCommandAction
+    | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
 
 export interface TuiCommandDefinition {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
+    readonly prefixPriority?: "builtin" | "extension";
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
         | OpenThemePickerTuiCommandAction
@@ -234,10 +247,16 @@ export class TuiCommandRegistry {
             const matches = [...this.commands.values()].filter((candidate) =>
                 candidate.name.startsWith(name)
             );
-            if (matches.length !== 1) {
+            const builtinMatches = matches.filter(
+                (candidate) => candidate.prefixPriority !== "extension",
+            );
+            const eligibleMatches = builtinMatches.length > 0
+                ? builtinMatches
+                : matches;
+            if (eligibleMatches.length !== 1) {
                 return undefined;
             }
-            const [uniqueMatch] = matches;
+            const [uniqueMatch] = eligibleMatches;
             if (uniqueMatch === undefined) {
                 return undefined;
             }
@@ -256,6 +275,44 @@ export class TuiCommandRegistry {
         }
         return command.action;
     }
+}
+
+export function registerExtensionTuiCommands(
+    registry: TuiCommandRegistry,
+    commands: readonly ExtensionCommandDescriptor[],
+): void {
+    const names = new Set(
+        registry.registeredCommands().map((command) => command.name),
+    );
+    for (const command of commands) {
+        if (names.has(command.name)) {
+            throw new Error(`Duplicate TUI command: /${command.name}`);
+        }
+        names.add(command.name);
+    }
+    for (const command of commands) {
+        registry.registerCommand({
+            name: command.name,
+            description: command.description,
+            usage: command.usage,
+            prefixPriority: "extension",
+            parse: (argumentsText) => ({
+                type: "run_extension",
+                command: command.name,
+                argumentsText,
+                source: command.source,
+            }),
+        });
+    }
+}
+
+export function extensionCommandResultText(
+    result: ExtensionCommandResult,
+): string {
+    if (result.body.kind === "text") {
+        return `${result.source}: ${result.body.text}`;
+    }
+    return `${result.source} [${result.body.level}]: ${result.body.text}`;
 }
 
 function sharedPrefix(values: readonly string[]): string {
