@@ -19,6 +19,18 @@ test("built-in TUI commands match the public command catalog", () => {
     }
 });
 
+test("palette actions can exist without slash command aliases", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.registeredPaletteActions()).toContainEqual({
+        name: "model_picker",
+        description: "Choose the model for the next turn",
+        action: { type: "open_model_picker" },
+    });
+    expect(registry.suggestions("/model_picker")).toEqual([]);
+    expect(registry.dispatch("/model_picker")).toBeUndefined();
+});
+
 test("the rewind command returns a client-owned action", () => {
     const registry = createBuiltinTuiCommandRegistry();
 

@@ -98,6 +98,13 @@ export type TuiCommandAction =
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
 
+export interface TuiPaletteActionDefinition {
+    readonly name: string;
+    readonly description: string;
+    readonly slashName?: string;
+    readonly action: TuiCommandAction;
+}
+
 export interface TuiCommandDefinition {
     readonly name: string;
     readonly description: string;
@@ -109,6 +116,7 @@ export interface TuiCommandDefinition {
         | OpenResumePickerTuiCommandAction
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction;
+    readonly palette?: TuiPaletteActionDefinition;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
 
@@ -187,12 +195,23 @@ export const BUILTIN_COMMANDS = [
 
 export class TuiCommandRegistry {
     private readonly commands = new Map<string, TuiCommandDefinition>();
+    private readonly paletteActions = new Map<string, TuiPaletteActionDefinition>();
 
     registerCommand(command: TuiCommandDefinition): void {
         if (this.commands.has(command.name)) {
             throw new Error(`Duplicate TUI command: /${command.name}`);
         }
         this.commands.set(command.name, command);
+        if (command.palette !== undefined) {
+            this.registerPaletteAction(command.palette);
+        }
+    }
+
+    registerPaletteAction(action: TuiPaletteActionDefinition): void {
+        if (this.paletteActions.has(action.name)) {
+            throw new Error(`Duplicate TUI palette action: ${action.name}`);
+        }
+        this.paletteActions.set(action.name, action);
     }
 
     registeredCommands(): readonly TuiCommandCatalogEntry[] {
@@ -201,6 +220,10 @@ export class TuiCommandRegistry {
             description: command.description,
             usage: command.usage,
         }));
+    }
+
+    registeredPaletteActions(): readonly TuiPaletteActionDefinition[] {
+        return [...this.paletteActions.values()];
     }
 
     suggestions(input: string): readonly TuiCommandCatalogEntry[] {
@@ -405,6 +428,11 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
     registry.registerCommand({
         ...CLONE_COMMAND,
         action: { type: "clone_session" },
+    });
+    registry.registerPaletteAction({
+        name: "model_picker",
+        description: "Choose the model for the next turn",
+        action: { type: "open_model_picker" },
     });
     return registry;
 }
