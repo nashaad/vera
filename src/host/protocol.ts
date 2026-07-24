@@ -5,11 +5,15 @@ import {
     type ClientCommand,
 } from "../engine/protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type {
+    ExtensionCommandDescriptor,
+    ExtensionCommandResult,
+} from "../extensions/commands.ts";
 
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 15;
+export const HOST_PROTOCOL_VERSION = 16;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -69,6 +73,50 @@ export interface AttachRequest {
 export interface DetachRequest {
     readonly type: "detach";
 }
+
+export interface ListExtensionCommandsRequest {
+    readonly type: "list_extension_commands";
+    readonly request_id: string;
+}
+
+export interface RunExtensionCommandRequest {
+    readonly type: "run_extension_command";
+    readonly request_id: string;
+    readonly command: string;
+    readonly arguments_text: string;
+}
+
+export interface ExtensionCommandListResponse {
+    readonly type: "extension_command_list";
+    readonly request_id: string;
+    readonly commands: readonly ExtensionCommandDescriptor[];
+}
+
+export interface ExtensionCommandResultResponse {
+    readonly type: "extension_command_result";
+    readonly request_id: string;
+    readonly result: ExtensionCommandResult;
+}
+
+export interface ExtensionCommandFailedResponse {
+    readonly type: "extension_command_failed";
+    readonly request_id: string;
+    readonly failure: {
+        readonly source: string;
+        readonly reason:
+            | "unavailable"
+            | "handler_failed"
+            | "timeout"
+            | "cancelled"
+            | "invalid_result";
+        readonly message?: string;
+    };
+}
+
+export type ExtensionCommandHostResponse =
+    | ExtensionCommandListResponse
+    | ExtensionCommandResultResponse
+    | ExtensionCommandFailedResponse;
 
 export interface AttachedResponse {
     readonly type: "attached";
@@ -162,7 +210,11 @@ export type HostRequest =
     | BranchAgentRequest
     | TrashSessionRequest
     | AttachRequest;
-export type AttachedClientMessage = ClientCommand | DetachRequest;
+export type AttachedClientMessage =
+    | ClientCommand
+    | DetachRequest
+    | ListExtensionCommandsRequest
+    | RunExtensionCommandRequest;
 export type HostResponse =
     | HostIdentityResponse
     | AgentListResponse
@@ -176,6 +228,7 @@ export type HostResponse =
     | AttachedResponse
     | AttachFailedResponse
     | DetachedResponse
+    | ExtensionCommandHostResponse
     | ProtocolErrorResponse;
 
 export function parseHostRequest(source: string): HostRequest | undefined {
@@ -269,6 +322,29 @@ export function parseAttachedClientMessage(
     const value = parseJsonObject(source);
     if (value?.type === "detach") {
         return { type: "detach" };
+    }
+    if (
+        value?.type === "list_extension_commands"
+        && isRequestId(value.request_id)
+    ) {
+        return {
+            type: "list_extension_commands",
+            request_id: value.request_id,
+        };
+    }
+    if (
+        value?.type === "run_extension_command"
+        && isRequestId(value.request_id)
+        && typeof value.command === "string"
+        && /^[a-z][a-z0-9-]*$/.test(value.command)
+        && typeof value.arguments_text === "string"
+    ) {
+        return {
+            type: "run_extension_command",
+            request_id: value.request_id,
+            command: value.command,
+            arguments_text: value.arguments_text,
+        };
     }
     return parseClientCommand(value);
 }
@@ -436,4 +512,8 @@ function parseJsonObject(source: string): Record<string, unknown> | undefined {
     return typeof value === "object" && value !== null && !Array.isArray(value)
         ? value as Record<string, unknown>
         : undefined;
+}
+
+function isRequestId(value: unknown): value is string {
+    return typeof value === "string" && value.length > 0;
 }

@@ -23,8 +23,14 @@ import type {
 } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import { acquireHostStartupClaim } from "./startup-claim.ts";
+import type {
+    ExtensionCommandDescriptor,
+} from "../extensions/commands.ts";
+import { parseExtensionCommandResult } from "../extensions/commands.ts";
+import { ExtensionRpcRemoteError } from "../extensions/rpc.ts";
 
 const MAX_REQUEST_BYTES = 64 * 1_024;
+const MAX_PENDING_EXTENSION_REQUESTS = 16;
 const REQUEST_TIMEOUT_MS = 1_000;
 
 export interface StartHostServerOptions {
@@ -43,6 +49,14 @@ export interface StartHostServerOptions {
     readonly trashSession?: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
+    readonly listExtensionCommands?: () =>
+        readonly ExtensionCommandDescriptor[];
+    readonly runExtensionCommand?: (
+        name: string,
+        argumentsText: string,
+        workspace: string,
+        signal: AbortSignal,
+    ) => Promise<unknown>;
     readonly canShutdown?: () => boolean;
     readonly onShutdownAccepted?: () => void | Promise<void>;
 }
@@ -145,6 +159,10 @@ export async function startHostServer(
             )),
             options.branchAgent ?? (() => Promise.resolve(undefined)),
             options.trashSession ?? (() => Promise.resolve("not_found")),
+            options.listExtensionCommands ?? (() => []),
+            options.runExtensionCommand ?? (() => Promise.reject(
+                new Error("Extension commands are unavailable"),
+            )),
             () => shutdownFenced,
             requestShutdown,
             attachmentOpened,
@@ -201,6 +219,13 @@ function receiveConnection(
     trashSession: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
+    listExtensionCommands: () => readonly ExtensionCommandDescriptor[],
+    runExtensionCommand: (
+        name: string,
+        argumentsText: string,
+        workspace: string,
+        signal: AbortSignal,
+    ) => Promise<unknown>,
     isShutdownFenced: () => boolean,
     requestShutdown: (
         identity: HostIdentity & { readonly requester_protocol_version: number },
@@ -215,9 +240,19 @@ function receiveConnection(
     let finished = false;
     let writes: Promise<void> = Promise.resolve();
     let attachmentClosed: (() => void) | undefined;
+    let attachedWorkspace: string | undefined;
+    const extensionRequests = new Set<AbortController>();
+    const extensionRequestIds = new Set<string>();
 
-    const send = (message: object): Promise<void> => {
-        const next = writes.then(() => writeSocketMessage(socket, message));
+    const send = (
+        message: object,
+        shouldSend: () => boolean = () => true,
+    ): Promise<void> => {
+        const next = writes.then(() => {
+            if (shouldSend()) {
+                return writeSocketMessage(socket, message);
+            }
+        });
         writes = next.catch(() => undefined);
         return next;
     };
@@ -226,6 +261,12 @@ function receiveConnection(
         clearTimeout(deadline);
         attachment?.detach();
         attachment = undefined;
+        attachedWorkspace = undefined;
+        for (const controller of extensionRequests) {
+            controller.abort();
+        }
+        extensionRequests.clear();
+        extensionRequestIds.clear();
         attachmentClosed?.();
         attachmentClosed = undefined;
     });
@@ -282,10 +323,157 @@ function receiveConnection(
             finished = true;
             attachment.detach();
             attachment = undefined;
+            attachedWorkspace = undefined;
+            for (const controller of extensionRequests) {
+                controller.abort();
+            }
+            extensionRequests.clear();
+            extensionRequestIds.clear();
             void send({ type: "detached" }).then(
                 () => socket.end(),
                 () => socket.destroy(),
             );
+            return;
+        }
+        if (message.type === "list_extension_commands") {
+            if (
+                extensionRequestIds.has(message.request_id)
+                || extensionRequestIds.size >= MAX_PENDING_EXTENSION_REQUESTS
+            ) {
+                socket.destroy();
+                return;
+            }
+            extensionRequestIds.add(message.request_id);
+            let commands: readonly ExtensionCommandDescriptor[];
+            try {
+                commands = listExtensionCommands();
+            } catch {
+                void send({
+                    type: "extension_command_failed",
+                    request_id: message.request_id,
+                    failure: {
+                        source: "vera.extensions",
+                        reason: "unavailable",
+                        message: "Extension commands are unavailable",
+                    },
+                }, () =>
+                    !finished
+                    && extensionRequestIds.has(message.request_id)
+                ).catch(() => socket.destroy()).finally(() => {
+                    extensionRequestIds.delete(message.request_id);
+                });
+                return;
+            }
+            void send({
+                type: "extension_command_list",
+                request_id: message.request_id,
+                commands,
+            }, () =>
+                !finished
+                && extensionRequestIds.has(message.request_id)
+            ).catch(() => socket.destroy()).finally(() => {
+                extensionRequestIds.delete(message.request_id);
+            });
+            return;
+        }
+        if (message.type === "run_extension_command") {
+            if (
+                extensionRequestIds.has(message.request_id)
+                || extensionRequestIds.size >= MAX_PENDING_EXTENSION_REQUESTS
+            ) {
+                socket.destroy();
+                return;
+            }
+            extensionRequestIds.add(message.request_id);
+            const workspace = attachedWorkspace;
+            if (workspace === undefined) {
+                socket.destroy();
+                return;
+            }
+            const controller = new AbortController();
+            extensionRequests.add(controller);
+            let source = message.command;
+            try {
+                const descriptor = listExtensionCommands().find(
+                    (command) => command.name === message.command,
+                );
+                if (descriptor !== undefined) {
+                    source = `${descriptor.source}/${descriptor.name}`;
+                }
+            } catch {
+                extensionRequests.delete(controller);
+                void send({
+                    type: "extension_command_failed",
+                    request_id: message.request_id,
+                    failure: {
+                        source,
+                        reason: "unavailable",
+                        message: "Extension commands are unavailable",
+                    },
+                }, () =>
+                    !finished
+                    && extensionRequestIds.has(message.request_id)
+                ).catch(() => socket.destroy()).finally(() => {
+                    extensionRequestIds.delete(message.request_id);
+                });
+                return;
+            }
+            void Promise.resolve().then(() => runExtensionCommand(
+                message.command,
+                message.arguments_text,
+                workspace,
+                controller.signal,
+            )).then(
+                (value) => {
+                    if (!finished) {
+                        const result = parseExtensionCommandResult(value);
+                        if (
+                            result === undefined
+                            || result.source !== source
+                        ) {
+                            return send({
+                                type: "extension_command_failed",
+                                request_id: message.request_id,
+                                failure: {
+                                    source,
+                                    reason: "invalid_result",
+                                    message:
+                                        "Extension returned an invalid command result",
+                                },
+                            }, () =>
+                                !finished
+                                && extensionRequestIds.has(message.request_id)
+                            );
+                        }
+                        return send({
+                            type: "extension_command_result",
+                            request_id: message.request_id,
+                            result,
+                        }, () =>
+                            !finished
+                            && extensionRequestIds.has(message.request_id)
+                        );
+                    }
+                },
+                (error) => {
+                    if (!finished) {
+                        return send({
+                            type: "extension_command_failed",
+                            request_id: message.request_id,
+                            failure: extensionCommandFailure(
+                                source,
+                                error,
+                            ),
+                        }, () =>
+                            !finished
+                            && extensionRequestIds.has(message.request_id)
+                        );
+                    }
+                },
+            ).catch(() => socket.destroy()).finally(() => {
+                extensionRequests.delete(controller);
+                extensionRequestIds.delete(message.request_id);
+            });
             return;
         }
         try {
@@ -451,6 +639,7 @@ function receiveConnection(
             return;
         }
         attachment = attached;
+        attachedWorkspace = agent.workspace;
         attachmentClosed = attachmentOpened();
         void send({
             type: "attached",
@@ -533,6 +722,52 @@ function writeSocketMessage(socket: Socket, message: object): Promise<void> {
         socket.once("error", onError);
         socket.once("close", onClose);
     });
+}
+
+function extensionCommandFailure(
+    command: string,
+    error: unknown,
+): {
+    readonly source: string;
+    readonly reason:
+        | "unavailable"
+        | "handler_failed"
+        | "timeout"
+        | "cancelled"
+        | "invalid_result";
+    readonly message: string;
+} {
+    const message = error instanceof Error ? error.message : String(error);
+    let reason:
+        | "unavailable"
+        | "handler_failed"
+        | "timeout"
+        | "cancelled"
+        | "invalid_result" = "handler_failed";
+    if (error instanceof ExtensionRpcRemoteError) {
+        if (error.code === "disposed" || error.code === "exited") {
+            reason = "unavailable";
+        } else if (error.code === "cancelled") {
+            reason = "cancelled";
+        } else if (error.code === "timeout") {
+            reason = "timeout";
+        } else {
+            reason = "handler_failed";
+        }
+    } else if (error instanceof Error && error.name === "AbortError") {
+        reason = "cancelled";
+    } else if (/timed out/i.test(message)) {
+        reason = "timeout";
+    } else if (/unavailable|no command named/i.test(message)) {
+        reason = "unavailable";
+    } else if (/invalid result/i.test(message)) {
+        reason = "invalid_result";
+    }
+    return {
+        source: command,
+        reason,
+        message,
+    };
 }
 
 function listen(server: Server, socketPath: string): Promise<void> {
