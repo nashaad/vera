@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+    mkdir,
+    mkdtemp,
+    readFile,
+    realpath,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -147,6 +154,95 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                 "assistant",
             ]);
         } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host loads and routes a configured extension command",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-extension-"));
+        const workspace = await realpath(root);
+        const extensionPath = join(root, "extension");
+        await mkdir(extensionPath);
+        await writeFile(
+            join(extensionPath, "vera.extension.json"),
+            JSON.stringify({
+                id: "test.extension",
+                version: "1.0.0",
+                sdk: "1",
+                entrypoint: "./extension.ts",
+                capabilities: ["commands.register"],
+            }),
+        );
+        await writeFile(join(extensionPath, "extension.ts"), `
+            export function activate(vera) {
+                vera.commands.register({
+                    name: "where",
+                    description: "Show workspace",
+                    usage: "/where",
+                    run({ workspace }) {
+                        return { kind: "text", text: workspace };
+                    },
+                });
+            }
+        `);
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+                extensions: [{
+                    path: extensionPath,
+                    enabled: true,
+                    config: null,
+                }],
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+        });
+        const agent = await host.registry.create({
+            id: "agent-1",
+            workspace,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.receive();
+            await connection.receive();
+            await connection.send({
+                type: "list_extension_commands",
+                request_id: "list-1",
+            });
+            expect(await connection.receive()).toMatchObject({
+                type: "extension_command_list",
+                commands: [{ name: "where", source: "test.extension" }],
+            });
+            await connection.send({
+                type: "run_extension_command",
+                request_id: "run-1",
+                command: "where",
+                arguments_text: "",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "extension_command_result",
+                request_id: "run-1",
+                result: {
+                    version: 1,
+                    source: "test.extension/where",
+                    body: { kind: "text", text: workspace },
+                },
+            });
+        } finally {
+            connection.close();
             await host.close();
             await rm(root, { recursive: true, force: true });
         }

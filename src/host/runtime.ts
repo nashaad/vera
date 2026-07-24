@@ -16,6 +16,11 @@ import { defaultSessionDirectory } from "../store/session-store.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
+import {
+    startExtensionRegistry,
+    type ExtensionRegistry,
+    type ExtensionRegistryFailure,
+} from "../extensions/registry.ts";
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
@@ -27,6 +32,13 @@ export interface StartResidentHostOptions {
     readonly sessionDirectory?: string;
     readonly eventLogDirectory?: string;
     readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
+    readonly onExtensionDiagnostic?: (
+        extensionId: string,
+        message: string,
+    ) => void;
+    readonly onExtensionFailure?: (
+        failure: ExtensionRegistryFailure,
+    ) => void;
 }
 
 export interface SessionRestoreFailure {
@@ -36,6 +48,7 @@ export interface SessionRestoreFailure {
 
 export interface ResidentHost {
     readonly registry: AgentRegistry;
+    readonly extensions: ExtensionRegistry;
     readonly server: HostServer;
     close(): Promise<void>;
 }
@@ -94,12 +107,22 @@ export async function startResidentHost(
     });
 
     let server: HostServer;
+    let extensions: ExtensionRegistry | undefined;
     try {
         await restoreStoredAgents(
             registry,
             sessionDirectory,
             options.onRestoreFailure ?? reportRestoreFailure,
         );
+        extensions = await startExtensionRegistry({
+            extensions: options.config.extensions ?? [],
+            ...(options.onExtensionDiagnostic === undefined
+                ? {}
+                : { onDiagnostic: options.onExtensionDiagnostic }),
+            ...(options.onExtensionFailure === undefined
+                ? {}
+                : { onFailure: options.onExtensionFailure }),
+        });
         server = await startHostServer({
             ...(options.socketPath === undefined
                 ? {}
@@ -117,10 +140,28 @@ export async function startResidentHost(
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
             branchAgent: (options) => registry.branch(options),
             trashSession: (targetId) => registry.trashSession(targetId),
+            listExtensionCommands: () => extensions!.commands(),
+            runExtensionCommand: (
+                name,
+                argumentsText,
+                workspace,
+                signal,
+            ) => extensions!.invokeCommand(
+                name,
+                argumentsText,
+                workspace,
+                signal,
+            ),
             canShutdown: () => registry.idleForShutdown(),
-            onShutdownAccepted: () => closeResidentHost(server, registry),
+            onShutdownAccepted: () =>
+                closeResidentHost(server, registry, extensions!),
         });
     } catch (error) {
+        try {
+            await extensions?.close();
+        } catch {
+            // Preserve the host startup failure.
+        }
         await registry.close();
         throw error;
     }
@@ -128,9 +169,10 @@ export async function startResidentHost(
     let closing: Promise<void> | undefined;
     return {
         registry,
+        extensions,
         server,
         close(): Promise<void> {
-            closing ??= closeResidentHost(server, registry);
+            closing ??= closeResidentHost(server, registry, extensions);
             return closing;
         },
     };
@@ -307,10 +349,15 @@ async function resumeOrFind(
 async function closeResidentHost(
     server: HostServer,
     registry: AgentRegistry,
+    extensions: ExtensionRegistry,
 ): Promise<void> {
     try {
         await server.close();
     } finally {
-        await registry.close();
+        try {
+            await extensions.close();
+        } finally {
+            await registry.close();
+        }
     }
 }

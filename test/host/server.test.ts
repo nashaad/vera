@@ -490,6 +490,177 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host routes extension commands privately without forwarding to the engine",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const calls: unknown[] = [];
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+            listExtensionCommands: () => [{
+                name: "hello",
+                description: "Say hello",
+                usage: "/hello [name]",
+                source: "test.extension",
+            }],
+            runExtensionCommand: async (
+                name,
+                argumentsText,
+                workspace,
+                signal,
+            ) => {
+                calls.push({ name, argumentsText, workspace, signal });
+                return {
+                    version: 1,
+                    source: "test.extension/hello",
+                    body: { kind: "text", text: `Hello ${argumentsText}` },
+                };
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.receive();
+            await connection.receive();
+
+            await connection.send({
+                type: "list_extension_commands",
+                request_id: "list-1",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "extension_command_list",
+                request_id: "list-1",
+                commands: [{
+                    name: "hello",
+                    description: "Say hello",
+                    usage: "/hello [name]",
+                    source: "test.extension",
+                }],
+            });
+
+            await connection.send({
+                type: "run_extension_command",
+                request_id: "run-1",
+                command: "hello",
+                arguments_text: "Nash",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "extension_command_result",
+                request_id: "run-1",
+                result: {
+                    version: 1,
+                    source: "test.extension/hello",
+                    body: { kind: "text", text: "Hello Nash" },
+                },
+            });
+            expect(calls).toHaveLength(1);
+            expect(calls[0]).toMatchObject({
+                name: "hello",
+                argumentsText: "Nash",
+                workspace: "/work/one",
+            });
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host keeps an attachment usable when extension discovery fails",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => {
+                throw new Error("broken registry");
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.receive();
+            await connection.receive();
+
+            await connection.send({
+                type: "list_extension_commands",
+                request_id: "list-1",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "extension_command_failed",
+                request_id: "list-1",
+                failure: {
+                    source: "vera.extensions",
+                    reason: "unavailable",
+                    message: "Extension commands are unavailable",
+                },
+            });
+
+            await connection.send({ type: "prompt", content: "still here" });
+            expect(await agent.engine.receive()).toEqual({
+                type: "prompt",
+                content: "still here",
+            });
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host disconnects a client that floods extension requests",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const signals: AbortSignal[] = [];
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => [],
+            runExtensionCommand: (_name, _arguments, _workspace, signal) => {
+                signals.push(signal);
+                return new Promise(() => undefined);
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: agent.id });
+            await connection.receive();
+            await connection.receive();
+
+            for (let index = 0; index < 17; index += 1) {
+                await connection.send({
+                    type: "run_extension_command",
+                    request_id: `run-${index}`,
+                    command: "wait",
+                    arguments_text: "",
+                });
+            }
+            await expect(connection.receive()).rejects.toThrow();
+            await Bun.sleep(0);
+            expect(signals).toHaveLength(16);
+            expect(signals.every((signal) => signal.aborted)).toBeTrue();
+        } finally {
+            connection.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host rejects an unknown agent without affecting known agents",
     async () => {
         const directory = temporaryHostDirectory();

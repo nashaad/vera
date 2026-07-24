@@ -118,6 +118,39 @@ test("host protocol parses identity requests and encodes responses", () => {
     );
 });
 
+test("host protocol parses attached extension command requests", () => {
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "list_extension_commands",
+        request_id: "commands-1",
+    }))).toEqual({
+        type: "list_extension_commands",
+        request_id: "commands-1",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "run_extension_command",
+        request_id: "command-1",
+        command: "hello",
+        arguments_text: "Nash",
+    }))).toEqual({
+        type: "run_extension_command",
+        request_id: "command-1",
+        command: "hello",
+        arguments_text: "Nash",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "run_extension_command",
+        request_id: "",
+        command: "hello",
+        arguments_text: "",
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "run_extension_command",
+        request_id: "command-2",
+        command: "../bad",
+        arguments_text: "",
+    }))).toBeUndefined();
+});
+
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "shutdown-if-idle client returns only typed host responses",
     async () => {

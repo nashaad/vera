@@ -69,6 +69,29 @@ export function parseExtensionCommandBody(
     return undefined;
 }
 
+export function parseExtensionCommandResult(
+    value: unknown,
+): ExtensionCommandResult | undefined {
+    if (
+        !isPlainObject(value)
+        || !hasExactKeys(value, ["version", "source", "body"])
+        || value.version !== EXTENSION_COMMAND_RESULT_VERSION
+        || typeof value.source !== "string"
+        || value.source.length === 0
+    ) {
+        return undefined;
+    }
+    const body = parseExtensionCommandBody(value.body);
+    if (body === undefined) {
+        return undefined;
+    }
+    return {
+        version: EXTENSION_COMMAND_RESULT_VERSION,
+        source: value.source,
+        body,
+    };
+}
+
 export function parseExtensionCommandDeclarations(
     value: unknown,
 ): readonly ExtensionCommandDeclaration[] | undefined {
