@@ -232,7 +232,9 @@ function createAttachedClient(
                 }
                 const update = parseAgentUpdate(value);
                 if (update === undefined) {
-                    throw new Error("Host sent an invalid agent update");
+                    throw new Error(
+                        `Host sent an invalid agent update: ${describeMessage(value)}`,
+                    );
                 }
                 if (pendingUpdateCount >= maxPendingUpdates) {
                     throw new Error(
@@ -366,6 +368,20 @@ function createAttachedClient(
             pending.reject(error);
         }
         extensionRequests.clear();
+    }
+}
+
+function describeMessage(value: unknown): string {
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        const type = (value as { type?: unknown }).type;
+        if (typeof type === "string") {
+            return `type=${type}`;
+        }
+    }
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return String(value);
     }
 }
 
