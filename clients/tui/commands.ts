@@ -105,6 +105,10 @@ export interface TuiPaletteActionDefinition {
     readonly action: TuiCommandAction;
 }
 
+export interface TuiPaletteEntry extends TuiPaletteActionDefinition {
+    readonly usage?: string;
+}
+
 export interface TuiCommandDefinition {
     readonly name: string;
     readonly description: string;

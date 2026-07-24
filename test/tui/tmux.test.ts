@@ -59,6 +59,22 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "Commands");
             expect(pane).toContain("/themes");
             expect(pane).toContain("/help");
+            sendText(socket, session, "model_picker");
+            pane = await waitForVisiblePane(socket, session, "⌕  model_picker");
+            expect(pane).toContain("model_picker");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Select model");
+            expect(pane).not.toContain("⌕  choose the model");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera"),
+                "model picker to close",
+            );
+            sendText(socket, session, "/commands");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Commands");
             sendText(socket, session, "themes");
             pane = await waitForVisiblePane(
                 socket,
