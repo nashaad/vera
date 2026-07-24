@@ -220,6 +220,84 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "extension slash commands stay in the TUI and render attributed results",
+    async () => {
+        const socket = `vera-extension-${process.pid}-${randomUUID()}`;
+        const session = "extension";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-extension-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-extension-command-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/hello too early");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Extension commands are still loading",
+            );
+            expect(existsSync(
+                join(home, "extension-command-result.txt"),
+            )).toBeFalse();
+            sendKey(socket, session, "C-u");
+            sendText(socket, session, "/hel");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "/hello  Say hello from an extension",
+            );
+            expect(pane).toContain("/hello");
+            sendKey(socket, session, "Tab");
+            sendText(socket, session, " fail");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "running /hello · ctrl+c quit",
+            );
+            expect(pane).toContain("running /hello");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "test.extension/hello: extension failed for test",
+            );
+            expect(pane).toContain("ready");
+            expect(pane).toContain("/hello fail");
+            sendKey(socket, session, "C-u");
+            sendText(socket, session, "/hello");
+            sendText(socket, session, " Nash");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "test.extension/hello [info]: Hello Nash",
+            );
+            expect(pane).toContain("ready");
+            expect(readFileSync(
+                join(home, "extension-command-result.txt"),
+                "utf8",
+            )).toBe("hello\nNash");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "clone prepares a replacement session before detaching",
     async () => {
         const socket = `vera-clone-${process.pid}-${randomUUID()}`;
