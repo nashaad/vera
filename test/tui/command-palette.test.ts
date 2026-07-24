@@ -12,14 +12,20 @@ const commands = [{
     name: "help",
     description: "Browse available commands",
     usage: "/help",
+    slashName: "help",
+    action: { type: "open_rewind" },
 }, {
     name: "model",
     description: "Change the model",
     usage: "/model <model-id>",
+    slashName: "model",
+    action: { type: "open_model_picker" },
 }, {
     name: "rename",
     description: "Name this conversation",
     usage: "/rename [name]",
+    slashName: "rename",
+    action: { type: "update_session_name", name: null },
 }] as const;
 
 test("command palette searches metadata and selects the same command", () => {

@@ -13,12 +13,12 @@ import {
     dialogOptionRow,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
-import type { TuiCommandCatalogEntry } from "./commands.ts";
+import type { TuiPaletteEntry } from "./commands.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_PANEL } from "./state.ts";
 
 export interface TuiCommandPaletteState {
-    readonly allCommands: readonly TuiCommandCatalogEntry[];
-    readonly commands: readonly TuiCommandCatalogEntry[];
+    readonly allCommands: readonly TuiPaletteEntry[];
+    readonly commands: readonly TuiPaletteEntry[];
     readonly selectedIndex: number;
     readonly query: string;
 }
@@ -34,7 +34,7 @@ export interface TuiCommandPaletteKey {
 
 export interface TuiCommandPaletteTransition {
     readonly state?: TuiCommandPaletteState;
-    readonly selection?: TuiCommandCatalogEntry;
+    readonly selection?: TuiPaletteEntry;
     readonly handled: boolean;
 }
 
@@ -44,7 +44,7 @@ export interface TuiCommandPaletteView {
 }
 
 export function startTuiCommandPalette(
-    commands: readonly TuiCommandCatalogEntry[],
+    commands: readonly TuiPaletteEntry[],
 ): TuiCommandPaletteState {
     return {
         allCommands: commands,
@@ -56,7 +56,7 @@ export function startTuiCommandPalette(
 
 export function updateTuiCommandPaletteCommands(
     state: TuiCommandPaletteState,
-    commands: readonly TuiCommandCatalogEntry[],
+    commands: readonly TuiPaletteEntry[],
 ): TuiCommandPaletteState {
     return filteredState(commands, state.query);
 }
@@ -156,9 +156,12 @@ export function createTuiCommandPaletteView(
             } else {
                 rows.forEach(({ command, index }) => {
                     const row = dialogOptionRow(renderer, {
-                        label: `/${command.name}`,
+                        label: command.slashName === undefined
+                            ? command.name
+                            : `/${command.slashName}`,
                         description: command.description,
-                        meta: command.usage === `/${command.name}`
+                        meta: command.usage === undefined
+                            || command.usage === `/${command.slashName ?? command.name}`
                             ? undefined
                             : command.usage,
                         active: index === state.selectedIndex,
@@ -194,7 +197,7 @@ function searched(
 }
 
 function filteredState(
-    allCommands: readonly TuiCommandCatalogEntry[],
+    allCommands: readonly TuiPaletteEntry[],
     query: string,
 ): TuiCommandPaletteState {
     const normalized = query.toLowerCase();
@@ -209,7 +212,7 @@ function filteredState(
 function windowedCommands(
     state: TuiCommandPaletteState,
 ): readonly {
-    readonly command: TuiCommandCatalogEntry;
+    readonly command: TuiPaletteEntry;
     readonly index: number;
 }[] {
     const start = Math.min(

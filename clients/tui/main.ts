@@ -69,6 +69,7 @@ import {
     extensionCommandResultText,
     registerExtensionTuiCommands,
     renderTuiCommandSuggestions,
+    type TuiPaletteEntry,
 } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
@@ -426,6 +427,28 @@ export async function startTui(
     }
     const coreHelpCommands = commandRegistry.registeredCommands();
 
+    function registeredPaletteEntries(): readonly TuiPaletteEntry[] {
+        const slashEntries = commandRegistry.registeredCommands().flatMap(
+            (command): TuiPaletteEntry[] => {
+                const action = commandRegistry.dispatch(`/${command.name}`);
+                if (action === undefined || action.type === "command_error") {
+                    return [];
+                }
+                return [{
+                    name: command.name,
+                    description: command.description,
+                    usage: command.usage,
+                    slashName: command.name,
+                    action,
+                }];
+            },
+        );
+        return [
+            ...slashEntries,
+            ...commandRegistry.registeredPaletteActions(),
+        ];
+    }
+
     let markdownStyle = createMarkdownStyle(theme);
     function createMarkdownStyle(activeTheme: typeof theme): SyntaxStyle {
         return SyntaxStyle.fromStyles({
@@ -738,9 +761,25 @@ export async function startTui(
                 if (transition.selection !== undefined) {
                     const selected = transition.selection;
                     commandPalette = undefined;
-                    composer.setComposerText(`/${selected.name}`);
-                    renderState();
-                    submitPrompt();
+                    if (selected.slashName !== undefined) {
+                        composer.setComposerText(`/${selected.slashName}`);
+                        renderState();
+                        submitPrompt();
+                    } else if (selected.action.type === "open_model_picker") {
+                        composer.clearComposer();
+                        settingsPicker = startTuiSettingsPicker(
+                            "model",
+                            state.modelSettings?.model,
+                            state.modelSettings?.reasoningEffort,
+                            state.approvalMode,
+                            state.modelSettings?.availableReasoningEfforts,
+                            state.modelSettings?.availableModels,
+                            undefined,
+                            state.modelSettings?.provider,
+                        );
+                        renderState();
+                        focusActiveSurface();
+                    }
                 } else {
                     renderState();
                     focusActiveSurface();
@@ -944,7 +983,7 @@ export async function startTui(
                 if (result.body.kind === "client_action") {
                     if (result.body.action === "show_commands") {
                         commandPalette = startTuiCommandPalette(
-                            commandRegistry.registeredCommands(),
+                            registeredPaletteEntries(),
                         );
                     } else if (result.body.action === "show_help") {
                         help = startTuiHelp(
@@ -1556,7 +1595,7 @@ export async function startTui(
             if (commandPalette !== undefined) {
                 commandPalette = updateTuiCommandPaletteCommands(
                     commandPalette,
-                    commandRegistry.registeredCommands(),
+                    registeredPaletteEntries(),
                 );
             }
             if (help !== undefined) {
