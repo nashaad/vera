@@ -7,6 +7,7 @@ import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import {
     AgentAttachError,
     attachAgent,
+    ExtensionCommandError,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
@@ -74,6 +75,362 @@ afterEach(() => {
             await client.detach();
             expect(client.closed).toBe(true);
             expect(agent.closed).toBe(false);
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client correlates extension replies beside agent updates",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const completions = new Map<
+            string,
+            (value: {
+                version: 1;
+                source: string;
+                body: { kind: "text"; text: string };
+            }) => void
+        >();
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => [{
+                name: "hello",
+                description: "Say hello",
+                usage: "/hello [name]",
+                source: "test.extension",
+            }],
+            runExtensionCommand: (_name, argumentsText) =>
+                new Promise((resolve) => {
+                    completions.set(argumentsText, resolve);
+                }),
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            expect(await client.receive()).toMatchObject({ type: "history" });
+            expect(await client.listExtensionCommands()).toEqual([{
+                name: "hello",
+                description: "Say hello",
+                usage: "/hello [name]",
+                source: "test.extension",
+            }]);
+
+            const first = client.runExtensionCommand("hello", "first");
+            const second = client.runExtensionCommand("hello", "second");
+            while (completions.size < 2) {
+                await Bun.sleep(1);
+            }
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "still streaming",
+                seq: 1,
+            });
+            completions.get("second")?.({
+                version: 1,
+                source: "test.extension/hello",
+                body: { kind: "text", text: "second result" },
+            });
+            completions.get("first")?.({
+                version: 1,
+                source: "test.extension/hello",
+                body: { kind: "text", text: "first result" },
+            });
+
+            expect(await first).toMatchObject({
+                body: { text: "first result" },
+            });
+            expect(await second).toMatchObject({
+                body: { text: "second result" },
+            });
+            expect(await client.receive()).toEqual({
+                type: "assistant_delta",
+                text: "still streaming",
+                seq: 1,
+            });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client returns typed extension failures and remains usable",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => [{
+                name: "fail",
+                description: "Fail once",
+                usage: "/fail",
+                source: "test.extension",
+            }],
+            runExtensionCommand: async (_name, argumentsText) => {
+                if (argumentsText === "bad") {
+                    throw new Error("broken handler");
+                }
+                if (argumentsText === "blank") {
+                    throw new Error(" ");
+                }
+                return {
+                    version: 1,
+                    source: "test.extension/fail",
+                    body: { kind: "text", text: "recovered" },
+                };
+            },
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            await client.receive();
+            await expect(
+                client.runExtensionCommand("fail", "bad"),
+            ).rejects.toMatchObject({
+                name: ExtensionCommandError.name,
+                source: "test.extension/fail",
+                reason: "handler_failed",
+            });
+            await expect(
+                client.runExtensionCommand("fail", "blank"),
+            ).rejects.toThrow("Extension command failed: handler_failed");
+            expect(
+                await client.runExtensionCommand("fail", "retry"),
+            ).toMatchObject({
+                body: { text: "recovered" },
+            });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "extension replies pass a full agent update queue",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => [{
+                name: "hello",
+                description: "Say hello",
+                usage: "/hello",
+                source: "test.extension",
+            }],
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            maxPendingUpdates: 1,
+        });
+        try {
+            expect(await client.listExtensionCommands()).toHaveLength(1);
+            expect(await client.receive()).toMatchObject({ type: "history" });
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "agent updates cannot grow the buffer while a control reply is pending",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => [],
+            runExtensionCommand: (_name, _arguments, _workspace, signal) =>
+                new Promise((_resolve, reject) => {
+                    signal.addEventListener(
+                        "abort",
+                        () => reject(new Error("aborted")),
+                        { once: true },
+                    );
+                }),
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            maxPendingUpdates: 1,
+        });
+        try {
+            const pending = client.runExtensionCommand("wait", "");
+            await Bun.sleep(0);
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "overflow",
+                seq: 1,
+            });
+            await expect(pending).rejects.toThrow(
+                "Agent updates exceeded the client buffer",
+            );
+            expect(client.closed).toBeTrue();
+            expect(await client.receive()).toMatchObject({ type: "history" });
+            await expect(client.receive()).rejects.toThrow(
+                "Agent updates exceeded the client buffer",
+            );
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "malformed correlated extension replies reject instead of hanging",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = createServer((socket) => {
+            let buffered = "";
+            socket.on("data", (chunk: Buffer) => {
+                buffered += chunk.toString("utf8");
+                while (buffered.includes("\n")) {
+                    const newlineAt = buffered.indexOf("\n");
+                    const value = JSON.parse(buffered.slice(0, newlineAt)) as {
+                        type: string;
+                        request_id?: string;
+                    };
+                    buffered = buffered.slice(newlineAt + 1);
+                    if (value.type === "attach") {
+                        socket.write(`${JSON.stringify({
+                            type: "attached",
+                            agent_id: "agent-1",
+                            workspace: "/work/one",
+                        })}\n`);
+                        socket.write(
+                            '{"type":"history","entries":[],"seq":0}\n',
+                        );
+                    } else if (value.type === "list_extension_commands") {
+                        socket.write(`${JSON.stringify({
+                            type: "extension_command_list",
+                            request_id: value.request_id,
+                            commands: [{ name: "INVALID" }],
+                        })}\n`);
+                    }
+                }
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            await client.receive();
+            await expect(client.listExtensionCommands()).rejects.toThrow(
+                "Host sent an invalid extension response",
+            );
+            expect(client.closed).toBeTrue();
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client notices disconnect while update delivery is paused",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = createServer((socket) => {
+            socket.once("data", () => {
+                socket.end(`${JSON.stringify({
+                    type: "attached",
+                    agent_id: "agent-1",
+                    workspace: "/work/one",
+                })}\n{"type":"history","entries":[],"seq":0}\n${
+                    JSON.stringify({
+                        type: "assistant_delta",
+                        text: "final buffered update",
+                        seq: 1,
+                    })
+                }\n`);
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: "agent-1",
+            maxPendingUpdates: 1,
+        });
+        try {
+            while (!client.closed) {
+                await Bun.sleep(1);
+            }
+            expect(await client.receive()).toMatchObject({ type: "history" });
+            expect(await client.receive()).toEqual({
+                type: "assistant_delta",
+                text: "final buffered update",
+                seq: 1,
+            });
+            await expect(client.receive()).rejects.toThrow(
+                "host connection closed",
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "detaching rejects a pending extension request",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => [],
+            runExtensionCommand: (_name, _arguments, _workspace, signal) =>
+                new Promise((_resolve, reject) => {
+                    signal.addEventListener(
+                        "abort",
+                        () => reject(new Error("aborted")),
+                        { once: true },
+                    );
+                }),
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            await client.receive();
+            const pending = client.runExtensionCommand("wait", "");
+            await Bun.sleep(0);
+            await client.detach();
+            await expect(pending).rejects.toThrow(
+                "Agent attachment is detached",
+            );
         } finally {
             client.close();
             agent.close();
