@@ -2,15 +2,15 @@ import type { ExtensionCommandDescriptor } from "./commands.ts";
 
 export const CLIENT_EXTENSION_RESULT_VERSION = 1;
 
-export interface ShowCommandsClientAction {
+export interface ShowClientSurfaceAction {
     readonly kind: "client_action";
-    readonly action: "show_commands";
+    readonly action: "show_commands" | "show_help";
 }
 
 export interface ClientExtensionCommandResult {
     readonly version: typeof CLIENT_EXTENSION_RESULT_VERSION;
     readonly source: string;
-    readonly body: ShowCommandsClientAction;
+    readonly body: ShowClientSurfaceAction;
 }
 
 export interface DirectClientExtension {

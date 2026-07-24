@@ -21,6 +21,7 @@ import {
 import type { UserMessage } from "../../src/model/types.ts";
 import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
 import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
+import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -56,6 +57,13 @@ import {
     updateTuiCommandPaletteCommands,
     type TuiCommandPaletteState,
 } from "./command-palette.ts";
+import {
+    createTuiHelpView,
+    handleTuiHelpKey,
+    startTuiHelp,
+    updateTuiHelpCommands,
+    type TuiHelpState,
+} from "./help.ts";
 import {
     createBuiltinTuiCommandRegistry,
     extensionCommandResultText,
@@ -357,6 +365,8 @@ export async function startTui(
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiSettingsPickerState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
+    let help: TuiHelpState | undefined;
+    let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let confirmingFullAccess = false;
     let sessionTrashCandidate: {
         readonly sessionId: string;
@@ -414,6 +424,7 @@ export async function startTui(
             "direct",
         );
     }
+    const coreHelpCommands = commandRegistry.registeredCommands();
 
     let markdownStyle = createMarkdownStyle(theme);
     function createMarkdownStyle(activeTheme: typeof theme): SyntaxStyle {
@@ -495,6 +506,7 @@ export async function startTui(
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
+    const helpView = createTuiHelpView(renderer);
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
     const sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(renderer);
@@ -537,6 +549,8 @@ export async function startTui(
             const blocked = pendingUiRequest !== undefined
                 || timelinePicker !== undefined
                 || settingsPicker !== undefined
+                || commandPalette !== undefined
+                || help !== undefined
                 || confirmingFullAccess
                 || sessionTrashCandidate !== undefined;
             if (bodyFocus.release(blocked)) {
@@ -551,6 +565,7 @@ export async function startTui(
     app.add(timelinePickerView.box);
     app.add(settingsPickerView.box);
     app.add(commandPaletteView.box);
+    app.add(helpView.box);
     app.add(permissionsConfirmView.box);
     app.add(sessionTrashConfirmView.box);
     app.add(commandSuggestionsBox);
@@ -730,6 +745,18 @@ export async function startTui(
                     renderState();
                     focusActiveSurface();
                 }
+                return;
+            }
+        }
+
+        if (help !== undefined) {
+            const transition = handleTuiHelpKey(help, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                help = transition.state;
+                renderState();
+                focusActiveSurface();
                 return;
             }
         }
@@ -918,6 +945,11 @@ export async function startTui(
                     if (result.body.action === "show_commands") {
                         commandPalette = startTuiCommandPalette(
                             commandRegistry.registeredCommands(),
+                        );
+                    } else if (result.body.action === "show_help") {
+                        help = startTuiHelp(
+                            coreHelpCommands,
+                            hostExtensionCommands,
                         );
                     }
                 } else {
@@ -1500,6 +1532,7 @@ export async function startTui(
         }
         try {
             const commands = await client.listExtensionCommands();
+            hostExtensionCommands = commands;
             const commandsBySource = Map.groupBy(
                 commands,
                 (command) => command.source,
@@ -1524,6 +1557,13 @@ export async function startTui(
                 commandPalette = updateTuiCommandPaletteCommands(
                     commandPalette,
                     commandRegistry.registeredCommands(),
+                );
+            }
+            if (help !== undefined) {
+                help = updateTuiHelpCommands(
+                    help,
+                    coreHelpCommands,
+                    hostExtensionCommands,
                 );
             }
             renderCommandSuggestions();
@@ -1567,6 +1607,10 @@ export async function startTui(
         }
         if (commandPalette !== undefined) {
             commandPaletteView.box.focus();
+            return;
+        }
+        if (help !== undefined) {
+            helpView.box.focus();
             return;
         }
         if (confirmingFullAccess) {
@@ -1690,6 +1734,7 @@ export async function startTui(
         timelinePicker = undefined;
         settingsPicker = undefined;
         commandPalette = undefined;
+        help = undefined;
         confirmingFullAccess = false;
         sessionTrashCandidate = undefined;
         sessionTrashPending = false;
@@ -1727,6 +1772,13 @@ export async function startTui(
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && commandPalette !== undefined;
+        helpView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && help !== undefined;
         permissionsConfirmView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
@@ -1739,6 +1791,7 @@ export async function startTui(
                 || timelinePickerView.box.visible
                 || settingsPickerView.box.visible
                 || commandPaletteView.box.visible
+                || helpView.box.visible
                 || permissionsConfirmView.box.visible
                 || sessionTrashConfirmView.box.visible
             ? 0.35
@@ -1748,7 +1801,8 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
-            && commandPalette === undefined;
+            && commandPalette === undefined
+            && help === undefined;
         renderCommandSuggestions();
         if (
             pendingUiRequest !== undefined
@@ -1770,6 +1824,9 @@ export async function startTui(
         }
         if (commandPalette !== undefined) {
             commandPaletteView.update(commandPalette);
+        }
+        if (help !== undefined) {
+            helpView.update(help);
         }
         if (sessionTrashCandidate !== undefined) {
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
@@ -2020,6 +2077,7 @@ export async function startTui(
         }
         settingsPickerView.box.backgroundColor = theme.panel;
         commandPaletteView.box.backgroundColor = theme.panel;
+        helpView.box.backgroundColor = theme.panel;
 
         if (announce) {
             state = appendTuiNotice(state, `theme changed: ${selectedTheme}`);

@@ -12,8 +12,13 @@ test("bundled help is an async direct client extension", async () => {
     expect(extension?.id).toBe("vera.help");
     expect(extension?.commands).toEqual([{
         name: "help",
-        description: "Browse available commands",
+        description: "Learn Vera controls and commands",
         usage: "/help",
+        source: "vera.help",
+    }, {
+        name: "commands",
+        description: "Search and run available commands",
+        usage: "/commands",
         source: "vera.help",
     }]);
     expect(await extension?.invokeCommand("help", "")).toEqual({
@@ -21,8 +26,12 @@ test("bundled help is an async direct client extension", async () => {
         source: "vera.help/help",
         body: {
             kind: "client_action",
-            action: "show_commands",
+            action: "show_help",
         },
+    });
+    expect(await extension?.invokeCommand("commands", "")).toMatchObject({
+        source: "vera.help/commands",
+        body: { action: "show_commands" },
     });
     await expect(extension?.invokeCommand("help", "extra"))
         .rejects.toThrow("Usage: /help");
