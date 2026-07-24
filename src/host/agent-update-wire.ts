@@ -2,11 +2,13 @@ import type {
     AgentUpdate,
     TranscriptEntry,
 } from "../engine/protocol.ts";
+import type { PermissionInspection } from "../engine/permissions.ts";
 import {
     isApprovalMode,
     isPermissionInspection,
     isPermissionGrantProposal,
 } from "../engine/permissions.ts";
+import { isPermissionPredicate } from "../engine/permission-grants.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
@@ -140,10 +142,8 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && update.requestId.length > 0
                 && isApprovalMode(update.mode)
                 && typeof update.pending === "boolean"
-                && (update.inspection === undefined
-                    || isPermissionInspection(update.inspection))
-            ? value as AgentUpdate
-            : undefined;
+                ? withPermissionInspection(value, update)
+                : undefined;
     }
     if (update.type === "permissions_rejected") {
         return typeof update.requestId === "string"
@@ -187,6 +187,125 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function withPermissionInspection(
+    value: unknown,
+    update: Record<string, unknown>,
+): AgentUpdate | undefined {
+    if (update.inspection === undefined) {
+        return value as AgentUpdate;
+    }
+    if (isPermissionInspection(update.inspection)) {
+        return value as AgentUpdate;
+    }
+    const inspection = migrateLegacyInspection(update.inspection);
+    const message = asRecord(value);
+    if (inspection === undefined || message === undefined) {
+        return undefined;
+    }
+    return { ...message, inspection } as AgentUpdate;
+}
+
+function migrateLegacyInspection(value: unknown): PermissionInspection | undefined {
+    const source = asRecord(value);
+    const selected = asRecord(source?.selected);
+    if (
+        selected === undefined
+        || typeof selected.name !== "string"
+        || !Array.isArray(selected.rules)
+        || !Array.isArray(source?.availableProfiles)
+        || !Array.isArray(source?.activeGrants)
+    ) {
+        return undefined;
+    }
+    const rules = selected.rules.map((rule) => {
+        const entry = asRecord(rule);
+        const when = legacyPredicate(entry?.when);
+        return entry === undefined || typeof entry.name !== "string"
+                || when === undefined
+                || !isPermissionOutcome(entry.then)
+                ? undefined
+                : { name: entry.name, when, then: entry.then };
+    });
+    if (rules.some((rule) => rule === undefined)) {
+        return undefined;
+    }
+    const activeGrants = source.activeGrants.map((grant) => {
+        const entry = asRecord(grant);
+        const when = legacyPredicate(entry?.when);
+        return typeof entry?.id === "string"
+                && entry.id.length > 0
+                && (entry.kind === "action"
+                    || entry.kind === "capability"
+                    || entry.kind === "command")
+                && entry.scope === "session"
+                && entry.lifetime === "session"
+                && when !== undefined
+            ? {
+                id: entry.id,
+                kind: entry.kind === "capability" ? "action" : entry.kind,
+                when,
+                scope: "session" as const,
+                lifetime: "session" as const,
+            }
+            : undefined;
+    });
+    if (
+        activeGrants.some((grant) => grant === undefined)
+        || !source.availableProfiles.every(
+            (name) => typeof name === "string" && name.length > 0,
+        )
+        || !isPermissionOutcome(selected.defaultOutcome)
+    ) {
+        return undefined;
+    }
+    return {
+        selected: {
+            name: selected.name,
+            rules: rules as PermissionInspection["selected"]["rules"],
+            defaultOutcome: selected.defaultOutcome,
+            ...(typeof selected.reviewerProfile === "string"
+                ? { reviewerProfile: selected.reviewerProfile }
+                : {}),
+        },
+        availableProfiles: source.availableProfiles as string[],
+        activeGrants: activeGrants as PermissionInspection["activeGrants"],
+    };
+}
+
+function legacyPredicate(value: unknown) {
+    const source = asRecord(value);
+    if (source === undefined) {
+        return undefined;
+    }
+    const predicate: Record<string, unknown> = {};
+    for (const [key, raw] of Object.entries(source)) {
+        if (key === "capability") {
+            predicate.verb = raw === "execute" || raw === "network"
+                ? "unknown"
+                : raw;
+        } else if (key === "pathScope" || key === "path_scope") {
+            predicate.scope = raw;
+        } else if (
+            key === "tool"
+            || key === "verb"
+            || key === "path"
+            || key === "scope"
+            || key === "operation"
+            || key === "executable"
+        ) {
+            predicate[key] = raw;
+        }
+    }
+    return isPermissionPredicate(predicate) ? predicate : undefined;
+}
+
+function isPermissionOutcome(value: unknown): value is "allow" | "review" | "ask" | "deny" {
+    return value === "allow"
+        || value === "review"
+        || value === "ask"
+        || value === "deny";
 }
 
 function isUserQuestionRequest(request: Record<string, unknown>): boolean {
