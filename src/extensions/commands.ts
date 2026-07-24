@@ -1,4 +1,5 @@
 export const EXTENSION_COMMAND_RESULT_VERSION = 1;
+export const RESERVED_EXTENSION_COMMAND_NAMES = ["help", "commands"] as const;
 
 export interface ExtensionCommandNoticeBody {
     readonly kind: "notice";

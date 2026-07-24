@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
-    "bundled help opens the searchable command palette",
+    "help is browse-only and commands opens the functional palette",
     async () => {
         const socket = `vera-help-${process.pid}-${randomUUID()}`;
         const session = "help";
@@ -30,6 +30,31 @@ test.skipIf(!tmuxAvailable)(
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/help");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Vera keeps agent sessions resident",
+            );
+            expect(pane).toContain("General");
+            sendKey(socket, session, "Right");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Learn Vera controls and commands",
+            );
+            sendKey(socket, session, "Enter");
+            pane = captureVisiblePane(socket, session);
+            expect(pane).toContain("Help");
+            expect(pane).toContain("/commands");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => !visible.includes("←→ tabs"),
+                "Help to close",
+            );
+            sendText(socket, session, "/commands");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Commands");
             expect(pane).toContain("/themes");
@@ -61,7 +86,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "an open help palette gains late extension commands",
+    "an open command palette gains late extension commands",
     async () => {
         const socket = `vera-help-late-${process.pid}-${randomUUID()}`;
         const session = "help-late";
@@ -76,15 +101,17 @@ test.skipIf(!tmuxAvailable)(
                 "test/support/tui-extension-command-child.ts",
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/help");
+            sendText(socket, session, "/commands");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Commands");
+            sendText(socket, session, "hello");
+            await waitForVisiblePane(socket, session, "⌕  hello");
             pane = await waitForVisiblePane(
                 socket,
                 session,
                 "/hello  Say hello from an extension",
             );
-            expect(pane).toContain("/help");
+            expect(pane).toContain("⌕  hello");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
@@ -100,7 +127,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "turn completion keeps focus in an open help palette",
+    "turn completion keeps focus in the open Help surface",
     async () => {
         const socket = `vera-help-focus-${process.pid}-${randomUUID()}`;
         const session = "help-focus";
@@ -120,8 +147,13 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(socket, session, "STREAM");
             sendText(socket, session, "/help");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Commands");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "Vera keeps agent sessions resident",
+            );
             await waitForVisiblePane(socket, session, "ready · test");
+            sendKey(socket, session, "Right");
             sendText(socket, session, "themes");
             pane = await waitForVisiblePane(socket, session, "⌕  themes");
             expect(pane).toContain("/themes");
@@ -373,7 +405,7 @@ test.skipIf(!tmuxAvailable)(
                 join(home, "extension-command-result.txt"),
             )).toBeFalse();
             sendKey(socket, session, "C-u");
-            sendText(socket, session, "/hel");
+            sendText(socket, session, "/hell");
             pane = await waitForVisiblePane(
                 socket,
                 session,
