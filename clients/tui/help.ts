@@ -23,7 +23,7 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 
-export type TuiHelpTab = "general" | "commands" | "extensions";
+export type TuiHelpTab = "general" | "slash_commands" | "extensions";
 
 export interface TuiHelpState {
     readonly tab: TuiHelpTab;
@@ -54,7 +54,7 @@ export interface TuiHelpView {
 
 const HELP_TABS: readonly TuiHelpTab[] = [
     "general",
-    "commands",
+    "slash_commands",
     "extensions",
 ];
 
@@ -196,7 +196,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                     const empty = new TextRenderable(renderer, {
                         content: state.tab === "extensions"
                             ? "No extension commands found"
-                            : "No commands found",
+                            : "No slash commands found",
                         fg: TUI_MUTED,
                         width: "100%",
                         height: 1,
@@ -289,6 +289,9 @@ function helpTabs(active: TuiHelpTab): StyledText {
 }
 
 function tabLabel(tab: TuiHelpTab): string {
+    if (tab === "slash_commands") {
+        return "Slash commands";
+    }
     return tab[0]!.toUpperCase() + tab.slice(1);
 }
 

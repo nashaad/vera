@@ -24,12 +24,12 @@ const extensions = [{
     source: "test.extension",
 }] as const;
 
-test("help tabs browse commands without producing an action", () => {
+test("help tabs browse slash commands without producing an action", () => {
     let state = startTuiHelp(commands, extensions);
     expect(state.tab).toBe("general");
 
     state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
-    expect(state.tab).toBe("commands");
+    expect(state.tab).toBe("slash_commands");
     expect(handleTuiHelpKey(state, { name: "enter" })).toEqual({
         state,
         handled: true,
@@ -66,6 +66,7 @@ test("help renders general guidance and extension attribution", async () => {
         let frame = setup.captureCharFrame();
         expect(frame).toContain("Help");
         expect(frame).toContain("General");
+        expect(frame).toContain("Slash commands");
         expect(frame).toContain("Shift+Enter newline");
 
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
