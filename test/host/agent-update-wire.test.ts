@@ -228,6 +228,45 @@ test("host wire validates permission results", () => {
     });
 });
 
+test("host wire migrates legacy permission inspections from a resident host", () => {
+    const update = parseAgentUpdate({
+        type: "permissions",
+        requestId: "permissions-legacy",
+        mode: "auto",
+        pending: false,
+        inspection: {
+            selected: {
+                name: "auto",
+                rules: [{
+                    name: "routine.read",
+                    when: { capability: "read", confidence: "exact" },
+                    then: "allow",
+                }],
+                defaultOutcome: "review",
+                reviewerProfile: "default",
+            },
+            availableProfiles: ["auto"],
+            activeGrants: [{
+                id: "grant-1",
+                kind: "capability",
+                when: { capability: "write", confidence: "exact" },
+                scope: "session",
+                lifetime: "session",
+            }],
+        },
+        seq: 1,
+    });
+    expect(update).toMatchObject({
+        type: "permissions",
+        inspection: {
+            selected: {
+                rules: [{ when: { verb: "read" } }],
+            },
+            activeGrants: [{ kind: "action", when: { verb: "write" } }],
+        },
+    });
+});
+
 test("host wire validates semantic session grants on approvals", () => {
     const approval = {
         type: "ui_request",
