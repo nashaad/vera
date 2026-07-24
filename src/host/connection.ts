@@ -23,6 +23,7 @@ export interface HostConnectionOptions {
 export interface HostConnection {
     send(value: unknown): Promise<void>;
     receive(): Promise<unknown>;
+    closedReason(): Promise<Error>;
     close(): void;
     readonly closed: boolean;
 }
@@ -81,6 +82,10 @@ function createConnection_(
     }> = [];
     const pendingSends = new Set<(error: Error) => void>();
     let sendTail: Promise<void> = Promise.resolve();
+    let resolveClosed: ((error: Error) => void) | undefined;
+    const closedReason = new Promise<Error>((resolve) => {
+        resolveClosed = resolve;
+    });
 
     function fail(error: Error): void {
         teardown(error);
@@ -97,6 +102,7 @@ function createConnection_(
         closed = true;
         remoteEnded = true;
         failure = new Error("host connection closed");
+        resolveClosed?.(failure);
         for (const receiver of pendingReceivers.splice(0)) {
             receiver.reject(failure);
         }
@@ -113,6 +119,7 @@ function createConnection_(
         }
         closed = true;
         failure = error;
+        resolveClosed?.(error);
         pendingValues.length = 0;
         for (const receiver of pendingReceivers.splice(0)) {
             receiver.reject(error);
@@ -235,6 +242,9 @@ function createConnection_(
                     socket.resume();
                 }
             });
+        },
+        closedReason(): Promise<Error> {
+            return closedReason;
         },
         close(): void {
             teardown(new Error("host connection is closed"));
