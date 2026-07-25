@@ -13,6 +13,7 @@ interface MatchResult {
 }
 
 export const editTool: RegisteredTool = {
+    permissionInputs: [{ field: "path", kind: "path", verb: "write" }],
     definition: {
         name: "edit",
         description: "Edit a previously read file using exact text replacements.",

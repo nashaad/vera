@@ -164,6 +164,30 @@ test("a routine action never allows the rest of the tool call", () => {
         .toBe("review");
 });
 
+test("any tool with declared path inputs is gated the same as read/write", () => {
+    // read/write/edit no longer get special-cased by name inside the engine;
+    // they are gated purely through their declared permissionInputs, the
+    // same seam any future tool goes through.
+    for (const name of ["read", "write", "edit"]) {
+        expect(decide(name === "write" ? "auto" : "auto", toolCall(name, {
+            path: "../outside/file.txt",
+            content: "x",
+            edits: [],
+        })).behavior).toBe(name === "read" ? "allow" : "review");
+    }
+    expect(decide("auto", toolCall("write", {
+        path: "inside.txt",
+        content: "x",
+    })).behavior).toBe("allow");
+});
+
+test("a structured tool call missing its declared path input falls to review, not allow", () => {
+    expect(decide("auto", toolCall("write", { content: "x" })).behavior)
+        .toBe("review");
+    expect(decide("ask", toolCall("write", { content: "x" })).behavior)
+        .toBe("ask");
+});
+
 test("custom profiles use the same ordered evaluator", () => {
     const permissionProfiles = {
         quiet: {

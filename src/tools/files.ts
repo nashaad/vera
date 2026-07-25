@@ -5,6 +5,7 @@ import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 
 export const readTool: RegisteredTool = {
+    permissionInputs: [{ field: "path", kind: "path", verb: "read" }],
     definition: {
         name: "read",
         description: "Read a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
@@ -31,6 +32,7 @@ export const readTool: RegisteredTool = {
 };
 
 export const writeTool: RegisteredTool = {
+    permissionInputs: [{ field: "path", kind: "path", verb: "write" }],
     definition: {
         name: "write",
         description: "Write a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",

@@ -10,6 +10,7 @@ import type { ToolRuntime } from "./runtime.ts";
 import { subagentTool } from "./subagent.ts";
 import { askUserTool } from "./ask-user.ts";
 import type {
+    PermissionInputSpec,
     RegisteredTool,
     ToolEffect,
     ToolExecutionResult,
@@ -29,9 +30,50 @@ const registeredTools: readonly RegisteredTool[] = [
     subagentTool,
     backgroundAgentTool,
 ];
+for (const tool of registeredTools) {
+    assertValidPermissionInputs(tool);
+}
 const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
 );
+
+/**
+ * The path/URL inputs a registered tool declared for permission gating, or
+ * `undefined` for a tool that declared none (its call becomes an `unknown`
+ * action, same as an unrecognized bash command).
+ */
+export function toolPermissionInputs(
+    name: string,
+): readonly PermissionInputSpec[] | undefined {
+    return toolRegistry.get(name)?.permissionInputs;
+}
+
+function assertValidPermissionInputs(tool: RegisteredTool): void {
+    const properties = inputSchemaProperties(tool.definition.inputSchema);
+    for (const spec of tool.permissionInputs ?? []) {
+        const property = properties?.[spec.field];
+        if (
+            typeof property !== "object"
+            || property === null
+            || (property as Record<string, unknown>).type !== "string"
+        ) {
+            throw new Error(
+                `Tool ${tool.definition.name} declares permission input `
+                    + `"${spec.field}" that is not a string field in its `
+                    + "input schema",
+            );
+        }
+    }
+}
+
+function inputSchemaProperties(
+    schema: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> | undefined {
+    const properties = schema.properties;
+    return typeof properties === "object" && properties !== null
+        ? properties as Readonly<Record<string, unknown>>
+        : undefined;
+}
 
 export function toolDefinitionsForCapabilities(
     enabledEffects: readonly ToolEffect["type"][],
