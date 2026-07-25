@@ -133,7 +133,9 @@ export function createTuiCommandPaletteView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: 4,
+        // OpenCode's dialogs use a quarter-height top inset, which keeps a
+        // command palette near the composer instead of pinning it to the top.
+        top: renderer.height / 4,
         left: "10%",
         width: "80%",
         height: 8,
@@ -148,6 +150,7 @@ export function createTuiCommandPaletteView(
     return {
         box,
         update(state): void {
+            box.top = renderer.height / 4;
             for (const node of nodes) {
                 node.destroy();
             }
