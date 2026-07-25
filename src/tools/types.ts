@@ -62,11 +62,27 @@ export type ToolExecutionResult =
     | ToolEffectRequest
     | ToolInteractionRequest;
 
+export type PermissionInputKind = "path" | "url";
+export type PermissionInputVerb = "read" | "write" | "delete";
+
+/**
+ * Declares that one of a tool's string inputs names a filesystem path or a
+ * URL, so the permission engine can gate it the same way it gates bash
+ * commands, instead of only structured file tools getting checked.
+ */
+export interface PermissionInputSpec {
+    readonly field: string;
+    readonly kind: PermissionInputKind;
+    readonly verb: PermissionInputVerb;
+}
+
 export interface RegisteredTool {
     readonly definition: ModelTool;
     readonly parallel?: boolean;
     readonly effectType?: ToolEffect["type"];
     readonly requiresUserInteraction?: boolean;
+    /** Path/URL inputs to gate by permission rules. See `PermissionInputSpec`. */
+    readonly permissionInputs?: readonly PermissionInputSpec[];
     execute(
         input: Readonly<Record<string, unknown>>,
         context: ToolRuntime,

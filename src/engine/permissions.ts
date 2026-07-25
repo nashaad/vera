@@ -13,6 +13,8 @@ import {
     simpleCommandExecutableIndex,
     tokenizeSimpleCommands,
 } from "../tools/bash-danger.ts";
+import { toolPermissionInputs } from "../tools/execute.ts";
+import type { PermissionInputSpec } from "../tools/types.ts";
 import {
     applyPermissionGrant,
     isPermissionGrant,
@@ -388,26 +390,30 @@ export function extractPermissionActions(
     request: PermissionRequest,
 ): readonly PermissionAction[] {
     const { toolCall, workspace } = request;
-    if (toolCall.name === "read") {
-        return [pathAction(toolCall, "read", workspace)];
-    }
-    if (toolCall.name === "write" || toolCall.name === "edit") {
-        return [pathAction(toolCall, "write", workspace)];
-    }
-    if (toolCall.name !== "bash") {
-        return [{ tool: toolCall.name, verb: "unknown" }];
+    if (toolCall.name === "bash") {
+        const command = toolCall.input.command;
+        if (typeof command !== "string") {
+            return [{ tool: "bash", verb: "unknown" }];
+        }
+        return extractBashActions(
+            command,
+            workspace,
+            request.homeDirectory,
+            resolve(workspace),
+            0,
+        );
     }
 
-    const command = toolCall.input.command;
-    if (typeof command !== "string") {
-        return [{ tool: "bash", verb: "unknown" }];
+    // Any tool that declared path/URL inputs is gated the same way, whether
+    // it is a built-in file tool or a future one. A tool that declared none
+    // produces a single `unknown` action, same as an unrecognized bash
+    // command.
+    const declaredInputs = toolPermissionInputs(toolCall.name);
+    if (declaredInputs === undefined || declaredInputs.length === 0) {
+        return [{ tool: toolCall.name, verb: "unknown" }];
     }
-    return extractBashActions(
-        command,
-        workspace,
-        request.homeDirectory,
-        resolve(workspace),
-        0,
+    return declaredInputs.map((spec) =>
+        structuredInputAction(toolCall, spec, workspace)
     );
 }
 
@@ -432,20 +438,34 @@ export function evaluateAction(
     }, grants);
 }
 
-function pathAction(
+/**
+ * Turns a declared path/URL input into a concrete action. A field that is
+ * missing or the wrong type becomes `unknown` rather than being silently
+ * skipped, so it still falls through to the profile's default outcome
+ * instead of passing permission checks unnoticed.
+ */
+function structuredInputAction(
     toolCall: HookToolCall,
-    verb: "read" | "write",
+    spec: PermissionInputSpec,
     workspace: string,
 ): PermissionAction {
-    const requestedPath = toolCall.input.path;
-    if (typeof requestedPath !== "string" || requestedPath.length === 0) {
+    const raw = toolCall.input[spec.field];
+    if (typeof raw !== "string" || raw.length === 0) {
         return { tool: toolCall.name, verb: "unknown" };
     }
+    if (spec.kind === "url") {
+        return {
+            tool: toolCall.name,
+            verb: spec.verb,
+            path: raw,
+            scope: "outside_workspace",
+        };
+    }
     // Structured tool inputs are literal paths, not shell words.
-    const path = resolve(workspace, requestedPath);
+    const path = resolve(workspace, raw);
     return {
         tool: toolCall.name,
-        verb,
+        verb: spec.verb,
         path,
         scope: pathScope(path, workspace),
     };
