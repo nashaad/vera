@@ -866,6 +866,22 @@ export async function startTui(
         }
 
         if (
+            key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && composer.plainText.length > 0
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            composer.clearComposer();
+            renderCommandSuggestions();
+            renderState();
+            composer.focus();
+            return;
+        }
+
+        if (
             key.name === "tab"
             && !key.ctrl
             && !key.shift
@@ -2328,7 +2344,9 @@ export async function startTui(
         commandSuggestionsBox.visible = suggestions.length > 0
             && pendingUiRequest === undefined
             && timelinePicker === undefined
-            && settingsPicker === undefined;
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && help === undefined;
     }
 
     function finishStreamingAssistant(): void {

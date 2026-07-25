@@ -133,7 +133,7 @@ export function createTuiCommandPaletteView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: 2,
+        top: 4,
         left: "10%",
         width: "80%",
         height: 8,
