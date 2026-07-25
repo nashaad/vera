@@ -12,6 +12,7 @@ import { PermissionPreferenceStore } from "../../src/engine/permission-preferenc
 import {
     inspectPermissions,
     type ApprovalMode,
+    type PermissionGrant,
     type PermissionInspection,
     type PermissionPredicate,
 } from "../../src/engine/permissions.ts";
@@ -805,6 +806,82 @@ test("preference commands reject as unavailable with no store installed", async 
     expect(await channel.client.receive()).toEqual({
         type: "permissions_rejected",
         requestId: "add-preference",
+        reason: "unavailable",
+        seq: 1,
+    });
+});
+
+test("revoking a session grant replies with the refreshed inspection", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let grants: readonly PermissionGrant[] = [{
+        id: "grant-1:0",
+        kind: "action",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    }];
+    new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+        readPermissionInspection: () =>
+            inspectPermissions("ask", {}, grants, []),
+        async removePermissionGrant(id) {
+            const before = grants.length;
+            grants = grants.filter((grant) => grant.id !== id);
+            return grants.length < before;
+        },
+    });
+
+    channel.client.send({
+        type: "remove_permission_grant",
+        requestId: "revoke",
+        id: "grant-1:0",
+    });
+    const reply = await channel.client.receive();
+    // Same reply shape as the preference commands, so the client re-renders its
+    // list from the engine rather than guessing what the revocation did.
+    expect(reply).toMatchObject({ type: "permissions", requestId: "revoke" });
+    expect(
+        (reply as { inspection: PermissionInspection }).inspection.activeGrants,
+    ).toEqual([]);
+});
+
+test("revoking an unknown grant is invalid, and unavailable with no store", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+        removePermissionGrant: async () => false,
+    });
+
+    channel.client.send({
+        type: "remove_permission_grant",
+        requestId: "revoke-missing",
+        id: "no-such-grant",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "revoke-missing",
+        reason: "invalid",
+        seq: 1,
+    });
+
+    const bare = createInProcessChannel();
+    const bareEvents = new EngineEventBus();
+    bareEvents.subscribe(createProtocolEncoder(bare.engine));
+    new InboundCommandRouter(bare.engine, bareEvents, {
+        readApprovalMode: () => "ask",
+    });
+    bare.client.send({
+        type: "remove_permission_grant",
+        requestId: "revoke-nowhere",
+        id: "grant-1:0",
+    });
+    expect(await bare.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "revoke-nowhere",
         reason: "unavailable",
         seq: 1,
     });
