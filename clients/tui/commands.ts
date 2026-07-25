@@ -433,6 +433,10 @@ export function renderTuiCommandSuggestions(
     selectedIndex = -1,
 ): StyledText {
     const chunks: TextChunk[] = [];
+    const commandWidth = Math.max(
+        0,
+        ...commands.map((command) => command.name.length),
+    );
     commands.forEach((command, index) => {
         const active = index === selectedIndex;
         if (index > 0) {
@@ -441,7 +445,9 @@ export function renderTuiCommandSuggestions(
         // Quiet selection: a chevron marker plus an accent command name, the
         // lightest device that marks the row without a loud full-width bar.
         chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
-        chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(`/${command.name}`));
+        chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(
+            `/${command.name.padEnd(commandWidth)}`,
+        ));
         chunks.push(fg(TUI_MUTED)(`  ${command.description}`));
     });
     return new StyledText(chunks);

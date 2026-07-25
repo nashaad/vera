@@ -74,7 +74,10 @@ test("typing slash exposes the built-in rewind command", () => {
     expect(registry.suggestions("/rewind now")).toEqual([]);
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
-    ))).toContain("/model  Change the model for the next turn");
+    ))).toContain("/model        Change the model for the next turn");
+    expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
+        registry.suggestions("/"),
+    ))).toContain("/fork         Fork from an earlier prompt");
     // The highlighted command carries the chevron marker; others are indented.
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
