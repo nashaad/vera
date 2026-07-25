@@ -12,7 +12,7 @@ import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.t
 import type { TuiCommandCatalogEntry } from "./commands.ts";
 import {
     dialogFooterNode,
-    dialogOptionRow,
+    dialogOptionRows,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import {
@@ -205,8 +205,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                     box.add(empty);
                     nodes.push(empty);
                 } else {
-                    commands.forEach(({ command, index }) => {
-                        const row = dialogOptionRow(renderer, {
+                    const rows = dialogOptionRows(renderer, commands.map(({ command, index }) => ({
                             label: `/${command.name}`,
                             description: command.description,
                             meta: "source" in command
@@ -214,7 +213,8 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                                 : command.usage,
                             active: index === state.selectedIndex,
                             current: false,
-                        });
+                    })));
+                    rows.forEach((row) => {
                         box.add(row);
                         nodes.push(row);
                     });

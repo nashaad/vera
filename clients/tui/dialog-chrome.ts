@@ -121,6 +121,25 @@ export interface DialogRowContent {
     readonly wrap?: boolean;
 }
 
+/**
+ * Build a group of rows with one shared label column. Dialogs can pass their
+ * whole option list here, so descriptions remain readable when labels vary in
+ * length without each picker inventing its own padding.
+ */
+export function dialogOptionRows(
+    renderer: RenderContext,
+    contents: readonly DialogRowContent[],
+): BoxRenderable[] {
+    const labelWidth = Math.max(
+        0,
+        ...contents.map((content) => content.label.length),
+    );
+    return contents.map((content) => dialogOptionRow(renderer, {
+        ...content,
+        label: content.label.padEnd(labelWidth),
+    }));
+}
+
 export function dialogOptionRow(
     renderer: RenderContext,
     content: DialogRowContent,
