@@ -25,7 +25,7 @@ import {
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
-    dialogOptionRow,
+    dialogOptionRows,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
@@ -526,17 +526,23 @@ function renderListPickerRows(
         nodes.push(empty);
         lines = 1;
     }
-    rows.forEach((row, position) => {
-        const node = row.kind === "group"
-            ? dialogGroupHeaderNode(renderer, row.label, position > 0)
-            : dialogOptionRow(renderer, {
+    const optionNodes = dialogOptionRows(renderer, rows.flatMap((row) =>
+        row.kind === "option"
+            ? [{
                 label: row.option.label,
                 leading: isCurrentOption(state, row.option) ? "● " : "  ",
                 description: row.option.description,
                 meta: optionMeta(state, row.option),
                 active: row.index === state.selectedIndex,
                 current: isCurrentOption(state, row.option),
-            });
+            }]
+            : []
+    ));
+    let optionNodeIndex = 0;
+    rows.forEach((row, position) => {
+        const node = row.kind === "group"
+            ? dialogGroupHeaderNode(renderer, row.label, position > 0)
+            : optionNodes[optionNodeIndex++]!;
         lines += row.kind === "group" && position > 0 ? 2 : 1;
         box.add(node);
         nodes.push(node);

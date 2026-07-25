@@ -11,7 +11,7 @@ import {
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
-    dialogOptionRow,
+    dialogOptionRows,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
@@ -172,10 +172,9 @@ export function createTuiCommandPaletteView(
                 nodes.push(empty);
                 lines = 1;
             }
-            rows.forEach((row, position) => {
-                const node = row.kind === "group"
-                    ? dialogGroupHeaderNode(renderer, row.label, position > 0)
-                    : dialogOptionRow(renderer, {
+            const commandContents = rows.flatMap((row) =>
+                row.kind === "command"
+                    ? [{
                         label: row.command.label,
                         leading: "  ",
                         description: row.command.description.length === 0
@@ -184,7 +183,15 @@ export function createTuiCommandPaletteView(
                         meta: rowMeta(row.command),
                         active: row.index === state.selectedIndex,
                         current: false,
-                    });
+                    }]
+                    : []
+            );
+            const commandNodes = dialogOptionRows(renderer, commandContents);
+            let commandNodeIndex = 0;
+            rows.forEach((row, position) => {
+                const node = row.kind === "group"
+                    ? dialogGroupHeaderNode(renderer, row.label, position > 0)
+                    : commandNodes[commandNodeIndex++]!;
                 lines += row.kind === "group" && position > 0 ? 2 : 1;
                 box.add(node);
                 nodes.push(node);
