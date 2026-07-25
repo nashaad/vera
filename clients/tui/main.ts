@@ -95,6 +95,13 @@ import {
 } from "./settings-picker.ts";
 import { renderPermissionInspection } from "./permission-inspection.ts";
 import {
+    createTuiPreferencesListView,
+    handleTuiPreferencesListKey,
+    startTuiPreferencesList,
+    syncTuiPreferencesList,
+    type TuiPreferencesListState,
+} from "./preferences-list.ts";
+import {
     resolveResumeTarget,
     type TuiStartTarget,
 } from "./session-target.ts";
@@ -365,6 +372,7 @@ export async function startTui(
     let pendingUiRequest: UiRequestUpdate | undefined;
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiSettingsPickerState | undefined;
+    let preferencesList: TuiPreferencesListState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
     let help: TuiHelpState | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
@@ -528,6 +536,7 @@ export async function startTui(
     }
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
+    const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
@@ -572,6 +581,7 @@ export async function startTui(
             const blocked = pendingUiRequest !== undefined
                 || timelinePicker !== undefined
                 || settingsPicker !== undefined
+                || preferencesList !== undefined
                 || commandPalette !== undefined
                 || help !== undefined
                 || confirmingFullAccess
@@ -587,6 +597,7 @@ export async function startTui(
     app.add(questionView.box);
     app.add(timelinePickerView.box);
     app.add(settingsPickerView.box);
+    app.add(preferencesListView.box);
     app.add(commandPaletteView.box);
     app.add(helpView.box);
     app.add(permissionsConfirmView.box);
@@ -748,6 +759,28 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 applySettingsPickerTransition(transition);
+                return;
+            }
+        }
+
+        if (preferencesList !== undefined) {
+            const transition = handleTuiPreferencesListKey(preferencesList, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                preferencesList = transition.state;
+                if (transition.removeId !== undefined) {
+                    sendCommand({
+                        type: "remove_permission_preference",
+                        requestId: randomUUID(),
+                        id: transition.removeId,
+                    });
+                }
+                if (preferencesList === undefined) {
+                    preferencesListView.box.visible = false;
+                    composer.focus();
+                }
+                renderState();
                 return;
             }
         }
@@ -1098,6 +1131,19 @@ export async function startTui(
             } else {
                 requestPermissionsChange(commandAction.mode);
             }
+            renderState();
+            return;
+        }
+        if (commandAction?.type === "open_preferences_list") {
+            composer.clearComposer();
+            // Opened from the cached inspection, then refreshed by the reply to
+            // this fetch. Without the fetch the list could be stale, since a
+            // client is only sent an inspection at startup and when something
+            // changes it.
+            preferencesList = startTuiPreferencesList(state.permissionInspection);
+            sendCommand({ type: "get_permissions", requestId: randomUUID() });
+            composer.blur();
+            focusActiveSurface();
             renderState();
             return;
         }
@@ -1515,6 +1561,24 @@ export async function startTui(
                 }
                 observeActivity(update);
                 state = applyAgentUpdate(state, update);
+                if (update.type === "permissions" && preferencesList !== undefined) {
+                    // How a removal becomes visible: the engine answers with a
+                    // full refreshed inspection rather than an acknowledgement,
+                    // so the list is never rebuilt from a local guess about
+                    // what the removal did.
+                    preferencesList = syncTuiPreferencesList(
+                        preferencesList,
+                        state.permissionInspection,
+                    );
+                }
+                if (update.type === "permissions_rejected" && preferencesList !== undefined) {
+                    state = appendTuiNotice(
+                        state,
+                        update.reason === "unavailable"
+                            ? "Durable preferences are unavailable on this host"
+                            : "That preference could not be removed",
+                    );
+                }
                 if (update.type === "history") {
                     clearTranscriptNodes();
                 }
@@ -1664,6 +1728,10 @@ export async function startTui(
             settingsPickerView.box.focus();
             return;
         }
+        if (preferencesList !== undefined) {
+            preferencesListView.box.focus();
+            return;
+        }
         composer.focus();
     }
 
@@ -1805,11 +1873,18 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker !== undefined;
+        preferencesListView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && preferencesList !== undefined;
         commandPaletteView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
+            && preferencesList === undefined
             && commandPalette !== undefined;
         helpView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
@@ -1860,6 +1935,9 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
+        }
+        if (preferencesList !== undefined) {
+            preferencesListView.update(preferencesList);
         }
         if (commandPalette !== undefined) {
             commandPaletteView.update(commandPalette);
