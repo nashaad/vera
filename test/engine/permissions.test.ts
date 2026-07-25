@@ -306,6 +306,81 @@ test("bash extraction preserves independent pipeline effects", () => {
     ]);
 });
 
+test("provably read-only git subcommands are routine reads", () => {
+    for (
+        const command of [
+            "git log --oneline",
+            "git status",
+            "git diff HEAD~1",
+            "git show HEAD",
+            "git branch --list",
+        ]
+    ) {
+        expect(actions(command)).toEqual([
+            { tool: "bash", verb: "read", executable: "git" },
+        ]);
+        expect(decide("auto", bash(command)).behavior).toBe("allow");
+    }
+});
+
+test("git push is unaffected by the read allowlist", () => {
+    expect(actions("git push origin main")[0]).toMatchObject({
+        verb: "unknown",
+        operation: "git.push",
+    });
+    expect(decide("auto", bash("git push origin main")).behavior)
+        .toBe("review");
+});
+
+test("plain git branch (no --list) is not treated as read", () => {
+    expect(actions("git branch")[0]).toEqual({
+        tool: "bash",
+        verb: "unknown",
+        executable: "git",
+    });
+});
+
+test("a read-leaning command with a mutating flag is not auto-allowed", () => {
+    for (
+        const command of [
+            "find . -name *.log -exec rm {} \\;",
+            "fd --exec rm",
+            "sed -i s/foo/bar/ file.txt",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).not.toBe("allow");
+    }
+});
+
+test("a mutating long flag is caught in --flag=value form too", () => {
+    for (
+        const command of [
+            "sed --in-place=.bak s/foo/bar/ file.txt",
+            "sed -i.bak s/foo/bar/ file.txt",
+            "fd --exec=rm",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).not.toBe("allow");
+    }
+});
+
+test("the same commands without the mutating flag are routine reads", () => {
+    expect(decide("auto", bash("find . -name *.log")).behavior).toBe("allow");
+    expect(decide("auto", bash("fd '\\.ts$'")).behavior).toBe("allow");
+    expect(decide("auto", bash("sed -n 1,5p file.txt")).behavior).toBe("allow");
+});
+
+test("package-manager query subcommands are routine reads", () => {
+    expect(decide("auto", bash("npm view left-pad")).behavior).toBe("allow");
+    expect(decide("auto", bash("pip list")).behavior).toBe("allow");
+    expect(decide("auto", bash("cargo tree")).behavior).toBe("allow");
+});
+
+test("package-manager mutating subcommands are unaffected", () => {
+    expect(decide("auto", bash("npm install left-pad")).behavior)
+        .toBe("review");
+});
+
 test("git operations become named actions", () => {
     expect(actions("git fetch origin")[0]?.operation).toBe("git.fetch");
     expect(actions("git push origin main")[0]?.operation).toBe("git.push");
