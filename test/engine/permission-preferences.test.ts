@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,9 +15,16 @@ import {
     isPermissionPredicate,
 } from "../../src/engine/permissions.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
+import { initBashParser } from "../../src/tools/bash-parser.ts";
 
 const workspace = "/Users/nash/Projects/vera";
 const homeDirectory = "/Users/nash";
+
+// `runTurn` awaits this in production. The classifier stays synchronous, so
+// without the parser ready every bash command classifies as unknown.
+beforeAll(async () => {
+    await initBashParser();
+});
 
 async function withPreferencesFile(
     run: (path: string) => Promise<void>,

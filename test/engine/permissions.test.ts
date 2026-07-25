@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 
+import { initBashParser } from "../../src/tools/bash-parser.ts";
 import {
     BUILT_IN_PERMISSION_MODES,
     decideToolPermission,
@@ -13,6 +14,12 @@ import type { HookToolCall, JsonObject } from "../../src/sdk/hooks.ts";
 
 const workspace = "/Users/nash/Projects/vera";
 const homeDirectory = "/Users/nash";
+
+// `runTurn` awaits this in production. The classifier stays synchronous, so
+// without the parser ready every bash command classifies as unknown.
+beforeAll(async () => {
+    await initBashParser();
+});
 
 test("built-in profiles have the accepted defaults", () => {
     expect(BUILT_IN_PERMISSION_MODES.full_access).toEqual({
@@ -117,6 +124,77 @@ test("inert redirect targets never escalate past a routine read", () => {
     ) {
         expect(decide("auto", bash(command)).behavior).toBe("allow");
     }
+});
+
+test("2>&1 duplicates an fd rather than writing to a file named 1", () => {
+    expect(
+        extractPermissionActions({
+            toolCall: bash("cat README.md 2>&1"),
+            workspace,
+            homeDirectory,
+        }),
+    ).toEqual([{ tool: "bash", verb: "read", executable: "cat" }]);
+});
+
+test(">& with a non-numeric target is a write, not an fd duplication", () => {
+    // `cmd >& file` is bash's older spelling of `cmd &> file`, so the number is
+    // what distinguishes a duplication from a file it creates.
+    expect(
+        extractPermissionActions({
+            toolCall: bash("cat README.md >& /tmp/out.txt"),
+            workspace,
+            homeDirectory,
+        }),
+    ).toContainEqual({
+        tool: "bash",
+        verb: "write",
+        path: "/tmp/out.txt",
+        scope: "outside_workspace",
+        executable: "shell_redirect",
+    });
+});
+
+test("a hidden argument defeats the read-only classifier", () => {
+    // `sed "$FLAGS" notes.md` looks argument-free, but FLAGS=-i makes it a write.
+    expect(
+        extractPermissionActions({
+            toolCall: bash(`sed "$FLAGS" notes.md`),
+            workspace,
+            homeDirectory,
+        }),
+    ).toEqual([{ tool: "bash", verb: "unknown", executable: "sed" }]);
+});
+
+test("a quoted literal path is still resolved, since quoting is not expansion", () => {
+    expect(
+        extractPermissionActions({
+            toolCall: bash(`printf hi > "/tmp/my notes.txt"`),
+            workspace,
+            homeDirectory,
+        }),
+    ).toEqual([{
+        tool: "bash",
+        verb: "write",
+        path: "/tmp/my notes.txt",
+        scope: "outside_workspace",
+        executable: "shell_redirect",
+    }]);
+});
+
+test("a redirect on a pipeline is attributed once, to the last stage", () => {
+    expect(
+        extractPermissionActions({
+            toolCall: bash("cat README.md | tee a.txt > /tmp/other.txt"),
+            workspace,
+            homeDirectory,
+        }).filter((action) => action.executable === "shell_redirect"),
+    ).toEqual([{
+        tool: "bash",
+        verb: "write",
+        path: "/tmp/other.txt",
+        scope: "outside_workspace",
+        executable: "shell_redirect",
+    }]);
 });
 
 test("a redirect to a real path still escalates (regression guard)", () => {
