@@ -1,16 +1,20 @@
 /**
- * The durable half of the permission model, made visible and removable.
+ * The two removable permission tiers, made visible and removable.
+ *
+ * Session grants and durable preferences share one overlay because they share
+ * one act: reviewing what you have already agreed to and taking some of it back.
+ * They stay visibly separate sections because they do not share a lifetime, and
+ * a user deciding whether to revoke something needs to know whether it expires
+ * on its own. Permission modes are not here: a mode is a declarative substrate
+ * you switch, not a list of accumulated allowances you prune.
  *
  * Deliberately a separate overlay from the settings picker rather than a sixth
  * picker kind. The picker swallows every single-character key into its search
  * query (`handleTuiSettingsPickerKey`), which is why session trash is bound to
- * `delete` and not to `d`. A three-entry preferences list wants plain keys and
- * has nothing to search, while a fifty-entry model list needs the filter, so
- * the two do not fit one component.
- *
- * Deliberately a separate command from `/permissions` too: a permission mode is
- * session-scoped and a preference outlives the session, so the two surfaces
- * mirror the tier boundary instead of blurring it.
+ * `delete` and not to `d`. A short list of allowances wants plain keys and has
+ * nothing to search, while a fifty-entry model list needs the filter, so the two
+ * do not fit one component. The picker's flat homogeneous `state.options` is the
+ * second reason: these rows are two kinds under one cursor.
  */
 
 import {
@@ -22,7 +26,6 @@ import {
 import type {
     PermissionInspection,
     PermissionPredicate,
-    PermissionPreference,
 } from "../../src/engine/permissions.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
@@ -30,16 +33,29 @@ import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
 /** Rows shown at once before the list windows around the cursor. */
 const MAX_ROWS = 10;
 
+/**
+ * Which store a row came from, which the client needs because the two tiers take
+ * different removal commands: a grant lives in the session log, a preference in
+ * a file in the home directory.
+ */
+export type TuiPermissionEntryKind = "grant" | "preference";
+
+export interface TuiPermissionEntry {
+    readonly kind: TuiPermissionEntryKind;
+    readonly id: string;
+    readonly when: PermissionPredicate;
+}
+
 export interface TuiPreferencesListState {
-    readonly preferences: readonly PermissionPreference[];
+    readonly entries: readonly TuiPermissionEntry[];
     readonly selectedIndex: number;
 }
 
 export interface TuiPreferencesListTransition {
     /** Absent means the overlay closed. */
     readonly state?: TuiPreferencesListState;
-    /** Set when the user asked to remove the highlighted preference. */
-    readonly removeId?: string;
+    /** Set when the user asked to remove the highlighted entry. */
+    readonly remove?: TuiPermissionEntry;
     readonly handled: boolean;
 }
 
@@ -60,28 +76,25 @@ export interface TuiPreferencesListKey {
 export function startTuiPreferencesList(
     inspection: PermissionInspection | undefined,
 ): TuiPreferencesListState {
-    return {
-        preferences: inspection?.activePreferences ?? [],
-        selectedIndex: 0,
-    };
+    return { entries: entriesFrom(inspection), selectedIndex: 0 };
 }
 
 /**
  * Folds a refreshed inspection into an open overlay, which is how a removal
  * becomes visible: the engine replies with a full inspection rather than an
- * acknowledgement, so the list is never reconstructed client-side. The cursor
- * is clamped because the list it pointed into just got shorter.
+ * acknowledgement, so the list is never reconstructed client-side. The cursor is
+ * clamped because the list it pointed into just got shorter.
  */
 export function syncTuiPreferencesList(
     state: TuiPreferencesListState,
     inspection: PermissionInspection | undefined,
 ): TuiPreferencesListState {
-    const preferences = inspection?.activePreferences ?? [];
+    const entries = entriesFrom(inspection);
     return {
-        preferences,
+        entries,
         selectedIndex: Math.max(
             0,
-            Math.min(state.selectedIndex, preferences.length - 1),
+            Math.min(state.selectedIndex, entries.length - 1),
         ),
     };
 }
@@ -110,7 +123,7 @@ export function handleTuiPreferencesListKey(
             state: {
                 ...state,
                 selectedIndex: Math.min(
-                    state.preferences.length - 1,
+                    state.entries.length - 1,
                     state.selectedIndex + 1,
                 ),
             },
@@ -118,13 +131,13 @@ export function handleTuiPreferencesListKey(
         };
     }
     if (key.name === "delete" || key.name === "backspace") {
-        const selected = state.preferences[state.selectedIndex];
-        // No confirmation step, unlike session trash. Removing a preference can
+        const selected = state.entries[state.selectedIndex];
+        // No confirmation step, unlike session trash. Removing either kind can
         // only make Vera ask more often: it restores a prompt the user had
         // silenced, so the destructive direction here is the safe one.
         return selected === undefined
             ? { state, handled: true }
-            : { state, removeId: selected.id, handled: true };
+            : { state, remove: selected, handled: true };
     }
     return { state, handled: false };
 }
@@ -133,16 +146,23 @@ export function handleTuiPreferencesListKey(
 export function renderTuiPreferencesList(
     state: TuiPreferencesListState,
 ): string {
-    if (state.preferences.length === 0) {
-        return "No durable preferences. Answer an approval with 4 to add one.";
+    if (state.entries.length === 0) {
+        return "Nothing granted yet. Answer an approval with 2 or 4 to add something.";
     }
-    return state.preferences
-        .map((preference, index) =>
+    const lines: string[] = [];
+    let group: TuiPermissionEntryKind | undefined;
+    for (const [index, entry] of state.entries.entries()) {
+        if (entry.kind !== group) {
+            group = entry.kind;
+            lines.push(groupLabel(group));
+        }
+        lines.push(
             `${index === state.selectedIndex ? ">" : " "} ${
-                formatPreferencePredicate(preference.when)
-            }`
-        )
-        .join("\n");
+                formatPredicate(entry.when)
+            }`,
+        );
+    }
+    return lines.join("\n");
 }
 
 export function createTuiPreferencesListView(
@@ -180,11 +200,11 @@ export function createTuiPreferencesListView(
         focusable: true,
         visible: false,
     });
-    box.add(dialogHeaderNode(renderer, "Durable permission preferences"));
+    box.add(dialogHeaderNode(renderer, "Granted permissions"));
     box.add(rows);
     box.add(footer);
 
-    let current: BoxRenderable[] = [];
+    let current: (BoxRenderable | TextRenderable)[] = [];
     return {
         box,
         update(state): void {
@@ -192,19 +212,34 @@ export function createTuiPreferencesListView(
                 row.destroy();
             }
             current = [];
-            if (state.preferences.length === 0) {
+            if (state.entries.length === 0) {
                 const empty = dialogOptionRow(renderer, {
-                    label: "No durable preferences yet",
-                    description: "answer an approval with 4 to add one",
+                    label: "Nothing granted yet",
+                    description: "answer an approval with 2 or 4 to add something",
                     active: false,
                 });
                 rows.add(empty);
                 current.push(empty);
                 return;
             }
-            for (const { index, preference } of visibleRows(state)) {
+            let group: TuiPermissionEntryKind | undefined;
+            for (const { index, entry } of visibleRows(state)) {
+                if (entry.kind !== group) {
+                    group = entry.kind;
+                    // A header, not a row: `visibleRows` windows over entries
+                    // only, so the cursor can never land here.
+                    const header = new TextRenderable(renderer, {
+                        content: groupLabel(group),
+                        fg: TUI_MUTED,
+                        width: "100%",
+                        height: 1,
+                        paddingLeft: 1,
+                    });
+                    rows.add(header);
+                    current.push(header);
+                }
                 const row = dialogOptionRow(renderer, {
-                    label: formatPreferencePredicate(preference.when),
+                    label: formatPredicate(entry.when),
                     active: index === state.selectedIndex,
                     leading: index === state.selectedIndex ? "> " : "  ",
                 });
@@ -215,24 +250,52 @@ export function createTuiPreferencesListView(
     };
 }
 
-/** A preference paired with its real index, which the highlight compares against. */
-interface NumberedPreference {
+/** An entry paired with its real index, which the highlight compares against. */
+interface NumberedEntry {
     readonly index: number;
-    readonly preference: PermissionPreference;
+    readonly entry: TuiPermissionEntry;
 }
 
 /**
- * Windows the list around the cursor so a long list cannot push the footer off
- * a short terminal. Indices are carried alongside because after slicing, array
- * position no longer matches position in `state.preferences`.
+ * Grants first, because they are the shorter-lived half and the ones a user is
+ * most likely to have just created. Order is stable so the cursor does not move
+ * under a removal of the other kind.
+ */
+function entriesFrom(
+    inspection: PermissionInspection | undefined,
+): readonly TuiPermissionEntry[] {
+    if (inspection === undefined) {
+        return [];
+    }
+    return [
+        ...inspection.activeGrants.map((grant) => ({
+            kind: "grant" as const,
+            id: grant.id,
+            when: grant.when,
+        })),
+        ...(inspection.activePreferences ?? []).map((preference) => ({
+            kind: "preference" as const,
+            id: preference.id,
+            when: preference.when,
+        })),
+    ];
+}
+
+function groupLabel(kind: TuiPermissionEntryKind): string {
+    return kind === "grant"
+        ? "Session grants (expire when this session ends)"
+        : "Durable preferences (kept across sessions)";
+}
+
+/**
+ * Windows the list around the cursor so a long list cannot push the footer off a
+ * short terminal. Indices are carried alongside because after slicing, array
+ * position no longer matches position in `state.entries`.
  */
 function visibleRows(
     state: TuiPreferencesListState,
-): readonly NumberedPreference[] {
-    const entries = state.preferences.map((preference, index) => ({
-        index,
-        preference,
-    }));
+): readonly NumberedEntry[] {
+    const entries = state.entries.map((entry, index) => ({ index, entry }));
     if (entries.length <= MAX_ROWS) {
         return entries;
     }
@@ -247,11 +310,11 @@ function visibleRows(
 }
 
 /**
- * Shows the predicate rather than the ID. The ID is a UUID, so it identifies
- * nothing to a reader, while the predicate is the thing the user actually
- * agreed to. Removal targets the highlighted row, so no ID ever needs typing.
+ * Shows the predicate rather than the ID. The ID is opaque, so it identifies
+ * nothing to a reader, while the predicate is the thing the user actually agreed
+ * to. Removal targets the highlighted row, so no ID ever needs typing.
  */
-function formatPreferencePredicate(predicate: PermissionPredicate): string {
+function formatPredicate(predicate: PermissionPredicate): string {
     return Object.entries(predicate)
         .map(([field, value]) => `${field}=${String(value)}`)
         .join(", ");

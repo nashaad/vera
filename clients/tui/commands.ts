@@ -162,7 +162,7 @@ const PERMISSIONS_COMMAND = {
 
 const PREFERENCES_COMMAND = {
     name: "preferences",
-    description: "Review and remove durable permission preferences",
+    description: "Review and remove granted permissions",
     usage: "/preferences",
 } as const satisfies TuiCommandCatalogEntry;
 
