@@ -582,6 +582,10 @@ export class AgentRegistry {
                 ...(this.options.permissionPreferences === undefined ? {} : {
                     readPermissionPreferences: () =>
                         this.options.permissionPreferences!.list(),
+                    addPermissionPreference: (when) =>
+                        this.options.permissionPreferences!.add(when),
+                    removePermissionPreference: (id) =>
+                        this.options.permissionPreferences!.remove(id),
                 }),
                 updateSessionName: (name) =>
                     this.updateSessionName(agent.id, name),

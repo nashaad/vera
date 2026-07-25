@@ -67,6 +67,7 @@ import {
     type PermissionGrant,
     type PermissionGrantProposal,
     type PermissionMode,
+    type PermissionPredicate,
     type PermissionPreference,
 } from "./permissions.ts";
 import {
@@ -162,6 +163,10 @@ export interface RunHeadlessLoopOptions {
      * without restarting the loop.
      */
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
+    readonly addPermissionPreference?: (
+        when: PermissionPredicate,
+    ) => Promise<PermissionPreference | undefined>;
+    readonly removePermissionPreference?: (id: string) => Promise<boolean>;
     readonly updateSessionName?: (
         name: string | null,
     ) => Promise<string | null | undefined>;
@@ -273,6 +278,14 @@ export async function runHeadlessLoop(
         readApprovalMode,
         readPermissionInspection,
         updateApprovalMode,
+        ...(options.addPermissionPreference === undefined
+            ? {}
+            : { addPermissionPreference: options.addPermissionPreference }),
+        ...(options.removePermissionPreference === undefined
+            ? {}
+            : {
+                removePermissionPreference: options.removePermissionPreference,
+            }),
         ...(options.updateSessionName === undefined
             ? {}
             : { updateSessionName: options.updateSessionName }),
