@@ -89,7 +89,7 @@ test("a preference cannot override a profile denial", async () => {
     await withPreferencesFile(async (path) => {
         await addPermissionPreference({ verb: "delete" }, path);
         const reloaded = await loadPermissionPreferences(path);
-        const permissionProfiles = {
+        const permissionModes = {
             locked: {
                 name: "locked",
                 defaultOutcome: "deny" as const,
@@ -101,7 +101,7 @@ test("a preference cannot override a profile denial", async () => {
             bash("rm -rf dist"),
             workspace,
             [],
-            { homeDirectory, permissionProfiles, permissionPreferences: reloaded },
+            { homeDirectory, permissionModes, permissionPreferences: reloaded },
         );
         expect(decision.behavior).toBe("deny");
     });

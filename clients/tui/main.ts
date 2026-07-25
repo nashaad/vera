@@ -1118,7 +1118,7 @@ export async function startTui(
                 state.modelSettings?.availableModels,
                 undefined,
                 undefined,
-                state.permissionInspection?.availableProfiles,
+                state.permissionInspection?.availableModes,
             );
             renderState();
             focusActiveSurface();

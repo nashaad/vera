@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -159,7 +159,7 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
                 policy: "Allow ordinary actions that follow from the request.",
             },
         },
-        permission_profiles: {
+        permission_modes: {
             unattended: {
                 default: "review",
                 reviewer_profile: "default",
@@ -191,7 +191,7 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
                 policy: "Allow ordinary actions that follow from the request.",
             },
         },
-        permission_profiles: {
+        permission_modes: {
             unattended: {
                 name: "unattended",
                 defaultOutcome: "review",
@@ -214,8 +214,38 @@ test("Vera config loads the shared catalog, routes, and reviewer profiles", () =
     });
 
     updateVeraConfigDefaults({ approval_mode: "ask" }, { path });
-    expect(loadVeraConfig({ path }).permission_profiles)
-        .toEqual(config.permission_profiles);
+    expect(loadVeraConfig({ path }).permission_modes)
+        .toEqual(config.permission_modes);
+});
+
+test("the deprecated permission_profiles config key still loads, as permission_modes", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        approval_mode: "ask",
+        permission_profiles: {
+            quiet: {
+                default: "ask",
+                rules: [],
+            },
+        },
+    }));
+
+    const config = loadVeraConfig({ path });
+    expect(config.permission_modes).toEqual({
+        quiet: { name: "quiet", defaultOutcome: "ask", rules: [] },
+    });
+    expect((config as unknown as Record<string, unknown>).permission_profiles)
+        .toBeUndefined();
+
+    // Saving migrates the config forward onto the new key.
+    updateVeraConfigDefaults({ approval_mode: "ask" }, { path });
+    const raw = JSON.parse(readFileSync(path, "utf8"));
+    expect(raw.permission_modes).toEqual({
+        quiet: { default: "ask", rules: [] },
+    });
+    expect(raw.permission_profiles).toBeUndefined();
 });
 
 test("Vera config loads an engine model fallback", () => {

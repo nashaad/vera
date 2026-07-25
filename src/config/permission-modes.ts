@@ -1,9 +1,9 @@
 import { migratePermissionPredicate } from "../engine/permission-compat.ts";
 import {
     CORE_PERMISSION_OPERATIONS,
+    type PermissionMode,
     type PermissionOutcome,
     type PermissionPredicate,
-    type PermissionProfile,
     type PermissionRule,
 } from "../engine/permissions.ts";
 
@@ -28,10 +28,10 @@ const PREDICATE_FIELDS = new Set([
     "path_scope",
 ]);
 
-export function parsePermissionProfiles(
+export function parsePermissionModes(
     value: unknown,
     reviewerProfiles: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, PermissionProfile>> | undefined {
+): Readonly<Record<string, PermissionMode>> | undefined {
     if (value === undefined) {
         return {};
     }
@@ -39,32 +39,32 @@ export function parsePermissionProfiles(
         return undefined;
     }
 
-    const profiles: Record<string, PermissionProfile> = {};
-    for (const [name, profileValue] of Object.entries(value)) {
-        const profile = parsePermissionProfile(
+    const modes: Record<string, PermissionMode> = {};
+    for (const [name, modeValue] of Object.entries(value)) {
+        const mode = parsePermissionMode(
             name,
-            profileValue,
+            modeValue,
             reviewerProfiles,
         );
         if (
-            profile === undefined
-            || profiles[name] !== undefined
+            mode === undefined
+            || modes[name] !== undefined
             || name === "ask"
             || name === "auto"
             || name === "full_access"
         ) {
             return undefined;
         }
-        profiles[name] = profile;
+        modes[name] = mode;
     }
-    return profiles;
+    return modes;
 }
 
-function parsePermissionProfile(
+function parsePermissionMode(
     name: string,
     value: unknown,
     reviewerProfiles: Readonly<Record<string, unknown>>,
-): PermissionProfile | undefined {
+): PermissionMode | undefined {
     if (!isConfigName(name) || !isRecord(value)) {
         return undefined;
     }
@@ -105,7 +105,7 @@ function parsePermissionProfile(
 }
 
 function parsePermissionRule(
-    profileName: string,
+    modeName: string,
     index: number,
     value: unknown,
 ): PermissionRule | undefined {
@@ -117,7 +117,7 @@ function parsePermissionRule(
         return undefined;
     }
     return {
-        name: `${profileName}.rules.${index}`,
+        name: `${modeName}.rules.${index}`,
         when,
         then: value.then,
     };

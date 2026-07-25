@@ -6,7 +6,7 @@ import {
     isApprovalMode,
     parseApprovalMode,
     type ApprovalMode,
-    type BuiltInPermissionProfileName,
+    type BuiltInPermissionModeName,
 } from "../sdk/permissions.ts";
 import {
     nestedShellCommands,
@@ -104,7 +104,12 @@ export interface PermissionRule {
     readonly then: PermissionOutcome;
 }
 
-export interface PermissionProfile {
+/** A named, ordered set of permission rules — the policy unit selected by
+ * `approval_mode`. Not to be confused with a *reviewer* profile
+ * (`reviewerProfile` below, and `src/config/model-catalog.ts`), which
+ * configures the model used by the automatic reviewer and keeps the word
+ * "profile" on purpose. */
+export interface PermissionMode {
     readonly name: string;
     readonly rules: readonly PermissionRule[];
     readonly defaultOutcome: PermissionOutcome;
@@ -112,11 +117,11 @@ export interface PermissionProfile {
 }
 
 export interface PermissionInspection {
-    readonly selected: PermissionProfile;
-    readonly availableProfiles: readonly string[];
+    readonly selected: PermissionMode;
+    readonly availableModes: readonly string[];
     readonly activeGrants: readonly PermissionGrant[];
-    /** Durable preferences layered on top of the selected profile. Optional
-     * so existing call sites that predate preferences keep compiling. */
+    /** Durable preferences layered on top of the selected mode. Optional so
+     * existing call sites that predate preferences keep compiling. */
     readonly activePreferences?: readonly PermissionPreference[];
 }
 
@@ -150,7 +155,7 @@ export interface DenyToolPermission {
     readonly behavior: "deny";
     readonly reason: string;
     readonly actions: readonly PermissionActionDecision[];
-    readonly source: "profile" | "accident_guard";
+    readonly source: "mode" | "accident_guard";
 }
 
 export type ToolPermissionDecision =
@@ -161,7 +166,7 @@ export type ToolPermissionDecision =
 
 export interface DecideToolPermissionOptions {
     readonly homeDirectory?: string;
-    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
+    readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly permissionPreferences?: readonly PermissionPreference[];
 }
 
@@ -211,8 +216,8 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
     },
 ];
 
-export const BUILT_IN_PERMISSION_PROFILES: Readonly<
-    Record<BuiltInPermissionProfileName, PermissionProfile>
+export const BUILT_IN_PERMISSION_MODES: Readonly<
+    Record<BuiltInPermissionModeName, PermissionMode>
 > = {
     full_access: {
         name: "full_access",
@@ -371,14 +376,14 @@ export function decideToolPermission(
         };
     }
 
-    const profile = builtInPermissionProfile(mode)
-        ?? options.permissionProfiles?.[mode];
-    if (profile === undefined) {
+    const permissionMode = builtInPermissionMode(mode)
+        ?? options.permissionModes?.[mode];
+    if (permissionMode === undefined) {
         return {
             behavior: "deny",
-            reason: `Permission profile ${mode} is unavailable.`,
+            reason: `Permission mode ${mode} is unavailable.`,
             actions: [],
-            source: "profile",
+            source: "mode",
         };
     }
     const decisions = extractPermissionActions({
@@ -387,14 +392,14 @@ export function decideToolPermission(
         homeDirectory,
     }).map((action) =>
         evaluateAction(
-            profile,
+            permissionMode,
             action,
             grants,
             options.permissionPreferences ?? [],
         )
     );
     // Every action is evaluated; the strictest outcome wins. A recognized read
-    // followed by an unresolved command still falls back to the profile.
+    // followed by an unresolved command still falls back to the mode.
     const effective = decisions.reduce<PermissionOutcome>(
         (outcome, decision) =>
             OUTCOME_WEIGHT[decision.outcome] > OUTCOME_WEIGHT[outcome]
@@ -407,21 +412,21 @@ export function decideToolPermission(
         return { behavior: "allow", actions: decisions };
     }
 
-    const reason = permissionReason(profile, decisions, effective);
+    const reason = permissionReason(permissionMode, decisions, effective);
     if (effective === "review") {
-        if (profile.reviewerProfile === undefined) {
+        if (permissionMode.reviewerProfile === undefined) {
             return {
                 behavior: "deny",
-                reason: `Permission profile ${profile.name} routes to review but has no reviewer profile.`,
+                reason: `Permission mode ${permissionMode.name} routes to review but has no reviewer profile.`,
                 actions: decisions,
-                source: "profile",
+                source: "mode",
             };
         }
         return {
             behavior: "review",
             reason,
             actions: decisions,
-            reviewerProfile: profile.reviewerProfile,
+            reviewerProfile: permissionMode.reviewerProfile,
         };
     }
     if (effective === "ask") {
@@ -431,25 +436,25 @@ export function decideToolPermission(
         behavior: "deny",
         reason,
         actions: decisions,
-        source: "profile",
+        source: "mode",
     };
 }
 
-export function builtInPermissionProfile(
+export function builtInPermissionMode(
     name: string,
-): PermissionProfile | undefined {
+): PermissionMode | undefined {
     return name === "ask" || name === "auto" || name === "full_access"
-        ? BUILT_IN_PERMISSION_PROFILES[name]
+        ? BUILT_IN_PERMISSION_MODES[name]
         : undefined;
 }
 
 export function inspectPermissions(
     name: ApprovalMode,
-    customProfiles: Readonly<Record<string, PermissionProfile>> = {},
+    customModes: Readonly<Record<string, PermissionMode>> = {},
     grants: readonly PermissionGrant[] = [],
     preferences: readonly PermissionPreference[] = [],
 ): PermissionInspection | undefined {
-    const selected = builtInPermissionProfile(name) ?? customProfiles[name];
+    const selected = builtInPermissionMode(name) ?? customModes[name];
     if (selected === undefined) {
         return undefined;
     }
@@ -466,9 +471,9 @@ export function inspectPermissions(
                 ? {}
                 : { reviewerProfile: selected.reviewerProfile }),
         },
-        availableProfiles: [
-            ...Object.keys(BUILT_IN_PERMISSION_PROFILES),
-            ...Object.keys(customProfiles),
+        availableModes: [
+            ...Object.keys(BUILT_IN_PERMISSION_MODES),
+            ...Object.keys(customModes),
         ],
         activeGrants: grants.map((grant) => ({
             id: grant.id,
@@ -508,8 +513,8 @@ export function isPermissionInspection(
         && (selected.reviewerProfile === undefined
             || (typeof selected.reviewerProfile === "string"
                 && selected.reviewerProfile.length > 0))
-        && Array.isArray(value.availableProfiles)
-        && value.availableProfiles.every((name) =>
+        && Array.isArray(value.availableModes)
+        && value.availableModes.every((name) =>
             typeof name === "string" && name.length > 0
         )
         && Array.isArray(value.activeGrants)
@@ -551,12 +556,12 @@ export function extractPermissionActions(
 }
 
 export function evaluateAction(
-    profile: PermissionProfile,
+    mode: PermissionMode,
     action: PermissionAction,
     grants: readonly PermissionGrant[] = [],
     preferences: readonly PermissionPreference[] = [],
 ): PermissionActionDecision {
-    for (const rule of profile.rules) {
+    for (const rule of mode.rules) {
         if (permissionPredicateMatches(rule.when, action)) {
             return applyPermissionSafetyNets({
                 action,
@@ -567,8 +572,8 @@ export function evaluateAction(
     }
     return applyPermissionSafetyNets({
         action,
-        outcome: profile.defaultOutcome,
-        rule: `${profile.name}.default`,
+        outcome: mode.defaultOutcome,
+        rule: `${mode.name}.default`,
     }, preferences, grants);
 }
 
@@ -591,8 +596,8 @@ function applyPermissionSafetyNets(
 /**
  * Turns a declared path/URL input into a concrete action. A field that is
  * missing or the wrong type becomes `unknown` rather than being silently
- * skipped, so it still falls through to the profile's default outcome
- * instead of passing permission checks unnoticed.
+ * skipped, so it still falls through to the mode's default outcome instead
+ * of passing permission checks unnoticed.
  */
 function structuredInputAction(
     toolCall: HookToolCall,
@@ -915,7 +920,7 @@ function shellPathAction(
 }
 
 function permissionReason(
-    profile: PermissionProfile,
+    mode: PermissionMode,
     decisions: readonly PermissionActionDecision[],
     effective: PermissionOutcome,
 ): string {
@@ -924,7 +929,7 @@ function permissionReason(
         .map((decision) =>
             `${describeAction(decision.action)} (${decision.rule})`
         );
-    return `Permission profile ${profile.name} requires ${effective}: ${matches.join(", ")}.`;
+    return `Permission mode ${mode.name} requires ${effective}: ${matches.join(", ")}.`;
 }
 
 function isPermissionOutcome(value: unknown): value is PermissionOutcome {

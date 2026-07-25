@@ -1,4 +1,4 @@
-export type BuiltInPermissionProfileName = "ask" | "auto" | "full_access";
+export type BuiltInPermissionModeName = "ask" | "auto" | "full_access";
 export type ApprovalMode = string;
 
 export function isApprovalMode(value: unknown): value is ApprovalMode {

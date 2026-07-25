@@ -210,7 +210,7 @@ test("host wire validates permission results", () => {
                 rules: [],
                 defaultOutcome: "review",
             },
-            availableProfiles: ["auto"],
+            availableModes: ["auto"],
             activeGrants: [{ id: "", kind: "action", when: {} }],
         },
         seq: 12,

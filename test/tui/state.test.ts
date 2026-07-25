@@ -222,7 +222,7 @@ test("TUI state keeps host-reported permissions", () => {
             rules: [],
             defaultOutcome: "allow",
         },
-        availableProfiles: ["ask", "auto", "full_access"],
+        availableModes: ["ask", "auto", "full_access"],
         activeGrants: [],
     } as const;
     const state = applyAgentUpdate(createTuiState(), {

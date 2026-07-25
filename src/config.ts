@@ -10,7 +10,7 @@ import { dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
-    builtInPermissionProfile,
+    builtInPermissionMode,
     parseApprovalMode,
     type ApprovalMode,
 } from "./engine/permissions.ts";
@@ -23,8 +23,8 @@ import {
     type VeraCatalogModel,
     type VeraReviewerProfileConfig,
 } from "./config/model-catalog.ts";
-import { parsePermissionProfiles } from "./config/permission-profiles.ts";
-import type { PermissionProfile } from "./engine/permissions.ts";
+import { parsePermissionModes } from "./config/permission-modes.ts";
+import type { PermissionMode } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
@@ -67,8 +67,8 @@ export interface VeraConfig {
     readonly reviewer_profiles?: Readonly<
         Record<string, VeraReviewerProfileConfig>
     >;
-    readonly permission_profiles?: Readonly<
-        Record<string, PermissionProfile>
+    readonly permission_modes?: Readonly<
+        Record<string, PermissionMode>
     >;
     readonly extensions?: readonly VeraExtensionConfig[];
 }
@@ -165,22 +165,22 @@ export function updateVeraConfigDefaults(
 function configForDisk(config: VeraConfig): Record<string, unknown> {
     return {
         ...config,
-        ...(config.permission_profiles === undefined
+        ...(config.permission_modes === undefined
             ? {}
             : {
-                permission_profiles: Object.fromEntries(
-                    Object.entries(config.permission_profiles).map(
-                        ([name, profile]) => [
+                permission_modes: Object.fromEntries(
+                    Object.entries(config.permission_modes).map(
+                        ([name, mode]) => [
                             name,
                             {
-                                default: profile.defaultOutcome,
-                                ...(profile.reviewerProfile === undefined
+                                default: mode.defaultOutcome,
+                                ...(mode.reviewerProfile === undefined
                                     ? {}
                                     : {
                                         reviewer_profile:
-                                            profile.reviewerProfile,
+                                            mode.reviewerProfile,
                                     }),
-                                rules: profile.rules.map((rule) => ({
+                                rules: mode.rules.map((rule) => ({
                                     when: { ...rule.when },
                                     then: rule.then,
                                 })),
@@ -208,23 +208,29 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const hasModelCatalog = config.models !== undefined
         || config.model_routes !== undefined
         || config.reviewer_profiles !== undefined;
-    const permissionProfiles = parsePermissionProfiles(
-        config.permission_profiles,
+    // `permission_profiles` is a deprecated alias for `permission_modes`,
+    // kept so existing configs still load. The new key wins if both are
+    // present; either way the config is rewritten under the new key the
+    // next time it's saved (see `configForDisk`).
+    const rawPermissionModes = config.permission_modes
+        ?? config.permission_profiles;
+    const permissionModes = parsePermissionModes(
+        rawPermissionModes,
         modelCatalog?.reviewer_profiles ?? {},
     );
     const extensions = parseExtensionConfigs(config.extensions);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
-    const hasSelectedProfile = approvalMode !== undefined
+    const hasSelectedMode = approvalMode !== undefined
         && (
-            builtInPermissionProfile(approvalMode) !== undefined
-            || permissionProfiles?.[approvalMode] !== undefined
+            builtInPermissionMode(approvalMode) !== undefined
+            || permissionModes?.[approvalMode] !== undefined
         );
     if (
         (config.reviewer !== undefined && reviewer === undefined)
         || modelCatalog === undefined
-        || permissionProfiles === undefined
+        || permissionModes === undefined
         || extensions === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
         ||
@@ -241,7 +247,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && config.reasoning_effort !== "medium"
             && config.reasoning_effort !== "high"
             && config.reasoning_effort !== "max")
-        || !hasSelectedProfile
+        || !hasSelectedMode
         || (config.fallback !== undefined && fallback === undefined)
         || (fallback !== undefined
             && config.provider === "openai-codex"
@@ -267,9 +273,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
                 reviewer_profiles: modelCatalog.reviewer_profiles,
             }
             : {}),
-        ...(config.permission_profiles === undefined
+        ...(rawPermissionModes === undefined
             ? {}
-            : { permission_profiles: permissionProfiles }),
+            : { permission_modes: permissionModes }),
         ...(config.extensions === undefined ? {} : { extensions }),
     };
 }
