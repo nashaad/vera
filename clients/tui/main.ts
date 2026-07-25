@@ -769,11 +769,16 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 preferencesList = transition.state;
-                if (transition.removeId !== undefined) {
+                if (transition.remove !== undefined) {
+                    // The row's own kind picks the command. The two tiers live in
+                    // different stores, so one command covering both would have
+                    // to guess which store an ID belongs to.
                     sendCommand({
-                        type: "remove_permission_preference",
+                        type: transition.remove.kind === "grant"
+                            ? "remove_permission_grant"
+                            : "remove_permission_preference",
                         requestId: randomUUID(),
-                        id: transition.removeId,
+                        id: transition.remove.id,
                     });
                 }
                 if (preferencesList === undefined) {
@@ -1575,8 +1580,8 @@ export async function startTui(
                     state = appendTuiNotice(
                         state,
                         update.reason === "unavailable"
-                            ? "Durable preferences are unavailable on this host"
-                            : "That preference could not be removed",
+                            ? "Removing permissions is unavailable on this host"
+                            : "That permission could not be removed",
                     );
                 }
                 if (update.type === "history") {

@@ -115,6 +115,19 @@ const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
 ];
 
+/**
+ * The one-line description of a mode, in the same words the picker offers it in.
+ * Shared rather than reworded so the `/permissions` notice and the picker it
+ * opens cannot describe the same mode two different ways. Undefined for a custom
+ * mode, which nobody wrote a description for.
+ */
+export function tuiPermissionModeDescription(
+    mode: string,
+): string | undefined {
+    return PERMISSION_OPTIONS.find((option) => option.value === mode)
+        ?.description;
+}
+
 const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "default", label: "Default", description: "Vera's original palette" },
     { value: "system", label: "System", description: "inherit terminal colors" },
