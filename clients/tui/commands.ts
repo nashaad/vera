@@ -47,6 +47,10 @@ export interface OpenPermissionsPickerTuiCommandAction {
     readonly type: "open_permissions_picker";
 }
 
+export interface OpenPreferencesListTuiCommandAction {
+    readonly type: "open_preferences_list";
+}
+
 export interface OpenThemePickerTuiCommandAction {
     readonly type: "open_theme_picker";
 }
@@ -90,6 +94,7 @@ export type TuiCommandAction =
     | OpenModelPickerTuiCommandAction
     | OpenReasoningPickerTuiCommandAction
     | OpenPermissionsPickerTuiCommandAction
+    | OpenPreferencesListTuiCommandAction
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
     | CreateSessionTuiCommandAction
@@ -116,6 +121,7 @@ export interface TuiCommandDefinition {
     readonly prefixPriority?: "builtin" | "extension";
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
+        | OpenPreferencesListTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
         | CreateSessionTuiCommandAction
@@ -154,6 +160,12 @@ const PERMISSIONS_COMMAND = {
     usage: "/permissions <ask|auto|full_access>",
 } as const satisfies TuiCommandCatalogEntry;
 
+const PREFERENCES_COMMAND = {
+    name: "preferences",
+    description: "Review and remove durable permission preferences",
+    usage: "/preferences",
+} as const satisfies TuiCommandCatalogEntry;
+
 const THEMES_COMMAND = {
     name: "themes",
     description: "Change the TUI theme",
@@ -190,6 +202,7 @@ export const BUILTIN_COMMANDS = [
     MODEL_COMMAND,
     REASONING_COMMAND,
     PERMISSIONS_COMMAND,
+    PREFERENCES_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
     CLEAR_COMMAND,
@@ -409,6 +422,10 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
             : argumentsText.length === 0
                 ? { type: "open_permissions_picker" }
                 : { type: "command_error", message: `Usage: ${PERMISSIONS_COMMAND.usage}` },
+    });
+    registry.registerCommand({
+        ...PREFERENCES_COMMAND,
+        action: { type: "open_preferences_list" },
     });
     registry.registerCommand({
         ...THEMES_COMMAND,
