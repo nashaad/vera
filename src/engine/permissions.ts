@@ -193,16 +193,80 @@ const OUTCOME_WEIGHT: Readonly<Record<PermissionOutcome, number>> = {
     deny: 3,
 };
 
-const READ_COMMANDS = new Set([
-    "cat",
-    "grep",
-    "head",
-    "ls",
-    "stat",
-    "tail",
-    "wc",
-    "pwd",
-]);
+/** Classifies a command's arguments (everything after the executable) as
+ * provably read-only, or not. */
+type ReadOnlyClassifier = (args: readonly string[]) => boolean;
+
+function alwaysReadOnly(): boolean {
+    return true;
+}
+
+/**
+ * Read-only except for a small set of flags that turn the command into a
+ * mutation, e.g. `find -exec`, `fd -x`, `sed -i`. Combined short flags
+ * (`sed -ni`) are checked character-by-character; long flags match either
+ * bare or in `--flag=value` form.
+ */
+function excludingDangerousFlags(flags: readonly string[]): ReadOnlyClassifier {
+    return (args) => !args.some((word) => flags.some((flag) => matchesFlag(word, flag)));
+}
+
+function matchesFlag(word: string, flag: string): boolean {
+    if (word === flag) {
+        return true;
+    }
+    // A long flag can carry its value inline: `sed --in-place=.bak` is the
+    // same mutation as `sed --in-place`, so compare only the name part.
+    if (word.startsWith("--")) {
+        const separator = word.indexOf("=");
+        return separator > 0 && word.slice(0, separator) === flag;
+    }
+    if (flag.startsWith("--") || !word.startsWith("-") || word.length <= 1) {
+        return false;
+    }
+    // Short flags can be bundled (`-ni`) or carry an inline value (`-i.bak`),
+    // so a substring check over the cluster catches both.
+    return word.slice(1).includes(flag.slice(1));
+}
+
+/** Read-only only for a fixed set of query subcommands, e.g. `npm view`. */
+function matchingSubcommand(subcommands: readonly string[]): ReadOnlyClassifier {
+    return (args) => subcommands.includes(args[0] ?? "");
+}
+
+/**
+ * A small, deliberately incomplete map of commands Vera can prove are
+ * read-only from their name and arguments alone, replacing a name-only
+ * allowlist that could not express "safe except for this one flag." Anything
+ * not listed here falls through to the normal rules and, in `auto`, the
+ * reviewer — that is the safe default, not a gap to close by growing this
+ * list without bound.
+ */
+const READ_ONLY_COMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
+    cat: alwaysReadOnly,
+    head: alwaysReadOnly,
+    tail: alwaysReadOnly,
+    wc: alwaysReadOnly,
+    pwd: alwaysReadOnly,
+    stat: alwaysReadOnly,
+    ls: alwaysReadOnly,
+    grep: alwaysReadOnly,
+    find: excludingDangerousFlags([
+        "-exec",
+        "-execdir",
+        "-delete",
+        "-ok",
+        "-okdir",
+        "-fprint",
+        "-fprintf",
+    ]),
+    fd: excludingDangerousFlags(["-x", "--exec", "-X", "--exec-batch"]),
+    sed: excludingDangerousFlags(["-i", "--in-place"]),
+    npm: matchingSubcommand(["list", "ls", "view", "outdated", "why"]),
+    pnpm: matchingSubcommand(["list", "ls", "why", "outdated"]),
+    pip: matchingSubcommand(["list", "show", "freeze"]),
+    cargo: matchingSubcommand(["tree", "search"]),
+};
 
 const REDIRECT_ONLY_COMMANDS = new Set(["echo", "printf"]);
 
@@ -213,6 +277,13 @@ const NETWORK_GIT_OPERATIONS = new Map([
     ["pull", "git.pull"],
     ["push", "git.push"],
 ]);
+
+/**
+ * Git subcommands that never mutate repository state, regardless of flags.
+ * `branch` is handled separately since only `git branch --list` (not bare
+ * `git branch`, which can also create) is provably read-only.
+ */
+const GIT_READ_SUBCOMMANDS = new Set(["log", "status", "diff", "show"]);
 
 export const CORE_PERMISSION_OPERATIONS = new Set([
     "git.clone",
@@ -570,7 +641,11 @@ function actionsForSimpleCommand(
             ...redirects,
         ];
     }
-    if (READ_COMMANDS.has(executable)) {
+    const readOnlyClassifier = READ_ONLY_COMMANDS[executable];
+    if (
+        readOnlyClassifier !== undefined
+        && readOnlyClassifier(words.slice(executableIndex + 1))
+    ) {
         return [{ tool: "bash", verb: "read", executable }, ...redirects];
     }
     if (REDIRECT_ONLY_COMMANDS.has(executable) && redirects.length > 0) {
@@ -702,6 +777,12 @@ function gitActions(
             operation: "git.remote_update",
             executable: "git",
         }];
+    }
+    if (
+        GIT_READ_SUBCOMMANDS.has(subcommand)
+        || (subcommand === "branch" && words[subcommandIndex + 1] === "--list")
+    ) {
+        return [{ tool: "bash", verb: "read", executable: "git" }];
     }
     return [{ tool: "bash", verb: "unknown", executable: "git" }];
 }
