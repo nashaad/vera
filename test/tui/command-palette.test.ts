@@ -126,3 +126,13 @@ test("the palette card is borderless from construction, not from its first updat
         setup.renderer.destroy();
     }
 });
+
+test("the palette sits below the top quarter of the terminal", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    try {
+        const view = createTuiCommandPaletteView(setup.renderer);
+        expect(view.box.top).toBe(7.5);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
