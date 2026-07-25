@@ -636,16 +636,24 @@ export class InboundCommandRouter {
             && this.pendingApprovals.has(command.requestId)
         ) {
             const pending = this.pendingApprovals.get(command.requestId)!;
+            const decision = command.response.decision;
+            // Both remembering decisions need a predicate to remember and a
+            // sink to put it in. With either missing the keypress is ignored
+            // rather than downgraded to a plain allow, so the prompt stays up
+            // and the user is never told a preference was saved when it was
+            // not.
             if (
-                command.response.decision === "allow_similar"
+                (decision === "allow_similar" || decision === "allow_always")
                 && (
                     pending.permissionGrants === undefined
-                    || this.options.addPermissionGrants === undefined
+                    || (decision === "allow_similar"
+                        ? this.options.addPermissionGrants === undefined
+                        : this.options.addPermissionPreference === undefined)
                 )
             ) {
                 return;
             }
-            if (command.response.decision === "allow_similar") {
+            if (decision === "allow_similar") {
                 try {
                     await this.options.addPermissionGrants!(
                         pending.permissionGrants!,
@@ -654,6 +662,25 @@ export class InboundCommandRouter {
                     this.finishApproval(command.requestId, {
                         behavior: "deny",
                         reason: "The session permission grants could not be saved.",
+                    });
+                    return;
+                }
+            }
+            if (decision === "allow_always") {
+                try {
+                    // One preference per proposal, reusing the predicate the
+                    // session row would have stored, so the durable row
+                    // silences exactly the prompts its neighbour would.
+                    for (const proposal of pending.permissionGrants!) {
+                        await this.options.addPermissionPreference!(
+                            proposal.when,
+                        );
+                    }
+                } catch {
+                    this.finishApproval(command.requestId, {
+                        behavior: "deny",
+                        reason:
+                            "The permission preference could not be saved.",
                     });
                     return;
                 }
@@ -667,6 +694,14 @@ export class InboundCommandRouter {
                 command.requestId,
                 approvalResult(command.response),
             );
+            if (decision === "allow_always") {
+                // Unsolicited refresh, because the client's cached inspection
+                // is now stale and it only fetches one at startup. Sent after
+                // the approval closes, and carrying the approval's own request
+                // ID rather than a fresh one, so the update is traceable to the
+                // keypress that caused it instead of appearing out of nowhere.
+                this.sendPermissions(command.requestId);
+            }
             return;
         }
         if (command.response.type === "user_question") {
@@ -760,6 +795,7 @@ function approvalResult(
 ): ToolApprovalResult {
     return response.decision === "allow_once"
         || response.decision === "allow_similar"
+        || response.decision === "allow_always"
         ? { behavior: "allow" }
         : { behavior: "deny", reason: "Tool use was denied by the user." };
 }

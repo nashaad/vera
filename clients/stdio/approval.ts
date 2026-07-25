@@ -27,11 +27,16 @@ export function createStdioApprovalResponse(
     answer: string | undefined,
 ): UiResponseCommand {
     const normalized = answer?.trim();
+    const grantsAvailable = update.request.permissionGrants !== undefined;
+    // Anything unrecognized falls through to deny, so a stray keystroke can
+    // never persist a permission.
     const decision = normalized === "1"
         ? "allow_once"
-        : normalized === "2" && update.request.permissionGrants !== undefined
+        : normalized === "2" && grantsAvailable
             ? "allow_similar"
-            : "deny";
+            : normalized === "4" && grantsAvailable
+                ? "allow_always"
+                : "deny";
     return {
         type: "ui_response",
         requestId: update.requestId,

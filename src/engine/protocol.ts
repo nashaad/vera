@@ -470,6 +470,7 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             && (
                 response.decision === "allow_once"
                 || response.decision === "allow_similar"
+                || response.decision === "allow_always"
                 || response.decision === "deny"
             )
         ) {

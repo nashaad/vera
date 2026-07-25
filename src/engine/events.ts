@@ -67,7 +67,12 @@ export interface ToolApprovalUiRequest {
 
 export interface ToolApprovalUiResponse {
     readonly type: "tool_approval";
-    readonly decision: "allow_once" | "allow_similar" | "deny";
+    readonly decision:
+        | "allow_once"
+        | "allow_similar"
+        /** Same predicate as `allow_similar`, stored durably instead. */
+        | "allow_always"
+        | "deny";
 }
 
 export interface UserQuestionChoice {
