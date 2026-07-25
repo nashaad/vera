@@ -9,12 +9,13 @@ import {
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER_WIDTH,
     dialogFooterNode,
+    dialogGroupHeaderNode,
     dialogHeaderNode,
     dialogOptionRow,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
-import type { TuiPaletteEntry } from "./commands.ts";
-import { TUI_ACCENT, TUI_MUTED, TUI_PANEL } from "./state.ts";
+import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
+import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 
 export interface TuiCommandPaletteState {
     readonly allCommands: readonly TuiPaletteEntry[];
@@ -46,19 +47,27 @@ export interface TuiCommandPaletteView {
 export function startTuiCommandPalette(
     commands: readonly TuiPaletteEntry[],
 ): TuiCommandPaletteState {
-    return {
-        allCommands: commands,
-        commands,
-        selectedIndex: 0,
-        query: "",
-    };
+    return filteredState(grouped(commands), "");
 }
 
 export function updateTuiCommandPaletteCommands(
     state: TuiCommandPaletteState,
     commands: readonly TuiPaletteEntry[],
 ): TuiCommandPaletteState {
-    return filteredState(commands, state.query);
+    return filteredState(grouped(commands), state.query);
+}
+
+/**
+ * Registration order is an implementation detail; the palette shows a stable
+ * heading order instead. Within a group, entries keep the order they registered
+ * in, which is the order their commands are defined.
+ */
+function grouped(
+    commands: readonly TuiPaletteEntry[],
+): readonly TuiPaletteEntry[] {
+    return TUI_PALETTE_GROUPS.flatMap((group) =>
+        commands.filter((command) => command.group === group)
+    );
 }
 
 export function handleTuiCommandPaletteKey(
@@ -76,6 +85,11 @@ export function handleTuiCommandPaletteKey(
     }
     if (key.name.length === 1) {
         return searched(state, state.query + key.name);
+    }
+    // Rows are verb phrases now, so "switch model" is the natural way to narrow
+    // to one. Terminals name the spacebar rather than sending the character.
+    if (key.name === "space") {
+        return searched(state, `${state.query} `);
     }
     if (key.name === "up") {
         return {
@@ -113,8 +127,10 @@ export function createTuiCommandPaletteView(
     let nodes: Renderable[] = [];
     const box = new BoxRenderable(renderer, {
         id: "command-palette",
+        // No borderColor here. OpenTUI's BoxRenderable constructor reads any
+        // border styling option as "this box wants a border" and overrides an
+        // explicit `border: false`, so passing a color is what draws the box.
         border: false,
-        borderColor: TUI_ACCENT,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         top: 2,
@@ -142,7 +158,8 @@ export function createTuiCommandPaletteView(
             box.add(search);
             nodes.push(header, search);
 
-            const rows = windowedCommands(state);
+            const rows = windowedRows(displayRows(state), state.selectedIndex);
+            let lines = 0;
             if (rows.length === 0) {
                 const empty = new TextRenderable(renderer, {
                     content: "No commands found",
@@ -153,24 +170,25 @@ export function createTuiCommandPaletteView(
                 });
                 box.add(empty);
                 nodes.push(empty);
-            } else {
-                rows.forEach(({ command, index }) => {
-                    const row = dialogOptionRow(renderer, {
-                        label: command.slashName === undefined
-                            ? command.name
-                            : `/${command.slashName}`,
-                        description: command.description,
-                        meta: command.usage === undefined
-                            || command.usage === `/${command.slashName ?? command.name}`
+                lines = 1;
+            }
+            rows.forEach((row, position) => {
+                const node = row.kind === "group"
+                    ? dialogGroupHeaderNode(renderer, row.label, position > 0)
+                    : dialogOptionRow(renderer, {
+                        label: row.command.label,
+                        leading: "  ",
+                        description: row.command.description.length === 0
                             ? undefined
-                            : command.usage,
-                        active: index === state.selectedIndex,
+                            : row.command.description,
+                        meta: rowMeta(row.command),
+                        active: row.index === state.selectedIndex,
                         current: false,
                     });
-                    box.add(row);
-                    nodes.push(row);
-                });
-            }
+                lines += row.kind === "group" && position > 0 ? 2 : 1;
+                box.add(node);
+                nodes.push(node);
+            });
 
             const footer = dialogFooterNode(
                 renderer,
@@ -178,8 +196,7 @@ export function createTuiCommandPaletteView(
             );
             box.add(footer);
             nodes.push(footer);
-            box.height = Math.min(MAX_PALETTE_ROWS, state.commands.length)
-                + DIALOG_CHROME_HEIGHT;
+            box.height = lines + DIALOG_CHROME_HEIGHT;
         },
     };
 }
@@ -202,27 +219,61 @@ function filteredState(
 ): TuiCommandPaletteState {
     const normalized = query.toLowerCase();
     const commands = allCommands.filter((command) =>
-        `${command.name} ${command.description} ${command.usage}`
+        `${command.label} ${command.description} ${command.group} ${
+            command.slashName === undefined ? "" : `/${command.slashName}`
+        }`
             .toLowerCase()
             .includes(normalized)
     );
     return { allCommands, commands, selectedIndex: 0, query };
 }
 
-function windowedCommands(
+/**
+ * The right-hand column answers "how else do I reach this": a keybinding when
+ * the action has one, otherwise the slash command that runs it.
+ */
+function rowMeta(command: TuiPaletteEntry): string | undefined {
+    if (command.keyHint !== undefined) {
+        return command.keyHint;
+    }
+    return command.slashName === undefined ? undefined : `/${command.slashName}`;
+}
+
+type PaletteDisplayRow =
+    | { readonly kind: "group"; readonly label: string }
+    | {
+        readonly kind: "command";
+        readonly command: TuiPaletteEntry;
+        readonly index: number;
+    };
+
+function displayRows(
     state: TuiCommandPaletteState,
-): readonly {
-    readonly command: TuiPaletteEntry;
-    readonly index: number;
-}[] {
-    const start = Math.min(
-        Math.max(
-            0,
-            state.selectedIndex - Math.floor(MAX_PALETTE_ROWS / 2),
-        ),
-        Math.max(0, state.commands.length - MAX_PALETTE_ROWS),
+): readonly PaletteDisplayRow[] {
+    const rows: PaletteDisplayRow[] = [];
+    state.commands.forEach((command, index) => {
+        if (state.commands[index - 1]?.group !== command.group) {
+            rows.push({ kind: "group", label: command.group });
+        }
+        rows.push({ kind: "command", command, index });
+    });
+    return rows;
+}
+
+function windowedRows(
+    rows: readonly PaletteDisplayRow[],
+    selectedIndex: number,
+): readonly PaletteDisplayRow[] {
+    if (rows.length <= MAX_PALETTE_ROWS) {
+        return rows;
+    }
+    const cursor = rows.findIndex((row) =>
+        row.kind === "command" && row.index === selectedIndex
     );
-    return state.commands
-        .slice(start, start + MAX_PALETTE_ROWS)
-        .map((command, offset) => ({ command, index: start + offset }));
+    const centered = Math.max(0, cursor) - Math.floor(MAX_PALETTE_ROWS / 2);
+    const start = Math.min(
+        Math.max(0, centered),
+        rows.length - MAX_PALETTE_ROWS,
+    );
+    return rows.slice(start, start + MAX_PALETTE_ROWS);
 }

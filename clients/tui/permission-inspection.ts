@@ -32,7 +32,10 @@ export function renderPermissionInspection(
         }`,
         ...(grants.length === 0 && preferences.length === 0
             ? []
-            : ["/preferences to review or remove them"]),
+            // `/settings`, not the overlay's own name: granted permissions now
+            // live under Permissions inside the settings menu, and pointing at
+            // the menu teaches the route the user can find again.
+            : ["/settings to review or remove them"]),
     ].join("\n");
 }
 

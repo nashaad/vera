@@ -15,6 +15,14 @@ test("raw TUI input identifies Ctrl+C before overlay handling", () => {
     expect(parseRawInputEvent({ name: "escape", ctrl: false })).toBeUndefined();
 });
 
+test("raw TUI input identifies Ctrl+P as the palette chord", () => {
+    expect(parseRawInputEvent({ name: "p", ctrl: true })).toEqual({
+        type: "open_palette",
+    });
+    // A bare p is composer text, so the chord has to carry ctrl.
+    expect(parseRawInputEvent({ name: "p", ctrl: false })).toBeUndefined();
+});
+
 test("Ctrl+C aborts a working TUI turn once", () => {
     const key = { name: "c", ctrl: true };
 

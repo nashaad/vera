@@ -69,6 +69,7 @@ import {
     extensionCommandResultText,
     registerExtensionTuiCommands,
     renderTuiCommandSuggestions,
+    type TuiCommandAction,
     type TuiPaletteEntry,
 } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
@@ -88,8 +89,10 @@ import { renderTuiStatusLine } from "./status.ts";
 import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerKey,
+    startTuiSettingsMenu,
     startTuiSettingsPicker,
     startTuiSessionPicker,
+    type TuiSettingsMenuTarget,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
 } from "./settings-picker.ts";
@@ -144,7 +147,9 @@ import {
     saveTuiThemePreference,
 } from "./theme-preference.ts";
 
-const READY_HINT = "ready";
+// The palette has no other advertisement: it is a chord, not a slash command in
+// the composer's list, so the idle status line is where you find out it exists.
+const READY_HINT = "ready · ctrl+p commands";
 const WORKING_HINT = "enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
 const APPROVAL_HINT =
@@ -436,25 +441,9 @@ export async function startTui(
     const coreHelpCommands = commandRegistry.registeredCommands();
 
     function registeredPaletteEntries(): readonly TuiPaletteEntry[] {
-        const slashEntries = commandRegistry.registeredCommands().flatMap(
-            (command): TuiPaletteEntry[] => {
-                const action = commandRegistry.dispatch(`/${command.name}`);
-                if (action === undefined || action.type === "command_error") {
-                    return [];
-                }
-                return [{
-                    name: command.name,
-                    description: command.description,
-                    usage: command.usage,
-                    slashName: command.name,
-                    action,
-                }];
-            },
-        );
-        return [
-            ...slashEntries,
-            ...commandRegistry.registeredPaletteActions(),
-        ];
+        // Every command that belongs in the palette declares its own row, so
+        // there is nothing left to synthesize from the slash catalog.
+        return commandRegistry.registeredPaletteActions();
     }
 
     let markdownStyle = createMarkdownStyle(theme);
@@ -643,6 +632,23 @@ export async function startTui(
     });
 
     renderer.keyInput.on("keypress", (key) => {
+        if (parseRawInputEvent(key)?.type === "open_palette") {
+            key.preventDefault();
+            key.stopPropagation();
+            // A second ctrl+p closes the palette, so the chord toggles rather
+            // than reopening a palette that is already in front of you.
+            if (commandPalette !== undefined) {
+                commandPalette = undefined;
+                commandPaletteView.box.visible = false;
+                composer.focus();
+                renderState();
+                return;
+            }
+            if (pendingUiRequest === undefined && !sessionSwitchPending) {
+                openCommandPalette();
+            }
+            return;
+        }
         if (parseRawInputEvent(key)?.type === "interrupt") {
             if (sessionSwitchPending) {
                 key.preventDefault();
@@ -799,25 +805,7 @@ export async function startTui(
                 if (transition.selection !== undefined) {
                     const selected = transition.selection;
                     commandPalette = undefined;
-                    if (selected.slashName !== undefined) {
-                        composer.setComposerText(`/${selected.slashName}`);
-                        renderState();
-                        submitPrompt();
-                    } else if (selected.action.type === "open_model_picker") {
-                        composer.clearComposer();
-                        settingsPicker = startTuiSettingsPicker(
-                            "model",
-                            state.modelSettings?.model,
-                            state.modelSettings?.reasoningEffort,
-                            state.approvalMode,
-                            state.modelSettings?.availableReasoningEfforts,
-                            state.modelSettings?.availableModels,
-                            undefined,
-                            state.modelSettings?.provider,
-                        );
-                        renderState();
-                        focusActiveSurface();
-                    }
+                    runPaletteAction(selected);
                 } else {
                     renderState();
                     focusActiveSurface();
@@ -1019,11 +1007,7 @@ export async function startTui(
                     return;
                 }
                 if (result.body.kind === "client_action") {
-                    if (result.body.action === "show_commands") {
-                        commandPalette = startTuiCommandPalette(
-                            registeredPaletteEntries(),
-                        );
-                    } else if (result.body.action === "show_help") {
+                    if (result.body.action === "show_help") {
                         help = startTuiHelp(
                             coreHelpCommands,
                             hostExtensionCommands,
@@ -1086,18 +1070,7 @@ export async function startTui(
         }
         if (commandAction?.type === "open_model_picker") {
             composer.clearComposer();
-            settingsPicker = startTuiSettingsPicker(
-                "model",
-                state.modelSettings?.model,
-                state.modelSettings?.reasoningEffort,
-                state.approvalMode,
-                state.modelSettings?.availableReasoningEfforts,
-                state.modelSettings?.availableModels,
-                undefined,
-                state.modelSettings?.provider,
-            );
-            renderState();
-            focusActiveSurface();
+            openModelPicker();
             return;
         }
         if (commandAction?.type === "update_reasoning") {
@@ -1116,16 +1089,7 @@ export async function startTui(
         }
         if (commandAction?.type === "open_reasoning_picker") {
             composer.clearComposer();
-            settingsPicker = startTuiSettingsPicker(
-                "reasoning",
-                state.modelSettings?.model,
-                state.modelSettings?.reasoningEffort,
-                state.approvalMode,
-                state.modelSettings?.availableReasoningEfforts,
-                state.modelSettings?.availableModels,
-            );
-            renderState();
-            focusActiveSurface();
+            openReasoningPicker();
             return;
         }
         if (commandAction?.type === "update_permissions") {
@@ -1141,53 +1105,34 @@ export async function startTui(
         }
         if (commandAction?.type === "open_preferences_list") {
             composer.clearComposer();
-            // Opened from the cached inspection, then refreshed by the reply to
-            // this fetch. Without the fetch the list could be stale, since a
-            // client is only sent an inspection at startup and when something
-            // changes it.
-            preferencesList = startTuiPreferencesList(state.permissionInspection);
-            sendCommand({ type: "get_permissions", requestId: randomUUID() });
-            composer.blur();
-            focusActiveSurface();
-            renderState();
+            openPreferencesList();
             return;
         }
         if (commandAction?.type === "open_permissions_picker") {
             composer.clearComposer();
-            if (state.permissionInspection !== undefined) {
-                state = appendTuiNotice(
-                    state,
-                    renderPermissionInspection(state.permissionInspection),
-                );
-            }
-            settingsPicker = startTuiSettingsPicker(
-                "permissions",
-                state.modelSettings?.model,
-                state.modelSettings?.reasoningEffort,
-                state.approvalMode,
-                state.modelSettings?.availableReasoningEfforts,
-                state.modelSettings?.availableModels,
-                undefined,
-                undefined,
-                state.permissionInspection?.availableModes,
-            );
-            renderState();
-            focusActiveSurface();
+            openPermissionsPicker();
             return;
         }
         if (commandAction?.type === "open_theme_picker") {
             composer.clearComposer();
-            settingsPicker = startTuiSettingsPicker(
-                "theme",
-                state.modelSettings?.model,
-                state.modelSettings?.reasoningEffort,
-                state.approvalMode,
-                state.modelSettings?.availableReasoningEfforts,
-                state.modelSettings?.availableModels,
-                themeName,
-            );
+            openThemePicker();
+            return;
+        }
+        if (commandAction?.type === "open_settings_menu") {
+            composer.clearComposer();
+            openSettingsMenu();
+            return;
+        }
+        if (commandAction?.type === "open_command_palette") {
+            composer.clearComposer();
+            openCommandPalette();
+            return;
+        }
+        if (commandAction?.type === "prefill_composer") {
+            composer.setComposerText(commandAction.text);
+            renderCommandSuggestions();
             renderState();
-            focusActiveSurface();
+            composer.focus();
             return;
         }
         if (commandAction?.type === "open_resume_picker") {
@@ -2002,6 +1947,155 @@ export async function startTui(
         }
     }
 
+    // The surface openers below are shared by three callers: a slash command, a
+    // palette row, and a /settings menu entry. Keeping them here means the three
+    // routes cannot drift into opening the same picker with different arguments.
+
+    function openModelPicker(): void {
+        settingsPicker = startTuiSettingsPicker(
+            "model",
+            state.modelSettings?.model,
+            state.modelSettings?.reasoningEffort,
+            state.approvalMode,
+            state.modelSettings?.availableReasoningEfforts,
+            state.modelSettings?.availableModels,
+            undefined,
+            state.modelSettings?.provider,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openReasoningPicker(): void {
+        settingsPicker = startTuiSettingsPicker(
+            "reasoning",
+            state.modelSettings?.model,
+            state.modelSettings?.reasoningEffort,
+            state.approvalMode,
+            state.modelSettings?.availableReasoningEfforts,
+            state.modelSettings?.availableModels,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openPermissionsPicker(): void {
+        if (state.permissionInspection !== undefined) {
+            state = appendTuiNotice(
+                state,
+                renderPermissionInspection(state.permissionInspection),
+            );
+        }
+        settingsPicker = startTuiSettingsPicker(
+            "permissions",
+            state.modelSettings?.model,
+            state.modelSettings?.reasoningEffort,
+            state.approvalMode,
+            state.modelSettings?.availableReasoningEfforts,
+            state.modelSettings?.availableModels,
+            undefined,
+            undefined,
+            state.permissionInspection?.availableModes,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openThemePicker(): void {
+        settingsPicker = startTuiSettingsPicker(
+            "theme",
+            state.modelSettings?.model,
+            state.modelSettings?.reasoningEffort,
+            state.approvalMode,
+            state.modelSettings?.availableReasoningEfforts,
+            state.modelSettings?.availableModels,
+            themeName,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openPreferencesList(): void {
+        // Opened from the cached inspection, then refreshed by the reply to
+        // this fetch. Without the fetch the list could be stale, since a
+        // client is only sent an inspection at startup and when something
+        // changes it.
+        preferencesList = startTuiPreferencesList(state.permissionInspection);
+        sendCommand({ type: "get_permissions", requestId: randomUUID() });
+        composer.blur();
+        focusActiveSurface();
+        renderState();
+    }
+
+    function openSettingsMenu(): void {
+        settingsPicker = startTuiSettingsMenu("settings");
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openSettingsMenuTarget(target: TuiSettingsMenuTarget): void {
+        if (target === "model") return openModelPicker();
+        if (target === "reasoning") return openReasoningPicker();
+        if (target === "theme") return openThemePicker();
+        if (target === "permission_mode") return openPermissionsPicker();
+        if (target === "granted_permissions") return openPreferencesList();
+        settingsPicker = startTuiSettingsMenu("permission_settings");
+        renderState();
+        focusActiveSurface();
+    }
+
+    /**
+     * Palette rows run through the composer so a chosen row lands in history and
+     * takes the same path a typed command does. Rows with no slash command of
+     * their own (and the one row that only starts a command) are dispatched
+     * directly instead.
+     */
+    function runPaletteAction(entry: TuiPaletteEntry): void {
+        if (
+            entry.action.type === "prefill_composer"
+            || entry.slashName === undefined
+        ) {
+            composer.clearComposer();
+            runStandalonePaletteAction(entry.action);
+            return;
+        }
+        composer.setComposerText(`/${entry.slashName}`);
+        renderState();
+        submitPrompt();
+    }
+
+    function runStandalonePaletteAction(action: TuiCommandAction): void {
+        if (action.type === "prefill_composer") {
+            composer.setComposerText(action.text);
+            renderCommandSuggestions();
+            renderState();
+            composer.focus();
+            return;
+        }
+        if (action.type === "open_model_picker") return openModelPicker();
+        if (action.type === "open_reasoning_picker") {
+            return openReasoningPicker();
+        }
+        if (action.type === "open_permissions_picker") {
+            return openPermissionsPicker();
+        }
+        if (action.type === "open_theme_picker") return openThemePicker();
+        if (action.type === "open_preferences_list") {
+            return openPreferencesList();
+        }
+        if (action.type === "open_settings_menu") return openSettingsMenu();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openCommandPalette(): void {
+        commandPalette = startTuiCommandPalette(registeredPaletteEntries());
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
     function applySettingsPickerTransition(
         transition: TuiSettingsPickerTransition,
     ): void {
@@ -2044,6 +2138,11 @@ export async function startTui(
                 themeName = selection.theme;
                 saveTuiThemePreference(themeName);
                 void applySelectedTheme(themeName, true);
+            } else if (selection.kind === "menu") {
+                // A menu row opens the next surface, which replaces this one.
+                settingsPicker = undefined;
+                openSettingsMenuTarget(selection.target);
+                return;
             } else {
                 resumeSessionPath = selection.sessionPath;
                 renderer.destroy();

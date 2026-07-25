@@ -119,7 +119,7 @@ export async function startExtensionRegistry(
                     descriptor.name as typeof RESERVED_EXTENSION_COMMAND_NAMES[number],
                 )) {
                     throw new Error(
-                        `Extension command /${descriptor.name} from ${running.id} collides with a bundled client command`,
+                        `Extension command /${descriptor.name} from ${running.id} collides with a built-in client command`,
                     );
                 }
                 const existing = commands.get(descriptor.name);

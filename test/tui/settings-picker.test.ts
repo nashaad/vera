@@ -3,6 +3,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     handleTuiSettingsPickerKey,
+    startTuiSettingsMenu,
     startTuiSettingsPicker,
     startTuiSessionPicker,
     createTuiSettingsPickerView,
@@ -380,6 +381,51 @@ test("escape closes the settings picker", () => {
     });
 });
 
+test("the settings menu routes into permissions and its two entries", () => {
+    const settings = startTuiSettingsMenu("settings");
+
+    expect(settings.options.map((option) => option.value)).toEqual([
+        "model",
+        "reasoning",
+        "permissions",
+        "theme",
+    ]);
+    let permissions = settings;
+    for (const name of "perm") {
+        permissions = handleTuiSettingsPickerKey(permissions, { name }).state
+            ?? permissions;
+    }
+    expect(handleTuiSettingsPickerKey(permissions, { name: "enter" }).selection)
+        .toEqual({ kind: "menu", target: "permissions" });
+
+    const permissionSettings = startTuiSettingsMenu("permission_settings");
+    expect(permissionSettings.options.map((option) => option.value)).toEqual([
+        "permission_mode",
+        "granted_permissions",
+    ]);
+    const granted = handleTuiSettingsPickerKey(
+        permissionSettings,
+        { name: "down" },
+    ).state ?? permissionSettings;
+    expect(handleTuiSettingsPickerKey(granted, { name: "enter" }).selection)
+        .toEqual({ kind: "menu", target: "granted_permissions" });
+});
+
+test("escape inside a settings submenu steps back to its parent", () => {
+    // A wrong turn costs one key rather than a reopen of /settings.
+    const back = handleTuiSettingsPickerKey(
+        startTuiSettingsMenu("permission_settings"),
+        { name: "escape" },
+    );
+
+    expect(back.handled).toBe(true);
+    expect(back.state?.kind).toBe("settings");
+    expect(handleTuiSettingsPickerKey(
+        back.state ?? startTuiSettingsMenu("settings"),
+        { name: "escape" },
+    )).toEqual({ handled: true });
+});
+
 test("theme picker is curated, searchable, and keeps the current theme selected", () => {
     const themes = startTuiSettingsPicker(
         "theme",
@@ -420,6 +466,10 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
 test("theme picker renders as a borderless palette card with swatches", async () => {
     const setup = await createTestRenderer({ width: 100, height: 30 });
     const view = createTuiSettingsPickerView(setup.renderer);
+    // Before the first update, so this cannot pass because `update()` reset it.
+    // OpenTUI's BoxRenderable constructor overrides `border: false` when any
+    // border styling option is also passed, which is what used to need resetting.
+    expect(view.box.border).toBe(false);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
     view.update(startTuiSettingsPicker(

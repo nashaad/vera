@@ -11,12 +11,27 @@ export interface TuiRawInterruptEvent {
     readonly type: "interrupt";
 }
 
+export interface TuiRawPaletteEvent {
+    readonly type: "open_palette";
+}
+
+export type TuiRawInputEvent = TuiRawInterruptEvent | TuiRawPaletteEvent;
+
+/**
+ * The global chords, recognized in one place so no overlay has to match raw key
+ * names itself. Every key handler consults this before its own bindings, which
+ * is what keeps ctrl+c interruptible from inside a dialog.
+ */
 export function parseRawInputEvent(
     key: TuiInterruptKey,
-): TuiRawInterruptEvent | undefined {
-    return key.name === "c" && key.ctrl
-        ? { type: "interrupt" }
-        : undefined;
+): TuiRawInputEvent | undefined {
+    if (!key.ctrl) {
+        return undefined;
+    }
+    if (key.name === "c") {
+        return { type: "interrupt" };
+    }
+    return key.name === "p" ? { type: "open_palette" } : undefined;
 }
 
 export function tuiInterruptAction(

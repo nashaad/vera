@@ -4,7 +4,7 @@ export const CLIENT_EXTENSION_RESULT_VERSION = 1;
 
 export interface ShowClientSurfaceAction {
     readonly kind: "client_action";
-    readonly action: "show_commands" | "show_help";
+    readonly action: "show_help";
 }
 
 export interface ClientExtensionCommandResult {

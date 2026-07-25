@@ -1,5 +1,15 @@
 export const EXTENSION_COMMAND_RESULT_VERSION = 1;
-export const RESERVED_EXTENSION_COMMAND_NAMES = ["help", "commands"] as const;
+/**
+ * Names an extension cannot take, because a client surface answers to them
+ * first: `/help` is the bundled help extension, `/palette` and `/settings` are
+ * client built-ins. Taking one would be silently shadowed rather than
+ * overriding, so the registry refuses the extension at load instead.
+ */
+export const RESERVED_EXTENSION_COMMAND_NAMES = [
+    "help",
+    "palette",
+    "settings",
+] as const;
 
 export interface ExtensionCommandNoticeBody {
     readonly kind: "notice";
