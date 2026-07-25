@@ -22,6 +22,11 @@ import {
     permissionPredicateMatches,
     type PermissionGrant,
 } from "./permission-grants.ts";
+import {
+    applyPermissionPreference,
+    isPermissionPreference,
+    type PermissionPreference,
+} from "./permission-preferences.ts";
 
 export { isApprovalMode, parseApprovalMode };
 export type { ApprovalMode };
@@ -36,6 +41,15 @@ export type {
     PermissionGrantKind,
     PermissionGrantProposal,
 } from "./permission-grants.ts";
+export {
+    addPermissionPreference,
+    defaultPermissionPreferencesPath,
+    isPermissionPreference,
+    listPermissionPreferences,
+    loadPermissionPreferences,
+    removePermissionPreference,
+} from "./permission-preferences.ts";
+export type { PermissionPreference } from "./permission-preferences.ts";
 
 export type PermissionOutcome = "allow" | "review" | "ask" | "deny";
 export type PermissionVerb = "read" | "write" | "delete" | "unknown";
@@ -95,6 +109,9 @@ export interface PermissionInspection {
     readonly selected: PermissionProfile;
     readonly availableProfiles: readonly string[];
     readonly activeGrants: readonly PermissionGrant[];
+    /** Durable preferences layered on top of the selected profile. Optional
+     * so existing call sites that predate preferences keep compiling. */
+    readonly activePreferences?: readonly PermissionPreference[];
 }
 
 export interface PermissionActionDecision {
@@ -102,6 +119,7 @@ export interface PermissionActionDecision {
     readonly outcome: PermissionOutcome;
     readonly rule: string;
     readonly grant?: string;
+    readonly preference?: string;
 }
 
 export interface AllowToolPermission {
@@ -138,6 +156,7 @@ export type ToolPermissionDecision =
 export interface DecideToolPermissionOptions {
     readonly homeDirectory?: string;
     readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
+    readonly permissionPreferences?: readonly PermissionPreference[];
 }
 
 const ROUTINE_RULES: readonly PermissionRule[] = [
@@ -339,7 +358,14 @@ export function decideToolPermission(
         toolCall,
         workspace,
         homeDirectory,
-    }).map((action) => evaluateAction(profile, action, grants));
+    }).map((action) =>
+        evaluateAction(
+            profile,
+            action,
+            grants,
+            options.permissionPreferences ?? [],
+        )
+    );
     // Every action is evaluated; the strictest outcome wins. A recognized read
     // followed by an unresolved command still falls back to the profile.
     const effective = decisions.reduce<PermissionOutcome>(
@@ -394,6 +420,7 @@ export function inspectPermissions(
     name: ApprovalMode,
     customProfiles: Readonly<Record<string, PermissionProfile>> = {},
     grants: readonly PermissionGrant[] = [],
+    preferences: readonly PermissionPreference[] = [],
 ): PermissionInspection | undefined {
     const selected = builtInPermissionProfile(name) ?? customProfiles[name];
     if (selected === undefined) {
@@ -422,6 +449,11 @@ export function inspectPermissions(
             when: { ...grant.when },
             scope: grant.scope,
             lifetime: grant.lifetime,
+        })),
+        activePreferences: preferences.map((preference) => ({
+            id: preference.id,
+            when: { ...preference.when },
+            createdAt: preference.createdAt,
         })),
     };
 }
@@ -454,7 +486,10 @@ export function isPermissionInspection(
             typeof name === "string" && name.length > 0
         )
         && Array.isArray(value.activeGrants)
-        && value.activeGrants.every(isPermissionGrant);
+        && value.activeGrants.every(isPermissionGrant)
+        && (value.activePreferences === undefined
+            || (Array.isArray(value.activePreferences)
+                && value.activePreferences.every(isPermissionPreference)));
 }
 
 export function extractPermissionActions(
@@ -492,21 +527,38 @@ export function evaluateAction(
     profile: PermissionProfile,
     action: PermissionAction,
     grants: readonly PermissionGrant[] = [],
+    preferences: readonly PermissionPreference[] = [],
 ): PermissionActionDecision {
     for (const rule of profile.rules) {
         if (permissionPredicateMatches(rule.when, action)) {
-            return applyPermissionGrant({
+            return applyPermissionSafetyNets({
                 action,
                 outcome: rule.then,
                 rule: rule.name,
-            }, grants);
+            }, preferences, grants);
         }
     }
-    return applyPermissionGrant({
+    return applyPermissionSafetyNets({
         action,
         outcome: profile.defaultOutcome,
         rule: `${profile.name}.default`,
-    }, grants);
+    }, preferences, grants);
+}
+
+/**
+ * Preferences are checked first (a durable, user-curated first pass), then
+ * session grants. Both share the same rail: a decision that already landed
+ * on `allow` (or `deny`) is untouched, so neither layer can widen a denial.
+ */
+function applyPermissionSafetyNets(
+    decision: PermissionActionDecision,
+    preferences: readonly PermissionPreference[],
+    grants: readonly PermissionGrant[],
+): PermissionActionDecision {
+    const afterPreference = applyPermissionPreference(decision, preferences);
+    return afterPreference.outcome === "allow"
+        ? afterPreference
+        : applyPermissionGrant(afterPreference, grants);
 }
 
 /**
