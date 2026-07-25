@@ -188,6 +188,86 @@ test("a structured tool call missing its declared path input falls to review, no
         .toBe("ask");
 });
 
+test("reading an obvious secret file is denied by default", () => {
+    for (
+        const path of [
+            ".env",
+            "config/.env",
+            "id_rsa",
+            "keys/id_rsa",
+            "server.pem",
+        ]
+    ) {
+        for (const mode of ["ask", "auto"] as const) {
+            const decision = decide(mode, toolCall("read", { path }));
+            expect(decision.behavior).toBe("deny");
+            if (decision.behavior === "deny") {
+                expect(decision.source).toBe("profile");
+            }
+        }
+    }
+});
+
+// The deny list covers `.env` exactly, not `.env.*`. Suffixed variants are
+// too often a checked-in placeholder (`.env.example`) or a file the user
+// wants read, and this list is hygiene rather than a security boundary, so
+// it stays small instead of growing exceptions to cover its own overreach.
+test("suffixed .env variants are not caught by the hygiene deny", () => {
+    for (const path of [".env.example", ".env.local", ".env.production"]) {
+        for (const mode of ["ask", "auto", "full_access"] as const) {
+            expect(decide(mode, toolCall("read", { path })).behavior)
+                .toBe("allow");
+        }
+    }
+});
+
+test("full_access is not subject to the secret-file hygiene deny", () => {
+    expect(decide("full_access", toolCall("read", { path: ".env" })).behavior)
+        .toBe("allow");
+});
+
+test("the secret-file hygiene deny only applies to reads", () => {
+    // Writing/creating a secret file goes through the normal write rules
+    // (allowed inside the workspace) rather than being hard-denied.
+    expect(decide("auto", toolCall("write", { path: ".env", content: "x" }))
+        .behavior).toBe("allow");
+    // Outside the workspace it still follows the ordinary write flow, not a
+    // hard secret-file deny.
+    expect(decide("auto", toolCall("write", {
+        path: "../.env",
+        content: "x",
+    })).behavior).toBe("review");
+});
+
+test("a pathGlob predicate matches by basename in a custom profile", () => {
+    const permissionProfiles = {
+        no_yaml: {
+            name: "no_yaml",
+            defaultOutcome: "allow" as const,
+            rules: [{
+                name: "no_yaml.rules.0",
+                when: { pathGlob: "*.yaml" },
+                then: "deny" as const,
+            }],
+        },
+    };
+    const decision = decideToolPermission(
+        "no_yaml",
+        toolCall("read", { path: "config/settings.yaml" }),
+        workspace,
+        [],
+        { homeDirectory, permissionProfiles },
+    );
+    expect(decision.behavior).toBe("deny");
+    expect(decideToolPermission(
+        "no_yaml",
+        toolCall("read", { path: "config/settings.json" }),
+        workspace,
+        [],
+        { homeDirectory, permissionProfiles },
+    ).behavior).toBe("allow");
+});
+
 test("custom profiles use the same ordered evaluator", () => {
     const permissionProfiles = {
         quiet: {

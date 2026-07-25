@@ -19,6 +19,7 @@ const PREDICATE_FIELDS = new Set([
     "verb",
     "operation",
     "path",
+    "path_glob",
     "scope",
     "executable",
     // Legacy claim-shaped fields, accepted only when they can be migrated
