@@ -107,6 +107,23 @@ test("redirects outside the workspace are never routine", () => {
     }]);
 });
 
+test("inert redirect targets never escalate past a routine read", () => {
+    for (
+        const command of [
+            "cat README.md 2>/dev/null",
+            "echo hi > /dev/null",
+            "printf x 2>&1",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("allow");
+    }
+});
+
+test("a redirect to a real path still escalates (regression guard)", () => {
+    expect(decide("auto", bash("cat README.md > /tmp/out.txt")).behavior)
+        .not.toBe("allow");
+});
+
 test("a redirect after cd is resolved against that directory", () => {
     expect(decide("auto", bash("cd /tmp && printf hi > notes.txt")).behavior)
         .toBe("review");

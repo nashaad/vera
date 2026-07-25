@@ -458,7 +458,9 @@ function extractBashActions(
     initialDirectory: string | undefined,
     depth: number,
 ): readonly PermissionAction[] {
-    const commands = tokenizeSimpleCommands(command);
+    const commands = reconnectFdDuplicationTargets(
+        tokenizeSimpleCommands(command),
+    );
     const actions: PermissionAction[] = [];
     let workingDirectory = initialDirectory;
 
@@ -557,6 +559,61 @@ function actionsForSimpleCommand(
     return [{ tool: "bash", verb: "unknown", executable }, ...redirects];
 }
 
+const INERT_REDIRECT_TARGETS = new Set([
+    "/dev/null",
+    "/dev/stdout",
+    "/dev/stderr",
+    "/dev/stdin",
+]);
+
+/**
+ * `/dev/null` and friends have no observable effect, and `2>&1` duplicates a
+ * file descriptor rather than naming a path. Neither should escalate a
+ * command past a plain read.
+ */
+function isInertRedirectTarget(target: string): boolean {
+    if (target.startsWith("&")) {
+        return true;
+    }
+    return INERT_REDIRECT_TARGETS.has(target);
+}
+
+/**
+ * The tokenizer splits on a bare `&` because it doubles as the background
+ * operator, so `2>&1` comes back as two "commands": `[..., "2>"]` and
+ * `["1"]`. Reconnect that split before redirect analysis runs, so fd
+ * duplication is recognized instead of misread as an unrelated command.
+ */
+function reconnectFdDuplicationTargets(
+    commands: readonly string[][],
+): string[][] {
+    const result: string[][] = [];
+    let index = 0;
+    while (index < commands.length) {
+        const words = commands[index] ?? [];
+        const last = words.at(-1) ?? "";
+        const next = commands[index + 1];
+        const fdTarget = next?.[0];
+        if (
+            next !== undefined
+            && /^\d*>$/.test(last)
+            && fdTarget !== undefined
+            && /^\d+$/.test(fdTarget)
+        ) {
+            result.push([...words.slice(0, -1), `${last}&${fdTarget}`]);
+            const remainder = next.slice(1);
+            if (remainder.length > 0) {
+                result.push(remainder);
+            }
+            index += 2;
+            continue;
+        }
+        result.push(words);
+        index += 1;
+    }
+    return result;
+}
+
 function outputRedirectActions(
     words: readonly string[],
     workspace: string,
@@ -577,6 +634,10 @@ function outputRedirectActions(
             index += 1;
         }
         if (target === undefined || target.length === 0) {
+            continue;
+        }
+        if (isInertRedirectTarget(target)) {
+            actions.push({ tool: "bash", verb: "read", executable: "shell_redirect" });
             continue;
         }
         actions.push(shellPathAction(
