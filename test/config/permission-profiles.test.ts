@@ -79,6 +79,23 @@ test("legacy claim-shaped rules migrate only when the meaning is preserved", () 
     }
 });
 
+test("config rules accept a snake_case path_glob, parsed as pathGlob", () => {
+    const parsed = parsePermissionProfiles({
+        no_secrets: {
+            default: "allow",
+            rules: [{
+                when: { path_glob: "*.key" },
+                then: "deny",
+            }],
+        },
+    }, reviewers);
+    expect(parsed?.no_secrets?.rules).toEqual([{
+        name: "no_secrets.rules.0",
+        when: { pathGlob: "*.key" },
+        then: "deny",
+    }]);
+});
+
 test("profiles reject unknown operations and reviewer references", () => {
     expect(parsePermissionProfiles({
         broken: {

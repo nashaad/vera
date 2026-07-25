@@ -87,6 +87,12 @@ export interface PermissionPredicate {
     readonly tool?: string;
     readonly verb?: PermissionVerb;
     readonly path?: string;
+    /**
+     * Matches an action's path by basename rather than by full path or
+     * subtree, e.g. `.env.*` or `*.pem`. Only `*` is special ("zero or more
+     * characters"); everything else matches literally.
+     */
+    readonly pathGlob?: string;
     readonly scope?: PermissionScope;
     readonly operation?: string;
     readonly executable?: string;
@@ -159,7 +165,28 @@ export interface DecideToolPermissionOptions {
     readonly permissionPreferences?: readonly PermissionPreference[];
 }
 
+/**
+ * A small, deliberately non-exhaustive set of filename shapes that are
+ * almost always a secret. This is accidental-hygiene, not a security
+ * boundary: any code path that can read an arbitrary file (a bash
+ * pipeline, a subagent, a full_access session) can still reach one of
+ * these files, and this list is not meant to grow to try to close that.
+ * Real protection is containment (sandboxing, scoped credentials), not
+ * pattern-matching a filename. Kept out of `full_access`, which already
+ * opts out of routine restrictions entirely.
+ */
+const SECRET_FILE_HYGIENE_DENY_GLOBS: readonly string[] = [
+    ".env",
+    "*.pem",
+    "id_rsa",
+];
+
 const ROUTINE_RULES: readonly PermissionRule[] = [
+    ...SECRET_FILE_HYGIENE_DENY_GLOBS.map((glob): PermissionRule => ({
+        name: `routine.secret_file_hygiene_deny.${glob}`,
+        when: { verb: "read", pathGlob: glob },
+        then: "deny",
+    })),
     {
         name: "routine.user_interaction",
         when: { tool: "ask_user" },

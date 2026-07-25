@@ -27,6 +27,11 @@ const RENAMED_FIELDS = new Map([
     ["capability", "verb"],
     ["pathScope", "scope"],
     ["path_scope", "scope"],
+    // Not a legacy rename like the others: config JSON is snake_case
+    // (`reviewer_profile`, etc.), so this is just that convention for the
+    // predicate's `pathGlob` field, reusing the rename mechanism already
+    // applied to every parsed predicate.
+    ["path_glob", "pathGlob"],
 ]);
 
 /**

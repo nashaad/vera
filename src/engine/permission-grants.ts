@@ -1,4 +1,4 @@
-import { sep } from "node:path";
+import { basename, sep } from "node:path";
 
 import type {
     PermissionAction,
@@ -28,6 +28,7 @@ const PREDICATE_FIELDS = [
     "tool",
     "verb",
     "path",
+    "pathGlob",
     "scope",
     "operation",
     "executable",
@@ -124,6 +125,7 @@ export function isPermissionPredicate(
         && (value.operation === undefined
             || isNonEmptyString(value.operation))
         && (value.path === undefined || isNonEmptyString(value.path))
+        && (value.pathGlob === undefined || isNonEmptyString(value.pathGlob))
         && (value.scope === undefined
             || value.scope === "workspace"
             || value.scope === "outside_workspace")
@@ -143,9 +145,28 @@ export function permissionPredicateMatches(
         && (predicate.path === undefined
             || action.path === predicate.path
             || action.path?.startsWith(`${predicate.path}${sep}`) === true)
+        && (predicate.pathGlob === undefined
+            || pathBasenameMatchesGlob(predicate.pathGlob, action.path))
         && (predicate.scope === undefined || predicate.scope === action.scope)
         && (predicate.executable === undefined
             || predicate.executable === action.executable);
+}
+
+/**
+ * Matches a glob (only `*` is special, meaning "zero or more characters")
+ * against an action's basename, e.g. `.env.*` matches `/repo/.env.local`.
+ * Case-sensitive, and never matches when the action has no resolved path.
+ */
+function pathBasenameMatchesGlob(glob: string, path: string | undefined): boolean {
+    if (path === undefined) {
+        return false;
+    }
+    const pattern = glob.split("*").map(escapeRegExpLiteral).join(".*");
+    return new RegExp(`^${pattern}$`).test(basename(path));
+}
+
+function escapeRegExpLiteral(segment: string): string {
+    return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function grantProposalForAction(
