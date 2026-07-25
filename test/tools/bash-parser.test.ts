@@ -89,11 +89,71 @@ test("chains preserve which operator connects each side", () => {
     expect((chain.right as BashCommand).words).toEqual(["ls"]);
 });
 
-test("a chain with a redirect on its outer statement is reported unknown, not guessed", () => {
-    // The redirect binds ambiguously (it could be the whole list's stdout,
-    // or just the last command's) — this module refuses to guess.
-    const script = parseBashScript("cd /tmp && printf hi > notes.txt");
+test("a redirect on a chain binds to the last command, and keeps the rest of the chain", () => {
+    // The grammar hangs the redirect off the whole list, but bash binds it to the
+    // last simple command. Verified against real bash: in a directory containing
+    // `sub/`, `cd sub && printf hi > notes.txt` creates `sub/notes.txt`, so the
+    // redirect runs after the `cd`, as part of `printf`.
+    const chain = parseBashScript(
+        "cd /tmp && printf hi > notes.txt",
+    ).statements[0] as BashChain;
+    expect(chain.kind).toBe("chain");
+    expect((chain.left as BashCommand).words).toEqual(["cd", "/tmp"]);
+    const right = chain.right as BashCommand;
+    expect(right.words).toEqual(["printf", "hi"]);
+    expect(right.redirects).toEqual([{ operator: ">", target: "notes.txt" }]);
+});
+
+test("a redirect on a pipeline binds to the last stage", () => {
+    const pipeline = parseBashScript("cat a.txt | tee b.txt > c.txt")
+        .statements[0] as BashPipeline;
+    expect(pipeline.kind).toBe("pipeline");
+    expect((pipeline.stages[0] as BashCommand).redirects).toEqual([]);
+    expect((pipeline.stages[1] as BashCommand).redirects).toEqual([
+        { operator: ">", target: "c.txt" },
+    ]);
+});
+
+test("a redirect on a construct with no simple command stays unknown", () => {
+    // A brace group is modelled by the grammar but not by this module, so there is
+    // no command to own the redirect. Reporting unknown keeps the caller from
+    // reassigning the write to an unrelated statement.
+    const script = parseBashScript("{ printf hi; } > notes.txt");
     expect(script.statements[0]?.kind).toBe("unknown");
+});
+
+test("a quoted literal argument stays a literal word", () => {
+    // Quoting is not expansion: these name one concrete file each. Losing them to
+    // hasNonLiteralWords would turn a resolvable delete into an unknown action.
+    expect((parseBashScript(`rm "my notes.md"`).commands[0] as BashCommand).words)
+        .toEqual(["rm", "my notes.md"]);
+    expect((parseBashScript(`rm 'my notes.md'`).commands[0] as BashCommand).words)
+        .toEqual(["rm", "my notes.md"]);
+    const quotedExpansion = parseBashScript(`rm "$DIR"`)
+        .commands[0] as BashCommand;
+    expect(quotedExpansion.words).toEqual(["rm"]);
+    expect(quotedExpansion.hasNonLiteralWords).toBe(true);
+});
+
+test("a quoted redirect target is literal, an expanded one is absent", () => {
+    expect(parseBashScript(`printf hi > "my notes.txt"`).commands[0]?.redirects)
+        .toEqual([{ operator: ">", target: "my notes.txt" }]);
+    expect(parseBashScript(`printf hi > "$OUT"`).commands[0]?.redirects)
+        .toEqual([{ operator: ">" }]);
+});
+
+test("an empty quoted word contributes no argument", () => {
+    // `rm ""` has no target. Keeping "" as a word would let a caller resolve it
+    // against the working directory and treat that directory as the target.
+    const command = parseBashScript(`rm ""`).commands[0] as BashCommand;
+    expect(command.words).toEqual(["rm"]);
+    expect(command.hasNonLiteralWords).toBe(false);
+});
+
+test("a shell -c payload survives as a literal word for recursive parsing", () => {
+    const command = parseBashScript(`bash -c "rm -rf /tmp/x"`)
+        .commands[0] as BashCommand;
+    expect(command.words).toEqual(["bash", "-c", "rm -rf /tmp/x"]);
 });
 
 test("a non-literal argument is reflected in hasNonLiteralWords, not guessed at", () => {

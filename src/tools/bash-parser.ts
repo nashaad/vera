@@ -5,12 +5,11 @@
  * `bash-danger.ts`.
  *
  * tree-sitter init is async and the classifier (`decideToolPermission`) is
- * synchronous, so this module is intentionally self-contained and NOT wired
- * into `src/engine/permissions.ts` yet. `initBashParser()` must be awaited
- * once (e.g. at process startup) before `parseBashScript` can be called;
- * the classifier continues to call the old tokenizer in the meantime.
- * Wiring it up means awaiting init at the host boot path, which is outside
- * the engine's self-contained core, so it is deliberately a separate change.
+ * synchronous, so `initBashParser()` must be awaited once before
+ * `parseBashScript` can be called. `runTurn` does that await, which keeps
+ * the ordering inside the engine instead of asking every client to
+ * remember it at boot. Until it resolves, `extractBashActions` reports
+ * `unknown` for every bash command rather than guessing.
  *
  * Anything this parser does not specifically model (subshells, `if`/`for`/
  * `case`/`while`, heredocs, and anything the grammar itself cannot parse)
@@ -207,15 +206,12 @@ function convertCommand(node: SyntaxNode): BashCommand {
     for (const child of namedChildrenOf(node)) {
         if (child.type === "command_name") {
             const nameWord = child.namedChild(0);
-            if (nameWord !== null && nameWord.type === "word") {
-                words.push(nameWord.text);
-            } else {
+            const name = nameWord === null ? undefined : literalWord(nameWord);
+            if (name === undefined) {
                 hasNonLiteralWords = true;
+            } else {
+                words.push(name);
             }
-            continue;
-        }
-        if (child.type === "word" || child.type === "number") {
-            words.push(child.text);
             continue;
         }
         if (child.type === "variable_assignment") {
@@ -224,26 +220,106 @@ function convertCommand(node: SyntaxNode): BashCommand {
             // rather than misclassifying them as either.
             continue;
         }
-        hasNonLiteralWords = true;
+        const word = literalWord(child);
+        if (word === undefined) {
+            hasNonLiteralWords = true;
+            continue;
+        }
+        // An empty quoted word (`rm ""`) contributes no argument. Dropping it
+        // keeps a caller from resolving "" against the working directory and
+        // treating the directory itself as the target.
+        if (word.length > 0) {
+            words.push(word);
+        }
     }
     return { kind: "command", words, redirects: [], hasNonLiteralWords };
 }
 
+/**
+ * The literal text of a word, or `undefined` when the word is not literal.
+ *
+ * Quoting is not the same as expansion: `rm 'my notes.md'` and `rm "my notes.md"`
+ * name one concrete file, while `rm "$DIR"` names whatever the shell decides at
+ * run time. Only the second is genuinely unknowable here, so quotes are removed
+ * and the content returned, and a word containing any expansion or substitution
+ * (including a concatenation with one) returns `undefined`.
+ */
+function literalWord(node: SyntaxNode): string | undefined {
+    if (node.type === "word" || node.type === "number") {
+        return node.text;
+    }
+    if (node.type === "raw_string") {
+        // Single quotes suppress every expansion, so the content is always
+        // literal. The node text carries the quotes; strip exactly one pair.
+        return node.text.slice(1, -1);
+    }
+    if (node.type !== "string") {
+        return undefined;
+    }
+    let text = "";
+    for (const child of namedChildrenOf(node)) {
+        if (child.type !== "string_content") {
+            return undefined;
+        }
+        text += child.text;
+    }
+    return text;
+}
+
+/**
+ * The grammar hangs the redirect off the whole body, so `cd /tmp && ls > out.txt`
+ * arrives as one `redirected_statement` wrapping the entire list, and
+ * `foo | bar > out.txt` as one wrapping the entire pipeline. Bash binds the
+ * redirect to the last simple command in both cases, so that is where it goes.
+ *
+ * Returning `unknown` for the whole construct instead, as this used to, discarded
+ * every command inside it along with the redirect: `cd /tmp && rm -rf x > log`
+ * produced no `rm` at all.
+ */
 function convertRedirectedStatement(node: SyntaxNode): BashStatement {
     const body = node.childForFieldName("body");
     const base = body === null
         ? { kind: "unknown" as const, text: node.text }
         : convertStatement(body);
     const redirects = fieldChildrenOf(node, "redirect").map(convertRedirect);
+    return attachRedirects(base, redirects)
+        // A body with no simple command to own the redirect (a brace group, an
+        // `if`, anything the grammar models but this module does not) stays
+        // unknown, rather than the redirect being reassigned to some other
+        // statement or silently dropped.
+        ?? { kind: "unknown", text: node.text };
+}
 
-    if (base.kind !== "command") {
-        // A redirect on a pipeline/chain/unknown construct (e.g.
-        // `cd /tmp && ls > out.txt`) is real, but attaching it correctly to
-        // just the right stage requires more than this module models today.
-        // Surface it as unknown rather than guessing which part it binds to.
-        return { kind: "unknown", text: node.text };
+function attachRedirects(
+    statement: BashStatement,
+    redirects: readonly BashRedirect[],
+): BashStatement | undefined {
+    if (statement.kind === "command") {
+        return { ...statement, redirects: [...statement.redirects, ...redirects] };
     }
-    return { ...base, redirects };
+    if (statement.kind === "pipeline") {
+        const stages = replaceLast(statement.stages, redirects);
+        return stages === undefined ? undefined : { ...statement, stages };
+    }
+    if (statement.kind === "chain") {
+        const right = attachRedirects(statement.right, redirects);
+        return right === undefined ? undefined : { ...statement, right };
+    }
+    return undefined;
+}
+
+function replaceLast(
+    stages: readonly BashStatement[],
+    redirects: readonly BashRedirect[],
+): BashStatement[] | undefined {
+    const last = stages.at(-1);
+    if (last === undefined) {
+        return undefined;
+    }
+    const replacement = attachRedirects(last, redirects);
+    return replacement === undefined
+        ? undefined
+        : [...stages.slice(0, -1), replacement];
 }
 
 function convertRedirect(node: SyntaxNode): BashRedirect {
@@ -253,10 +329,9 @@ function convertRedirect(node: SyntaxNode): BashRedirect {
         !child.isNamed && REDIRECT_OPERATORS.has(child.type)
     );
     const operator = (operatorNode?.type ?? "unknown") as BashRedirectOperator;
-    const target = destination !== null
-        && (destination.type === "word" || destination.type === "number")
-        ? destination.text
-        : undefined;
+    // A quoted target (`> "my notes.txt"`) is as literal as a bare word, so it
+    // goes through the same literal-word reader the arguments use.
+    const target = destination === null ? undefined : literalWord(destination);
     return {
         ...(descriptor === null ? {} : { fileDescriptor: descriptor.text }),
         operator,
