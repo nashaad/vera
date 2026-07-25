@@ -710,6 +710,105 @@ test("permission grants survive reopening the durable session", async () => {
     }]);
 });
 
+test("revoking a grant appends rather than edits, and outlives a reopen", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-25T12:00:00.000Z",
+            "2026-07-25T12:00:01.000Z",
+            "2026-07-25T12:00:02.000Z",
+        ),
+        createId: values("grant-1"),
+    });
+
+    const proposal = {
+        kind: "action",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    } as const;
+    await store.appendPermissionGrants([proposal]);
+    expect(await store.revokePermissionGrant("grant-1:0")).toBe(true);
+    expect(store.permissionGrants()).toEqual([]);
+
+    // The grant entry is still on disk. An append-only log cannot delete it, so
+    // the revocation is its own entry that the read subtracts.
+    const lines = readLines(path);
+    expect(lines.at(-2)).toMatchObject({ type: "permission_grants" });
+    expect(lines.at(-1)).toEqual({
+        type: "permission_grant_revocation",
+        timestamp: "2026-07-25T12:00:02.000Z",
+        ids: ["grant-1:0"],
+    });
+
+    // The property that matters: a revoked grant must not come back on resume.
+    const reopened = await SessionStore.open(path);
+    expect(reopened.permissionGrants()).toEqual([]);
+});
+
+test("revoking an unknown or already revoked grant writes nothing", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        createId: values("grant-1"),
+    });
+    await store.appendPermissionGrants([{
+        kind: "action",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    }]);
+
+    expect(await store.revokePermissionGrant("not-a-grant")).toBe(false);
+    const afterUnknown = readLines(path).length;
+    expect(await store.revokePermissionGrant("grant-1:0")).toBe(true);
+    // A client retrying a stale ID must not be able to grow the log.
+    expect(await store.revokePermissionGrant("grant-1:0")).toBe(false);
+    expect(readLines(path).length).toBe(afterUnknown + 1);
+});
+
+test("a revocation naming a migrated-away grant still loads", async () => {
+    // Rejecting it would make an old session unopenable over a permission the
+    // user had already given up.
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    appendFileSync(path, `${JSON.stringify({
+        type: "permission_grant_revocation",
+        timestamp: "2026-07-25T12:00:02.000Z",
+        ids: ["grant-that-no-longer-exists"],
+    })}\n`);
+
+    const store = await SessionStore.open(path);
+    expect(store.permissionGrants()).toEqual([]);
+});
+
+test("a revocation entry with no IDs is rejected", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    appendFileSync(path, `${JSON.stringify({
+        type: "permission_grant_revocation",
+        timestamp: "2026-07-25T12:00:02.000Z",
+        ids: [],
+    })}\n`);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        /permission grant revocation entry/,
+    );
+});
+
 test("legacy claim-shaped grants migrate when the meaning is preserved", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

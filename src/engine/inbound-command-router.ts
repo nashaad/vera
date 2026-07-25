@@ -125,6 +125,8 @@ export interface InboundCommandRouterOptions {
     readonly addPermissionGrants?: (
         grants: readonly PermissionGrantProposal[],
     ) => Promise<void>;
+    /** Resolves false when the ID names no live grant. */
+    readonly removePermissionGrant?: (id: string) => Promise<boolean>;
     readonly handleTimelineCommand?: (
         ownerId: string,
         command: TimelineCommand,
@@ -391,6 +393,14 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "remove_permission_grant") {
+                    await this.removePermissionGrant(
+                        command.requestId,
+                        command.id,
+                    );
+                    continue;
+                }
+
                 if (command.type === "remove_permission_preference") {
                     await this.removePermissionPreference(
                         command.requestId,
@@ -589,6 +599,32 @@ export class InboundCommandRouter {
             this.emitPermissionsRejected(
                 requestId,
                 this.options.addPermissionPreference === undefined
+                    ? "unavailable"
+                    : "invalid",
+            );
+            return;
+        }
+        this.sendPermissions(requestId);
+    }
+
+    private async removePermissionGrant(
+        requestId: string,
+        id: string,
+    ): Promise<void> {
+        let removed: boolean;
+        try {
+            removed = await this.options.removePermissionGrant?.(id) ?? false;
+        } catch {
+            this.emitPermissionsRejected(requestId, "unavailable");
+            return;
+        }
+        if (!removed) {
+            // Same split as the preference path: an unknown or already revoked
+            // ID is `invalid` because the surface exists, while a host with no
+            // session log behind it is `unavailable`.
+            this.emitPermissionsRejected(
+                requestId,
+                this.options.removePermissionGrant === undefined
                     ? "unavailable"
                     : "invalid",
             );

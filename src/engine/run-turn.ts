@@ -252,6 +252,8 @@ export async function runHeadlessLoop(
     ): Promise<void> => {
         await store.appendPermissionGrants(grants);
     };
+    const removePermissionGrant = (id: string): Promise<boolean> =>
+        store.revokePermissionGrant(id);
     const events = options.eventBus ?? new EngineEventBus();
     const protocol = createProtocolEncoder(endpoint);
     events.subscribe(protocol);
@@ -292,6 +294,7 @@ export async function runHeadlessLoop(
         sendSessionNameReply: options.sendSessionNameReply
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
         addPermissionGrants,
+        removePermissionGrant,
         handleTimelineCommand: (ownerId, command) =>
             timeline.handle(ownerId, command),
         detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),

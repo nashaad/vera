@@ -117,6 +117,19 @@ export interface RemovePermissionPreferenceCommand {
     readonly id: string;
 }
 
+/**
+ * Revokes one live session grant. Separate from
+ * `remove_permission_preference` because the two tiers live in different
+ * places: a grant is a session-log entry, a preference is a file in the home
+ * directory. One command covering both would have to guess which store an ID
+ * belongs to.
+ */
+export interface RemovePermissionGrantCommand {
+    readonly type: "remove_permission_grant";
+    readonly requestId: string;
+    readonly id: string;
+}
+
 export interface UpdateSessionNameCommand {
     readonly type: "update_session_name";
     readonly requestId: string;
@@ -157,6 +170,7 @@ export type ClientCommand =
     | UpdatePermissionsCommand
     | AddPermissionPreferenceCommand
     | RemovePermissionPreferenceCommand
+    | RemovePermissionGrantCommand
     | UpdateSessionNameCommand
     | TimelineCommand;
 
@@ -576,6 +590,18 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             type: "add_permission_preference",
             requestId: command.requestId,
             when: command.when,
+        };
+    }
+    if (
+        command.type === "remove_permission_grant"
+        && isRequestId(command.requestId)
+        && typeof command.id === "string"
+        && command.id.length > 0
+    ) {
+        return {
+            type: "remove_permission_grant",
+            requestId: command.requestId,
+            id: command.id,
         };
     }
     if (

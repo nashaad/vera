@@ -93,6 +93,19 @@ export interface SessionPermissionGrantsEntry {
     readonly grants: readonly PermissionGrant[];
 }
 
+/**
+ * Revoking a session grant, which the log records by appending rather than by
+ * editing. The session file is append-only, so a revocation has to be its own
+ * entry that `permissionGrants()` subtracts. Keeping revocations in memory
+ * instead would resurrect a revoked grant on resume, which is the one direction
+ * a permission surface must never move on its own.
+ */
+export interface SessionPermissionGrantRevocationEntry {
+    readonly type: "permission_grant_revocation";
+    readonly timestamp: string;
+    readonly ids: readonly string[];
+}
+
 export interface SessionAttachmentEntry {
     readonly type: "attachment";
     readonly timestamp: string;
@@ -165,6 +178,8 @@ interface LoadedSessionFile {
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly nameEntries: SessionNameEntry[];
     readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
+    readonly permissionGrantRevocationEntries:
+        SessionPermissionGrantRevocationEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
     readonly agentFailure?: SessionAgentFailureEntry;
     readonly leafId: string | null;
@@ -184,6 +199,8 @@ export class SessionStore {
     private readonly permissionsEntries: SessionPermissionsEntry[];
     private readonly nameEntries: SessionNameEntry[];
     private readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
+    private readonly permissionGrantRevocationEntries:
+        SessionPermissionGrantRevocationEntry[];
     private readonly attachmentEntries: SessionAttachmentEntry[];
     private agentFailureEntry: SessionAgentFailureEntry | undefined;
     private leafId: string | null;
@@ -204,6 +221,8 @@ export class SessionStore {
         this.permissionsEntries = loaded.permissionsEntries;
         this.nameEntries = loaded.nameEntries;
         this.permissionGrantEntries = loaded.permissionGrantEntries;
+        this.permissionGrantRevocationEntries =
+            loaded.permissionGrantRevocationEntries;
         this.attachmentEntries = loaded.attachmentEntries;
         this.agentFailureEntry = loaded.agentFailure;
         this.leafId = loaded.leafId;
@@ -249,6 +268,7 @@ export class SessionStore {
                 permissionsEntries: [],
                 nameEntries: [],
                 permissionGrantEntries: [],
+                permissionGrantRevocationEntries: [],
                 attachmentEntries: [],
                 agentFailure: undefined,
                 leafId: null,
@@ -330,8 +350,13 @@ export class SessionStore {
     }
 
     permissionGrants(): readonly PermissionGrant[] {
+        const revoked = new Set(
+            this.permissionGrantRevocationEntries.flatMap((entry) => entry.ids),
+        );
         return this.permissionGrantEntries.flatMap((entry) =>
-            entry.grants.map(copyPermissionGrant)
+            entry.grants
+                .filter((grant) => !revoked.has(grant.id))
+                .map(copyPermissionGrant)
         );
     }
 
@@ -416,6 +441,23 @@ export class SessionStore {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
             return this.commitPermissionGrants(proposals);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    /**
+     * Revokes one live session grant, reporting whether it was live. An ID that
+     * is unknown or already revoked writes nothing, so a client cannot grow the
+     * log by retrying a stale ID.
+     */
+    revokePermissionGrant(id: string): Promise<boolean> {
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitPermissionGrantRevocation(id);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -609,6 +651,23 @@ export class SessionStore {
         await this.appendRecord(entry);
         this.permissionGrantEntries.push(entry);
         return entry;
+    }
+
+    private async commitPermissionGrantRevocation(
+        id: string,
+    ): Promise<boolean> {
+        const live = this.permissionGrants().some((grant) => grant.id === id);
+        if (!live) {
+            return false;
+        }
+        const entry: SessionPermissionGrantRevocationEntry = {
+            type: "permission_grant_revocation",
+            timestamp: this.now().toISOString(),
+            ids: [id],
+        };
+        await this.appendRecord(entry);
+        this.permissionGrantRevocationEntries.push(entry);
+        return true;
     }
 
     private async commitAttachment(
@@ -839,6 +898,8 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const permissionsEntries: SessionPermissionsEntry[] = [];
     const nameEntries: SessionNameEntry[] = [];
     const permissionGrantEntries: SessionPermissionGrantsEntry[] = [];
+    const permissionGrantRevocationEntries:
+        SessionPermissionGrantRevocationEntry[] = [];
     const attachmentEntries: SessionAttachmentEntry[] = [];
     let agentFailure: SessionAgentFailureEntry | undefined;
     const knownMessageIds = new Set<string>();
@@ -1003,6 +1064,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "permission_grant_revocation") {
+            permissionGrantRevocationEntries.push(
+                parsePermissionGrantRevocationEntry(path, lineNumber, value),
+            );
+            continue;
+        }
         if (value.type === "attachment") {
             const entry = parseAttachmentEntry(path, lineNumber, value);
             if (knownAttachmentIds.has(entry.attachment.id)) {
@@ -1079,6 +1146,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         permissionsEntries,
         nameEntries,
         permissionGrantEntries,
+        permissionGrantRevocationEntries,
         attachmentEntries,
         agentFailure,
         leafId,
@@ -1433,6 +1501,33 @@ function parsePermissionGrantsEntry(
         id: value.id,
         timestamp: value.timestamp,
         grants,
+    };
+}
+
+function parsePermissionGrantRevocationEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionPermissionGrantRevocationEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || !Array.isArray(value.ids)
+        || value.ids.length === 0
+        || !value.ids.every((id) => typeof id === "string" && id.length > 0)
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid permission grant revocation entry`,
+        );
+    }
+    // Revoked IDs are not checked against the grants seen so far. A revocation
+    // naming a grant that was dropped by migration is harmless, and rejecting it
+    // would make an old session unloadable over a permission the user already
+    // gave up.
+    return {
+        type: "permission_grant_revocation",
+        timestamp: value.timestamp,
+        ids: [...value.ids],
     };
 }
 
