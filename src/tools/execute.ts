@@ -6,6 +6,8 @@ import type {
 import { bashTool } from "./bash.ts";
 import { editTool } from "./edit.ts";
 import { readTool, writeTool } from "./files.ts";
+import { grepTool } from "./grep.ts";
+import { listTool } from "./list.ts";
 import type { ToolRuntime } from "./runtime.ts";
 import { subagentTool } from "./subagent.ts";
 import { askUserTool } from "./ask-user.ts";
@@ -23,6 +25,8 @@ const ordinaryTools: readonly RegisteredTool[] = [
     readTool,
     writeTool,
     editTool,
+    grepTool,
+    listTool,
 ];
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
