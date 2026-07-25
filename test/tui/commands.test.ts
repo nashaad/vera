@@ -23,12 +23,27 @@ test("palette actions can exist without slash command aliases", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
     expect(registry.registeredPaletteActions()).toContainEqual({
-        name: "model_picker",
-        description: "Choose the model for the next turn",
-        action: { type: "open_model_picker" },
+        name: "granted_permissions",
+        label: "Review granted permissions",
+        description: "see and revoke what you have approved",
+        group: "Settings",
+        action: { type: "open_preferences_list" },
     });
-    expect(registry.suggestions("/model_picker")).toEqual([]);
-    expect(registry.dispatch("/model_picker")).toBeUndefined();
+    expect(registry.suggestions("/granted_permissions")).toEqual([]);
+    expect(registry.dispatch("/granted_permissions")).toBeUndefined();
+});
+
+test("every builtin command except the palette itself has a palette row", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    const slashNames = new Set(
+        registry.registeredPaletteActions()
+            .map((action) => action.slashName)
+            .filter((name) => name !== undefined),
+    );
+
+    // The palette does not list itself: you are already looking at it.
+    expect(BUILTIN_COMMANDS.map((command) => command.name)
+        .filter((name) => !slashNames.has(name))).toEqual(["palette"]);
 });
 
 test("the rewind command returns a client-owned action", () => {

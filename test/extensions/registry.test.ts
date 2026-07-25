@@ -163,7 +163,7 @@ test("registry rejects collisions with bundled client commands", async () => {
 
     expect(registry.commands()).toEqual([]);
     expect(failures[0]?.message).toContain(
-        "/help from collision.extension collides with a bundled client command",
+        "/help from collision.extension collides with a built-in client command",
     );
     await registry.close();
 });

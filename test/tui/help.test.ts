@@ -12,9 +12,9 @@ const commands = [{
     description: "Learn Vera controls and commands",
     usage: "/help",
 }, {
-    name: "commands",
-    description: "Search and run available commands",
-    usage: "/commands",
+    name: "palette",
+    description: "Search every action by name or description",
+    usage: "/palette",
 }] as const;
 
 const extensions = [{
@@ -68,6 +68,9 @@ test("help renders general guidance and extension attribution", async () => {
         expect(frame).toContain("General");
         expect(frame).toContain("Slash commands");
         expect(frame).toContain("Shift+Enter newline");
+        // The palette chord has no other durable home: the status line hint is
+        // replaced while a turn runs, so Help is where it stays findable.
+        expect(frame).toContain("Ctrl+P");
 
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;

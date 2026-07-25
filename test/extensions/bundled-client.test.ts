@@ -15,11 +15,6 @@ test("bundled help is an async direct client extension", async () => {
         description: "Learn Vera controls and commands",
         usage: "/help",
         source: "vera.help",
-    }, {
-        name: "commands",
-        description: "Search and run available commands",
-        usage: "/commands",
-        source: "vera.help",
     }]);
     expect(await extension?.invokeCommand("help", "")).toEqual({
         version: 1,
@@ -29,12 +24,11 @@ test("bundled help is an async direct client extension", async () => {
             action: "show_help",
         },
     });
-    expect(await extension?.invokeCommand("commands", "")).toMatchObject({
-        source: "vera.help/commands",
-        body: { action: "show_commands" },
-    });
     await expect(extension?.invokeCommand("help", "extra"))
         .rejects.toThrow("Usage: /help");
+    // The palette is a client surface bound to ctrl+p, not an extension command.
+    await expect(extension?.invokeCommand("palette", ""))
+        .rejects.toThrow("Usage: /palette");
 });
 
 test("direct client extension calls have a fixed deadline", async () => {

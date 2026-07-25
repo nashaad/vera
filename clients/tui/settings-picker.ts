@@ -35,7 +35,27 @@ export type TuiSettingsPickerKind =
     | "reasoning"
     | "permissions"
     | "theme"
-    | "session";
+    | "session"
+    | "settings"
+    | "permission_settings";
+
+/**
+ * Where a menu row leads. The menu kinds carry no value of their own: choosing
+ * a row opens another surface, so the selection names a destination instead of
+ * a setting.
+ */
+export type TuiSettingsMenuTarget =
+    | "model"
+    | "reasoning"
+    | "permissions"
+    | "theme"
+    | "permission_mode"
+    | "granted_permissions";
+
+export type TuiSettingsMenuKind = Extract<
+    TuiSettingsPickerKind,
+    "settings" | "permission_settings"
+>;
 
 export interface TuiSettingsPickerOption {
     readonly value: string;
@@ -75,7 +95,8 @@ export type TuiSettingsPickerSelection =
     }
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
-    | { readonly kind: "session"; readonly sessionPath: string };
+    | { readonly kind: "session"; readonly sessionPath: string }
+    | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget };
 
 export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
@@ -197,6 +218,52 @@ function permissionOptions(
     );
 }
 
+const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    { value: "model", label: "Model", description: "which model answers" },
+    {
+        value: "reasoning",
+        label: "Reasoning",
+        description: "how much it thinks first",
+        searchText: "effort think",
+    },
+    {
+        value: "permissions",
+        label: "Permissions",
+        description: "what Vera may run, and what you have approved",
+        searchText: "grants approvals allowed",
+    },
+    { value: "theme", label: "Theme", description: "TUI colors" },
+];
+
+const PERMISSION_SETTINGS_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    {
+        value: "permission_mode",
+        label: "Mode",
+        description: "how much Vera asks before running commands",
+    },
+    {
+        value: "granted_permissions",
+        label: "Granted",
+        description: "review and revoke what you have approved",
+        searchText: "allowed grants preferences",
+    },
+];
+
+export function startTuiSettingsMenu(
+    kind: TuiSettingsMenuKind,
+): TuiSettingsPickerState {
+    const options = kind === "settings"
+        ? SETTINGS_MENU_OPTIONS
+        : PERMISSION_SETTINGS_OPTIONS;
+    return {
+        kind,
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+    };
+}
+
 export function startTuiSessionPicker(
     agents: readonly RegisteredAgentSummary[],
     currentAgentId?: string,
@@ -314,6 +381,11 @@ export function handleTuiSettingsPickerKey(
         return unchanged(state, false);
     }
     if (key.name === "escape") {
+        // Escape inside a submenu steps back to its parent rather than closing
+        // outright, so a wrong turn costs one key instead of reopening /settings.
+        if (state.kind === "permission_settings") {
+            return { state: startTuiSettingsMenu("settings"), handled: true };
+        }
         return {
             handled: true,
             ...(state.kind === "theme" && state.initialTheme !== undefined
@@ -375,8 +447,10 @@ export function createTuiSettingsPickerView(
     let nodes: Renderable[] = [];
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
+        // No borderColor here. OpenTUI's BoxRenderable constructor reads any
+        // border styling option as "this box wants a border" and overrides an
+        // explicit `border: false`, so passing a color is what draws the box.
         border: false,
-        borderColor: TUI_ACCENT,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         top: 2,
@@ -399,7 +473,6 @@ export function createTuiSettingsPickerView(
             }
             nodes = [];
             box.title = undefined;
-            box.border = false;
             if (state.kind === "theme") {
                 box.left = "20%";
                 box.width = "60%";
@@ -473,7 +546,11 @@ function renderListPickerRows(
         renderer,
         state.kind === "session"
             ? "↑↓ move · ⏎ select · del trash · esc close"
-            : "↑↓ move · ⏎ select · esc close",
+            : state.kind === "settings"
+                ? "↑↓ move · ⏎ open · esc close"
+                : state.kind === "permission_settings"
+                    ? "↑↓ move · ⏎ open · esc back"
+                    : "↑↓ move · ⏎ select · esc close",
     );
     box.add(footer);
     nodes.push(footer);
@@ -698,6 +775,9 @@ function pickerSelection(
     if (kind === "session") {
         return { kind, sessionPath: value };
     }
+    if (kind === "settings" || kind === "permission_settings") {
+        return { kind: "menu", target: value as TuiSettingsMenuTarget };
+    }
     return { kind, theme: value as TuiThemeName };
 }
 
@@ -707,10 +787,14 @@ function pickerTitle(kind: TuiSettingsPickerKind): string {
         : kind === "reasoning"
             ? "Reasoning"
             : kind === "permissions"
-                ? "Permissions"
+                ? "Permission mode"
                 : kind === "session"
                     ? "Resume"
-                    : "Theme";
+                    : kind === "settings"
+                        ? "Settings"
+                        : kind === "permission_settings"
+                            ? "Permissions"
+                            : "Theme";
 }
 
 function unchanged(

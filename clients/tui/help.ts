@@ -182,7 +182,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                 const general = new TextRenderable(renderer, {
                     content: generalHelp(),
                     width: "100%",
-                    height: 14,
+                    height: 17,
                     wrapMode: "word",
                 });
                 box.add(general);
@@ -298,6 +298,13 @@ function tabLabel(tab: TuiHelpTab): string {
 function generalHelp(): StyledText {
     return new StyledText([
         fg(TUI_ACCENT)("Vera keeps agent sessions resident so clients can attach, leave, and return.\n\n"),
+        fg(TUI_TEXT)("Anywhere\n"),
+        // Ctrl+P is otherwise advertised only by the idle status line, which is
+        // replaced while a turn is running. A chord nobody can rediscover is a
+        // chord nobody uses.
+        fg(TUI_MUTED)(
+            "Ctrl+P search every action by name or description\n\n",
+        ),
         fg(TUI_TEXT)("Composer\n"),
         fg(TUI_MUTED)(
             "Enter send   Shift+Enter newline   Up recall last submission\n"

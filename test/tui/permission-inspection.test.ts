@@ -25,7 +25,7 @@ test("the mode is described, not itemized into rules the user cannot edit", () =
         "Permission mode: auto",
         "a reviewer clears the safe ones, you decide the rest",
         "1 session grant · 0 preferences",
-        "/preferences to review or remove them",
+        "/settings to review or remove them",
     ].join("\n"));
 });
 

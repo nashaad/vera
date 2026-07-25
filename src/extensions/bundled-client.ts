@@ -13,18 +13,10 @@ export function bundledClientExtensions(): readonly DirectClientExtension[] {
             description: "Learn Vera controls and commands",
             usage: "/help",
             source: HELP_EXTENSION_ID,
-        }, {
-            name: "commands",
-            description: "Search and run available commands",
-            usage: "/commands",
-            source: HELP_EXTENSION_ID,
         }],
         async invokeCommand(name, argumentsText, options) {
             options?.signal?.throwIfAborted();
-            if (
-                (name !== "help" && name !== "commands")
-                || argumentsText.length > 0
-            ) {
+            if (name !== "help" || argumentsText.length > 0) {
                 throw new Error(`Usage: /${name}`);
             }
             return {
@@ -32,9 +24,7 @@ export function bundledClientExtensions(): readonly DirectClientExtension[] {
                 source: `${HELP_EXTENSION_ID}/${name}`,
                 body: {
                     kind: "client_action",
-                    action: name === "help"
-                        ? "show_help"
-                        : "show_commands",
+                    action: "show_help",
                 },
             };
         },

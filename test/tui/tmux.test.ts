@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
-    "help is browse-only and commands opens the functional palette",
+    "help is browse-only and ctrl+p opens the functional palette",
     async () => {
         const socket = `vera-help-${process.pid}-${randomUUID()}`;
         const session = "help";
@@ -46,7 +46,7 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             pane = captureVisiblePane(socket, session);
             expect(pane).toContain("Help");
-            expect(pane).toContain("/commands");
+            expect(pane).toContain("/palette");
             sendKey(socket, session, "Escape");
             await waitForVisiblePaneWhere(
                 socket,
@@ -54,17 +54,17 @@ test.skipIf(!tmuxAvailable)(
                 (visible) => !visible.includes("←→ tabs"),
                 "Help to close",
             );
-            sendText(socket, session, "/commands");
-            sendKey(socket, session, "Enter");
+            // ctrl+p is the advertised way in; the /palette alias is a fallback.
+            sendKey(socket, session, "C-p");
             pane = await waitForVisiblePane(socket, session, "Commands");
-            expect(pane).toContain("/themes");
-            expect(pane).toContain("/help");
-            sendText(socket, session, "model_picker");
-            pane = await waitForVisiblePane(socket, session, "⌕  model_picker");
-            expect(pane).toContain("model_picker");
+            expect(pane).toContain("Settings");
+            expect(pane).toContain("Switch model");
+            sendText(socket, session, "switch model");
+            pane = await waitForVisiblePane(socket, session, "⌕  switch model");
+            expect(pane).toContain("Switch model");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Select model");
-            expect(pane).not.toContain("⌕  choose the model");
+            expect(pane).not.toContain("⌕  switch model");
             sendKey(socket, session, "Escape");
             await waitForVisiblePaneWhere(
                 socket,
@@ -72,17 +72,20 @@ test.skipIf(!tmuxAvailable)(
                 (visible) => visible.includes("Message Vera"),
                 "model picker to close",
             );
-            sendText(socket, session, "/commands");
+            sendText(socket, session, "/palette");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Commands");
-            sendText(socket, session, "themes");
+            // "recolor" is in no command name, so only description search finds
+            // it: the reason the palette earns a place beside the composer.
+            sendText(socket, session, "recolor");
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "⌕  themes",
+                "⌕  recolor",
             );
-            expect(pane).toContain("Change the TUI theme");
-            expect(pane).not.toContain("/rename");
+            expect(pane).toContain("Change theme");
+            expect(pane).toContain("/themes");
+            expect(pane).not.toContain("Rename conversation");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Theme");
             expect(pane).toContain("System");
@@ -117,16 +120,16 @@ test.skipIf(!tmuxAvailable)(
                 "test/support/tui-extension-command-child.ts",
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/commands");
-            sendKey(socket, session, "Enter");
+            sendKey(socket, session, "C-p");
             await waitForVisiblePane(socket, session, "Commands");
             sendText(socket, session, "hello");
             await waitForVisiblePane(socket, session, "⌕  hello");
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "/hello  Say hello from an extension",
+                "Say hello from an extension",
             );
+            expect(pane).toContain("Extensions");
             expect(pane).toContain("⌕  hello");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
@@ -168,7 +171,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Vera keeps agent sessions resident",
             );
-            await waitForVisiblePane(socket, session, "ready · test");
+            await waitForVisiblePane(socket, session, "ctrl+p commands · test");
             sendKey(socket, session, "Right");
             sendText(socket, session, "themes");
             pane = await waitForVisiblePane(socket, session, "⌕  themes");
