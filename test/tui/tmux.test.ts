@@ -1014,7 +1014,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane.replace(/\s+/g, " ")).toContain(
                 "Routine command requested by the user.",
             );
-            expect(pane).toContain("∗ bash printf auto-review-ran");
+            expect(pane).toContain("∗ bash env AUTO_REVIEW=ran");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Tool approval");
             expect(pane).not.toContain("Allow once");

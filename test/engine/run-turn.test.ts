@@ -1626,7 +1626,10 @@ test("ask mode turns a client denial into a tool result", async () => {
                 type: "tool_call",
                 id: "call_1",
                 name: "bash",
-                input: { command: "printf should-not-run" },
+                // Unclassified, so it reaches the client for approval. `printf`
+                // would not: it writes to stdout and nothing else, so with no
+                // redirect the classifier calls it a read.
+                input: { command: "env SHOULD_NOT=run" },
             },
         ],
         source: { provider: "faux", api: "scripted", model: "test" },
@@ -1870,6 +1873,10 @@ function reviewedTurnState(
     };
 }
 
+// `env` is the boundary crossing in these fixtures because it is harmless to run
+// and genuinely unclassified. `echo $HOME` no longer qualifies: `echo` and
+// `printf` reach the filesystem only through a redirect, so without one they
+// classify as a plain read and never reach a reviewer.
 function repeatedBoundaryCrossings(count: number): AssistantMessage[] {
     return Array.from({ length: count }, (_unused, index) => ({
         role: "assistant" as const,
@@ -1877,7 +1884,7 @@ function repeatedBoundaryCrossings(count: number): AssistantMessage[] {
             type: "tool_call" as const,
             id: `call_${index + 1}`,
             name: "bash",
-            input: { command: "echo $HOME" },
+            input: { command: "env" },
         }],
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
@@ -1893,7 +1900,7 @@ function boundaryCrossingResponses(): AssistantMessage[] {
                 type: "tool_call",
                 id: "call_1",
                 name: "bash",
-                input: { command: "echo $HOME" },
+                input: { command: "env" },
             }],
             source: { provider: "faux", api: "scripted", model: "test" },
             usage: emptyUsage(),
@@ -1970,7 +1977,7 @@ test("auto sends a boundary crossing to the reviewer, not the user", async () =>
     }
     await turn;
 
-    expect(seen).toEqual(["echo $HOME"]);
+    expect(seen).toEqual(["env"]);
     expect(updates).toContain("tool_review");
     expect(updates).toContain("tool_started");
     expect(updates).not.toContain("ui_request");

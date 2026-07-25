@@ -20,7 +20,7 @@ const responses: AssistantMessage[] = [
             type: "tool_call",
             id: "auto-reviewed-command",
             name: "bash",
-            input: { command: "printf auto-review-ran" },
+            input: { command: "env AUTO_REVIEW=ran" },
         }],
         source,
         usage: emptyUsage(),

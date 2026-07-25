@@ -243,7 +243,7 @@ function toolResponse(): AssistantMessage {
             type: "tool_call",
             id: "bash-1",
             name: "bash",
-            input: { command: "printf approval-ran" },
+            input: { command: "env APPROVAL=ran" },
         }],
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),

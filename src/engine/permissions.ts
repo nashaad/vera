@@ -864,11 +864,13 @@ function actionsForSimpleCommand(
     ) {
         return [{ tool: "bash", verb: "read", executable }, ...redirects];
     }
-    if (REDIRECT_ONLY_COMMANDS.has(executable) && command.redirects.length > 0) {
-        // With a redirect, the redirect is the whole story: `> notes.txt` is the
-        // write. But `2>&1` only moves an fd, so it produces no redirect action
-        // and leaves a plain read rather than an empty list (which would mean
-        // allow by default instead of by decision).
+    if (REDIRECT_ONLY_COMMANDS.has(executable)) {
+        // These write to stdout and nothing else, so a redirect is the only way
+        // they reach the filesystem and the redirect actions are the whole story.
+        // With no writing redirect (`printf x`, or `printf x 2>&1` where the fd
+        // duplication touches no path) the command is a plain read. Report that
+        // read explicitly rather than returning an empty list, which would mean
+        // allow by default instead of allow by decision.
         return redirects.length === 0
             ? [{ tool: "bash", verb: "read", executable }]
             : redirects;
