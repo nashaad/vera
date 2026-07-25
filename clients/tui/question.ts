@@ -17,7 +17,11 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
+import {
+    dialogBottomOffset,
+    dialogHeaderNode,
+    dialogOptionRow,
+} from "./dialog-chrome.ts";
 
 export interface TuiQuestionKey {
     readonly name: string;
@@ -126,7 +130,7 @@ export function createTuiQuestionView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        bottom: 1,
+        bottom: dialogBottomOffset(renderer),
         left: 0,
         width: "100%",
         height: "auto",
@@ -184,6 +188,7 @@ export function createTuiQuestionView(
         },
         update(update): void {
             box.maxHeight = renderer.height <= 10 ? "100%" : "90%";
+            box.bottom = dialogBottomOffset(renderer);
             if (currentRequestId === update.requestId) {
                 return;
             }

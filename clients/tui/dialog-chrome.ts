@@ -29,6 +29,31 @@ export const DIALOG_GUTTER_WIDTH = 3;
 // the three-line search block, the footer, and the card's own top padding.
 export const DIALOG_CHROME_HEIGHT = 8;
 
+// Below this height an overlay cannot spare a row. The question overlay draws
+// the same line for its own height cap, so "short" means one thing in the TUI
+// rather than two.
+export const DIALOG_SHORT_TERMINAL_HEIGHT = 10;
+
+/**
+ * How far above the bottom a bottom-anchored overlay sits.
+ *
+ * The status line is drawn over these overlays (`zIndex: 30` against their 20),
+ * so an overlay flush at the bottom loses its final row, which is where its key
+ * hints live. Clearing that row costs a row of overlay height, and on a short
+ * terminal the row comes out of the content: the question being asked scrolls
+ * off before its own hints do. That trade is worth it with room to spare and
+ * not worth it without, so short terminals keep the collision and keep the
+ * content.
+ *
+ * Overlays re-read this on update, not on resize: `RenderContext` exposes no
+ * resize hook, and the adjacent `maxHeight` short-terminal rule already works
+ * this way. So a terminal resized across the threshold with an overlay already
+ * open keeps the old offset until that overlay next updates.
+ */
+export function dialogBottomOffset(renderer: RenderContext): number {
+    return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT ? 1 : 2;
+}
+
 export function dialogHeaderNode(
     renderer: RenderContext,
     title: string,

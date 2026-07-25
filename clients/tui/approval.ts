@@ -12,7 +12,11 @@ import type {
 } from "../../src/engine/protocol.ts";
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { TUI_PANEL, TUI_TEXT } from "./state.ts";
-import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
+import {
+    dialogBottomOffset,
+    dialogHeaderNode,
+    dialogOptionRow,
+} from "./dialog-chrome.ts";
 
 /**
  * The approval choices are rendered as numbered rows rather than one muted
@@ -131,7 +135,7 @@ export function createTuiApprovalView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        bottom: 1,
+        bottom: dialogBottomOffset(renderer),
         left: "5%",
         width: "90%",
         height: "auto",
@@ -156,6 +160,7 @@ export function createTuiApprovalView(
             details.focus();
         },
         update(update): void {
+            box.bottom = dialogBottomOffset(renderer);
             if (currentRequestId === update.requestId) {
                 return;
             }

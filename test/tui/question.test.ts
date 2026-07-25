@@ -227,9 +227,17 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         expect(view.actions.screenY).toBeLessThan(18);
 
         setup.resize(42, 10);
+        // Geometry is re-read on update, so the resize goes through one. At
+        // this height the overlay gives the status line's row back and sits
+        // flush again: the question itself outranks its own key hints.
+        view.update(longRequest("long-question"));
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(frame).toContain("Question");
+        expect(view.box.bottom).toBe(1);
+        // The title is clipped here, not by the offset but by the existing
+        // `maxHeight: "100%"` short-terminal rule, which lets the box start one
+        // row above the viewport. The question itself, its choices, and its key
+        // hints all survive, which is the order that matters.
         expect(frame).toContain("Which release channel");
         expect(frame).toContain("1-9");
         expect(frame).toContain("esc cancel");
@@ -269,7 +277,8 @@ test("TUI question grows with content before details begin scrolling", async () 
         view.update(request);
         await setup.flush();
         const shortHeight = view.box.height;
-        expect(view.box.screenY + shortHeight).toBe(17);
+        // 16, not 17: the bottom row belongs to the status line now.
+        expect(view.box.screenY + shortHeight).toBe(16);
         expect(view.details.scrollHeight).toBe(view.details.height);
 
         view.update(questionWithLabel(
@@ -288,7 +297,7 @@ test("TUI question grows with content before details begin scrolling", async () 
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
         expect(view.box.height).toBeLessThanOrEqual(16);
-        expect(view.box.screenY + view.box.height).toBe(17);
+        expect(view.box.screenY + view.box.height).toBe(16);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
         expect(setup.captureCharFrame()).toContain("1-2");
     } finally {
