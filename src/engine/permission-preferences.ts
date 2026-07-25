@@ -115,6 +115,74 @@ export async function removePermissionPreference(
     return true;
 }
 
+/**
+ * A loaded preferences file, held in memory so the synchronous classifier can
+ * read it.
+ *
+ * The free functions above are each a self-contained read-modify-write, which
+ * is fine for a one-shot CLI call but not for the host: `decideToolPermission`
+ * is synchronous and cannot await a file read per tool call. So the host opens
+ * the store once at startup, reads through `list()`, and mutates through
+ * `add`/`remove`, which keep the cache and the file in step.
+ *
+ * Writes are serialized through `pending` because two concurrent `add` calls
+ * would otherwise both read the pre-write file and the second would clobber
+ * the first.
+ */
+export class PermissionPreferenceStore {
+    private preferences: readonly PermissionPreference[];
+    private pending: Promise<unknown> = Promise.resolve();
+
+    private constructor(
+        private readonly path: string,
+        preferences: readonly PermissionPreference[],
+    ) {
+        this.preferences = preferences;
+    }
+
+    static async open(
+        path: string = defaultPermissionPreferencesPath(),
+    ): Promise<PermissionPreferenceStore> {
+        return new PermissionPreferenceStore(
+            path,
+            await loadPermissionPreferences(path),
+        );
+    }
+
+    list(): readonly PermissionPreference[] {
+        return this.preferences;
+    }
+
+    async add(when: PermissionPredicate): Promise<PermissionPreference> {
+        return this.serialize(async () => {
+            const preference = await addPermissionPreference(when, this.path);
+            this.preferences = [...this.preferences, preference];
+            return preference;
+        });
+    }
+
+    /** Returns `true` if a preference with that ID was removed. */
+    async remove(id: string): Promise<boolean> {
+        return this.serialize(async () => {
+            const removed = await removePermissionPreference(id, this.path);
+            if (removed) {
+                this.preferences = this.preferences.filter(
+                    (preference) => preference.id !== id,
+                );
+            }
+            return removed;
+        });
+    }
+
+    private serialize<T>(operation: () => Promise<T>): Promise<T> {
+        const result = this.pending.then(operation, operation);
+        // Swallowed here only to keep one failed write from poisoning the
+        // chain; the caller still sees the rejection through `result`.
+        this.pending = result.catch(() => undefined);
+        return result;
+    }
+}
+
 async function savePermissionPreferences(
     preferences: readonly PermissionPreference[],
     path: string,

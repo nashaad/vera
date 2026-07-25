@@ -12,6 +12,7 @@ import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
@@ -30,6 +31,9 @@ export interface StartResidentHostOptions {
     readonly pid?: number;
     readonly startedAt?: string;
     readonly sessionDirectory?: string;
+    /** Overrides `~/.vera/preferences.json`, so tests do not read the
+     * developer's real preferences. */
+    readonly permissionPreferencesPath?: string;
     readonly eventLogDirectory?: string;
     readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
     readonly onExtensionDiagnostic?: (
@@ -65,6 +69,12 @@ export async function startResidentHost(
     const models = options.createAdapter === undefined
         ? await discoverAvailableModels(options.config)
         : configuredCatalog(options.config);
+    // Opened once per host, not per agent: the file is per-user. A malformed
+    // or missing file reads as no preferences rather than failing startup, so
+    // this cannot block the host from coming up.
+    const permissionPreferences = await PermissionPreferenceStore.open(
+        options.permissionPreferencesPath,
+    );
     const registry = new AgentRegistry({
         createAdapter: options.createAdapter
             ?? ((provider) => createConfiguredModelAdapter({
@@ -96,6 +106,7 @@ export async function startResidentHost(
         ...(options.config.permission_modes === undefined
             ? {}
             : { permissionModes: options.config.permission_modes }),
+        permissionPreferences,
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogDirectory === undefined

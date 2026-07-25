@@ -8,6 +8,7 @@ import {
     type ApprovalMode,
     type PermissionMode,
 } from "../engine/permissions.ts";
+import type { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import {
     availableModels,
@@ -85,6 +86,12 @@ export interface AgentRegistryOptions {
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    /**
+     * Durable preferences, deliberately one store shared by every agent:
+     * the file is per-user, not per-session, so an allow the user persists
+     * in one agent applies in the next one without a restart.
+     */
+    readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
@@ -572,6 +579,10 @@ export class AgentRegistry {
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
+                ...(this.options.permissionPreferences === undefined ? {} : {
+                    readPermissionPreferences: () =>
+                        this.options.permissionPreferences!.list(),
+                }),
                 updateSessionName: (name) =>
                     this.updateSessionName(agent.id, name),
                 sendTimelineReply: (ownerId, reply) =>

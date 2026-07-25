@@ -67,6 +67,7 @@ import {
     type PermissionGrant,
     type PermissionGrantProposal,
     type PermissionMode,
+    type PermissionPreference,
 } from "./permissions.ts";
 import {
     createRoutedToolReviewer,
@@ -118,6 +119,7 @@ export interface RunTurnState {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionGrants?: () => readonly PermissionGrant[];
+    readonly readPermissionPreferences?: () => readonly PermissionPreference[];
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     /** Automatic approval reviewer used by `auto`. */
     readonly reviewToolCall?: ReviewToolCall;
@@ -154,6 +156,12 @@ export interface RunHeadlessLoopOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    /**
+     * Durable preferences, read on every decision rather than captured once,
+     * so an add/remove through the router takes effect on the next tool call
+     * without restarting the loop.
+     */
+    readonly readPermissionPreferences?: () => readonly PermissionPreference[];
     readonly updateSessionName?: (
         name: string | null,
     ) => Promise<string | null | undefined>;
@@ -225,11 +233,14 @@ export async function runHeadlessLoop(
             return localApprovalMode;
         });
     const readPermissionGrants = () => store.permissionGrants();
+    const readPermissionPreferences = () =>
+        options.readPermissionPreferences?.() ?? [];
     const readPermissionInspection = () =>
         inspectPermissions(
             readApprovalMode(),
             options.permissionModes,
             readPermissionGrants(),
+            readPermissionPreferences(),
         );
     const addPermissionGrants = async (
         grants: readonly PermissionGrantProposal[],
@@ -343,6 +354,7 @@ export async function runHeadlessLoop(
             : { readModelSettings: options.readModelSettings }),
         readApprovalMode,
         readPermissionGrants,
+        readPermissionPreferences,
         ...(options.permissionModes === undefined
             ? {}
             : { permissionModes: options.permissionModes }),
@@ -910,7 +922,10 @@ async function executePreparedTool(
         permissionContext.toolCall,
         permissionContext.workspace,
         state.readPermissionGrants?.() ?? [],
-        { permissionModes: state.permissionModes },
+        {
+            permissionModes: state.permissionModes,
+            permissionPreferences: state.readPermissionPreferences?.() ?? [],
+        },
     );
     if (permission.behavior === "deny") {
         return { result: deniedToolResult(toolCall, permission.reason) };

@@ -7,9 +7,13 @@ import {
     addPermissionPreference,
     listPermissionPreferences,
     loadPermissionPreferences,
+    PermissionPreferenceStore,
     removePermissionPreference,
 } from "../../src/engine/permission-preferences.ts";
-import { decideToolPermission } from "../../src/engine/permissions.ts";
+import {
+    decideToolPermission,
+    isPermissionPredicate,
+} from "../../src/engine/permissions.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 
 const workspace = "/Users/nash/Projects/vera";
@@ -150,4 +154,106 @@ test("removing a preference restores the original prompt", async () => {
             { homeDirectory, permissionPreferences: afterRemoval },
         ).behavior).toBe("ask");
     });
+});
+
+test("the store serves the classifier synchronously from its cache", async () => {
+    await withPreferencesFile(async (path) => {
+        const store = await PermissionPreferenceStore.open(path);
+        expect(store.list()).toEqual([]);
+
+        await store.add({ operation: "git.push" });
+        // The point of the store: no await between the add and the decision,
+        // because `decideToolPermission` cannot await a file read per call.
+        expect(decideToolPermission(
+            "ask",
+            bash("git push origin main"),
+            workspace,
+            [],
+            { homeDirectory, permissionPreferences: store.list() },
+        ).behavior).toBe("allow");
+
+        // The cache is not the only copy: a second store over the same file
+        // sees the write.
+        const reopened = await PermissionPreferenceStore.open(path);
+        expect(reopened.list()).toEqual(store.list());
+    });
+});
+
+test("store removal reports whether anything matched", async () => {
+    await withPreferencesFile(async (path) => {
+        const store = await PermissionPreferenceStore.open(path);
+        const added = await store.add({ operation: "git.push" });
+
+        expect(await store.remove("no-such-id")).toBe(false);
+        expect(store.list()).toHaveLength(1);
+
+        expect(await store.remove(added.id)).toBe(true);
+        expect(store.list()).toEqual([]);
+        expect(await loadPermissionPreferences(path)).toEqual([]);
+    });
+});
+
+test("concurrent adds all survive instead of clobbering each other", async () => {
+    await withPreferencesFile(async (path) => {
+        const store = await PermissionPreferenceStore.open(path);
+        // Without serialization each add reads the pre-write file and the last
+        // write wins, leaving one preference on disk instead of three.
+        await Promise.all([
+            store.add({ operation: "git.push" }),
+            store.add({ operation: "git.commit" }),
+            store.add({ executable: "curl" }),
+        ]);
+
+        expect(store.list()).toHaveLength(3);
+        expect(await loadPermissionPreferences(path)).toHaveLength(3);
+    });
+});
+
+// Adversarial boundary checks: preferences arrive from a client over RPC, so
+// the engine must not trust the predicate it is handed.
+
+test("a match-everything preference cannot enter over the wire", () => {
+    // `isPermissionPredicate` requires at least one field, which is what stops
+    // `{}` (a predicate matching every action) from decoding. Without this the
+    // add RPC would be a one-command route to full_access.
+    expect(isPermissionPredicate({})).toBe(false);
+});
+
+test("no preference can lower a deny, whatever it matches", async () => {
+    await withPreferencesFile(async (path) => {
+        const store = await PermissionPreferenceStore.open(path);
+        await store.add({ pathGlob: ".env" });
+        const decision = decideToolPermission(
+            "ask",
+            { id: "call_1", name: "read", input: { path: ".env" } },
+            workspace,
+            [],
+            { homeDirectory, permissionPreferences: store.list() },
+        );
+        expect(decision.behavior).toBe("deny");
+        if (decision.behavior === "deny") {
+            expect(decision.source).toBe("mode");
+        }
+    });
+});
+
+test("the accident guard runs ahead of preferences", () => {
+    // Constructed in-process rather than through the store, because the point
+    // is that even a preference the wire would reject cannot reach the guard.
+    const decision = decideToolPermission(
+        "ask",
+        bash("rm -rf ~"),
+        workspace,
+        [],
+        {
+            homeDirectory,
+            permissionPreferences: [
+                { id: "x", when: { executable: "rm" }, createdAt: "now" },
+            ],
+        },
+    );
+    expect(decision.behavior).toBe("deny");
+    if (decision.behavior === "deny") {
+        expect(decision.source).toBe("accident_guard");
+    }
 });
