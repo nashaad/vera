@@ -55,10 +55,13 @@ test.skipIf(!tmuxAvailable)(
                 "Help to close",
             );
             // ctrl+p is the advertised way in; the /palette alias is a fallback.
+            sendText(socket, session, "/");
+            await waitForVisiblePane(socket, session, "Rewind the active conversation");
             sendKey(socket, session, "C-p");
             pane = await waitForVisiblePane(socket, session, "Commands");
             expect(pane).toContain("Settings");
             expect(pane).toContain("Switch model");
+            expect(pane).not.toContain("Rewind the active conversation");
             sendText(socket, session, "switch model");
             pane = await waitForVisiblePane(socket, session, "⌕  switch model");
             expect(pane).toContain("Switch model");
@@ -1106,7 +1109,7 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-question-child.ts",
                 42,
-                10,
+                20,
             );
             pane = await waitForVisiblePane(
                 socket,
@@ -1116,6 +1119,11 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Which release channel");
             expect(pane).toContain("2  Preview");
             expect(pane).toContain("3  Nightly");
+            // The reproduction for the status-line collision: above the short
+            // terminal threshold the overlay clears the status line's row, so
+            // its final line of key hints survives instead of being drawn over.
+            // The 42x10 approval test covers the other side of the threshold,
+            // where the row goes back to the content.
             expect(pane).toContain("esc cancel");
 
             sendText(socket, session, "2");
@@ -1437,7 +1445,7 @@ async function exerciseConversationRewind(
     let pane = await waitForPane(
         socket,
         session,
-        "/rewind  Rewind the active conversation",
+        "/rewind       Rewind the active conversation",
     );
     sendKey(socket, session, "Tab");
     pane = await waitForPaneWhere(

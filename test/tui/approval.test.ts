@@ -144,8 +144,13 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(view.actions.screenY).toBeLessThan(18);
 
         setup.resize(42, 10);
+        // Geometry is re-read on update, so the resize goes through one. At
+        // this height the overlay gives the status line's row back and sits
+        // flush again: the command being approved outranks its key hints.
+        view.update(longRequest());
         await setup.flush();
         frame = setup.captureCharFrame();
+        expect(view.box.bottom).toBe(1);
         expect(frame).toContain("Tool approval");
         expect(frame).toContain("$ grep");
         expect(frame).toContain("1  Allow once");
@@ -193,7 +198,8 @@ test("TUI approval grows with content before details begin scrolling", async () 
         view.update(requestWithCommand("pwd", "short-request"));
         await setup.flush();
         const shortHeight = view.box.height;
-        expect(view.box.screenY + shortHeight).toBe(17);
+        // 16, not 17: the bottom row belongs to the status line now.
+        expect(view.box.screenY + shortHeight).toBe(16);
         expect(view.details.scrollHeight).toBe(view.details.height);
 
         view.update(requestWithCommand(
@@ -212,7 +218,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
         expect(view.box.height).toBeLessThanOrEqual(16);
-        expect(view.box.screenY + view.box.height).toBe(17);
+        expect(view.box.screenY + view.box.height).toBe(16);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
         expect(setup.captureCharFrame()).toContain("1  Allow once");
     } finally {

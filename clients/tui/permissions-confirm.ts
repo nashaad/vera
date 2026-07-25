@@ -4,6 +4,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogBottomOffset } from "./dialog-chrome.ts";
+
 const DANGER = "#ff3b30";
 const DANGER_BACKGROUND = "#210b0b";
 
@@ -68,7 +70,7 @@ export function createTuiPermissionsConfirmView(
         border: false,
         backgroundColor: DANGER_BACKGROUND,
         position: "absolute",
-        bottom: 1,
+        bottom: dialogBottomOffset(renderer),
         left: 1,
         right: 1,
         height: "auto",
