@@ -7,6 +7,13 @@ import {
     type TuiAgentClient,
 } from "../../clients/tui/main.ts";
 
+/**
+ * The picker prints this as a relative age, so a fixed date would render
+ * differently every day and the test asserts on that label. 90 minutes floors to
+ * "1h ago" with plenty of slack for a slow start.
+ */
+const updatedAt = new Date(Date.now() - 90 * 60_000).toISOString();
+
 let detached = false;
 const firstClient: TuiAgentClient = {
     agentId: "current-session-id",
@@ -29,7 +36,7 @@ const exit = await startTui({
         kind: "interactive",
         status: "idle",
         title: "Continue the theme picker",
-        updated_at: "2026-07-20T20:00:00.000Z",
+        updated_at: updatedAt,
     }],
 });
 
