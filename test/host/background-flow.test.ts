@@ -16,11 +16,15 @@ import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
+// This covers background work and host control, not permissions. "auto" would
+// send background_agent to the review model, which no faux adapter here answers,
+// so the reviewer reports an unreadable decision, the turn falls back to a user
+// prompt, and nothing is listening to answer it.
 const config = {
     schema_version: 1,
     provider: "openrouter",
     model: "faux/test",
-    approval_mode: "auto",
+    approval_mode: "full_access",
 } as const;
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
