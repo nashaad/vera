@@ -43,6 +43,7 @@ import {
     toolMayRunInParallel,
     toolResultMessage,
 } from "../tools/execute.ts";
+import { initBashParser } from "../tools/bash-parser.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
@@ -434,6 +435,10 @@ export async function runTurn(
     state: RunTurnState,
     reasoningEffort?: ModelReasoningEffort,
 ): Promise<AssistantMessage> {
+    // The permission classifier is synchronous but the bash parser it uses
+    // loads a wasm grammar asynchronously. Awaiting it here means no client
+    // has a boot-order dependency to remember; the work happens once.
+    await initBashParser();
     const turn = await state.inbound.startTurn();
     let assistantMessage: AssistantMessage;
 

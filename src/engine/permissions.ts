@@ -13,6 +13,14 @@ import {
     simpleCommandExecutableIndex,
     tokenizeSimpleCommands,
 } from "../tools/bash-danger.ts";
+import {
+    isBashParserReady,
+    parseBashScript,
+    type BashCommand,
+    type BashRedirect,
+    type BashRedirectOperator,
+    type BashStatement,
+} from "../tools/bash-parser.ts";
 import { toolPermissionInputs } from "../tools/execute.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
 import {
@@ -626,6 +634,16 @@ function structuredInputAction(
     };
 }
 
+/**
+ * Structured Bash classification, over the tree-sitter parse rather than the
+ * hand-written tokenizer.
+ *
+ * Two invariants hold every statement to account, because
+ * `decideToolPermission` treats an empty action list as `allow`: every construct
+ * this walk does not model contributes an `unknown` action, and an unmodelled
+ * construct also makes the working directory unknown, since it may contain a `cd`
+ * this walk cannot see. Dropping a construct silently would allow it.
+ */
 function extractBashActions(
     command: string,
     workspace: string,
@@ -633,44 +651,151 @@ function extractBashActions(
     initialDirectory: string | undefined,
     depth: number,
 ): readonly PermissionAction[] {
-    const commands = reconnectFdDuplicationTargets(
-        tokenizeSimpleCommands(command),
-    );
-    const actions: PermissionAction[] = [];
-    let workingDirectory = initialDirectory;
-
-    for (const words of commands) {
-        actions.push(
-            ...actionsForSimpleCommand(
-                words,
-                workspace,
-                workingDirectory,
-                homeDirectory,
-            ),
-        );
-        workingDirectory = nextWorkingDirectory(
-            words,
-            workingDirectory,
-            homeDirectory,
-        );
+    if (!isBashParserReady()) {
+        // The engine awaits `initBashParser()` before running a turn, so this is
+        // a wiring failure rather than a normal state. Ask instead of throwing:
+        // an unreadable command is exactly what `unknown` already means, and a
+        // thrown error in the classifier would fail the turn instead.
+        return [{ tool: "bash", verb: "unknown" }];
+    }
+    const script = parseBashScript(command);
+    if (script.statements.length === 0) {
+        return command.trim().length === 0 ? [] : [{
+            tool: "bash",
+            verb: "unknown",
+        }];
     }
 
+    const walk = new BashActionWalk(workspace, homeDirectory, initialDirectory);
+    for (const statement of script.statements) {
+        walk.visit(statement);
+    }
+
+    // Substitutions and `-c` payloads run in a subshell, so they inherit the
+    // directory reached so far but cannot change it for anything after them.
+    const nested = [
+        ...script.substitutions,
+        ...shellCommandPayloads(script.commands),
+    ];
     if (depth >= MAX_NESTED_SHELL_DEPTH) {
-        return actions;
+        // Out of budget to look deeper. Anything still nested here is unread, and
+        // unread is unknown, not absent.
+        return nested.length === 0
+            ? walk.actions
+            : [...walk.actions, { tool: "bash", verb: "unknown" }];
     }
     return [
-        ...actions,
-        ...nestedShellCommands(command, commands).flatMap((nested) =>
+        ...walk.actions,
+        ...nested.flatMap((source) =>
             extractBashActions(
-                nested,
+                source,
                 workspace,
                 homeDirectory,
-                workingDirectory,
+                walk.workingDirectory,
                 depth + 1,
             )
         ),
     ];
 }
+
+/**
+ * Carries the `cd`-tracked working directory across a statement tree. A class
+ * rather than a returned tuple because every visit both appends actions and may
+ * move the directory, and threading two values through four mutually recursive
+ * shapes reads worse than one walker.
+ */
+class BashActionWalk {
+    readonly actions: PermissionAction[] = [];
+    workingDirectory: string | undefined;
+
+    constructor(
+        private readonly workspace: string,
+        private readonly homeDirectory: string,
+        initialDirectory: string | undefined,
+    ) {
+        this.workingDirectory = initialDirectory;
+    }
+
+    visit(statement: BashStatement): void {
+        if (statement.kind === "command") {
+            this.visitCommand(statement);
+            return;
+        }
+        if (statement.kind === "chain") {
+            // Both sides run in this shell, in order, so a `cd` on the left is
+            // visible to the right even when the operator may skip it: assuming
+            // it ran is the conservative reading, because the alternative
+            // resolves later relative paths against the wrong directory.
+            this.visit(statement.left);
+            this.visit(statement.right);
+            return;
+        }
+        if (statement.kind === "pipeline") {
+            // Each stage is its own subshell. Stage actions still count, but a
+            // `cd` inside one does not survive the pipeline, and nothing here
+            // can say what the shell's directory is afterwards.
+            const before = this.workingDirectory;
+            for (const stage of statement.stages) {
+                this.workingDirectory = before;
+                this.visit(stage);
+            }
+            this.workingDirectory = before;
+            return;
+        }
+        this.actions.push({ tool: "bash", verb: "unknown" });
+        this.workingDirectory = undefined;
+    }
+
+    private visitCommand(command: BashCommand): void {
+        this.actions.push(
+            ...actionsForSimpleCommand(
+                command,
+                this.workspace,
+                this.workingDirectory,
+                this.homeDirectory,
+            ),
+        );
+        this.workingDirectory = command.hasNonLiteralWords
+                && basename(command.words[0] ?? "") === "cd"
+            // `cd "$DIR"` is a real directory change to a directory we cannot
+            // name. Leaving the old one in place would resolve every later
+            // relative path against a directory the shell already left.
+            ? undefined
+            : nextWorkingDirectory(
+                command.words,
+                this.workingDirectory,
+                this.homeDirectory,
+            );
+    }
+}
+
+/**
+ * `bash -c "..."` payloads, for recursive classification. Command substitutions
+ * arrive from the parser instead; this covers only the explicit `-c` form, whose
+ * payload is an ordinary argument the parser has no reason to treat as code.
+ */
+function shellCommandPayloads(
+    commands: readonly BashCommand[],
+): readonly string[] {
+    const payloads: string[] = [];
+    for (const { words } of commands) {
+        const executableIndex = simpleCommandExecutableIndex(words);
+        const executable = basename(words[executableIndex] ?? "");
+        if (!NESTED_SHELLS.has(executable)) {
+            continue;
+        }
+        const flagIndex = words.findIndex((word, index) =>
+            index > executableIndex && /^-[^-]*c/.test(word)
+        );
+        const payload = flagIndex === -1 ? undefined : words[flagIndex + 1];
+        if (payload !== undefined) {
+            payloads.push(payload);
+        }
+    }
+    return payloads;
+}
+
+const NESTED_SHELLS = new Set(["bash", "sh", "zsh"]);
 
 /**
  * Tracks `cd` so later relative paths are resolved against the right
@@ -693,23 +818,25 @@ function nextWorkingDirectory(
 }
 
 function actionsForSimpleCommand(
-    words: readonly string[],
+    command: BashCommand,
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
 ): readonly PermissionAction[] {
+    const { words } = command;
     const executableIndex = simpleCommandExecutableIndex(words);
     const executable = basename(words[executableIndex] ?? "");
-    if (executable.length === 0) {
-        return [{ tool: "bash", verb: "unknown" }];
-    }
-
-    const redirects = outputRedirectActions(
-        words,
+    const redirects = redirectActions(
+        command.redirects,
         workspace,
         workingDirectory,
         homeDirectory,
     );
+    if (executable.length === 0) {
+        // No name to classify: either the command name was an expansion, or the
+        // whole command is assignments. Any redirect on it is still a real write.
+        return [{ tool: "bash", verb: "unknown" }, ...redirects];
+    }
     if (executable === "git") {
         return [...gitActions(words, executableIndex), ...redirects];
     }
@@ -728,12 +855,23 @@ function actionsForSimpleCommand(
     const readOnlyClassifier = READ_ONLY_COMMANDS[executable];
     if (
         readOnlyClassifier !== undefined
+        // A hidden argument can defeat this classifier and nothing else: it
+        // decides read-only by inspecting flags, so `sed "$FLAGS" notes.md` with
+        // `FLAGS=-i` looks argument-free and therefore read-only. Every other
+        // branch below already lands on `unknown` when a target is missing.
+        && !command.hasNonLiteralWords
         && readOnlyClassifier(words.slice(executableIndex + 1))
     ) {
         return [{ tool: "bash", verb: "read", executable }, ...redirects];
     }
-    if (REDIRECT_ONLY_COMMANDS.has(executable) && redirects.length > 0) {
-        return redirects;
+    if (REDIRECT_ONLY_COMMANDS.has(executable) && command.redirects.length > 0) {
+        // With a redirect, the redirect is the whole story: `> notes.txt` is the
+        // write. But `2>&1` only moves an fd, so it produces no redirect action
+        // and leaves a plain read rather than an empty list (which would mean
+        // allow by default instead of by decision).
+        return redirects.length === 0
+            ? [{ tool: "bash", verb: "read", executable }]
+            : redirects;
     }
     return [{ tool: "bash", verb: "unknown", executable }, ...redirects];
 }
@@ -746,82 +884,83 @@ const INERT_REDIRECT_TARGETS = new Set([
 ]);
 
 /**
- * `/dev/null` and friends have no observable effect, and `2>&1` duplicates a
- * file descriptor rather than naming a path. Neither should escalate a
- * command past a plain read.
+ * `/dev/null` and friends have no observable effect, so writing there should not
+ * escalate a command past a plain read.
  */
 function isInertRedirectTarget(target: string): boolean {
-    if (target.startsWith("&")) {
-        return true;
-    }
     return INERT_REDIRECT_TARGETS.has(target);
 }
 
+/** Operators that always write to their target. */
+const WRITING_REDIRECT_OPERATORS = new Set<BashRedirectOperator>([
+    ">",
+    ">>",
+    "&>",
+    "&>>",
+]);
+
 /**
- * The tokenizer splits on a bare `&` because it doubles as the background
- * operator, so `2>&1` comes back as two "commands": `[..., "2>"]` and
- * `["1"]`. Reconnect that split before redirect analysis runs, so fd
- * duplication is recognized instead of misread as an unrelated command.
+ * Whether a redirect writes to a path, as opposed to reading one or moving a
+ * file descriptor around.
+ *
+ * `>&` is both: `2>&1` duplicates fd 1, but `cmd >& out.txt` is bash's older
+ * spelling of `cmd &> out.txt` and really does create the file. Only a numeric
+ * target is a duplication; a hidden target could be either, so it counts as a
+ * write and reaches the caller as `unknown`.
  */
-function reconnectFdDuplicationTargets(
-    commands: readonly string[][],
-): string[][] {
-    const result: string[][] = [];
-    let index = 0;
-    while (index < commands.length) {
-        const words = commands[index] ?? [];
-        const last = words.at(-1) ?? "";
-        const next = commands[index + 1];
-        const fdTarget = next?.[0];
-        if (
-            next !== undefined
-            && /^\d*>$/.test(last)
-            && fdTarget !== undefined
-            && /^\d+$/.test(fdTarget)
-        ) {
-            result.push([...words.slice(0, -1), `${last}&${fdTarget}`]);
-            const remainder = next.slice(1);
-            if (remainder.length > 0) {
-                result.push(remainder);
-            }
-            index += 2;
-            continue;
-        }
-        result.push(words);
-        index += 1;
+function isWritingRedirect(redirect: BashRedirect): boolean {
+    if (WRITING_REDIRECT_OPERATORS.has(redirect.operator)) {
+        return true;
     }
-    return result;
+    if (redirect.operator !== ">&") {
+        return false;
+    }
+    return redirect.target === undefined
+        || !/^\d+-?$/.test(redirect.target);
 }
 
-function outputRedirectActions(
-    words: readonly string[],
+/**
+ * Redirect targets, from the parse rather than from scanning words for `>`.
+ *
+ * The parser distinguishes what the old regex could not: `2>&1` is a `>&`
+ * operator duplicating a file descriptor, not a write to a file named `1`, and
+ * `>>` cannot be misread as `>` with `>` as its target.
+ */
+function redirectActions(
+    redirects: readonly BashRedirect[],
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
 ): readonly PermissionAction[] {
     const actions: PermissionAction[] = [];
-    for (let index = 0; index < words.length; index += 1) {
-        // `>>` must be tried before `>`, or `>>` parses as `>` with the second
-        // `>` captured as the target.
-        const redirect = (words[index] ?? "").match(/^\d*(?:>>|>)(.*)$/);
-        if (redirect === null) {
+    for (const redirect of redirects) {
+        if (!isWritingRedirect(redirect)) {
+            // An fd duplication or an input redirect. Neither names a path this
+            // command writes, and the executable's own classification already
+            // covers what it reads.
             continue;
         }
-        const attached = redirect[1] ?? "";
-        const target = attached.length > 0 ? attached : words[index + 1];
-        if (attached.length === 0) {
-            index += 1;
-        }
-        if (target === undefined || target.length === 0) {
+        if (redirect.target === undefined) {
+            // The target is an expansion or substitution, so the write is real
+            // but its destination is unknowable here.
+            actions.push({
+                tool: "bash",
+                verb: "unknown",
+                executable: "shell_redirect",
+            });
             continue;
         }
-        if (isInertRedirectTarget(target)) {
-            actions.push({ tool: "bash", verb: "read", executable: "shell_redirect" });
+        if (isInertRedirectTarget(redirect.target)) {
+            actions.push({
+                tool: "bash",
+                verb: "read",
+                executable: "shell_redirect",
+            });
             continue;
         }
         actions.push(shellPathAction(
             "write",
-            target,
+            redirect.target,
             "shell_redirect",
             workspace,
             workingDirectory,
