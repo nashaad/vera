@@ -46,6 +46,7 @@ test("TUI approval shows the exact command and honest warning", () => {
         "1  Allow once",
         "2  Allow similar this session  command: tool=bash, executable=curl",
         "3  Deny  esc",
+        "4  Allow similar always  command: tool=bash, executable=curl",
     ].join("\n"));
 });
 
@@ -53,6 +54,7 @@ test("TUI approval accepts numeric once, similar, and deny keys", () => {
     expect(tuiApprovalDecision({ name: "1" })).toBe("allow_once");
     expect(tuiApprovalDecision({ name: "2" })).toBe("allow_similar");
     expect(tuiApprovalDecision({ name: "3" })).toBe("deny");
+    expect(tuiApprovalDecision({ name: "4" })).toBe("allow_always");
     expect(tuiApprovalDecision({ name: "escape" })).toBe("deny");
     expect(tuiApprovalDecision({ name: "1", ctrl: true })).toBeUndefined();
     expect(tuiApprovalDecision({ name: "return" })).toBeUndefined();
@@ -66,6 +68,31 @@ test("TUI approval accepts numeric once, similar, and deny keys", () => {
         requestId: "request-1",
         response: { type: "tool_approval", decision: "allow_similar" },
     });
+    expect(createTuiApprovalResponse(request, { name: "4" })).toEqual({
+        type: "ui_response",
+        requestId: "request-1",
+        response: { type: "tool_approval", decision: "allow_always" },
+    });
+});
+
+test("both remembering rows are unavailable without a derived predicate", () => {
+    // No predicate means nothing honest to remember, in either tier. The rows
+    // stay rendered so the key numbering does not shift under the user.
+    const noGrants: ToolApprovalUiRequestUpdate = {
+        ...request,
+        request: { ...request.request, permissionGrants: undefined },
+    };
+    expect(tuiApprovalDecision({ name: "2" }, false)).toBeUndefined();
+    expect(tuiApprovalDecision({ name: "4" }, false)).toBeUndefined();
+    const rendered = renderTuiApproval(noGrants);
+    expect(rendered).toContain(
+        "2  Allow similar this session  not available for this command",
+    );
+    expect(rendered).toContain(
+        "4  Allow similar always  not available for this command",
+    );
+    expect(createTuiApprovalResponse(noGrants, { name: "4" }))
+        .toBeUndefined();
 });
 
 test("TUI approval disables session grants when none can be derived", () => {
@@ -135,12 +162,18 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
             "1  Allow once",
         );
 
-        setup.resize(24, 6);
+        // The floor is 7 rows, not 6: header plus one line of command detail
+        // plus four action rows. The fourth action row is what moved it, and
+        // the property under test is unchanged, actions never scroll off.
+        setup.resize(24, 7);
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(frame).toContain("1  Allow once");
         expect(frame).toContain("3  Deny");
-        expect(view.actions.screenY + view.actions.height).toBeLessThanOrEqual(5);
+        // Truncated at 24 columns, so match the prefix: the point is the row
+        // is on screen at all.
+        expect(frame).toContain("4  Allow similar");
+        expect(view.actions.screenY + view.actions.height).toBeLessThanOrEqual(6);
     } finally {
         setup.renderer.destroy();
     }

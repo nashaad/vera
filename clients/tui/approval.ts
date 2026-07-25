@@ -24,9 +24,25 @@ const APPROVAL_ROWS = [
     { key: "1", label: "Allow once" },
     { key: "2", label: "Allow similar this session" },
     { key: "3", label: "Deny", meta: "esc" },
+    { key: "4", label: "Allow similar always" },
 ] as const;
 
-export type TuiApprovalDecision = "allow_once" | "allow_similar" | "deny";
+/**
+ * Rows 2 and 4 derive the same predicate and differ only in where it is stored,
+ * so they carry matching labels: a durable row that silenced a different set of
+ * future prompts than the session row above it would be unpredictable from the
+ * label alone.
+ *
+ * The durable row is `4` and deny stays on `3`, out of escalating order on
+ * purpose. Renumbering deny would retrain an existing keypress toward the more
+ * permissive direction, and a mis-hit there grants a permission that outlives
+ * the session.
+ */
+export type TuiApprovalDecision =
+    | "allow_once"
+    | "allow_similar"
+    | "allow_always"
+    | "deny";
 
 export interface TuiApprovalKey {
     readonly name: string;
@@ -89,7 +105,8 @@ export function createTuiApprovalView(
         for (const action of APPROVAL_ROWS) {
             // Keep the row in place when no honest reusable grant can be
             // derived so the approval key numbering stays stable.
-            const unavailable = action.key === "2" && grants === undefined;
+            const derived = isDerivedRow(action.key);
+            const unavailable = derived && grants === undefined;
             const row = dialogOptionRow(renderer, {
                 label: action.label,
                 leading: `${action.key}  `,
@@ -97,7 +114,7 @@ export function createTuiApprovalView(
                 ...("meta" in action ? { meta: action.meta } : {}),
                 ...(unavailable
                     ? { description: "not available for this command" }
-                    : action.key === "2"
+                    : derived
                     ? { description: formatGrants(grants!) }
                     : {}),
             });
@@ -189,6 +206,9 @@ export function tuiApprovalDecision(
     if (key.name === "3" || key.name === "escape") {
         return "deny";
     }
+    if (key.name === "4" && grantsAvailable) {
+        return "allow_always";
+    }
     return undefined;
 }
 
@@ -229,6 +249,11 @@ export function applyTuiApprovalUpdate(
     return current;
 }
 
+/** Rows whose meaning comes from the derived grant predicate, not the tool. */
+function isDerivedRow(key: string): boolean {
+    return key === "2" || key === "4";
+}
+
 function formatToolCall(update: ToolApprovalUiRequestUpdate): string {
     const command = update.request.toolCall.input.command;
     if (update.request.toolCall.name === "bash" && typeof command === "string") {
@@ -241,7 +266,7 @@ function approvalActions(update: ToolApprovalUiRequestUpdate): string {
     const grants = update.request.permissionGrants;
     return [
         ...APPROVAL_ROWS.map((action) => {
-            if (action.key !== "2") {
+            if (!isDerivedRow(action.key)) {
                 return "meta" in action
                     ? `${action.key}  ${action.label}  ${action.meta}`
                     : `${action.key}  ${action.label}`;

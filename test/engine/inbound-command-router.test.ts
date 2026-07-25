@@ -13,6 +13,7 @@ import {
     inspectPermissions,
     type ApprovalMode,
     type PermissionInspection,
+    type PermissionPredicate,
 } from "../../src/engine/permissions.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 
@@ -138,6 +139,128 @@ test("session grants are saved before the tool is allowed", async () => {
     expect(await approval).toEqual({ behavior: "allow" });
     expect(saved).toEqual([grants]);
     expect((await channel.client.receive()).type).toBe("ui_request_closed");
+});
+
+test("allow_always persists the same predicate the session row would", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const persisted: PermissionPredicate[] = [];
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+        readPermissionInspection: () => inspectPermissions("ask"),
+        addPermissionPreference: async (when) => {
+            persisted.push(when);
+            return { id: "pref-1", when, createdAt: "2026-07-25T00:00:00.000Z" };
+        },
+    });
+    const grants = [{
+        kind: "action",
+        when: { operation: "git.push" },
+        scope: "session",
+        lifetime: "session",
+    }] as const;
+    const approval = router.requestToolApproval(
+        bashToolCall("git push origin"),
+        "Bash commands run with your full user permissions.",
+        { timeoutMs: 1_000, permissionGrants: grants },
+    );
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "tool_approval", decision: "allow_always" },
+    });
+
+    expect(await approval).toEqual({ behavior: "allow" });
+    // The predicate is the grant proposal's, not a re-derived one, so the
+    // durable row silences exactly what the session row above it would.
+    expect(persisted).toEqual([{ operation: "git.push" }]);
+    expect((await channel.client.receive()).type).toBe("ui_request_closed");
+    // The durable list changed, so clients get an unsolicited refresh: nothing
+    // else would tell them, since they only fetch an inspection at startup.
+    expect(await channel.client.receive()).toMatchObject({
+        type: "permissions",
+        requestId: request.requestId,
+    });
+});
+
+test("allow_always is ignored when no preference store is installed", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    // No `addPermissionPreference`, which is the shape of a host started
+    // without a preferences file path.
+    const router = new InboundCommandRouter(channel.engine, events, {});
+    const approval = router.requestToolApproval(
+        bashToolCall("git push origin"),
+        "Bash commands run with your full user permissions.",
+        {
+            timeoutMs: 200,
+            permissionGrants: [{
+                kind: "action",
+                when: { operation: "git.push" },
+                scope: "session",
+                lifetime: "session",
+            }],
+        },
+    );
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "tool_approval", decision: "allow_always" },
+    });
+
+    // Ignored rather than downgraded to a plain allow: the user is never told a
+    // preference was saved when none was, and the prompt stays up until it
+    // times out or they choose again.
+    expect(await approval).toMatchObject({ behavior: "deny" });
+});
+
+test("a failed preference write denies and closes the approval", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        addPermissionPreference: async () => {
+            throw new Error("disk full");
+        },
+    });
+    const approval = router.requestToolApproval(
+        bashToolCall("git push origin"),
+        "Bash commands run with your full user permissions.",
+        {
+            timeoutMs: 1_000,
+            permissionGrants: [{
+                kind: "action",
+                when: { operation: "git.push" },
+                scope: "session",
+                lifetime: "session",
+            }],
+        },
+    );
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "tool_approval", decision: "allow_always" },
+    });
+
+    expect(await approval).toEqual({
+        behavior: "deny",
+        reason: "The permission preference could not be saved.",
+    });
 });
 
 test("a failed session grant write denies and closes the approval", async () => {

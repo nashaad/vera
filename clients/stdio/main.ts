@@ -123,7 +123,7 @@ try {
                     lines.setPrompt(
                         update.request.permissionGrants === undefined
                             ? "Choose [1 once/3 deny] "
-                            : "Choose [1 once/2 similar this session/3 deny] ",
+                            : "Choose [1 once/2 similar this session/3 deny/4 similar always] ",
                     );
                     lines.prompt();
                     const waiting = new AbortController();
