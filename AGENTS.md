@@ -1,3 +1,5 @@
+# DO NOT EDIT — put local/private working rules in `AGENTS.local.md`.
+
 # vera
 ## Working in this repo
 
