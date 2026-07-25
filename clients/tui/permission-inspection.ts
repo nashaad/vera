@@ -7,6 +7,7 @@ export function renderPermissionInspection(
     inspection: PermissionInspection,
 ): string {
     const profile = inspection.selected;
+    const preferences = inspection.activePreferences ?? [];
     return [
         `Permission profile: ${profile.name}`,
         `Default: ${profile.defaultOutcome}`,
@@ -24,6 +25,12 @@ export function renderPermissionInspection(
             ? ["  (none)"]
             : inspection.activeGrants.map((grant) =>
                 `  ${grant.id} [${grant.kind}]: ${formatPredicate(grant.when)}`
+            )),
+        "Preferences:",
+        ...(preferences.length === 0
+            ? ["  (none)"]
+            : preferences.map((preference) =>
+                `  ${preference.id}: ${formatPredicate(preference.when)}`
             )),
     ].join("\n");
 }
