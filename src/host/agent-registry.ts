@@ -3,10 +3,10 @@ import { realpath } from "node:fs/promises";
 
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
 import {
-    builtInPermissionProfile,
+    builtInPermissionMode,
     isApprovalMode,
     type ApprovalMode,
-    type PermissionProfile,
+    type PermissionMode,
 } from "../engine/permissions.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import {
@@ -84,7 +84,7 @@ export interface AgentRegistryOptions {
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
-    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
+    readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly availableModels?: readonly SuggestedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
@@ -374,8 +374,8 @@ export class AgentRegistry {
             || entry.agent.failed
             || !isApprovalMode(mode)
             || (
-                builtInPermissionProfile(mode) === undefined
-                && this.options.permissionProfiles?.[mode] === undefined
+                builtInPermissionMode(mode) === undefined
+                && this.options.permissionModes?.[mode] === undefined
             )
         ) {
             return undefined;
@@ -553,9 +553,9 @@ export class AgentRegistry {
                 ...(this.options.reviewers === undefined
                     ? {}
                     : { reviewers: this.options.reviewers }),
-                ...(this.options.permissionProfiles === undefined
+                ...(this.options.permissionModes === undefined
                     ? {}
-                    : { permissionProfiles: this.options.permissionProfiles }),
+                    : { permissionModes: this.options.permissionModes }),
                 applyToolEffect,
                 enabledToolEffects: [
                     "spawn_subagent",

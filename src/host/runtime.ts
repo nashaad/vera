@@ -93,9 +93,9 @@ export async function startResidentHost(
         ...(modelFallback === undefined ? {} : { modelFallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(Object.keys(reviewers).length === 0 ? {} : { reviewers }),
-        ...(options.config.permission_profiles === undefined
+        ...(options.config.permission_modes === undefined
             ? {}
-            : { permissionProfiles: options.config.permission_profiles }),
+            : { permissionModes: options.config.permission_modes }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogDirectory === undefined

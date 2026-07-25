@@ -342,7 +342,7 @@ test("settings picker selects permissions with arrows", () => {
     });
 });
 
-test("permissions picker includes configured profile names", () => {
+test("permissions picker includes configured mode names", () => {
     const permissions = startTuiSettingsPicker(
         "permissions",
         "moonshotai/kimi-k3",
@@ -363,7 +363,7 @@ test("permissions picker includes configured profile names", () => {
     ]);
     expect(permissions.options.at(-1)).toMatchObject({
         label: "unattended",
-        description: "custom permission profile",
+        description: "custom permission mode",
     });
 });
 

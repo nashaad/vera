@@ -14,7 +14,7 @@ test("permission inspection renders rules and active grants", () => {
             defaultOutcome: "review",
             reviewerProfile: "default",
         },
-        availableProfiles: ["ask", "auto", "full_access"],
+        availableModes: ["ask", "auto", "full_access"],
         activeGrants: [{
             id: "grant-1:0",
             kind: "action",
@@ -23,7 +23,7 @@ test("permission inspection renders rules and active grants", () => {
             lifetime: "session",
         }],
     })).toBe([
-        "Permission profile: auto",
+        "Permission mode: auto",
         "Default: review",
         "Reviewer: default",
         "Rules:",
@@ -43,7 +43,7 @@ test("permission inspection renders active preferences", () => {
             defaultOutcome: "review",
             reviewerProfile: "default",
         },
-        availableProfiles: ["ask", "auto", "full_access"],
+        availableModes: ["ask", "auto", "full_access"],
         activeGrants: [],
         activePreferences: [{
             id: "pref-1",
@@ -51,7 +51,7 @@ test("permission inspection renders active preferences", () => {
             createdAt: "2026-01-01T00:00:00.000Z",
         }],
     })).toBe([
-        "Permission profile: auto",
+        "Permission mode: auto",
         "Default: review",
         "Reviewer: default",
         "Rules:",

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
-    BUILT_IN_PERMISSION_PROFILES,
+    BUILT_IN_PERMISSION_MODES,
     decideToolPermission,
     extractPermissionActions,
     inspectPermissions,
@@ -15,13 +15,13 @@ const workspace = "/Users/nash/Projects/vera";
 const homeDirectory = "/Users/nash";
 
 test("built-in profiles have the accepted defaults", () => {
-    expect(BUILT_IN_PERMISSION_PROFILES.full_access).toEqual({
+    expect(BUILT_IN_PERMISSION_MODES.full_access).toEqual({
         name: "full_access",
         rules: [],
         defaultOutcome: "allow",
     });
-    expect(BUILT_IN_PERMISSION_PROFILES.ask.defaultOutcome).toBe("ask");
-    expect(BUILT_IN_PERMISSION_PROFILES.auto.defaultOutcome)
+    expect(BUILT_IN_PERMISSION_MODES.ask.defaultOutcome).toBe("ask");
+    expect(BUILT_IN_PERMISSION_MODES.auto.defaultOutcome)
         .toBe("review");
 });
 
@@ -202,7 +202,7 @@ test("reading an obvious secret file is denied by default", () => {
             const decision = decide(mode, toolCall("read", { path }));
             expect(decision.behavior).toBe("deny");
             if (decision.behavior === "deny") {
-                expect(decision.source).toBe("profile");
+                expect(decision.source).toBe("mode");
             }
         }
     }
@@ -240,7 +240,7 @@ test("the secret-file hygiene deny only applies to reads", () => {
 });
 
 test("a pathGlob predicate matches by basename in a custom profile", () => {
-    const permissionProfiles = {
+    const permissionModes = {
         no_yaml: {
             name: "no_yaml",
             defaultOutcome: "allow" as const,
@@ -256,7 +256,7 @@ test("a pathGlob predicate matches by basename in a custom profile", () => {
         toolCall("read", { path: "config/settings.yaml" }),
         workspace,
         [],
-        { homeDirectory, permissionProfiles },
+        { homeDirectory, permissionModes },
     );
     expect(decision.behavior).toBe("deny");
     expect(decideToolPermission(
@@ -264,12 +264,12 @@ test("a pathGlob predicate matches by basename in a custom profile", () => {
         toolCall("read", { path: "config/settings.json" }),
         workspace,
         [],
-        { homeDirectory, permissionProfiles },
+        { homeDirectory, permissionModes },
     ).behavior).toBe("allow");
 });
 
 test("custom profiles use the same ordered evaluator", () => {
-    const permissionProfiles = {
+    const permissionModes = {
         quiet: {
             name: "quiet",
             defaultOutcome: "review" as const,
@@ -286,14 +286,14 @@ test("custom profiles use the same ordered evaluator", () => {
         bash("curl https://example.com"),
         workspace,
         [],
-        { homeDirectory, permissionProfiles },
+        { homeDirectory, permissionModes },
     ).behavior).toBe("allow");
     const decision = decideToolPermission(
         "quiet",
         bash("bun install"),
         workspace,
         [],
-        { homeDirectory, permissionProfiles },
+        { homeDirectory, permissionModes },
     );
     expect(decision).toMatchObject({
         behavior: "review",
@@ -522,7 +522,7 @@ test("session grants cannot override profile denial or the accident guard", () =
         scope: "session",
         lifetime: "session",
     }];
-    const permissionProfiles = {
+    const permissionModes = {
         locked: {
             name: "locked",
             defaultOutcome: "deny" as const,
@@ -534,7 +534,7 @@ test("session grants cannot override profile denial or the accident guard", () =
         bash("rm -rf dist"),
         workspace,
         grants,
-        { homeDirectory, permissionProfiles },
+        { homeDirectory, permissionModes },
     ).behavior).toBe("deny");
     const guarded = decide(
         "full_access",
@@ -561,7 +561,7 @@ test("permission inspection snapshots the selected profile and active grants", (
             defaultOutcome: "review",
             reviewerProfile: "default",
         },
-        availableProfiles: ["full_access", "ask", "auto"],
+        availableModes: ["full_access", "ask", "auto"],
         activeGrants: grants,
     });
 });

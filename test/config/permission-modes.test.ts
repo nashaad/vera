@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 
-import { parsePermissionProfiles } from "../../src/config/permission-profiles.ts";
+import { parsePermissionModes } from "../../src/config/permission-modes.ts";
 
 const reviewers = { careful: {} };
 
-test("custom permission profiles preserve ordered declarative rules", () => {
-    expect(parsePermissionProfiles({
+test("custom permission modes preserve ordered declarative rules", () => {
+    expect(parsePermissionModes({
         unattended: {
             default: "review",
             reviewer_profile: "careful",
@@ -51,7 +51,7 @@ test("custom permission profiles preserve ordered declarative rules", () => {
 });
 
 test("legacy claim-shaped rules migrate only when the meaning is preserved", () => {
-    const migrated = parsePermissionProfiles({
+    const migrated = parsePermissionModes({
         legacy: {
             default: "allow",
             rules: [
@@ -73,14 +73,14 @@ test("legacy claim-shaped rules migrate only when the meaning is preserved", () 
             { capability: "execute" },
         ]
     ) {
-        expect(parsePermissionProfiles({
+        expect(parsePermissionModes({
             legacy: { default: "allow", rules: [{ when, then: "ask" }] },
         }, reviewers)).toBeUndefined();
     }
 });
 
 test("config rules accept a snake_case path_glob, parsed as pathGlob", () => {
-    const parsed = parsePermissionProfiles({
+    const parsed = parsePermissionModes({
         no_secrets: {
             default: "allow",
             rules: [{
@@ -96,8 +96,8 @@ test("config rules accept a snake_case path_glob, parsed as pathGlob", () => {
     }]);
 });
 
-test("profiles reject unknown operations and reviewer references", () => {
-    expect(parsePermissionProfiles({
+test("modes reject unknown operations and reviewer references", () => {
+    expect(parsePermissionModes({
         broken: {
             default: "allow",
             rules: [{
@@ -106,7 +106,7 @@ test("profiles reject unknown operations and reviewer references", () => {
             }],
         },
     }, reviewers)).toBeUndefined();
-    expect(parsePermissionProfiles({
+    expect(parsePermissionModes({
         broken: {
             default: "review",
             reviewer_profile: "missing",
@@ -116,13 +116,13 @@ test("profiles reject unknown operations and reviewer references", () => {
 });
 
 test("review outcomes require exactly one reviewer profile", () => {
-    expect(parsePermissionProfiles({
+    expect(parsePermissionModes({
         missing: {
             default: "review",
             rules: [],
         },
     }, reviewers)).toBeUndefined();
-    expect(parsePermissionProfiles({
+    expect(parsePermissionModes({
         unused: {
             default: "allow",
             reviewer_profile: "careful",
@@ -131,9 +131,9 @@ test("review outcomes require exactly one reviewer profile", () => {
     }, reviewers)).toBeUndefined();
 });
 
-test("custom profiles cannot replace built-in names", () => {
+test("custom modes cannot replace built-in names", () => {
     for (const name of ["ask", "auto", "full_access"]) {
-        expect(parsePermissionProfiles({
+        expect(parsePermissionModes({
             [name]: {
                 default: "allow",
                 rules: [],

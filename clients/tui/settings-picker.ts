@@ -134,7 +134,7 @@ export function startTuiSettingsPicker(
     availableModels: readonly SuggestedModel[] | undefined = undefined,
     currentTheme: TuiThemeName = "default",
     currentProvider: string | undefined = undefined,
-    availablePermissionProfiles: readonly string[] | undefined = undefined,
+    availablePermissionModes: readonly string[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const options = kind === "theme"
         ? THEME_OPTIONS
@@ -142,7 +142,7 @@ export function startTuiSettingsPicker(
         ? modelOptions(availableModels, currentProvider, currentModel)
         : kind === "reasoning"
             ? reasoningOptions(availableReasoning)
-            : permissionOptions(availablePermissionProfiles);
+            : permissionOptions(availablePermissionModes);
     const currentValue = kind === "theme"
         ? currentTheme
         : kind === "model"
@@ -179,7 +179,7 @@ function permissionOptions(
         PERMISSION_OPTIONS.find((option) => option.value === name) ?? {
             value: name,
             label: name,
-            description: "custom permission profile",
+            description: "custom permission mode",
         }
     );
 }

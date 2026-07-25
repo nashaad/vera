@@ -2102,14 +2102,14 @@ test("ask requests approval before a structured outside write", async () => {
     expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("updated");
 });
 
-test("a custom permission profile routes to its named reviewer", async () => {
+test("a custom permission mode routes to its named reviewer", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const seenProfiles: string[] = [];
     const state: RunTurnState = {
         ...reviewedTurnState(channel, events, undefined),
         approvalMode: "unattended",
-        permissionProfiles: {
+        permissionModes: {
             unattended: {
                 name: "unattended",
                 rules: [],

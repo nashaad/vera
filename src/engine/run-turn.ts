@@ -66,7 +66,7 @@ import {
     type ApprovalMode,
     type PermissionGrant,
     type PermissionGrantProposal,
-    type PermissionProfile,
+    type PermissionMode,
 } from "./permissions.ts";
 import {
     createRoutedToolReviewer,
@@ -118,7 +118,7 @@ export interface RunTurnState {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionGrants?: () => readonly PermissionGrant[];
-    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
+    readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     /** Automatic approval reviewer used by `auto`. */
     readonly reviewToolCall?: ReviewToolCall;
     readonly reviewToolCallForProfile?: (
@@ -141,7 +141,7 @@ export interface RunHeadlessLoopOptions {
     readonly eventLogPath?: string;
     readonly eventBus?: EngineEventBus;
     readonly approvalMode?: ApprovalMode;
-    readonly permissionProfiles?: Readonly<Record<string, PermissionProfile>>;
+    readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
@@ -228,7 +228,7 @@ export async function runHeadlessLoop(
     const readPermissionInspection = () =>
         inspectPermissions(
             readApprovalMode(),
-            options.permissionProfiles,
+            options.permissionModes,
             readPermissionGrants(),
         );
     const addPermissionGrants = async (
@@ -343,9 +343,9 @@ export async function runHeadlessLoop(
             : { readModelSettings: options.readModelSettings }),
         readApprovalMode,
         readPermissionGrants,
-        ...(options.permissionProfiles === undefined
+        ...(options.permissionModes === undefined
             ? {}
-            : { permissionProfiles: options.permissionProfiles }),
+            : { permissionModes: options.permissionModes }),
         reviewToolCall,
         reviewToolCallForProfile: createReviewerProfileRouter(
             reviewToolCall,
@@ -910,7 +910,7 @@ async function executePreparedTool(
         permissionContext.toolCall,
         permissionContext.workspace,
         state.readPermissionGrants?.() ?? [],
-        { permissionProfiles: state.permissionProfiles },
+        { permissionModes: state.permissionModes },
     );
     if (permission.behavior === "deny") {
         return { result: deniedToolResult(toolCall, permission.reason) };

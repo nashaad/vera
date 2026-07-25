@@ -6,18 +6,18 @@ import type {
 export function renderPermissionInspection(
     inspection: PermissionInspection,
 ): string {
-    const profile = inspection.selected;
+    const mode = inspection.selected;
     const preferences = inspection.activePreferences ?? [];
     return [
-        `Permission profile: ${profile.name}`,
-        `Default: ${profile.defaultOutcome}`,
-        ...(profile.reviewerProfile === undefined
+        `Permission mode: ${mode.name}`,
+        `Default: ${mode.defaultOutcome}`,
+        ...(mode.reviewerProfile === undefined
             ? []
-            : [`Reviewer: ${profile.reviewerProfile}`]),
+            : [`Reviewer: ${mode.reviewerProfile}`]),
         "Rules:",
-        ...(profile.rules.length === 0
+        ...(mode.rules.length === 0
             ? ["  (none)"]
-            : profile.rules.map((rule) =>
+            : mode.rules.map((rule) =>
                 `  ${rule.name}: ${formatPredicate(rule.when)} -> ${rule.then}`
             )),
         "Session grants:",

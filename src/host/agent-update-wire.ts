@@ -269,7 +269,10 @@ function migrateLegacyInspection(value: unknown): PermissionInspection | undefin
                 ? { reviewerProfile: selected.reviewerProfile }
                 : {}),
         },
-        availableProfiles: source.availableProfiles as string[],
+        // Read under the legacy name, emitted under the current one: this
+        // function exists precisely to decode inspections sent before the
+        // profile-to-mode rename.
+        availableModes: source.availableProfiles as string[],
         activeGrants: activeGrants as PermissionInspection["activeGrants"],
     };
 }
