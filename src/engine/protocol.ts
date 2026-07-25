@@ -14,8 +14,10 @@ import type {
 } from "./model-settings.ts";
 import {
     isApprovalMode,
+    isPermissionPredicate,
     type ApprovalMode,
     type PermissionInspection,
+    type PermissionPredicate,
 } from "./permissions.ts";
 import type {
     ToolReviewRiskLevel,
@@ -96,6 +98,25 @@ export interface UpdatePermissionsCommand {
     readonly mode: ApprovalMode;
 }
 
+/**
+ * Both preference commands reply with the same `permissions` update that
+ * `get_permissions` and `update_permissions` already send, because that update
+ * carries the full refreshed `inspection` including `activePreferences`. A
+ * durable allow the user cannot see is the failure mode this tier exists to
+ * avoid, so add/remove and inspect deliberately share one reply shape.
+ */
+export interface AddPermissionPreferenceCommand {
+    readonly type: "add_permission_preference";
+    readonly requestId: string;
+    readonly when: PermissionPredicate;
+}
+
+export interface RemovePermissionPreferenceCommand {
+    readonly type: "remove_permission_preference";
+    readonly requestId: string;
+    readonly id: string;
+}
+
 export interface UpdateSessionNameCommand {
     readonly type: "update_session_name";
     readonly requestId: string;
@@ -134,6 +155,8 @@ export type ClientCommand =
     | UpdateModelSettingsCommand
     | GetPermissionsCommand
     | UpdatePermissionsCommand
+    | AddPermissionPreferenceCommand
+    | RemovePermissionPreferenceCommand
     | UpdateSessionNameCommand
     | TimelineCommand;
 
@@ -541,6 +564,29 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             type: "update_permissions",
             requestId: command.requestId,
             mode: command.mode,
+        };
+    }
+    if (
+        command.type === "add_permission_preference"
+        && isRequestId(command.requestId)
+        && isPermissionPredicate(command.when)
+    ) {
+        return {
+            type: "add_permission_preference",
+            requestId: command.requestId,
+            when: command.when,
+        };
+    }
+    if (
+        command.type === "remove_permission_preference"
+        && isRequestId(command.requestId)
+        && typeof command.id === "string"
+        && command.id.length > 0
+    ) {
+        return {
+            type: "remove_permission_preference",
+            requestId: command.requestId,
+            id: command.id,
         };
     }
     if (

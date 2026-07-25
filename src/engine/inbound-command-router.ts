@@ -26,6 +26,8 @@ import type {
     ApprovalMode,
     PermissionGrantProposal,
     PermissionInspection,
+    PermissionPredicate,
+    PermissionPreference,
 } from "./permissions.ts";
 
 const FULL_USER_AUTHORITY_WARNING =
@@ -109,6 +111,10 @@ export interface InboundCommandRouterOptions {
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly addPermissionPreference?: (
+        when: PermissionPredicate,
+    ) => Promise<PermissionPreference | undefined>;
+    readonly removePermissionPreference?: (id: string) => Promise<boolean>;
     readonly updateSessionName?: (
         name: string | null,
     ) => Promise<string | null | undefined>;
@@ -377,6 +383,22 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "add_permission_preference") {
+                    await this.addPermissionPreference(
+                        command.requestId,
+                        command.when,
+                    );
+                    continue;
+                }
+
+                if (command.type === "remove_permission_preference") {
+                    await this.removePermissionPreference(
+                        command.requestId,
+                        command.id,
+                    );
+                    continue;
+                }
+
                 if (command.type === "update_session_name") {
                     await this.updateSessionName(
                         "direct-client",
@@ -550,6 +572,62 @@ export class InboundCommandRouter {
             pending: this.hasPendingTurn(),
             ...(inspection === undefined ? {} : { inspection }),
         });
+    }
+
+    private async addPermissionPreference(
+        requestId: string,
+        when: PermissionPredicate,
+    ): Promise<void> {
+        let added: PermissionPreference | undefined;
+        try {
+            added = await this.options.addPermissionPreference?.(when);
+        } catch {
+            this.emitPermissionsRejected(requestId, "unavailable");
+            return;
+        }
+        if (added === undefined) {
+            this.emitPermissionsRejected(
+                requestId,
+                this.options.addPermissionPreference === undefined
+                    ? "unavailable"
+                    : "invalid",
+            );
+            return;
+        }
+        this.sendPermissions(requestId);
+    }
+
+    private async removePermissionPreference(
+        requestId: string,
+        id: string,
+    ): Promise<void> {
+        let removed: boolean;
+        try {
+            removed = await this.options.removePermissionPreference?.(id)
+                ?? false;
+        } catch {
+            this.emitPermissionsRejected(requestId, "unavailable");
+            return;
+        }
+        if (!removed) {
+            // An unknown ID is `invalid` rather than `unavailable`: the surface
+            // exists, the caller just named a preference that is not there.
+            this.emitPermissionsRejected(
+                requestId,
+                this.options.removePermissionPreference === undefined
+                    ? "unavailable"
+                    : "invalid",
+            );
+            return;
+        }
+        this.sendPermissions(requestId);
+    }
+
+    private emitPermissionsRejected(
+        requestId: string,
+        reason: "invalid" | "unavailable",
+    ): void {
+        this.events.emit({ type: "permissions_rejected", requestId, reason });
     }
 
     private async receiveUiResponse(command: UiResponseCommand): Promise<void> {

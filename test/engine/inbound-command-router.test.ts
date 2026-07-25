@@ -1,11 +1,19 @@
 import { expect, test } from "bun:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
-import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import { PermissionPreferenceStore } from "../../src/engine/permission-preferences.ts";
+import {
+    inspectPermissions,
+    type ApprovalMode,
+    type PermissionInspection,
+} from "../../src/engine/permissions.ts";
 import type { HookToolCall } from "../../src/sdk/hooks.ts";
 
 test("the inbound router queues prompts and aborts only the active turn", async () => {
@@ -581,6 +589,101 @@ test("permission commands reject explicitly when no owner is installed", async (
         requestId: "change-permissions",
         reason: "unavailable",
         seq: 2,
+    });
+});
+
+test("adding a preference replies with the refreshed inspection", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const store = await PermissionPreferenceStore.open(
+        join(await mkdtemp(join(tmpdir(), "vera-router-preferences-")), "p.json"),
+    );
+    new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+        readPermissionInspection: () =>
+            inspectPermissions("ask", {}, [], store.list()),
+        addPermissionPreference: (when) => store.add(when),
+        removePermissionPreference: (id) => store.remove(id),
+    });
+
+    channel.client.send({
+        type: "add_permission_preference",
+        requestId: "add-preference",
+        when: { operation: "git.push" },
+    });
+    const added = await channel.client.receive();
+    // Add and inspect share one reply shape on purpose: the client sees the
+    // durable list it just changed, without a second round trip.
+    expect(added).toMatchObject({
+        type: "permissions",
+        requestId: "add-preference",
+        mode: "ask",
+    });
+    const preferences =
+        (added as { inspection: PermissionInspection }).inspection
+            .activePreferences ?? [];
+    expect(preferences).toHaveLength(1);
+    expect(preferences[0]?.when).toEqual({ operation: "git.push" });
+
+    channel.client.send({
+        type: "remove_permission_preference",
+        requestId: "remove-preference",
+        id: preferences[0]!.id,
+    });
+    const removed = await channel.client.receive();
+    expect(removed).toMatchObject({
+        type: "permissions",
+        requestId: "remove-preference",
+    });
+    expect(
+        (removed as { inspection: PermissionInspection }).inspection
+            .activePreferences,
+    ).toEqual([]);
+});
+
+test("removing an unknown preference is invalid, not unavailable", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+        removePermissionPreference: async () => false,
+    });
+
+    channel.client.send({
+        type: "remove_permission_preference",
+        requestId: "remove-missing",
+        id: "no-such-id",
+    });
+    // `invalid` distinguishes "the surface exists, your ID does not" from the
+    // `unavailable` a host with no preference store returns.
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "remove-missing",
+        reason: "invalid",
+        seq: 1,
+    });
+});
+
+test("preference commands reject as unavailable with no store installed", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+    });
+
+    channel.client.send({
+        type: "add_permission_preference",
+        requestId: "add-preference",
+        when: { operation: "git.push" },
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "add-preference",
+        reason: "unavailable",
+        seq: 1,
     });
 });
 
