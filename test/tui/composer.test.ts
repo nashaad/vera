@@ -195,7 +195,7 @@ test("TUI composer keeps the caret at the end after setting text", async () => {
     }
 });
 
-test("Up cycles through submitted messages from an empty composer", async () => {
+test("arrow keys navigate submitted messages without wrapping", async () => {
     const setup = await createTestRenderer({
         width: 40,
         height: 8,
@@ -219,11 +219,13 @@ test("Up cycles through submitted messages from an empty composer", async () => 
         setup.mockInput.pressArrow("up");
         expect(composer.plainText).toBe("first prompt");
         setup.mockInput.pressArrow("up");
-        expect(composer.plainText).toBe("read the plan");
-        setup.mockInput.pressArrow("down");
         expect(composer.plainText).toBe("first prompt");
         setup.mockInput.pressArrow("down");
         expect(composer.plainText).toBe("second prompt");
+        setup.mockInput.pressArrow("down");
+        expect(composer.plainText).toBe("read the plan");
+        setup.mockInput.pressArrow("down");
+        expect(composer.plainText).toBe("");
 
         composer.setComposerText("draft");
         setup.mockInput.pressArrow("up");

@@ -36,8 +36,7 @@ export class TuiComposer extends TextareaRenderable {
         ) {
             const nextIndex = this.submittedTextIndex === undefined
                 ? this.submittedTexts.length - 1
-                : (this.submittedTextIndex - 1 + this.submittedTexts.length)
-                    % this.submittedTexts.length;
+                : Math.max(0, this.submittedTextIndex - 1);
             this.submittedTextIndex = nextIndex;
             this.setText(this.submittedTexts[nextIndex] ?? "");
             this.cursorOffset = this.plainText.length;
@@ -53,8 +52,13 @@ export class TuiComposer extends TextareaRenderable {
             && this.submittedTextIndex !== undefined
             && this.submittedTexts.length > 0
         ) {
-            const nextIndex = (this.submittedTextIndex + 1)
-                % this.submittedTexts.length;
+            const nextIndex = this.submittedTextIndex + 1;
+            if (nextIndex === this.submittedTexts.length) {
+                this.submittedTextIndex = undefined;
+                this.setText("");
+                this.cursorOffset = 0;
+                return true;
+            }
             this.submittedTextIndex = nextIndex;
             this.setText(this.submittedTexts[nextIndex] ?? "");
             this.cursorOffset = this.plainText.length;
