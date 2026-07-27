@@ -130,17 +130,16 @@ test("a runnable model the catalog never heard of keeps the host's facts", () =>
 
 function fixture(): {
     readonly path: string;
-    readonly curatedPath: string;
     readonly cacheDir: string;
 } {
     const directory = mkdtempSync(join(tmpdir(), "vera-catalog-view-"));
     directories.push(directory);
-    const curatedPath = join(directory, "models.json");
     const cacheDir = join(directory, "cache");
     mkdirSync(cacheDir);
-    writeFileSync(curatedPath, JSON.stringify([{
+    writeFileSync(join(cacheDir, "test.json"), JSON.stringify({
         schema_version: 2,
         provider: "test",
+        fetched_at: "2026-07-27T00:00:00Z",
         models: [
             {
                 id: "with-levels",
@@ -156,8 +155,8 @@ function fixture(): {
             },
             { id: "no-levels", label: "No levels", order: 2 },
         ],
-    }]));
-    return { path: join(directory, "config.json"), curatedPath, cacheDir };
+    }));
+    return { path: join(directory, "config.json"), cacheDir };
 }
 
 function suggested(provider: string, model: string): SuggestedModel {

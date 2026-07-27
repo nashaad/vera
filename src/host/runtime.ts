@@ -18,6 +18,10 @@ import {
     type CodexCatalogRefreshOptions,
 } from "../model/codex-catalog.ts";
 import {
+    refreshOpenRouterCatalog,
+    type OpenRouterCatalogRefreshOptions,
+} from "../model/openrouter-catalog.ts";
+import {
     createAuthStorage,
     type AuthStorage,
 } from "../providers/auth-storage.ts";
@@ -246,6 +250,19 @@ async function discoverAvailableModels(
     } catch {
         // Ollama is optional; an offline local server must not block Vera startup.
     }
+    const openrouter = await discoveredOpenRouterModels(config);
+    if (openrouter.length > 0) {
+        // The fetched list supersedes the shipped entries, which name the same
+        // models with staler facts. Nothing is dropped when the fetch comes back
+        // empty: no credential, no network and no snapshot leaves the shipped
+        // handful in place rather than an empty picker.
+        for (let index = catalog.length - 1; index >= 0; index -= 1) {
+            if (catalog[index]!.provider === "openrouter") {
+                catalog.splice(index, 1);
+            }
+        }
+        catalog.push(...openrouter);
+    }
     catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -357,9 +374,44 @@ function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
 function catalogModels(config: VeraConfig): SuggestedModel[] {
     return [...availableModels()].filter((model) =>
         model.provider !== "openrouter"
-        || config.provider === "openrouter"
-        || Boolean(process.env.OPENROUTER_API_KEY)
+        || hasOpenRouterCredential(config)
     );
+}
+
+function hasOpenRouterCredential(config: VeraConfig): boolean {
+    return config.provider === "openrouter"
+        || Boolean(process.env.OPENROUTER_API_KEY);
+}
+
+/**
+ * OpenRouter's own catalog, which is what "every model I could run" actually
+ * means for that provider. It replaces the handful of entries Vera ships rather
+ * than joining them: they name the same models, and the fetched list is the one
+ * that stays current.
+ *
+ * Gated on a credential for the same reason the Codex list is: describing a
+ * model the user cannot run is offering a dead end.
+ */
+export interface OpenRouterDiscoveryOptions
+    extends OpenRouterCatalogRefreshOptions {}
+
+export async function discoveredOpenRouterModels(
+    config: VeraConfig,
+    options: OpenRouterDiscoveryOptions = {},
+): Promise<readonly SuggestedModel[]> {
+    if (!hasOpenRouterCredential(config)) {
+        return [];
+    }
+    const catalog = await refreshOpenRouterCatalog(options);
+    return catalog?.models.map((model) => ({
+        provider: "openrouter",
+        model: model.id,
+        label: model.label,
+        description: model.description ?? "",
+        ...(model.context_window === undefined
+            ? {}
+            : { contextWindow: model.context_window }),
+    })) ?? [];
 }
 
 async function restoreStoredAgents(
