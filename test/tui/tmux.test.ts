@@ -243,7 +243,10 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Vera keeps agent sessions resident",
             );
-            await waitForVisiblePane(socket, session, "ctrl+p commands · test");
+            // Two rows since the status split across footer lines: the
+            // lifecycle hint, then the model details. Waiting for them joined
+            // was waiting for a line that no longer renders.
+            await waitForVisiblePane(socket, session, "ready · ctrl+p commands");
             sendKey(socket, session, "Right");
             sendText(socket, session, "themes");
             pane = await waitForVisiblePane(socket, session, "⌕  themes");
@@ -1560,10 +1563,14 @@ async function exerciseConversationRewind(
     await waitForPane(socket, session, "SECOND ANSWER");
 
     sendText(socket, session, "/rew");
+    // Description padding is computed over the matching commands, so once the
+    // filter settles on one row there is nothing to pad to. The wide form this
+    // used to expect is the unfiltered list, which is only on screen for the
+    // instant between "/" and "rew" being typed.
     let pane = await waitForPane(
         socket,
         session,
-        "/rewind       Rewind the active conversation",
+        "/rewind  Rewind the active conversation",
     );
     sendKey(socket, session, "Tab");
     pane = await waitForPaneWhere(
