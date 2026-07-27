@@ -28,6 +28,7 @@ import {
 import {
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER_WIDTH,
+    dialogBottomOffset,
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
@@ -72,14 +73,22 @@ export interface TuiSettingsPickerOption {
     readonly model?: string;
     readonly sessionId?: string;
     /**
-     * Overrides the group heading this row sorts under. Set only on pinned
-     * rows, which group by "the user kept this" rather than by provider, and
-     * which is why the heading cannot just be `provider`.
+     * Position in the user's pin list, absent on an unpinned row. A rank
+     * rather than a flag because the pin list is ordered by recency of use and
+     * the provider list is ordered by provider: the Pinned tab has to be able
+     * to restore the order the store keeps, which sorting by provider destroys.
      */
-    readonly group?: string;
+    readonly pinnedRank?: number;
     /** True on a pinned row whose model cannot run right now. */
     readonly unavailable?: boolean;
 }
+
+/**
+ * Two questions, two tabs. "All models" is what can run; "Pinned" is the short
+ * list the user keeps. They were one list with a pinned group on top, which
+ * showed every kept model twice and so reduced nothing.
+ */
+export type TuiModelPickerTab = "all" | "pinned";
 
 export interface TuiExtensionPickerRow {
     readonly id: string;
@@ -108,6 +117,8 @@ export interface TuiSettingsPickerState {
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly loading?: boolean;
+    /** Set only on the model pane. */
+    readonly tab?: TuiModelPickerTab;
     /**
      * Set only on a level pane opened from the model pane. Its presence is
      * what tells this pane it is pane two of a chain rather than the
@@ -254,11 +265,17 @@ export function startTuiSettingsPicker(
     availablePermissionModes: readonly string[] | undefined = undefined,
     pinned: readonly PinnedModel[] | undefined = undefined,
 ): TuiSettingsPickerState {
-    const options = kind === "theme"
+    const allOptions = kind === "theme"
         ? THEME_OPTIONS
         : kind === "model"
         ? modelOptions(availableModels, currentProvider, currentModel, pinned)
         : permissionOptions(availablePermissionModes);
+    // The pane opens on All rather than Pinned even when pins exist: the user
+    // asked to change model, and the tab that can answer that in every case is
+    // the one that lists every model.
+    const options = kind === "model"
+        ? modelTabOptions(allOptions, "all")
+        : allOptions;
     const currentValue = kind === "theme"
         ? currentTheme
         : kind === "model"
@@ -272,10 +289,11 @@ export function startTuiSettingsPicker(
     );
     return {
         kind,
-        allOptions: options,
+        allOptions,
         options,
         selectedIndex,
         query: "",
+        ...(kind === "model" ? { tab: "all" as const } : {}),
         ...(kind === "model" && currentValue !== undefined
             ? { initialModel: currentValue }
             : {}),
@@ -314,14 +332,19 @@ export function syncTuiModelPicker(
         undefined,
         settings?.pinned,
     );
+    // The tab is the user's own place in the pane, so a snapshot arriving from
+    // the host must not move them out of it. Pinning a model from the Pinned tab
+    // would otherwise drop them back onto All mid-action.
+    const tab = state.tab ?? "all";
+    const onTab = { ...rebuilt, tab, options: modelTabOptions(rebuilt.allOptions, tab) };
     const options = state.query.length === 0
-        ? rebuilt.options
-        : searched(rebuilt, state.query).state?.options ?? rebuilt.options;
+        ? onTab.options
+        : searched(onTab, state.query).state?.options ?? onTab.options;
     const selectedIndex = options.findIndex(
         (option) => option.value === selectedValue,
     );
     return {
-        ...rebuilt,
+        ...onTab,
         options,
         query: state.query,
         selectedIndex: selectedIndex === -1
@@ -670,6 +693,37 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
+    // Tab flips between the two views of the same list. Shift is tolerated
+    // rather than given its own direction: with two tabs, forward and backward
+    // are the same move.
+    if (
+        state.kind === "model"
+        && key.name === "tab"
+        && !key.ctrl
+        && !key.meta
+        && !key.super
+        && !key.hyper
+    ) {
+        const tab: TuiModelPickerTab = state.tab === "pinned" ? "all" : "pinned";
+        const selectedValue = state.options[state.selectedIndex]?.value;
+        const options = modelTabOptions(state.allOptions, tab);
+        // The query is dropped on the way across. A search is a question about
+        // one list, and carrying it over would land the user on an empty pane
+        // with no sign of why.
+        const selectedIndex = options.findIndex(
+            (option) => option.value === selectedValue,
+        );
+        return {
+            state: {
+                ...state,
+                tab,
+                options,
+                query: "",
+                selectedIndex: selectedIndex === -1 ? 0 : selectedIndex,
+            },
+            handled: true,
+        };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
@@ -783,7 +837,35 @@ export function createTuiSettingsPickerView(
     };
 }
 
-const PICKER_MAX_ROWS = 12;
+/**
+ * Even a cramped terminal shows this many rows, at the cost of the card running
+ * past where it would rather stop. A list windowed down to one or two rows is
+ * not a list, it is a spinner you have to operate.
+ */
+const PICKER_MIN_ROWS = 4;
+
+/**
+ * How many rows the card can show without running off the bottom. Derived from
+ * the terminal rather than fixed: the old constant 12 left most of a tall
+ * terminal empty and pushed the top of a long provider group off the window,
+ * where it was easy to miss entirely.
+ *
+ * Group headers cost more than one line, so this is a row budget rather than a
+ * line budget and a heavily grouped list can still overrun by a line or two.
+ * The alternative is a window whose size changes as you scroll past headers,
+ * which is worse to use than an occasional tight fit.
+ */
+function pickerMaxRows(renderer: RenderContext, extraChrome: number): number {
+    const available = renderer.height
+        - PICKER_TOP_OFFSET
+        - dialogBottomOffset(renderer)
+        - DIALOG_CHROME_HEIGHT
+        - extraChrome;
+    return Math.max(PICKER_MIN_ROWS, available);
+}
+
+// Where the card's top edge sits, matching `box.top` below.
+const PICKER_TOP_OFFSET = 2;
 
 type PickerDisplayRow =
     | { readonly kind: "group"; readonly label: string }
@@ -814,10 +896,17 @@ function renderListPickerRows(
         box.add(search);
         nodes.push(search);
     }
+    const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
+    if (tab !== undefined) {
+        const strip = modelTabStripNode(renderer, tab);
+        box.add(strip);
+        nodes.push(strip);
+    }
 
     const rows = windowedDisplayRows(
         listDisplayRows(state),
         state.selectedIndex,
+        pickerMaxRows(renderer, tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT),
     );
     let lines = 0;
     if (rows.length === 0) {
@@ -857,7 +946,42 @@ function renderListPickerRows(
     const footer = dialogFooterNode(renderer, pickerFooter(state));
     box.add(footer);
     nodes.push(footer);
-    box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3);
+    box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
+        + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT);
+}
+
+// The strip itself plus the blank line under it.
+const MODEL_TAB_STRIP_HEIGHT = 2;
+
+const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
+    ["all", "All models"],
+    ["pinned", "Pinned"],
+];
+
+/**
+ * The two tabs, drawn as one line of labels with the active one accented. No
+ * borders or brackets: the pane already has a card edge, and a second frame
+ * inside it reads as two panes rather than two views of one list.
+ */
+function modelTabStripNode(
+    renderer: RenderContext,
+    tab: TuiModelPickerTab,
+): TextRenderable {
+    const chunks: TextChunk[] = [];
+    MODEL_TAB_LABELS.forEach(([id, label], index) => {
+        if (index > 0) {
+            chunks.push(fg(TUI_MUTED)("   "));
+        }
+        chunks.push(
+            id === tab ? fg(TUI_ACCENT)(label) : fg(TUI_MUTED)(label),
+        );
+    });
+    return new TextRenderable(renderer, {
+        content: new StyledText(chunks),
+        width: "100%",
+        height: MODEL_TAB_STRIP_HEIGHT,
+        paddingLeft: DIALOG_GUTTER_WIDTH,
+    });
 }
 
 function pickerFooter(state: TuiAnySettingsPickerState): string {
@@ -884,12 +1008,13 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
         const pinned = selected === undefined || selected.provider === undefined
             ? undefined
             : isPinned(state, selected)
-                ? "^s - unpin"
-                : "^s + pinned";
+                ? "^s unpin"
+                : "^s pin";
         return [
             "↑↓ move",
             "⏎ select",
             ...(pinned === undefined ? [] : [pinned]),
+            "⇥ tabs",
             "esc close",
         ].join(" · ");
     }
@@ -908,9 +1033,11 @@ function extensionPickerKeyLabel(
 function listDisplayRows(
     state: TuiAnySettingsPickerState,
 ): readonly PickerDisplayRow[] {
-    // Only the unfiltered model list is grouped: a search result is a single
-    // ranked list, and the provider moves to the row's right-hand column.
-    const grouped = state.kind === "model" && state.query.length === 0;
+    // Only the unfiltered All tab is grouped. A search result is a single ranked
+    // list, and the Pinned tab is ordered by the user's own use rather than by
+    // provider, so provider headers there would label nothing.
+    const grouped = state.kind === "model" && state.query.length === 0
+        && state.tab !== "pinned";
     const rows: PickerDisplayRow[] = [];
     state.options.forEach((option, index) => {
         if (grouped && groupLabel(state.options[index - 1]) !== groupLabel(option)) {
@@ -922,43 +1049,74 @@ function listDisplayRows(
 }
 
 /**
- * Membership is read off the rendered pin group rather than tracked
- * separately, so the key and the list can never disagree about what is in the
- * pinned: both are looking at the same snapshot the host sent.
+ * The pin mark rides on the model's own row, so the key and the list cannot
+ * disagree about what is pinned: both read the same snapshot the host sent.
  */
 function isPinned(
     state: TuiSettingsPickerState,
     option: TuiSettingsPickerOption,
 ): boolean {
-    return state.allOptions.some((candidate) =>
-        candidate.group === PINNED_GROUP && candidate.value === option.value
-    );
+    return option.pinnedRank !== undefined
+        || state.allOptions.some((candidate) =>
+            candidate.value === option.value && candidate.pinnedRank !== undefined
+        );
 }
 
 function groupLabel(
     option: TuiSettingsPickerOption | undefined,
 ): string | undefined {
-    return option === undefined
-        ? undefined
-        : option.group ?? option.provider;
+    return option?.provider;
 }
 
 function windowedDisplayRows(
     rows: readonly PickerDisplayRow[],
     selectedIndex: number,
+    maxRows: number,
 ): readonly PickerDisplayRow[] {
-    if (rows.length <= PICKER_MAX_ROWS) {
+    if (rows.length <= maxRows) {
         return rows;
     }
     const cursor = rows.findIndex((row) =>
         row.kind === "option" && row.index === selectedIndex
     );
-    const centered = Math.max(0, cursor) - Math.floor(PICKER_MAX_ROWS / 2);
+    const centered = Math.max(0, cursor) - Math.floor(maxRows / 2);
     const start = Math.min(
         Math.max(0, centered),
-        rows.length - PICKER_MAX_ROWS,
+        rows.length - maxRows,
     );
-    return rows.slice(start, start + PICKER_MAX_ROWS);
+    const window = rows.slice(start, start + maxRows);
+    // A window that opens partway down a group would show provider rows with no
+    // provider above them, which is the one thing the grouping exists to say.
+    // Reprinting the heading costs the window's first row and is what makes the
+    // list readable from anywhere in it rather than only from the top.
+    const stuck = stickyGroupRow(rows, start);
+    if (stuck === undefined) {
+        return window;
+    }
+    // The heading takes a row from the end unless that is where the cursor is,
+    // in which case it takes the top row instead. Either way the highlighted row
+    // stays on screen, which is the one row that cannot be spared.
+    const cursorAtEnd = window.at(-1)?.kind === "option"
+        && (window.at(-1) as { readonly index: number }).index === selectedIndex;
+    return cursorAtEnd
+        ? [stuck, ...window.slice(1)]
+        : [stuck, ...window.slice(0, -1)];
+}
+
+function stickyGroupRow(
+    rows: readonly PickerDisplayRow[],
+    start: number,
+): PickerDisplayRow | undefined {
+    if (start === 0 || rows[start]?.kind !== "option") {
+        return undefined;
+    }
+    for (let index = start - 1; index >= 0; index -= 1) {
+        const row = rows[index]!;
+        if (row.kind === "group") {
+            return row;
+        }
+    }
+    return undefined;
 }
 
 function isCurrentOption(
@@ -1065,12 +1223,15 @@ function searched(
     query: string,
 ): TuiSettingsPickerTransition {
     const normalized = query.toLowerCase();
-    const options = state.allOptions.filter((option) =>
-        // A search result is one ranked list, and a pinned row is the same
-        // model as its provider row. Keeping both would show every pinned
-        // model twice for no gain.
-        (query.length === 0 || option.group === undefined)
-        && `${option.label} ${option.value} ${option.description} ${
+    // Search spans both tabs. A user typing a model name is asking whether the
+    // model exists, not whether it exists on the tab they happen to be on, and
+    // a hit that stayed hidden behind the other tab would read as "not there".
+    // Clearing the query drops back to the tab's own list.
+    const searchable = state.kind === "model" && query.length === 0
+        ? modelTabOptions(state.allOptions, state.tab ?? "all")
+        : state.allOptions;
+    const options = searchable.filter((option) =>
+        `${option.label} ${option.value} ${option.description} ${
             option.searchText ?? ""
         }`
             .toLowerCase()
@@ -1094,68 +1255,92 @@ function themePreview(
     return value === undefined ? {} : { previewTheme: value as TuiThemeName };
 }
 
-const PINNED_GROUP = "Pinned";
-
 /**
- * Pinned rows are a second view of models that also appear under their
- * provider, not a separate set. They carry the same `value`, so selecting one
- * and selecting its provider row are the same act, and the current-model
- * marker lands on both.
+ * Every model row exactly once, whichever tab it belongs to. A pin is a mark
+ * on the model's own row rather than a second row for the same model, so the
+ * two tabs are views of one list and no model can appear twice.
+ *
+ * A pin the runnable list has never heard of still gets a row: the user put it
+ * there deliberately, so only the user takes it out. It carries `unavailable`,
+ * which is what keeps it off the All tab, where it would be a dead end.
  */
-function pinnedOptions(
-    pinned: readonly PinnedModel[],
-): readonly TuiSettingsPickerOption[] {
-    return pinned.map((entry) => ({
-        value: providerModelKey(entry.provider, entry.model),
-        label: entry.label,
-        description: entry.available
-            ? entry.description ?? ""
-            : "not available right now",
-        searchText: `${entry.provider} ${entry.model}`,
-        provider: entry.provider,
-        model: entry.model,
-        group: PINNED_GROUP,
-        ...(entry.available ? {} : { unavailable: true }),
-    }));
-}
-
 function modelOptions(
     available: readonly SuggestedModel[] | undefined,
     currentProvider: string | undefined,
     currentModel: string | undefined,
     pinned: readonly PinnedModel[] = [],
 ): readonly TuiSettingsPickerOption[] {
-    const options = (available ?? []).map((model) => ({
-        value: providerModelKey(model.provider, model.model),
-        label: model.label,
-        description: model.description,
-        searchText: `${model.provider} ${model.model}`,
-        provider: model.provider,
-        model: model.model,
-    })).toSorted((left, right) =>
-        left.provider.localeCompare(right.provider)
-            || left.label.localeCompare(right.label)
+    const rankOf = new Map(
+        pinned.map((entry, rank) =>
+            [providerModelKey(entry.provider, entry.model), rank] as const
+        ),
     );
-    const pinnedRows = pinnedOptions(pinned);
-    if (currentModel === undefined || currentProvider === undefined) {
-        return [...pinnedRows, ...options];
-    }
-    const currentValue = providerModelKey(currentProvider, currentModel);
-    if (options.some((option) => option.value === currentValue)) {
-        return [...pinnedRows, ...options];
-    }
-    return [
-        ...pinnedRows,
-        {
+    const runnable = (available ?? []).map((model) => {
+        const value = providerModelKey(model.provider, model.model);
+        const rank = rankOf.get(value);
+        return {
+            value,
+            label: model.label,
+            description: model.description,
+            searchText: `${model.provider} ${model.model}`,
+            provider: model.provider,
+            model: model.model,
+            ...(rank === undefined ? {} : { pinnedRank: rank }),
+        };
+    });
+    const currentValue = currentModel === undefined || currentProvider === undefined
+        ? undefined
+        : providerModelKey(currentProvider, currentModel);
+    if (
+        currentValue !== undefined && currentProvider !== undefined
+        && currentModel !== undefined
+        && !runnable.some((option) => option.value === currentValue)
+    ) {
+        const rank = rankOf.get(currentValue);
+        runnable.push({
             value: currentValue,
             label: currentModel,
             description: "current model",
             searchText: `${currentProvider} ${currentModel}`,
             provider: currentProvider,
             model: currentModel,
-        },
-        ...options,
-    ];
+            ...(rank === undefined ? {} : { pinnedRank: rank }),
+        });
+    }
+    const orphanPins = pinned.flatMap((entry, rank) => {
+        const value = providerModelKey(entry.provider, entry.model);
+        return runnable.some((option) => option.value === value) ? [] : [{
+            value,
+            label: entry.label,
+            description: "not available right now",
+            searchText: `${entry.provider} ${entry.model}`,
+            provider: entry.provider,
+            model: entry.model,
+            pinnedRank: rank,
+            unavailable: true,
+        }];
+    });
+    return [...runnable, ...orphanPins].toSorted((left, right) =>
+        left.provider.localeCompare(right.provider)
+            || left.label.localeCompare(right.label)
+    );
+}
+
+/**
+ * The All tab is what can run, in catalog order. The Pinned tab is the pin
+ * list in its own order, which is recency of use: sorting it by provider would
+ * throw away the only ordering the user's own actions produced.
+ */
+function modelTabOptions(
+    allOptions: readonly TuiSettingsPickerOption[],
+    tab: TuiModelPickerTab,
+): readonly TuiSettingsPickerOption[] {
+    if (tab === "all") {
+        return allOptions.filter((option) => option.unavailable !== true);
+    }
+    return allOptions
+        .filter((option) => option.pinnedRank !== undefined)
+        .toSorted((left, right) => left.pinnedRank! - right.pinnedRank!);
 }
 
 function providerModelKey(provider: string, model: string): string {
