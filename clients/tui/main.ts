@@ -2090,6 +2090,19 @@ export async function startTui(
     }
 
     function openReasoningPicker(): void {
+        // The engine reports an empty effort list for a model whose provider
+        // has no mapping for one. A card with no rows is indistinguishable from
+        // the TUI ignoring the key, so say why there is nothing to pick. This
+        // is presentation only: the engine still decides what it will accept.
+        const available = state.modelSettings?.availableReasoningEfforts;
+        if (available !== undefined && available.length === 0) {
+            state = appendTuiNotice(
+                state,
+                `${state.modelSettings?.model ?? "this model"} has no reasoning effort setting`,
+            );
+            renderState();
+            return;
+        }
         settingsPicker = startTuiSettingsPicker(
             "reasoning",
             state.modelSettings?.model,

@@ -14,6 +14,7 @@ import {
     availableModels,
     availableReasoningEfforts,
     isModelReasoningEffort,
+    reasoningEffortForModel,
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
@@ -331,13 +332,16 @@ export class AgentRegistry {
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
-        if (provider === "openai-codex") reasoningEffort = undefined;
         const availableEfforts = availableReasoningEfforts(
             provider,
             model,
         );
+        // Carrying the old effort to a new target is the caller's convenience,
+        // not their request, so a target that cannot take it gets coerced
+        // rather than rejected. `strongestReasoningEffort` returns undefined
+        // when the target offers no efforts at all, which drops the dial.
         if (
-            patch.model !== undefined
+            (patch.model !== undefined || patch.provider !== undefined)
             && patch.reasoningEffort === undefined
             && reasoningEffort !== undefined
             && !availableEfforts.includes(reasoningEffort)
@@ -497,18 +501,20 @@ export class AgentRegistry {
             events,
             eventLogPath,
             ...(adapter === undefined ? {} : { adapter }),
-            modelSettings: storedSettings === undefined
-                ? {
-                    provider: this.defaultProvider,
-                    model: this.defaultModel,
-                    ...(this.defaultReasoningEffort === undefined
-                        ? {}
-                        : { reasoningEffort: this.defaultReasoningEffort }),
-                }
-                : {
-                    ...storedSettings,
-                    provider: storedSettings.provider ?? this.defaultProvider,
-                },
+            modelSettings: supportedModelSettings(
+                storedSettings === undefined
+                    ? {
+                        provider: this.defaultProvider,
+                        model: this.defaultModel,
+                        ...(this.defaultReasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: this.defaultReasoningEffort }),
+                    }
+                    : {
+                        ...storedSettings,
+                        provider: storedSettings.provider ?? this.defaultProvider,
+                    },
+            ),
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
             run: Promise.resolve(),
             completed: false,
@@ -725,6 +731,32 @@ export class AgentRegistry {
             throw new Error("Agent registry is closed");
         }
     }
+}
+
+/**
+ * Drops a reasoning effort the provider cannot be asked for on this model.
+ *
+ * `updateModelSettings` already refuses an unsupported combination, but config
+ * defaults and settings stored by an older build reach an agent without
+ * passing through it. Without this the combination would survive to the
+ * adapter and fail the first turn, which is a worse answer than starting with
+ * the dial off. `reasoningEffortForModel` is deliberately looser than the
+ * picker's menu: config is not a menu choice, so it keeps anything the adapter
+ * can still resolve.
+ */
+function supportedModelSettings(
+    settings: ModelTurnSettings,
+): ModelTurnSettings {
+    const effort = reasoningEffortForModel(
+        settings.provider,
+        settings.model,
+        settings.reasoningEffort,
+    );
+    if (effort === settings.reasoningEffort) {
+        return settings;
+    }
+    const { reasoningEffort: _dropped, ...supported } = settings;
+    return supported;
 }
 
 function strongestReasoningEffort(

@@ -95,9 +95,10 @@ import {
     type SessionDeliveryInbox,
     type SessionMessageStore,
 } from "../store/session-store.ts";
-import type {
-    ModelSettingsPatch,
-    ModelTurnSettings,
+import {
+    reasoningEffortForModel,
+    type ModelSettingsPatch,
+    type ModelTurnSettings,
 } from "./model-settings.ts";
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
@@ -451,7 +452,11 @@ export async function runTurn(
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
             };
         let activeModel = modelSettings.model;
-        const turnReasoningEffort = modelSettings.reasoningEffort;
+        // A fallback can land on a model with no reasoning effort at all, and
+        // it stays active for the rest of the turn. The effort has to follow
+        // the model, or the next request in the tool loop would restore an
+        // effort the fallback model cannot be asked for.
+        let turnReasoningEffort = modelSettings.reasoningEffort;
         const turnApprovalMode = turn.approvalMode
             ?? state.readApprovalMode?.()
             ?? state.approvalMode;
@@ -589,6 +594,11 @@ export async function runTurn(
                     },
                     onFallback(fallback): void {
                         activeModel = fallback.toModel;
+                        turnReasoningEffort = reasoningEffortForModel(
+                            modelSettings.provider,
+                            fallback.toModel,
+                            turnReasoningEffort,
+                        );
                         state.events.emit({
                             type: "model_fallback_selected",
                             ...fallback,

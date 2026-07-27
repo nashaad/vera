@@ -483,6 +483,111 @@ test("switching models chooses the strongest supported reasoning fallback", asyn
     }
 });
 
+test("a mapped codex model keeps its reasoning effort", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-codex-reasoning-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+
+        // Codex takes reasoning effort as its own request parameter, so the
+        // one model Vera has a profile for gets the dial like any other.
+        expect(await registry.updateModelSettings(agent.id, {
+            reasoningEffort: "high",
+        })).toMatchObject({
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            reasoningEffort: "high",
+            availableReasoningEfforts: ["off", "low", "medium", "high", "max"],
+        });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an unmapped codex model drops the effort rather than failing the turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-codex-unmapped-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+
+        // Carrying "high" onto a model with no profile would throw inside the
+        // adapter mid-turn, so the switch drops it and says the dial is gone.
+        const switched = await registry.updateModelSettings(agent.id, {
+            model: "gpt-5.6-codex",
+        });
+        expect(switched).toMatchObject({
+            model: "gpt-5.6-codex",
+            availableReasoningEfforts: [],
+        });
+        expect(switched?.reasoningEffort).toBeUndefined();
+
+        // Asking for one outright is a different request, and is refused.
+        expect(await registry.updateModelSettings(agent.id, {
+            reasoningEffort: "medium",
+        })).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("configured settings the provider cannot honour never reach the adapter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-codex-config-"));
+    const faux = new FauxAdapter([textResponse("reply")]);
+    const requests: ModelRequest[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return faux.stream(request);
+            },
+        }),
+        provider: "openai-codex",
+        model: "gpt-5.6-codex",
+        reasoningEffort: "max",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        await runPrompt(agent.attach(), "a turn");
+
+        // Config never passes through updateModelSettings, so without a check
+        // at creation this combination would reach the adapter and throw there.
+        expect(requests.map((request) => ({
+            model: request.model,
+            reasoningEffort: request.reasoningEffort,
+        }))).toEqual([{ model: "gpt-5.6-codex", reasoningEffort: undefined }]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a registry resumes the same resident agent from its session", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-resume-"));
     const workspace = join(root, "workspace");

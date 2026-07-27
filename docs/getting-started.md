@@ -61,8 +61,9 @@ To use a backup model from the same provider, add:
 
 `after_failures` may be 1, 2, or 3. Only consecutive rate-limit or server
 failures select the backup. Once selected, it remains active through the rest
-of that turn. OpenAI Codex fallback currently requires `reasoning_effort` to be
-omitted; OpenRouter resolves the configured effort against each model.
+of that turn. OpenRouter resolves the configured effort against each model. On
+OpenAI Codex, a backup model Vera has no reasoning mapping for runs without an
+effort, and the primary keeps its own.
 
 ## OpenRouter
 

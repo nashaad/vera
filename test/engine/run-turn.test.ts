@@ -885,6 +885,98 @@ test("model fallback stays selected through the tool loop", async () => {
         ]);
 });
 
+test("a fallback keeps the reasoning dial off for the rest of the turn", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-fallback-reasoning-"));
+    temporaryWorkspaces.push(workspace);
+    const source = { provider: "faux", api: "scripted", model: "gpt-5.6-codex" };
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "fallback_call",
+            name: "write",
+            input: { path: "fallback.txt", content: "used backup" },
+        }],
+        source,
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "finished on backup" }],
+        source,
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const success = new FauxAdapter([toolCallResponse, finalResponse]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request): ModelEventStream {
+            requests.push(request);
+            if (requests.length > 1) {
+                return success.stream(request);
+            }
+            const failure: ProviderFailure = {
+                kind: "server",
+                resolution: "retry",
+                message: "primary overloaded",
+            };
+            const error = new ProviderFailureError(
+                failure,
+                new Error(failure.message),
+            );
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...toolCallResponse,
+                    content: [],
+                    source: { ...source, model: "gpt-5.6-sol" },
+                    stopReason: "error",
+                    errorMessage: error.message,
+                },
+            });
+            return stream;
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        modelFallback: { model: "gpt-5.6-codex", afterFailures: 1 },
+        readModelSettings: () => ({
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            reasoningEffort: "high",
+        }),
+    };
+
+    channel.client.send({ type: "prompt", content: "use fallback" });
+    const turn = runTurn(adapter, "gpt-5.6-sol", state);
+    await expectUserPrompt(channel, "use fallback", 1);
+    expect(await turn).toEqual(finalResponse);
+
+    // The second post-fallback request is the one that used to regress: the
+    // tool loop rebuilt it from the turn's original effort, restoring a value
+    // the fallback model has no mapping for.
+    expect(requests.map((request) => ({
+        model: request.model,
+        reasoningEffort: request.reasoningEffort,
+    }))).toEqual([
+        { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        { model: "gpt-5.6-codex", reasoningEffort: undefined },
+        { model: "gpt-5.6-codex", reasoningEffort: undefined },
+    ]);
+});
+
 test("a bash tool call runs and continues the model turn", async () => {
     const toolCallResponse: AssistantMessage = {
         role: "assistant",
