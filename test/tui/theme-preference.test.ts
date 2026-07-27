@@ -7,10 +7,13 @@ import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
+    loadTuiModelPresets,
     loadTuiThemePreference,
     saveTuiActivityAnimationPreference,
+    saveTuiModelPresets,
     saveTuiThemePreference,
 } from "../../clients/tui/theme-preference.ts";
+import { emptyModelPresetSlots } from "../../clients/tui/model-presets.ts";
 
 test("TUI theme preference persists outside the engine configuration", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
@@ -64,4 +67,51 @@ test("TUI activity animation accepts bounded numeric tuning", () => {
     }));
     expect(loadTuiActivityAnimationIntervalPreference(path)).toBeUndefined();
     expect(loadTuiActivityAnimationWidthPreference(path)).toBeUndefined();
+});
+
+test("model presets persist beside the other client preferences", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
+    const path = join(directory, "tui.json");
+    const preset = {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        reasoningEffort: "low",
+    } as const;
+
+    expect(loadTuiModelPresets(path)).toEqual([null, null, null, null]);
+
+    saveTuiThemePreference("nightowl", path);
+    saveTuiModelPresets([null, preset, null, null], path);
+
+    // The two writers share one file, so neither may drop the other's key.
+    expect(loadTuiThemePreference(path)).toBe("nightowl");
+    expect(loadTuiModelPresets(path)).toEqual([null, preset, null, null]);
+    saveTuiThemePreference("github", path);
+    expect(loadTuiModelPresets(path)).toEqual([null, preset, null, null]);
+
+    expect(JSON.parse(readFileSync(path, "utf8")).model_presets).toEqual([
+        null,
+        {
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            reasoning_effort: "low",
+        },
+        null,
+        null,
+    ]);
+
+    saveTuiModelPresets(emptyModelPresetSlots(), path);
+    expect(loadTuiModelPresets(path)).toEqual([null, null, null, null]);
+});
+
+test("saving an unrelated preference does not add an empty preset block", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
+    const path = join(directory, "tui.json");
+
+    saveTuiThemePreference("orng", path);
+
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+        theme: "orng",
+        animation: "conveyor",
+    });
 });

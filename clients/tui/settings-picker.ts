@@ -29,6 +29,12 @@ import {
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
+import {
+    modelPresetLabel,
+    sameModelPreset,
+    type ModelPreset,
+    type ModelPresetSlots,
+} from "./model-presets.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
@@ -36,6 +42,7 @@ export type TuiSettingsPickerKind =
     | "permissions"
     | "theme"
     | "session"
+    | "preset"
     | "settings"
     | "permission_settings";
 
@@ -76,6 +83,9 @@ export interface TuiSettingsPickerState {
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly loading?: boolean;
+    readonly presetSlots?: ModelPresetSlots;
+    /** Which slot, if any, holds exactly the settings in use right now. */
+    readonly presetCurrentIndex?: number;
 }
 
 export interface TuiSettingsPickerKey {
@@ -87,7 +97,19 @@ export interface TuiSettingsPickerKey {
     readonly shift?: boolean;
 }
 
+/**
+ * What the preset picker asks its caller to do with a slot. The picker names
+ * the intent and stops there: reading and writing the slots is the caller's,
+ * which keeps this file free of disk access.
+ */
+export interface TuiPresetPickerSelection {
+    readonly kind: "preset";
+    readonly slot: number;
+    readonly intent: "apply" | "save" | "clear";
+}
+
 export type TuiSettingsPickerSelection =
+    | TuiPresetPickerSelection
     | { readonly kind: "model"; readonly provider: string; readonly model: string }
     | {
         readonly kind: "reasoning";
@@ -296,6 +318,80 @@ export function startTuiSessionPicker(
     };
 }
 
+/**
+ * Four rows, one per slot, always all four. An empty slot still shows, because
+ * the slot numbers are the thing worth learning and hiding the empty ones would
+ * renumber the list every time one is cleared.
+ */
+export function startTuiPresetPicker(
+    slots: ModelPresetSlots,
+    current: ModelPreset | undefined,
+): TuiSettingsPickerState {
+    const currentIndex = current === undefined ? -1 : slots.findIndex((slot) =>
+        slot !== null && sameModelPreset(slot, current)
+    );
+    const options = slots.map((slot, index) => ({
+        value: String(index),
+        label: `Slot ${index + 1}`,
+        description: slot === null
+            ? "empty · ⏎ saves the current model"
+            : modelPresetLabel(slot),
+    }));
+    return {
+        kind: "preset",
+        allOptions: options,
+        options,
+        selectedIndex: Math.max(0, currentIndex),
+        query: "",
+        presetSlots: slots,
+        ...(currentIndex < 0 ? {} : { presetCurrentIndex: currentIndex }),
+    };
+}
+
+function handleTuiPresetPickerKey(
+    state: TuiSettingsPickerState,
+    key: TuiSettingsPickerKey,
+): TuiSettingsPickerTransition {
+    // No search here: four fixed rows are faster to reach by arrow than by
+    // filter, and giving up search is what frees the plain letter keys the
+    // save and clear verbs need.
+    if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
+        return unchanged(state, false);
+    }
+    if (key.name === "escape") {
+        return { handled: true };
+    }
+    if (key.name === "up" || key.name === "down") {
+        const step = key.name === "up" ? -1 : 1;
+        return unchanged({
+            ...state,
+            selectedIndex: Math.min(
+                state.options.length - 1,
+                Math.max(0, state.selectedIndex + step),
+            ),
+        }, true);
+    }
+    const slot = state.selectedIndex;
+    const filled = state.presetSlots?.[slot] != null;
+    if (key.name === "return" || key.name === "enter") {
+        // An empty slot has nothing to apply, so the one obvious thing to do
+        // with it is fill it.
+        return {
+            selection: { kind: "preset", slot, intent: filled ? "apply" : "save" },
+            handled: true,
+        };
+    }
+    if (key.name === "s") {
+        return { selection: { kind: "preset", slot, intent: "save" }, handled: true };
+    }
+    if (key.name === "delete" || key.name === "backspace") {
+        return filled
+            ? { selection: { kind: "preset", slot, intent: "clear" }, handled: true }
+            : unchanged(state, true);
+    }
+    return unchanged(state, false);
+}
+
 function truncateSessionTitle(title: string): string {
     const normalized = title.replaceAll(/\s+/g, " ").trim();
     const characters = [...normalized];
@@ -361,6 +457,9 @@ export function handleTuiSettingsPickerKey(
     state: TuiSettingsPickerState,
     key: TuiSettingsPickerKey,
 ): TuiSettingsPickerTransition {
+    if (state.kind === "preset") {
+        return handleTuiPresetPickerKey(state, key);
+    }
     if (
         state.kind === "session"
         && key.name === "delete"
@@ -503,11 +602,17 @@ function renderListPickerRows(
     state: TuiSettingsPickerState,
     nodes: Renderable[],
 ): void {
+    // The preset picker has no search line, so its card is three rows shorter
+    // than the search block it leaves out.
+    const searchable = state.kind !== "preset";
     const header = dialogHeaderNode(renderer, pickerTitle(state.kind));
-    const search = dialogSearchNode(renderer, state.query);
     box.add(header);
-    box.add(search);
-    nodes.push(header, search);
+    nodes.push(header);
+    if (searchable) {
+        const search = dialogSearchNode(renderer, state.query);
+        box.add(search);
+        nodes.push(search);
+    }
 
     const rows = windowedDisplayRows(
         listDisplayRows(state),
@@ -552,15 +657,17 @@ function renderListPickerRows(
         renderer,
         state.kind === "session"
             ? "↑↓ move · ⏎ select · del trash · esc close"
-            : state.kind === "settings"
-                ? "↑↓ move · ⏎ open · esc close"
-                : state.kind === "permission_settings"
-                    ? "↑↓ move · ⏎ open · esc back"
-                    : "↑↓ move · ⏎ select · esc close",
+            : state.kind === "preset"
+                ? "↑↓ move · ⏎ apply · s save · del clear · esc close"
+                : state.kind === "settings"
+                    ? "↑↓ move · ⏎ open · esc close"
+                    : state.kind === "permission_settings"
+                        ? "↑↓ move · ⏎ open · esc back"
+                        : "↑↓ move · ⏎ select · esc close",
     );
     box.add(footer);
     nodes.push(footer);
-    box.height = lines + DIALOG_CHROME_HEIGHT;
+    box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3);
 }
 
 function listDisplayRows(
@@ -604,6 +711,9 @@ function isCurrentOption(
     state: TuiSettingsPickerState,
     option: TuiSettingsPickerOption,
 ): boolean {
+    if (state.kind === "preset") {
+        return option.value === String(state.presetCurrentIndex);
+    }
     return state.kind === "model" && option.value === state.initialModel;
 }
 
@@ -784,11 +894,18 @@ function pickerSelection(
     if (kind === "settings" || kind === "permission_settings") {
         return { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
+    if (kind === "preset") {
+        // Preset rows carry a verb as well as a row, so they never come through
+        // this generic path.
+        throw new Error("preset selections are built by the preset key handler");
+    }
     return { kind, theme: value as TuiThemeName };
 }
 
 function pickerTitle(kind: TuiSettingsPickerKind): string {
-    return kind === "model"
+    return kind === "preset"
+        ? "Model presets"
+        : kind === "model"
         ? "Select model"
         : kind === "reasoning"
             ? "Reasoning"

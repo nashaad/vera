@@ -6,6 +6,7 @@ import {
     startTuiSettingsMenu,
     startTuiSettingsPicker,
     startTuiSessionPicker,
+    startTuiPresetPicker,
     createTuiSettingsPickerView,
     type TuiSettingsPickerState,
 } from "../../clients/tui/settings-picker.ts";
@@ -498,4 +499,82 @@ test("theme picker renders as a borderless palette card with swatches", async ()
     } finally {
         setup.renderer.destroy();
     }
+});
+
+const PRESET_FAST = {
+    provider: "openrouter",
+    model: "moonshotai/kimi-k3",
+    reasoningEffort: "low",
+} as const;
+
+const PRESET_DEEP = {
+    provider: "openrouter",
+    model: "z-ai/glm-5.2",
+    reasoningEffort: "max",
+} as const;
+
+test("the preset picker shows all four slots and marks the one in use", async () => {
+    const state = startTuiPresetPicker(
+        [PRESET_FAST, null, PRESET_DEEP, null],
+        PRESET_DEEP,
+    );
+
+    // The cursor opens on the slot already in use rather than at the top.
+    expect(state.selectedIndex).toBe(2);
+    expect(state.options.map((option) => option.label)).toEqual([
+        "Slot 1",
+        "Slot 2",
+        "Slot 3",
+        "Slot 4",
+    ]);
+
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("Model presets");
+    expect(frame).toContain("kimi-k3 · low");
+    expect(frame).toContain("glm-5.2 · max");
+    expect(frame).toContain("empty");
+    expect(frame).toContain("s save");
+    // Four fixed rows are not worth a search line, and dropping it is what
+    // frees the plain letter keys the save verb uses.
+    expect(frame).not.toContain("Search");
+});
+
+test("enter applies a filled slot and fills an empty one", () => {
+    const state = startTuiPresetPicker([PRESET_FAST, null, null, null], undefined);
+
+    expect(handleTuiSettingsPickerKey(state, { name: "return" }).selection)
+        .toEqual({ kind: "preset", slot: 0, intent: "apply" });
+
+    const onEmpty = handleTuiSettingsPickerKey(state, { name: "down" }).state!;
+    expect(handleTuiSettingsPickerKey(onEmpty, { name: "return" }).selection)
+        .toEqual({ kind: "preset", slot: 1, intent: "save" });
+});
+
+test("the preset picker saves over any slot and clears only filled ones", () => {
+    const state = startTuiPresetPicker([PRESET_FAST, null, null, null], undefined);
+
+    expect(handleTuiSettingsPickerKey(state, { name: "s" }).selection)
+        .toEqual({ kind: "preset", slot: 0, intent: "save" });
+    expect(handleTuiSettingsPickerKey(state, { name: "delete" }).selection)
+        .toEqual({ kind: "preset", slot: 0, intent: "clear" });
+
+    const onEmpty = handleTuiSettingsPickerKey(state, { name: "down" }).state!;
+    const cleared = handleTuiSettingsPickerKey(onEmpty, { name: "delete" });
+    expect(cleared.selection).toBeUndefined();
+    expect(cleared.handled).toBe(true);
+});
+
+test("the preset picker leaves ctrl and shift keys to the client", () => {
+    const state = startTuiPresetPicker([PRESET_FAST, null, null, null], undefined);
+
+    // Ctrl+C must reach parseRawInputEvent, and Shift+Tab must reach the
+    // cycle binding, so neither may be swallowed here.
+    expect(handleTuiSettingsPickerKey(state, { name: "c", ctrl: true }).handled)
+        .toBe(false);
+    expect(handleTuiSettingsPickerKey(state, { name: "tab", shift: true }).handled)
+        .toBe(false);
+    // Typing does not filter a four-row list, so unused letters are inert.
+    expect(handleTuiSettingsPickerKey(state, { name: "k" }).handled).toBe(false);
+    expect(handleTuiSettingsPickerKey(state, { name: "escape" }))
+        .toEqual({ handled: true });
 });

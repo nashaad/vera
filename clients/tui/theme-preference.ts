@@ -5,12 +5,23 @@ import { randomUUID } from "node:crypto";
 
 import type { TuiThemeName } from "./theme.ts";
 import type { TuiActivityAnimation } from "./activity-pulse.ts";
+import {
+    modelPresetSlotsForDisk,
+    parseModelPresetSlots,
+    type DiskModelPresetSlots,
+    type ModelPresetSlots,
+} from "./model-presets.ts";
 
+// Every client preference shares one file and one writer. A second module doing
+// its own read-modify-write here would drop whatever the other had just saved,
+// so new preferences are added to this interface rather than to a file of their
+// own.
 interface TuiClientPreferences {
     readonly theme: TuiThemeName;
     readonly animation: TuiActivityAnimation;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
+    readonly model_presets?: DiskModelPresetSlots;
 }
 
 export function tuiThemePreferencePath(): string {
@@ -61,6 +72,22 @@ export function loadTuiActivityAnimationWidthPreference(
     return loadTuiClientPreferences(path).animation_width;
 }
 
+export function loadTuiModelPresets(
+    path = tuiThemePreferencePath(),
+): ModelPresetSlots {
+    return parseModelPresetSlots(loadTuiClientPreferences(path).model_presets);
+}
+
+export function saveTuiModelPresets(
+    slots: ModelPresetSlots,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        model_presets: modelPresetSlotsForDisk(slots),
+    }, path);
+}
+
 function loadTuiClientPreferences(path: string): TuiClientPreferences {
     try {
         const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -77,6 +104,10 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 2,
                 15,
             );
+            // Absent presets stay absent rather than becoming four nulls, so
+            // saving an unrelated preference does not grow the file with a
+            // block the user never asked for.
+            const presets = Reflect.get(value, "model_presets");
             return {
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
@@ -86,6 +117,13 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                     ? {}
                     : { animation_interval_ms: interval }),
                 ...(width === undefined ? {} : { animation_width: width }),
+                ...(Array.isArray(presets)
+                    ? {
+                        model_presets: modelPresetSlotsForDisk(
+                            parseModelPresetSlots(presets),
+                        ),
+                    }
+                    : {}),
             };
         }
     } catch {

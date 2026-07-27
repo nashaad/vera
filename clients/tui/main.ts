@@ -92,6 +92,8 @@ import {
     startTuiSettingsMenu,
     startTuiSettingsPicker,
     startTuiSessionPicker,
+    startTuiPresetPicker,
+    type TuiPresetPickerSelection,
     type TuiSettingsMenuTarget,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
@@ -143,9 +145,18 @@ import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
+    loadTuiModelPresets,
     loadTuiThemePreference,
+    saveTuiModelPresets,
     saveTuiThemePreference,
 } from "./theme-preference.ts";
+import {
+    nextModelPresetSlot,
+    modelPresetLabel,
+    withModelPresetSlot,
+    type ModelPreset,
+    type ModelPresetSlots,
+} from "./model-presets.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
@@ -360,6 +371,7 @@ export async function startTui(
         ?? ((text: string) => copyTuiText(text, renderer));
     renderer.setTerminalTitle("Vera");
     let themeName = loadTuiThemePreference();
+    let modelPresets: ModelPresetSlots = loadTuiModelPresets();
     let activityAnimation = loadTuiActivityAnimationPreference();
     const activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
@@ -567,15 +579,7 @@ export async function startTui(
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
         onMouseUp: () => {
-            const blocked = pendingUiRequest !== undefined
-                || timelinePicker !== undefined
-                || settingsPicker !== undefined
-                || preferencesList !== undefined
-                || commandPalette !== undefined
-                || help !== undefined
-                || confirmingFullAccess
-                || sessionTrashCandidate !== undefined;
-            if (bodyFocus.release(blocked)) {
+            if (bodyFocus.release(anyOverlayOpen())) {
                 composer.focus();
             }
         },
@@ -908,6 +912,25 @@ export async function startTui(
             }
         }
 
+        // Shift+Tab cycles saved presets. The terminal sends it as its own
+        // sequence, so it never collides with the plain Tab completion above,
+        // and Vera has no plan mode competing for the key.
+        if (
+            key.name === "tab"
+            && key.shift
+            && !key.ctrl
+            && !key.meta
+            && !key.option
+            && !key.super
+            && !key.hyper
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            cycleModelPreset();
+            return;
+        }
+
         const action = tuiInterruptAction(key, state.working, abortRequested);
         if (action === "pass") {
             return;
@@ -1101,6 +1124,11 @@ export async function startTui(
                 `reasoning change requested: ${commandAction.reasoningEffort}`,
             );
             renderState();
+            return;
+        }
+        if (commandAction?.type === "open_preset_picker") {
+            composer.clearComposer();
+            openPresetPicker();
             return;
         }
         if (commandAction?.type === "open_reasoning_picker") {
@@ -1957,6 +1985,22 @@ export async function startTui(
         renderStatus();
     }
 
+    /**
+     * Whether some overlay owns the screen. Bare keybindings and body focus
+     * both have to stand down while one is open, and they have to agree on
+     * when, so they ask the same question here.
+     */
+    function anyOverlayOpen(): boolean {
+        return pendingUiRequest !== undefined
+            || timelinePicker !== undefined
+            || settingsPicker !== undefined
+            || preferencesList !== undefined
+            || commandPalette !== undefined
+            || help !== undefined
+            || confirmingFullAccess
+            || sessionTrashCandidate !== undefined;
+    }
+
     function clearTranscriptNodes(): void {
         while (entryNodes.length > 0) {
             entryNodes.pop()?.destroy();
@@ -1980,6 +2024,69 @@ export async function startTui(
         );
         renderState();
         focusActiveSurface();
+    }
+
+    /**
+     * The three dials a preset holds, as they stand right now. Undefined until
+     * the engine has answered `get_model_settings`, since there is nothing to
+     * save or compare against before that.
+     */
+    function currentModelPreset(): ModelPreset | undefined {
+        const settings = state.modelSettings;
+        return settings?.provider === undefined
+                || settings.model === undefined
+                || settings.reasoningEffort === undefined
+            ? undefined
+            : {
+                provider: settings.provider,
+                model: settings.model,
+                reasoningEffort: settings.reasoningEffort,
+            };
+    }
+
+    function openPresetPicker(selectedIndex?: number): void {
+        const picker = startTuiPresetPicker(modelPresets, currentModelPreset());
+        // Reopening after a save or a clear keeps the cursor on the row that
+        // was just edited, instead of snapping back to whichever slot happens
+        // to match the live settings.
+        settingsPicker = selectedIndex === undefined
+            ? picker
+            : { ...picker, selectedIndex };
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function applyModelPreset(preset: ModelPreset): void {
+        sendCommand({
+            type: "update_model_settings",
+            requestId: randomUUID(),
+            patch: {
+                provider: preset.provider,
+                model: preset.model,
+                reasoningEffort: preset.reasoningEffort,
+            },
+        });
+        // "requested", like the sibling model and reasoning notices: the engine
+        // still validates the combination and can reject it.
+        state = appendTuiNotice(
+            state,
+            `preset requested: ${modelPresetLabel(preset)}`,
+        );
+    }
+
+    function cycleModelPreset(): void {
+        const slot = nextModelPresetSlot(modelPresets, currentModelPreset());
+        const preset = slot === undefined ? undefined : modelPresets[slot];
+        if (preset == null) {
+            state = appendTuiNotice(
+                state,
+                "no other preset saved · /preset to save this one",
+            );
+        } else {
+            applyModelPreset(preset);
+        }
+        renderState();
     }
 
     function openReasoningPicker(): void {
@@ -2090,6 +2197,7 @@ export async function startTui(
             return;
         }
         if (action.type === "open_model_picker") return openModelPicker();
+        if (action.type === "open_preset_picker") return openPresetPicker();
         if (action.type === "open_reasoning_picker") {
             return openReasoningPicker();
         }
@@ -2124,6 +2232,10 @@ export async function startTui(
         }
         if (transition.selection !== undefined) {
             const selection = transition.selection;
+            if (selection.kind === "preset") {
+                applyPresetSelection(selection);
+                return;
+            }
             if (selection.kind === "model") {
                 sendCommand({
                     type: "update_model_settings",
@@ -2181,6 +2293,46 @@ export async function startTui(
             settingsPickerView.box.focus();
         }
         renderState();
+    }
+
+    /**
+     * Applying closes the picker, the way every other picker's choice does.
+     * Saving and clearing keep it open and reopen it against the edited slots,
+     * so the row you just changed shows its new contents and a second slot can
+     * be filled without retyping the command.
+     */
+    function applyPresetSelection(selection: TuiPresetPickerSelection): void {
+        if (selection.intent === "apply") {
+            const preset = modelPresets[selection.slot];
+            settingsPicker = undefined;
+            settingsPickerView.box.visible = false;
+            if (preset != null) {
+                applyModelPreset(preset);
+            }
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        const preset = selection.intent === "clear"
+            ? null
+            : currentModelPreset();
+        if (preset === undefined) {
+            state = appendTuiNotice(state, "no model settings to save yet");
+        } else {
+            modelPresets = withModelPresetSlot(
+                modelPresets,
+                selection.slot,
+                preset,
+            );
+            saveTuiModelPresets(modelPresets);
+            state = appendTuiNotice(
+                state,
+                preset === null
+                    ? `slot ${selection.slot + 1} cleared`
+                    : `slot ${selection.slot + 1}: ${modelPresetLabel(preset)}`,
+            );
+        }
+        openPresetPicker(selection.slot);
     }
 
     function beginSessionTrash(candidate: {
