@@ -106,7 +106,7 @@ export function createTuiApprovalView(
         }
         actionRows = [];
         const grants = update.request.permissionGrants;
-        for (const action of APPROVAL_ROWS) {
+        for (const action of visibleApprovalRows(update)) {
             // Keep the row in place when no honest reusable grant can be
             // derived so the approval key numbering stays stable.
             const derived = isDerivedRow(action.key);
@@ -229,7 +229,8 @@ export function createTuiApprovalResponse(
 ): UiResponseCommand | undefined {
     const decision = tuiApprovalDecision(
         key,
-        update.request.permissionGrants !== undefined,
+        update.request.permissionGrants !== undefined
+            && update.request.sourceAgentId === undefined,
     );
     if (decision === undefined) {
         return undefined;
@@ -276,7 +277,7 @@ function formatToolCall(update: ToolApprovalUiRequestUpdate): string {
 function approvalActions(update: ToolApprovalUiRequestUpdate): string {
     const grants = update.request.permissionGrants;
     return [
-        ...APPROVAL_ROWS.map((action) => {
+        ...visibleApprovalRows(update).map((action) => {
             if (!isDerivedRow(action.key)) {
                 return "meta" in action
                     ? `${action.key}  ${action.label}  ${action.meta}`
@@ -287,6 +288,22 @@ function approvalActions(update: ToolApprovalUiRequestUpdate): string {
                 : `${action.key}  ${action.label}  ${describeGrants(grants)}`;
         }),
     ].join("\n");
+}
+
+export function tuiApprovalHint(
+    update: ToolApprovalUiRequestUpdate,
+): string {
+    return update.request.sourceAgentId === undefined
+        ? "approval required · 1 once · 2 session prefix · 3/esc deny · ctrl+c stop"
+        : "approval required · 1 once · 3/esc deny · ctrl+c stop";
+}
+
+function visibleApprovalRows(
+    update: ToolApprovalUiRequestUpdate,
+): readonly (typeof APPROVAL_ROWS)[number][] {
+    return update.request.sourceAgentId === undefined
+        ? APPROVAL_ROWS
+        : APPROVAL_ROWS.filter((action) => !isDerivedRow(action.key));
 }
 
 function describeGrants(

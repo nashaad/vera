@@ -1164,6 +1164,55 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "child approval shows only exact allow and deny",
+    async () => {
+        const socket = `vera-child-approval-${process.pid}-${randomUUID()}`;
+        const session = "child-approval";
+        const home = mkdtempSync(join(tmpdir(), "vera-child-approval-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child-approval-child.ts",
+                80,
+                18,
+            );
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Requested by agent 5a5d7460",
+            );
+            expect(pane).toContain("Task: Write the child approval marker");
+            expect(pane).toContain("1  Allow once");
+            expect(pane).toContain("3  Deny");
+            expect(pane).not.toContain("Allow similar");
+            expect(pane).not.toContain("session prefix");
+            expect(pane).not.toContain("ask.default");
+
+            sendKey(socket, session, "1");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => !current.includes("Requested by agent"),
+                "closed child approval",
+            );
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "user question accepts a digit immediately and restores composer focus",
     async () => {
         const socket = `vera-question-${process.pid}-${randomUUID()}`;
