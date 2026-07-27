@@ -36,10 +36,6 @@ export interface StartResidentHostOptions {
     readonly permissionPreferencesPath?: string;
     readonly eventLogDirectory?: string;
     readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
-    readonly onExtensionDiagnostic?: (
-        extensionId: string,
-        message: string,
-    ) => void;
     readonly onExtensionFailure?: (
         failure: ExtensionRegistryFailure,
     ) => void;
@@ -128,9 +124,6 @@ export async function startResidentHost(
         );
         extensions = await startExtensionRegistry({
             extensions: options.config.extensions ?? [],
-            ...(options.onExtensionDiagnostic === undefined
-                ? {}
-                : { onDiagnostic: options.onExtensionDiagnostic }),
             ...(options.onExtensionFailure === undefined
                 ? {}
                 : { onFailure: options.onExtensionFailure }),

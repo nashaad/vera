@@ -29,12 +29,6 @@ import {
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
-import {
-    modelPresetLabel,
-    sameModelPreset,
-    type ModelPreset,
-    type ModelPresetSlots,
-} from "./model-presets.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
@@ -42,7 +36,6 @@ export type TuiSettingsPickerKind =
     | "permissions"
     | "theme"
     | "session"
-    | "preset"
     | "settings"
     | "permission_settings";
 
@@ -74,6 +67,24 @@ export interface TuiSettingsPickerOption {
     readonly sessionId?: string;
 }
 
+export interface TuiExtensionPickerRow {
+    readonly id: string;
+    readonly label: string;
+    readonly description?: string;
+}
+
+export type TuiExtensionPickerActionKey =
+    | "enter"
+    | "s"
+    | "delete"
+    | "backspace";
+
+export interface TuiExtensionPickerAction {
+    readonly id: string;
+    readonly key: TuiExtensionPickerActionKey;
+    readonly label: string;
+}
+
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
     readonly allOptions: readonly TuiSettingsPickerOption[];
@@ -83,9 +94,18 @@ export interface TuiSettingsPickerState {
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly loading?: boolean;
-    readonly presetSlots?: ModelPresetSlots;
-    /** Which slot, if any, holds exactly the settings in use right now. */
-    readonly presetCurrentIndex?: number;
+}
+
+export interface TuiExtensionPickerState {
+    readonly kind: "extension";
+    readonly allOptions: readonly TuiSettingsPickerOption[];
+    readonly options: readonly TuiSettingsPickerOption[];
+    readonly selectedIndex: number;
+    readonly query: "";
+    readonly title: string;
+    readonly selectedId?: string;
+    readonly extensionRows: readonly TuiExtensionPickerRow[];
+    readonly extensionActions: readonly TuiExtensionPickerAction[];
 }
 
 export interface TuiSettingsPickerKey {
@@ -97,19 +117,7 @@ export interface TuiSettingsPickerKey {
     readonly shift?: boolean;
 }
 
-/**
- * What the preset picker asks its caller to do with a slot. The picker names
- * the intent and stops there: reading and writing the slots is the caller's,
- * which keeps this file free of disk access.
- */
-export interface TuiPresetPickerSelection {
-    readonly kind: "preset";
-    readonly slot: number;
-    readonly intent: "apply" | "save" | "clear";
-}
-
 export type TuiSettingsPickerSelection =
-    | TuiPresetPickerSelection
     | { readonly kind: "model"; readonly provider: string; readonly model: string }
     | {
         readonly kind: "reasoning";
@@ -131,9 +139,25 @@ export interface TuiSettingsPickerTransition {
     };
 }
 
+export interface TuiExtensionPickerSelection {
+    readonly kind: "extension";
+    readonly rowId: string;
+    readonly actionId: string;
+}
+
+export interface TuiExtensionPickerTransition {
+    readonly state?: TuiExtensionPickerState;
+    readonly selection?: TuiExtensionPickerSelection;
+    readonly handled: boolean;
+}
+
+export type TuiAnySettingsPickerState =
+    | TuiSettingsPickerState
+    | TuiExtensionPickerState;
+
 export interface TuiSettingsPickerView {
     readonly box: BoxRenderable;
-    update(state: TuiSettingsPickerState): void;
+    update(state: TuiAnySettingsPickerState): void;
 }
 
 const REASONING_OPTIONS: readonly TuiSettingsPickerOption[] = [
@@ -319,42 +343,42 @@ export function startTuiSessionPicker(
 }
 
 /**
- * Four rows, one per slot, always all four. An empty slot still shows, because
- * the slot numbers are the thing worth learning and hiding the empty ones would
- * renumber the list every time one is cleared.
+ * A client extension supplies semantic rows and actions, while this module
+ * owns the cursor, focus, rendering, and terminal-key details. Search is
+ * intentionally omitted so the action key `s` remains available to the
+ * extension.
  */
-export function startTuiPresetPicker(
-    slots: ModelPresetSlots,
-    current: ModelPreset | undefined,
-): TuiSettingsPickerState {
-    const currentIndex = current === undefined ? -1 : slots.findIndex((slot) =>
-        slot !== null && sameModelPreset(slot, current)
-    );
-    const options = slots.map((slot, index) => ({
-        value: String(index),
-        label: `Slot ${index + 1}`,
-        description: slot === null
-            ? "empty · ⏎ saves the current model"
-            : modelPresetLabel(slot),
+export function startTuiExtensionPicker(
+    title: string,
+    rows: readonly TuiExtensionPickerRow[],
+    selectedId: string | undefined = undefined,
+    actions: readonly TuiExtensionPickerAction[] = [],
+): TuiExtensionPickerState {
+    const options = rows.map((row) => ({
+        value: row.id,
+        label: row.label,
+        description: row.description ?? "",
     }));
     return {
-        kind: "preset",
+        kind: "extension",
         allOptions: options,
         options,
-        selectedIndex: Math.max(0, currentIndex),
+        selectedIndex: Math.max(
+            0,
+            options.findIndex((option) => option.value === selectedId),
+        ),
         query: "",
-        presetSlots: slots,
-        ...(currentIndex < 0 ? {} : { presetCurrentIndex: currentIndex }),
+        title,
+        ...(selectedId === undefined ? {} : { selectedId }),
+        extensionRows: rows,
+        extensionActions: actions,
     };
 }
 
-function handleTuiPresetPickerKey(
-    state: TuiSettingsPickerState,
+function handleTuiExtensionPickerKey(
+    state: TuiExtensionPickerState,
     key: TuiSettingsPickerKey,
-): TuiSettingsPickerTransition {
-    // No search here: four fixed rows are faster to reach by arrow than by
-    // filter, and giving up search is what frees the plain letter keys the
-    // save and clear verbs need.
+): TuiExtensionPickerTransition {
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
@@ -363,33 +387,49 @@ function handleTuiPresetPickerKey(
     }
     if (key.name === "up" || key.name === "down") {
         const step = key.name === "up" ? -1 : 1;
+        const nextIndex = Math.min(
+            state.options.length - 1,
+            Math.max(0, state.selectedIndex + step),
+        );
+        const next = state.options[nextIndex];
         return unchanged({
             ...state,
-            selectedIndex: Math.min(
-                state.options.length - 1,
-                Math.max(0, state.selectedIndex + step),
-            ),
+            selectedIndex: nextIndex,
+            ...(next === undefined ? {} : { selectedId: next.value }),
         }, true);
     }
-    const slot = state.selectedIndex;
-    const filled = state.presetSlots?.[slot] != null;
-    if (key.name === "return" || key.name === "enter") {
-        // An empty slot has nothing to apply, so the one obvious thing to do
-        // with it is fill it.
-        return {
-            selection: { kind: "preset", slot, intent: filled ? "apply" : "save" },
-            handled: true,
-        };
+
+    const actionKey = extensionPickerActionKey(key);
+    const action = actionKey === undefined
+        ? undefined
+        : state.extensionActions?.find((candidate) =>
+            candidate.key === actionKey
+        );
+    const row = state.options[state.selectedIndex];
+    if (action === undefined) {
+        return unchanged(state, false);
     }
-    if (key.name === "s") {
-        return { selection: { kind: "preset", slot, intent: "save" }, handled: true };
+    if (row === undefined) {
+        return unchanged(state, true);
     }
-    if (key.name === "delete" || key.name === "backspace") {
-        return filled
-            ? { selection: { kind: "preset", slot, intent: "clear" }, handled: true }
-            : unchanged(state, true);
-    }
-    return unchanged(state, false);
+    return {
+        selection: {
+            kind: "extension",
+            rowId: row.value,
+            actionId: action.id,
+        },
+        handled: true,
+    };
+}
+
+function extensionPickerActionKey(
+    key: TuiSettingsPickerKey,
+): TuiExtensionPickerActionKey | undefined {
+    if (key.name === "return" || key.name === "enter") return "enter";
+    if (key.name === "s") return "s";
+    if (key.name === "delete") return "delete";
+    if (key.name === "backspace") return "backspace";
+    return undefined;
 }
 
 function truncateSessionTitle(title: string): string {
@@ -454,11 +494,19 @@ function reasoningOptions(
 }
 
 export function handleTuiSettingsPickerKey(
+    state: TuiExtensionPickerState,
+    key: TuiSettingsPickerKey,
+): TuiExtensionPickerTransition;
+export function handleTuiSettingsPickerKey(
     state: TuiSettingsPickerState,
     key: TuiSettingsPickerKey,
-): TuiSettingsPickerTransition {
-    if (state.kind === "preset") {
-        return handleTuiPresetPickerKey(state, key);
+): TuiSettingsPickerTransition;
+export function handleTuiSettingsPickerKey(
+    state: TuiAnySettingsPickerState,
+    key: TuiSettingsPickerKey,
+): TuiSettingsPickerTransition | TuiExtensionPickerTransition {
+    if (state.kind === "extension") {
+        return handleTuiExtensionPickerKey(state, key);
     }
     if (
         state.kind === "session"
@@ -599,13 +647,17 @@ type PickerDisplayRow =
 function renderListPickerRows(
     renderer: RenderContext,
     box: BoxRenderable,
-    state: TuiSettingsPickerState,
+    state: TuiAnySettingsPickerState,
     nodes: Renderable[],
 ): void {
-    // The preset picker has no search line, so its card is three rows shorter
-    // than the search block it leaves out.
-    const searchable = state.kind !== "preset";
-    const header = dialogHeaderNode(renderer, pickerTitle(state.kind));
+    const searchable = state.kind !== "extension";
+    const header = dialogHeaderNode(
+        renderer,
+        pickerTitle(
+            state.kind,
+            state.kind === "extension" ? state.title : undefined,
+        ),
+    );
     box.add(header);
     nodes.push(header);
     if (searchable) {
@@ -653,25 +705,42 @@ function renderListPickerRows(
         nodes.push(node);
     });
 
-    const footer = dialogFooterNode(
-        renderer,
-        state.kind === "session"
-            ? "↑↓ move · ⏎ select · del trash · esc close"
-            : state.kind === "preset"
-                ? "↑↓ move · ⏎ apply · s save · del clear · esc close"
-                : state.kind === "settings"
-                    ? "↑↓ move · ⏎ open · esc close"
-                    : state.kind === "permission_settings"
-                        ? "↑↓ move · ⏎ open · esc back"
-                        : "↑↓ move · ⏎ select · esc close",
-    );
+    const footer = dialogFooterNode(renderer, pickerFooter(state));
     box.add(footer);
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3);
 }
 
+function pickerFooter(state: TuiAnySettingsPickerState): string {
+    if (state.kind === "session") {
+        return "↑↓ move · ⏎ select · del trash · esc close";
+    }
+    if (state.kind === "extension") {
+        const actions = (state.extensionActions ?? []).map((action) =>
+            `${extensionPickerKeyLabel(action.key)} ${action.label}`
+        );
+        return ["↑↓ move", ...actions, "esc close"].join(" · ");
+    }
+    if (state.kind === "settings") {
+        return "↑↓ move · ⏎ open · esc close";
+    }
+    if (state.kind === "permission_settings") {
+        return "↑↓ move · ⏎ open · esc back";
+    }
+    return "↑↓ move · ⏎ select · esc close";
+}
+
+function extensionPickerKeyLabel(
+    key: TuiExtensionPickerActionKey,
+): string {
+    if (key === "enter") return "⏎";
+    if (key === "delete") return "del";
+    if (key === "backspace") return "⌫";
+    return key;
+}
+
 function listDisplayRows(
-    state: TuiSettingsPickerState,
+    state: TuiAnySettingsPickerState,
 ): readonly PickerDisplayRow[] {
     // Only the unfiltered model list is grouped: a search result is a single
     // ranked list, and the provider moves to the row's right-hand column.
@@ -708,17 +777,17 @@ function windowedDisplayRows(
 }
 
 function isCurrentOption(
-    state: TuiSettingsPickerState,
+    state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
 ): boolean {
-    if (state.kind === "preset") {
-        return option.value === String(state.presetCurrentIndex);
+    if (state.kind === "extension") {
+        return option.value === state.selectedId;
     }
     return state.kind === "model" && option.value === state.initialModel;
 }
 
 function optionMeta(
-    state: TuiSettingsPickerState,
+    state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
 ): string | undefined {
     return state.kind === "model" && state.query.length > 0
@@ -726,7 +795,10 @@ function optionMeta(
         : undefined;
 }
 
-function emptyPickerMessage(state: TuiSettingsPickerState): string {
+function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
+    if (state.kind === "extension") {
+        return "No options available";
+    }
     if (state.kind !== "session") {
         return "No matches found";
     }
@@ -894,18 +966,15 @@ function pickerSelection(
     if (kind === "settings" || kind === "permission_settings") {
         return { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
-    if (kind === "preset") {
-        // Preset rows carry a verb as well as a row, so they never come through
-        // this generic path.
-        throw new Error("preset selections are built by the preset key handler");
-    }
     return { kind, theme: value as TuiThemeName };
 }
 
-function pickerTitle(kind: TuiSettingsPickerKind): string {
-    return kind === "preset"
-        ? "Model presets"
-        : kind === "model"
+function pickerTitle(
+    kind: TuiSettingsPickerKind | "extension",
+    title?: string,
+): string {
+    if (title !== undefined) return title;
+    return kind === "model"
         ? "Select model"
         : kind === "reasoning"
             ? "Reasoning"
@@ -921,8 +990,19 @@ function pickerTitle(kind: TuiSettingsPickerKind): string {
 }
 
 function unchanged(
+    state: TuiExtensionPickerState,
+    handled: boolean,
+): TuiExtensionPickerTransition;
+function unchanged(
     state: TuiSettingsPickerState,
     handled: boolean,
-): TuiSettingsPickerTransition {
+): TuiSettingsPickerTransition;
+function unchanged(
+    state: TuiAnySettingsPickerState,
+    handled: boolean,
+): TuiSettingsPickerTransition | TuiExtensionPickerTransition {
+    if (state.kind === "extension") {
+        return { state, handled };
+    }
     return { state, handled };
 }

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import type { JsonValue } from "../../src/sdk/hooks.ts";
 import type { TuiThemeName } from "./theme.ts";
 import type { TuiActivityAnimation } from "./activity-pulse.ts";
 import {
@@ -22,6 +23,9 @@ interface TuiClientPreferences {
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
     readonly model_presets?: DiskModelPresetSlots;
+    readonly extensions?: Readonly<
+        Record<string, Readonly<Record<string, JsonValue>>>
+    >;
 }
 
 export function tuiThemePreferencePath(): string {
@@ -88,6 +92,65 @@ export function saveTuiModelPresets(
     }, path);
 }
 
+export function loadTuiExtensionPreference(
+    extensionId: string,
+    key: string,
+    path = tuiThemePreferencePath(),
+): JsonValue | undefined {
+    const preferences = loadTuiClientPreferences(path);
+    const value = preferences.extensions?.[extensionId]?.[key];
+    if (value !== undefined) {
+        return value;
+    }
+    // The bundled extension keeps presets saved by the former built-in
+    // implementation visible on its first run.
+    return extensionId === "vera.model-presets"
+            && key === "slots"
+            && preferences.model_presets !== undefined
+        ? structuredClone(preferences.model_presets) as unknown as JsonValue
+        : undefined;
+}
+
+export function saveTuiExtensionPreference(
+    extensionId: string,
+    key: string,
+    value: JsonValue,
+    path = tuiThemePreferencePath(),
+): void {
+    const preferences = loadTuiClientPreferences(path);
+    saveTuiClientPreferences({
+        ...preferences,
+        extensions: {
+            ...preferences.extensions,
+            [extensionId]: {
+                ...preferences.extensions?.[extensionId],
+                [key]: structuredClone(value),
+            },
+        },
+    }, path);
+}
+
+export function deleteTuiExtensionPreference(
+    extensionId: string,
+    key: string,
+    path = tuiThemePreferencePath(),
+): void {
+    const preferences = loadTuiClientPreferences(path);
+    const namespace = { ...preferences.extensions?.[extensionId] };
+    delete namespace[key];
+    const extensions = { ...preferences.extensions };
+    if (Object.keys(namespace).length === 0) {
+        delete extensions[extensionId];
+    } else {
+        extensions[extensionId] = namespace;
+    }
+    const { extensions: _previous, ...withoutExtensions } = preferences;
+    saveTuiClientPreferences({
+        ...withoutExtensions,
+        ...(Object.keys(extensions).length === 0 ? {} : { extensions }),
+    }, path);
+}
+
 function loadTuiClientPreferences(path: string): TuiClientPreferences {
     try {
         const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -108,6 +171,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             // saving an unrelated preference does not grow the file with a
             // block the user never asked for.
             const presets = Reflect.get(value, "model_presets");
+            const extensions = parseExtensionPreferences(
+                Reflect.get(value, "extensions"),
+            );
             return {
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
@@ -124,12 +190,58 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                         ),
                     }
                     : {}),
+                ...(extensions === undefined ? {} : { extensions }),
             };
         }
     } catch {
         // Missing or malformed client preferences must not prevent startup.
     }
     return { theme: "default", animation: "conveyor" };
+}
+
+function parseExtensionPreferences(
+    value: unknown,
+): TuiClientPreferences["extensions"] {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const extensions: Record<string, Record<string, JsonValue>> = {};
+    for (const [extensionId, rawNamespace] of Object.entries(value)) {
+        if (
+            typeof rawNamespace !== "object"
+            || rawNamespace === null
+            || Array.isArray(rawNamespace)
+        ) {
+            continue;
+        }
+        const namespace: Record<string, JsonValue> = {};
+        for (const [key, candidate] of Object.entries(rawNamespace)) {
+            if (isJsonValue(candidate)) {
+                namespace[key] = candidate;
+            }
+        }
+        if (Object.keys(namespace).length > 0) {
+            extensions[extensionId] = namespace;
+        }
+    }
+    return Object.keys(extensions).length === 0 ? undefined : extensions;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+    if (
+        value === null
+        || typeof value === "string"
+        || typeof value === "boolean"
+        || (typeof value === "number" && Number.isFinite(value))
+    ) {
+        return true;
+    }
+    if (Array.isArray(value)) {
+        return value.every(isJsonValue);
+    }
+    return typeof value === "object"
+        && value !== null
+        && Object.values(value).every(isJsonValue);
 }
 
 function saveTuiClientPreferences(

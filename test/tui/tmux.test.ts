@@ -149,6 +149,75 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "the bundled preset uses only public client extension seams",
+    async () => {
+        const socket = `vera-user-preset-${process.pid}-${randomUUID()}`;
+        const session = "user-preset";
+        const home = mkdtempSync(join(tmpdir(), "vera-user-preset-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-user-preset-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/preset");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Model presets");
+            expect(pane).toContain("Slot 1");
+            expect(pane).toContain("empty");
+
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "kimi-k3 · low");
+            expect(pane).toContain("Slot 1");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/model openrouter/other");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "model change requested",
+            );
+            sendText(socket, session, "/preset");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "kimi-k3 · low");
+            sendKey(socket, session, "Enter");
+            for (let attempt = 0; attempt < 100; attempt += 1) {
+                const saved = JSON.parse(readFileSync(
+                    join(home, "user-preset-settings.json"),
+                    "utf8",
+                ));
+                if (saved.model === "moonshotai/kimi-k3") break;
+                await Bun.sleep(20);
+            }
+            expect(JSON.parse(readFileSync(
+                join(home, "user-preset-settings.json"),
+                "utf8",
+            ))).toMatchObject({
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                reasoningEffort: "low",
+            });
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "turn completion keeps focus in the open Help surface",
     async () => {
         const socket = `vera-help-focus-${process.pid}-${randomUUID()}`;
