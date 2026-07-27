@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import {
     availableReasoningEfforts,
+    isModelTurnSettings,
     reasoningEffortForModel,
 } from "../../src/engine/model-settings.ts";
 
@@ -49,6 +50,67 @@ test("a model the user did not choose keeps any effort it can resolve", () => {
     expect(unlisted).toBeDefined();
     expect(reasoningEffortForModel("openrouter", "moonshotai/kimi-k3", unlisted))
         .toBe(unlisted);
+});
+
+test("settings validation accepts the stash and per-model levels", () => {
+    const available = {
+        provider: "test",
+        model: "with-levels",
+        label: "With levels",
+        description: "a model",
+        levels: [{ id: "high", label: "High" }],
+        defaultLevel: "high",
+    };
+    const stashed = {
+        provider: "test",
+        model: "kept",
+        label: "kept",
+        available: false,
+        levels: [],
+    };
+
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        availableModels: [available],
+        stash: [stashed],
+    })).toBe(true);
+    // An empty level list is a fact about the model, not a missing field.
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        availableModels: [{ ...available, levels: [], defaultLevel: undefined }],
+    })).toBe(true);
+    expect(isModelTurnSettings({ model: "with-levels", stash: [] })).toBe(true);
+});
+
+test("settings validation rejects entries missing their new fields", () => {
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        availableModels: [{
+            provider: "test",
+            model: "with-levels",
+            label: "With levels",
+            description: "a model",
+        }],
+    })).toBe(false);
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        stash: [{
+            provider: "test",
+            model: "kept",
+            label: "kept",
+            levels: [],
+        }],
+    })).toBe(false);
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        stash: [{
+            provider: "test",
+            model: "kept",
+            label: "kept",
+            available: true,
+            levels: [{ label: "High" }],
+        }],
+    })).toBe(false);
 });
 
 test("a verified catalog entry still wins over the provider rule", () => {

@@ -11,6 +11,7 @@ import {
 import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
+import { stashedModels } from "../model/catalog-view.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
@@ -81,6 +82,7 @@ export async function startResidentHost(
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,
+        readStash: () => stashedModels(models),
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({
                 provider: settings.provider as VeraConfig["provider"],

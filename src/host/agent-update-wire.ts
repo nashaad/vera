@@ -129,7 +129,10 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                         )))
                 && (settings.availableModels === undefined
                     || (Array.isArray(settings.availableModels)
-                        && settings.availableModels.every(isSuggestedModel)))
+                        && settings.availableModels.every(isAvailableModel)))
+                && (settings.stash === undefined
+                    || (Array.isArray(settings.stash)
+                        && settings.stash.every(isStashedModel)))
                 && (settings.contextWindow === undefined
                     || (Number.isSafeInteger(settings.contextWindow)
                         && (settings.contextWindow as number) > 0))
@@ -527,7 +530,13 @@ function isOptionalAttachmentIds(value: unknown): boolean {
     );
 }
 
-function isSuggestedModel(value: unknown): boolean {
+/**
+ * `levels` is required, and an entry without it is rejected rather than read
+ * as empty: empty already means "no reasoning control at all", so normalising
+ * absent to empty would hide a producer that forgot the field. See the same
+ * note in `src/engine/model-settings.ts`.
+ */
+function isAvailableModel(value: unknown): boolean {
     const model = asRecord(value);
     return typeof model?.provider === "string"
         && typeof model.model === "string"
@@ -535,7 +544,38 @@ function isSuggestedModel(value: unknown): boolean {
         && typeof model.description === "string"
         && (model.contextWindow === undefined
             || (Number.isSafeInteger(model.contextWindow)
-                && (model.contextWindow as number) > 0));
+                && (model.contextWindow as number) > 0))
+        && isLevelList(model.levels)
+        && (model.defaultLevel === undefined
+            || typeof model.defaultLevel === "string");
+}
+
+function isStashedModel(value: unknown): boolean {
+    const model = asRecord(value);
+    return typeof model?.provider === "string"
+        && typeof model.model === "string"
+        && typeof model.label === "string"
+        && typeof model.available === "boolean"
+        && (model.description === undefined
+            || typeof model.description === "string")
+        && (model.contextWindow === undefined
+            || (Number.isSafeInteger(model.contextWindow)
+                && (model.contextWindow as number) > 0))
+        && isLevelList(model.levels)
+        && (model.defaultLevel === undefined
+            || typeof model.defaultLevel === "string");
+}
+
+function isLevelList(value: unknown): boolean {
+    return Array.isArray(value) && value.every(isReasoningLevel);
+}
+
+function isReasoningLevel(value: unknown): boolean {
+    const level = asRecord(value);
+    return typeof level?.id === "string"
+        && typeof level.label === "string"
+        && (level.description === undefined
+            || typeof level.description === "string");
 }
 
 function isOptionalTokenCount(value: unknown): boolean {
