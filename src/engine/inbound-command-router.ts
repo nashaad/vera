@@ -36,6 +36,8 @@ const FULL_USER_AUTHORITY_WARNING =
 export interface ToolApprovalOptions {
     readonly timeoutMs: number;
     readonly signal?: AbortSignal;
+    readonly sourceAgentId?: string;
+    readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
 }
 
@@ -118,6 +120,14 @@ export interface InboundCommandRouterOptions {
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
+    ) => Promise<ModelTurnSettings | undefined>;
+    /**
+     * Returns the settings snapshot as it stands after the edit, so the reply
+     * carries the new stash. `undefined` means the edit did not happen.
+     */
+    readonly updateStash?: (
+        action: "add" | "remove",
+        entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionInspection?: () => PermissionInspection | undefined;
@@ -280,6 +290,12 @@ export class InboundCommandRouter {
                 toolCall,
                 reason,
                 warning: FULL_USER_AUTHORITY_WARNING,
+                ...(options.sourceAgentId === undefined
+                    ? {}
+                    : { sourceAgentId: options.sourceAgentId }),
+                ...(options.sourceTask === undefined
+                    ? {}
+                    : { sourceTask: options.sourceTask }),
                 ...(options.permissionGrants === undefined
                     ? {}
                     : {
@@ -426,6 +442,14 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "update_stash") {
+                    await this.updateStash(command.requestId, command.action, {
+                        provider: command.provider,
+                        model: command.model,
+                    });
+                    continue;
+                }
+
                 if (command.type === "get_permissions") {
                     this.sendPermissions(command.requestId);
                     continue;
@@ -514,6 +538,30 @@ export class InboundCommandRouter {
                 type: "model_settings_rejected",
                 requestId,
                 reason: this.options.updateModelSettings === undefined
+                    ? "unavailable"
+                    : "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(settings),
+            pending: this.hasPendingTurn(),
+        });
+    }
+
+    private async updateStash(
+        requestId: string,
+        action: "add" | "remove",
+        entry: { readonly provider: string; readonly model: string },
+    ): Promise<void> {
+        const settings = await this.options.updateStash?.(action, entry);
+        if (settings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: this.options.updateStash === undefined
                     ? "unavailable"
                     : "invalid",
             });

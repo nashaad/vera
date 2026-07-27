@@ -35,7 +35,16 @@ export interface CatalogModel {
     readonly context_window?: number;
     readonly tool_support?: boolean;
     readonly default_level?: ReasoningLevelId;
-    /** Empty means the model has no reasoning control at all. */
+    /**
+     * Ordered most capable first, and every source normalises to that on the
+     * way in. There is no way to recover capability order from level ids
+     * alone (they are provider words, not a scale), so the order in this list
+     * is the only thing that tells a consumer which way is up: it is what
+     * makes "step up a level" and "settle on a moderate level" mean the same
+     * thing across providers.
+     *
+     * Empty means the model has no reasoning control at all.
+     */
     readonly levels: readonly ReasoningLevel[];
 }
 

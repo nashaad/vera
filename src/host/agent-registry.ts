@@ -20,6 +20,15 @@ import {
 } from "../engine/model-settings.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { createSubagentEffectApplier } from "../engine/subagent.ts";
+import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
+import {
+    isToolApprovalUiRequestUpdate,
+    type ToolApprovalUiRequestUpdate,
+} from "../engine/protocol.ts";
+import {
+    DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
+    validChildAgentLimit,
+} from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
 import type {
     ModelAdapter,
@@ -69,6 +78,7 @@ const IMAGE_ATTACHMENT_LIMITS = {
     maxWidth: 16_384,
     maxHeight: 16_384,
 } as const;
+const CHILD_TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
 export interface RegisteredAgentSummary {
     readonly id: string;
@@ -86,6 +96,7 @@ export interface AgentRegistryOptions {
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
+    readonly maxConcurrentBackgroundAgents?: number;
     readonly modelFallback?: ModelFallbackPolicy;
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
@@ -107,6 +118,15 @@ export interface AgentRegistryOptions {
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
+    /**
+     * Writes the stash. Separate from `readStash` because the two have
+     * different lifetimes: reads happen on every snapshot, writes only when the
+     * user asks, and only the write touches the user's config file.
+     */
+    readonly updateStash?: (
+        action: "add" | "remove",
+        entry: { readonly provider: string; readonly model: string },
+    ) => void;
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
 }
@@ -151,6 +171,7 @@ interface RegisteredAgentEntry {
     readonly eventLogPath: string;
     modelSettings: ModelTurnSettings;
     approvalMode: ApprovalMode;
+    inbound?: InboundCommandRouter;
     run: Promise<void>;
     completed: boolean;
     failure?: unknown;
@@ -166,12 +187,18 @@ export class AgentRegistry {
     private defaultApprovalMode: ApprovalMode;
     private isClosed = false;
     private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
+    private readonly maxConcurrentBackgroundAgents: number;
+    private startingBackgroundAgents = 0;
 
     constructor(private readonly options: AgentRegistryOptions) {
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
         this.defaultReasoningEffort = options.reasoningEffort;
         this.defaultApprovalMode = options.approvalMode;
+        this.maxConcurrentBackgroundAgents = validChildAgentLimit(
+            options.maxConcurrentBackgroundAgents
+                ?? DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
+        );
         this.trashArtifacts = options.trashSessionArtifacts
             ?? trashSessionArtifacts;
     }
@@ -385,6 +412,39 @@ export class AgentRegistry {
         );
     }
 
+    /**
+     * Editing the stash never changes which model runs, so this returns the
+     * settings unchanged apart from the new stash. It refuses an unknown agent
+     * for the same reason every other command does: the reply is that agent's
+     * snapshot, and there is none to send.
+     */
+    async updateStash(
+        id: string,
+        action: "add" | "remove",
+        entry: { readonly provider: string; readonly model: string },
+    ): Promise<ModelTurnSettings | undefined> {
+        const agentEntry = this.agents.get(id);
+        if (
+            agentEntry === undefined
+            || agentEntry.agent.closed
+            || agentEntry.agent.failed
+            || this.options.updateStash === undefined
+        ) {
+            return undefined;
+        }
+
+        this.options.updateStash(action, {
+            provider: entry.provider.trim(),
+            model: entry.model.trim(),
+        });
+        return settingsForClient(
+            agentEntry.modelSettings,
+            agentEntry.modelSettings.provider ?? this.defaultProvider,
+            this.options.availableModels,
+            this.options.readStash?.(),
+        );
+    }
+
     async updateApprovalMode(
         id: string,
         mode: ApprovalMode,
@@ -548,6 +608,13 @@ export class AgentRegistry {
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
+            relayToolApproval: (update, sourceAgentId, sourceTask) =>
+                this.relayChildToolApproval(
+                    entry,
+                    update,
+                    sourceAgentId,
+                    sourceTask,
+                ),
             ...(this.options.modelFallback === undefined
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
@@ -588,6 +655,9 @@ export class AgentRegistry {
                     ]
                     : [],
                 enableUserInteraction: kind === "interactive",
+                onInboundReady: (inbound) => {
+                    entry.inbound = inbound;
+                },
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
@@ -596,6 +666,8 @@ export class AgentRegistry {
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
+                updateStash: (action, entry) =>
+                    this.updateStash(agent.id, action, entry),
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
@@ -651,22 +723,42 @@ export class AgentRegistry {
         effect: SpawnBackgroundAgentEffect,
         context: Parameters<ApplyToolEffect>[2],
     ): Promise<ToolOutput> {
-        const child = await this.createWithKind(
-            { workspace: parentStore.header.cwd },
-            "background",
-            {
-                approvalMode: context.approvalMode,
-                modelSettings: {
-                    ...(context.provider === undefined
-                        ? { provider: this.defaultProvider }
-                        : { provider: context.provider }),
-                    model: context.model,
-                    ...(context.reasoningEffort === undefined
-                        ? {}
-                        : { reasoningEffort: context.reasoningEffort }),
+        const running = [...this.agents.values()].filter(
+            (entry) =>
+                entry.kind === "background"
+                && !entry.completed
+                && !entry.agent.closed,
+        ).length + this.startingBackgroundAgents;
+        if (running >= this.maxConcurrentBackgroundAgents) {
+            return {
+                kind: "output",
+                output: `Background agent limit reached `
+                    + `(${this.maxConcurrentBackgroundAgents} running).`,
+                isError: true,
+            };
+        }
+        this.startingBackgroundAgents += 1;
+        let child: ResidentAgent;
+        try {
+            child = await this.createWithKind(
+                { workspace: parentStore.header.cwd },
+                "background",
+                {
+                    approvalMode: context.approvalMode,
+                    modelSettings: {
+                        ...(context.provider === undefined
+                            ? { provider: this.defaultProvider }
+                            : { provider: context.provider }),
+                        model: context.model,
+                        ...(context.reasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: context.reasoningEffort }),
+                    },
                 },
-            },
-        );
+            );
+        } finally {
+            this.startingBackgroundAgents -= 1;
+        }
         const attachment = child.attach();
         try {
             attachment.send({ type: "prompt", content: effect.description });
@@ -702,8 +794,39 @@ export class AgentRegistry {
     ): Promise<void> {
         let content = "Background agent failed before producing a summary.";
         try {
-            while ((await attachment.receive()).type !== "turn_finished") {
-                // The internal attachment only waits for the terminal update.
+            while (true) {
+                const update = await attachment.receive();
+                if (
+                    update.type === "ui_request"
+                    && isToolApprovalUiRequestUpdate(update)
+                ) {
+                    const parent = this.agents.get(parentStore.header.id);
+                    const child = this.agents.get(childId);
+                    const decision = parent === undefined
+                        ? "deny"
+                        : await this.relayChildToolApproval(
+                            parent,
+                            update,
+                            childId,
+                            child?.store.messages()
+                                .find((message) => message.role === "user")
+                                ?.content
+                                .filter((block) => block.type === "text")
+                                .map((block) => block.text)
+                                .join("\n") ?? "Background task",
+                        );
+                    attachment.send({
+                        type: "ui_response",
+                        requestId: update.requestId,
+                        response: {
+                            type: "tool_approval",
+                            decision,
+                        },
+                    });
+                }
+                if (update.type === "turn_finished") {
+                    break;
+                }
             }
             const childStore = this.agents.get(childId)?.store;
             const finalMessage = childStore?.messages().findLast(
@@ -742,6 +865,24 @@ export class AgentRegistry {
         if (parent !== undefined && !parent.closed && !parent.failed) {
             parent.triggerDeliveryTurn();
         }
+    }
+
+    private async relayChildToolApproval(
+        parent: RegisteredAgentEntry,
+        update: ToolApprovalUiRequestUpdate,
+        sourceAgentId: string,
+        sourceTask: string,
+    ): Promise<"allow_once" | "deny"> {
+        const result = await parent.inbound?.requestToolApproval(
+            update.request.toolCall,
+            update.request.reason,
+            {
+                timeoutMs: CHILD_TOOL_APPROVAL_TIMEOUT_MS,
+                sourceAgentId,
+                sourceTask,
+            },
+        );
+        return result?.behavior === "allow" ? "allow_once" : "deny";
     }
 
     private reserveId(id: string): void {

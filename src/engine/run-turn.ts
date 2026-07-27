@@ -151,9 +151,14 @@ export interface RunHeadlessLoopOptions {
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
+    readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
+    ) => Promise<ModelTurnSettings | undefined>;
+    readonly updateStash?: (
+        action: "add" | "remove",
+        entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly updateApprovalMode?: (
@@ -282,6 +287,9 @@ export async function runHeadlessLoop(
         ...(options.updateModelSettings === undefined
             ? {}
             : { updateModelSettings: options.updateModelSettings }),
+        ...(options.updateStash === undefined
+            ? {}
+            : { updateStash: options.updateStash }),
         readApprovalMode,
         readPermissionInspection,
         updateApprovalMode,
@@ -304,6 +312,7 @@ export async function runHeadlessLoop(
             timeline.handle(ownerId, command),
         detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),
     });
+    options.onInboundReady?.(inbound);
     const applyToolEffect = options.applyToolEffect
         ?? createSubagentEffectApplier({
             adapter,

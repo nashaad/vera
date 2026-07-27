@@ -12,6 +12,15 @@ import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { stashedModels } from "../model/catalog-view.ts";
+import { addToStash, removeFromStash } from "../model/stash-store.ts";
+import {
+    refreshCodexCatalog,
+    type CodexCatalogRefreshOptions,
+} from "../model/codex-catalog.ts";
+import {
+    createAuthStorage,
+    type AuthStorage,
+} from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
@@ -83,6 +92,13 @@ export async function startResidentHost(
         approvalMode: options.config.approval_mode,
         availableModels: models,
         readStash: () => stashedModels(models),
+        updateStash: (action, entry) => {
+            if (action === "add") {
+                addToStash(entry);
+            } else {
+                removeFromStash(entry);
+            }
+        },
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({
                 provider: settings.provider as VeraConfig["provider"],
@@ -230,6 +246,7 @@ async function discoverAvailableModels(
     } catch {
         // Ollama is optional; an offline local server must not block Vera startup.
     }
+    catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
     )) {
@@ -241,6 +258,51 @@ async function discoverAvailableModels(
         });
     }
     return catalog;
+}
+
+/**
+ * Codex models, republished from the Codex CLI's own cache. Gated on a stored
+ * credential for the same reason the OpenRouter entries are gated on a key:
+ * the catalog can describe a model the user has no way to run, and offering it
+ * in the picker is offering a dead end. The configured provider passes the
+ * gate regardless, so a misconfigured credential shows up as a failed turn
+ * rather than as a model that vanished.
+ */
+export interface CodexDiscoveryOptions extends CodexCatalogRefreshOptions {
+    /** Overrides `~/.vera/auth.json`, so tests never read real credentials. */
+    readonly authStorage?: AuthStorage;
+}
+
+export function discoveredCodexModels(
+    config: VeraConfig,
+    options: CodexDiscoveryOptions = {},
+): readonly SuggestedModel[] {
+    if (
+        config.provider !== "openai-codex"
+        && !hasCodexCredential(options.authStorage)
+    ) {
+        return [];
+    }
+
+    const catalog = refreshCodexCatalog(options);
+    return catalog?.models.map((model) => ({
+        provider: "openai-codex",
+        model: model.id,
+        label: model.label,
+        description: model.description ?? "",
+        ...(model.context_window === undefined
+            ? {}
+            : { contextWindow: model.context_window }),
+    })) ?? [];
+}
+
+function hasCodexCredential(authStorage?: AuthStorage): boolean {
+    try {
+        return (authStorage ?? createAuthStorage())
+            .getToken("openai-codex") !== undefined;
+    } catch {
+        return false;
+    }
 }
 
 async function discoverOllamaContextWindow(

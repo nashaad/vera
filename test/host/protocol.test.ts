@@ -237,6 +237,31 @@ test("host protocol parses messages after attach", () => {
         patch: { reasoningEffort: "" },
     }))).toBeUndefined();
     expect(parseAttachedClientMessage(JSON.stringify({
+        type: "update_stash",
+        requestId: "stash-1",
+        action: "add",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+    }))).toEqual({
+        type: "update_stash",
+        requestId: "stash-1",
+        action: "add",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+    });
+    for (const invalid of [
+        { action: "toggle", provider: "openai-codex", model: "gpt-5.6-sol" },
+        { action: "add", provider: "", model: "gpt-5.6-sol" },
+        { action: "add", provider: "openai-codex", model: "   " },
+        { action: "remove", provider: "openai-codex" },
+    ]) {
+        expect(parseAttachedClientMessage(JSON.stringify({
+            type: "update_stash",
+            requestId: "stash-invalid",
+            ...invalid,
+        }))).toBeUndefined();
+    }
+    expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",
         requestId: "request-1",
         response: { type: "tool_approval", decision: "allow_once" },
