@@ -2,72 +2,78 @@ import { expect, test } from "bun:test";
 
 import {
     countRunningBackgroundAgents,
-    renderTuiStatusLine,
+    renderTuiStatusDetailsLine,
 } from "../../clients/tui/status.ts";
 
 test("TUI status line shows host-reported model and reasoning", () => {
-    expect(renderTuiStatusLine({
+    expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
         contextWindow: 258_000,
-    }, "auto", 64_500, "/workspace", "ready")).toBe(
-        "ready · gpt-5.6-sol · reasoning high · /workspace · auto · ctx 25%",
+    }, "auto", 64_500, "/workspace")).toBe(
+        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx 25%",
     );
 });
 
 test("TUI status line shows host-reported reasoning off", () => {
-    expect(renderTuiStatusLine({
+    expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",
         reasoningEffort: "off",
-    }, "ask", undefined, "/workspace", "ready")).toBe(
-        "ready · gpt-5.6-sol · reasoning off · /workspace · ask",
+    }, "ask", undefined, "/workspace")).toBe(
+        "gpt-5.6-sol · reasoning off · /workspace · ask",
     );
 });
 
 test("TUI status starts known context windows at zero percent", () => {
-    expect(renderTuiStatusLine({
+    expect(renderTuiStatusDetailsLine({
         model: "gemma4:26b",
         reasoningEffort: "low",
         contextWindow: 131_072,
-    }, "auto", undefined, "/workspace", "ready")).toBe(
-        "ready · gemma4:26b · reasoning low · /workspace · auto · ctx 0%",
+    }, "auto", undefined, "/workspace")).toBe(
+        "gemma4:26b · reasoning low · /workspace · auto · ctx 0%",
     );
 });
 
 test("TUI status line identifies host-reported provider-default reasoning", () => {
-    expect(renderTuiStatusLine(
+    expect(renderTuiStatusDetailsLine(
         { model: "gpt-5.6-sol" },
         "full_access",
         undefined,
         "/workspace",
-        "working…",
     )).toBe(
-        "working… · gpt-5.6-sol · reasoning default · /workspace · FULL ACCESS · RED ZONE",
+        "gpt-5.6-sol · reasoning default · /workspace · FULL ACCESS · RED ZONE",
     );
 });
 
 test("TUI status does not guess settings while the host query is pending", () => {
-    expect(renderTuiStatusLine(
+    expect(renderTuiStatusDetailsLine(
         undefined,
         undefined,
         undefined,
         "/workspace",
-        "ready",
     )).toBe(
-        "ready · loading · reasoning loading · /workspace · permissions loading",
+        "loading · reasoning loading · /workspace · permissions loading",
     );
 });
 
-test("TUI status shows a compact running background-agent count", () => {
-    expect(renderTuiStatusLine(
-        { model: "gpt-5.6-sol", reasoningEffort: "high" },
-        "auto",
+test("TUI splits activity from persistent details across both footer lines", () => {
+    expect(renderTuiStatusDetailsLine(
+        { model: "test", reasoningEffort: "low" },
+        "ask",
         undefined,
         "/workspace",
-        "ready",
+        1,
+    )).toBe(
+        "1 background agent running · test · reasoning low · /workspace · ask",
+    );
+    expect(renderTuiStatusDetailsLine(
+        { model: "test", reasoningEffort: "low" },
+        "ask",
+        undefined,
+        "/workspace",
         2,
     )).toBe(
-        "ready · bg 2 · gpt-5.6-sol · reasoning high · /workspace · auto",
+        "2 background agents running · test · reasoning low · /workspace · ask",
     );
 });
 

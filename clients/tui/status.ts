@@ -4,12 +4,11 @@ import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 
-export function renderTuiStatusLine(
+export function renderTuiStatusDetailsLine(
     settings: ModelTurnSettings | undefined,
     approvalMode: ApprovalMode | undefined,
     contextInputTokens: number | undefined,
     workspace: string,
-    message: string,
     runningBackgroundAgents = 0,
 ): string {
     const model = settings?.model ?? "loading";
@@ -24,8 +23,10 @@ export function renderTuiStatusLine(
     const context = renderContextUsage(contextInputTokens, settings?.contextWindow);
     const background = runningBackgroundAgents === 0
         ? ""
-        : ` · bg ${runningBackgroundAgents}`;
-    return `${message}${background} · ${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${context}`;
+        : `${runningBackgroundAgents} background agent${
+            runningBackgroundAgents === 1 ? "" : "s"
+        } running · `;
+    return `${background}${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${context}`;
 }
 
 export function countRunningBackgroundAgents(
