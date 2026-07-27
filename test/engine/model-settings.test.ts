@@ -14,14 +14,14 @@ const EVERY_EFFORT: readonly ModelReasoningEffort[] = [
     "max",
 ];
 
-test("a codex model without a reasoning profile offers no efforts", () => {
-    // `resolveReasoningSelection` throws for a codex model it has no profile
-    // for, so offering an effort here would fail the turn rather than degrade
-    // it. The mapped model keeps the full ladder.
+test("a codex model with no verified catalog entry offers no efforts", () => {
+    // A codex model has no known level list until a catalog loader supplies
+    // one (a later slice); asking would fail the turn rather than degrade
+    // it, so such a model has nothing to offer in the meantime.
     expect(availableReasoningEfforts("openai-codex", "gpt-5.6-codex"))
         .toEqual([]);
     expect(availableReasoningEfforts("openai-codex", "gpt-5.6-sol"))
-        .toEqual(EVERY_EFFORT);
+        .toEqual([]);
 });
 
 test("providers that can infer an effort keep the optimistic list", () => {
@@ -40,7 +40,7 @@ test("a model the user did not choose keeps any effort it can resolve", () => {
     expect(reasoningEffortForModel("openai-codex", "gpt-5.6-codex", "high"))
         .toBeUndefined();
     expect(reasoningEffortForModel("openai-codex", "gpt-5.6-sol", "high"))
-        .toBe("high");
+        .toBeUndefined();
 
     // OpenRouter infers a level the catalog entry does not list, so a narrow
     // verified list must not read as an adapter limit.

@@ -135,9 +135,5 @@ function asModelPreset(value: unknown): ModelPreset | null {
 function isModelReasoningEffort(
     value: unknown,
 ): value is ModelReasoningEffort {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+    return typeof value === "string" && value.length > 0;
 }

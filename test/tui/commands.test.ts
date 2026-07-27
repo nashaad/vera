@@ -149,8 +149,11 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/perm")).toEqual({
         type: "open_permissions_picker",
     });
-    expect(registry.dispatch("/reasoning turbo")).toMatchObject({
-        type: "command_error",
+    // A provider-native level is not policed against Vera's own
+    // off/low/medium/high/max words: it flows through as typed.
+    expect(registry.dispatch("/reasoning turbo")).toEqual({
+        type: "update_reasoning",
+        reasoningEffort: "turbo",
     });
     expect(registry.dispatch("/model")).toEqual({
         type: "open_model_picker",

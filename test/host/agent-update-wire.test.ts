@@ -179,7 +179,7 @@ test("host wire validates model settings results", () => {
     expect(parseAgentUpdate({
         type: "model_settings",
         requestId: "settings-2",
-        settings: { model: "next-model", reasoningEffort: "turbo" },
+        settings: { model: "next-model", reasoningEffort: "" },
         pending: false,
         seq: 9,
     })).toBeUndefined();

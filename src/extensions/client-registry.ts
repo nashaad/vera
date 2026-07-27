@@ -868,11 +868,7 @@ function isRegistrationId(value: string): boolean {
 }
 
 function isReasoningEffort(value: unknown): boolean {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+    return typeof value === "string" && value.length > 0;
 }
 
 function copySettings(

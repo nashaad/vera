@@ -483,37 +483,6 @@ test("switching models chooses the strongest supported reasoning fallback", asyn
     }
 });
 
-test("a mapped codex model keeps its reasoning effort", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-agent-codex-reasoning-"));
-    const registry = new AgentRegistry({
-        createAdapter: () => new FauxAdapter([]),
-        provider: "openai-codex",
-        model: "gpt-5.6-sol",
-        approvalMode: "auto",
-    });
-
-    try {
-        const agent = await registry.create({
-            workspace: root,
-            sessionPath: join(root, "agent.jsonl"),
-        });
-
-        // Codex takes reasoning effort as its own request parameter, so the
-        // one model Vera has a profile for gets the dial like any other.
-        expect(await registry.updateModelSettings(agent.id, {
-            reasoningEffort: "high",
-        })).toMatchObject({
-            provider: "openai-codex",
-            model: "gpt-5.6-sol",
-            reasoningEffort: "high",
-            availableReasoningEfforts: ["off", "low", "medium", "high", "max"],
-        });
-    } finally {
-        await registry.close();
-        await rm(root, { recursive: true, force: true });
-    }
-});
-
 test("an unmapped codex model drops the effort rather than failing the turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-codex-unmapped-"));
     const registry = new AgentRegistry({

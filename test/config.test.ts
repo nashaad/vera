@@ -327,16 +327,30 @@ test("Vera config rejects a missing model", () => {
     );
 });
 
-test("Vera config rejects an unknown reasoning effort", () => {
+test("Vera config accepts a provider-native reasoning effort string", () => {
+    // reasoning_effort is validated against the levels a model actually
+    // offers, not a fixed word list, so a name outside Vera's own
+    // off/low/medium/high/max vocabulary is not rejected at parse time.
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         model: "anthropic/example-model",
-        reasoning_effort: "maximum",
+        reasoning_effort: "ultra",
+    }));
+
+    expect(loadVeraConfig({ path }).reasoning_effort).toBe("ultra");
+});
+
+test("Vera config rejects an empty reasoning effort", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reasoning_effort: "",
     }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "optional reasoning_effort off, low, medium, high, or max",
+        "optional non-empty reasoning_effort string",
     );
 });
 
