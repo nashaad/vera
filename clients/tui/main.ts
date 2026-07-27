@@ -105,7 +105,7 @@ import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import {
     countRunningBackgroundAgents,
-    renderTuiStatusLine,
+    renderTuiStatusDetailsLine,
 } from "./status.ts";
 import {
     createTuiSettingsPickerView,
@@ -651,6 +651,19 @@ export async function startTui(
         zIndex: 30,
         bg: theme.background,
     });
+    const backgroundStatusText = new TextRenderable(renderer, {
+        id: "background-status",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        paddingLeft: 3,
+        position: "absolute",
+        left: 1,
+        bottom: 0,
+        zIndex: 30,
+        bg: theme.background,
+    });
 
     const queuedPromptText = new TextRenderable(renderer, {
         id: "queued-prompt",
@@ -733,6 +746,7 @@ export async function startTui(
     app.add(commandSuggestionsBox);
     app.add(composerBox);
     app.add(statusText);
+    app.add(backgroundStatusText);
     renderer.root.add(app);
     composer.focus();
     renderStatus();
@@ -2745,6 +2759,8 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         statusText.bg = theme.background;
+        backgroundStatusText.bg = theme.background;
+        backgroundStatusText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
         commandSuggestionsText.fg = theme.text;
         composerBox.backgroundColor = theme.panel;
@@ -2885,12 +2901,12 @@ export async function startTui(
                     || extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
-        const statusLine = renderTuiStatusLine(
+        const statusLine = statusNotice ?? lifecycleHint;
+        backgroundStatusText.content = renderTuiStatusDetailsLine(
             state.modelSettings,
             state.approvalMode,
             state.contextInputTokens,
             process.cwd(),
-            statusNotice ?? lifecycleHint,
             runningBackgroundAgents,
         );
         statusText.content = state.working
