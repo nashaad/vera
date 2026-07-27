@@ -156,13 +156,49 @@ export function updateVeraConfigDefaults(
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     writeFileSync(
         temporaryPath,
-        `${JSON.stringify(configForDisk(updated), null, 2)}\n`,
+        `${JSON.stringify(
+            { ...foreignConfigEntries(path), ...configForDisk(updated) },
+            null,
+            2,
+        )}\n`,
         {
         mode: 0o600,
         },
     );
     renameSync(temporaryPath, path);
     return updated;
+}
+
+/**
+ * Keys in `~/.vera/config.json` that belong to some other writer. `VeraConfig`
+ * cannot represent them, so updating the defaults would round-trip the file
+ * through a type that drops them: a `/model` change used to silently erase the
+ * user's whole stash. They are read back raw and carried across instead.
+ *
+ * This is a list rather than "preserve everything unknown" on purpose. A key
+ * this file no longer models is not automatically foreign; it may be one this
+ * file deliberately migrated away from, and carrying those across would
+ * resurrect them. Add a key here when a new owner starts writing to this file.
+ */
+const FOREIGN_CONFIG_KEYS = ["stash"] as const;
+
+function foreignConfigEntries(path: string): Record<string, unknown> {
+    let raw: Record<string, unknown>;
+    try {
+        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return {};
+        }
+        raw = value as Record<string, unknown>;
+    } catch {
+        return {};
+    }
+
+    return Object.fromEntries(
+        FOREIGN_CONFIG_KEYS
+            .filter((key) => raw[key] !== undefined)
+            .map((key) => [key, raw[key]]),
+    );
 }
 
 function configForDisk(config: VeraConfig): Record<string, unknown> {
