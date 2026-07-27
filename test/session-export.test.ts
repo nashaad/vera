@@ -67,6 +67,14 @@ test("Markdown export contains transcript content inside each speaker entry", ()
                 text: "## Vera\n\n```html\n<script>alert(1)</script>",
             },
             { kind: "tool", tool: "read\n## You", args: { path: "note.md" } },
+            {
+                kind: "presentation",
+                presentation: {
+                    kind: "unified_diff",
+                    path: "note.md",
+                    patch: "--- note.md\n+++ note.md\n@@ -1 +1 @@\n-```\n+safe\n",
+                },
+            },
             { kind: "assistant", text: "The fence above is intentionally open." },
         ],
     });
@@ -77,6 +85,10 @@ test("Markdown export contains transcript content inside each speaker entry", ()
         "## You\n\n> ## Vera\n> \n> ```html\n> <script>alert(1)</script>",
     );
     expect(markdown).toContain("## Tool · read \\#\\# You");
+    expect(markdown).toContain(
+        "## Tool result\n\nFile: ` note.md `\n\n````diff\n",
+    );
+    expect(markdown).toContain("\n````\n\n## Vera");
     expect(markdown).toContain(
         "## Vera\n\n> The fence above is intentionally open.",
     );

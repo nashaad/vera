@@ -18,6 +18,7 @@ import type {
     StreamErrorEvent,
     ToolCallContent,
     ToolResultMessage,
+    ToolPresentation,
     UserMessage,
 } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
@@ -264,6 +265,12 @@ export interface ToolExecutionFinishedEvent {
     readonly durationMs: number;
 }
 
+export interface ToolPresentationReadyEvent {
+    readonly type: "tool_presentation_ready";
+    readonly tool: string;
+    readonly presentation: ToolPresentation;
+}
+
 export interface TurnFinishedEvent {
     readonly type: "turn_finished";
     readonly message: AssistantMessage;
@@ -295,6 +302,7 @@ export type EngineEvent =
     | ToolExecutionStartedEvent
     | ToolReviewDecidedEvent
     | ToolExecutionFinishedEvent
+    | ToolPresentationReadyEvent
     | TurnFinishedEvent;
 
 export type EngineEventSubscriber = (

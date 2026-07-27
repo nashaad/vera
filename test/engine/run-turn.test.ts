@@ -6,6 +6,7 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,7 @@ import {
 } from "../../src/engine/events.ts";
 import {
     createProtocolEncoder,
+    type AgentUpdate,
     type AgentUpdateSender,
 } from "../../src/engine/protocol.ts";
 import {
@@ -1237,6 +1239,164 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
     ]);
 });
 
+test("an edit presentation is published only after its result is durable", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-edit-presentation-"));
+    const realWorkspace = realpathSync(workspace);
+    const path = join(realWorkspace, "note.txt");
+    writeFileSync(path, "old\n");
+    const runtime = new ToolRuntime(realWorkspace);
+    runtime.recordFileSnapshot(path, "old\n");
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_edit",
+            name: "edit",
+            input: {
+                path: "note.txt",
+                edits: [{ old_string: "old", new_string: "new" }],
+            },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const order: string[] = [];
+    events.subscribe((event) => {
+        if (event.type === "tool_presentation_ready") {
+            order.push("presented");
+        }
+    });
+    const store: SessionMessageStore = {
+        async appendMessage(message): Promise<void> {
+            if (message.role === "tool_result") order.push("persisted");
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: runtime,
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "edit it" });
+        const turn = runTurn(
+            new FauxAdapter([toolCallResponse, finalResponse]),
+            "test",
+            state,
+        );
+        await expectUserPrompt(channel, "edit it", 1);
+        expect(await channel.client.receive()).toMatchObject({
+            type: "tool_started",
+        });
+        expect(await channel.client.receive()).toMatchObject({
+            type: "tool_finished",
+        });
+        const updates = await receiveThroughTurnFinished(channel);
+        await turn;
+
+        expect(state.messages[2]).toMatchObject({
+            presentation: { kind: "unified_diff", path: "note.txt" },
+        });
+        expect(updates.find((update) =>
+            update.type === "tool_presentation"
+        )).toMatchObject({
+            type: "tool_presentation",
+            presentation: { kind: "unified_diff", path: "note.txt" },
+        });
+        expect(order).toEqual(["persisted", "presented"]);
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a post-tool mutation drops the original edit presentation", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-edit-redaction-"));
+    const realWorkspace = realpathSync(workspace);
+    const path = join(realWorkspace, "note.txt");
+    writeFileSync(path, "secret\n");
+    const runtime = new ToolRuntime(realWorkspace);
+    runtime.recordFileSnapshot(path, "secret\n");
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_edit",
+            name: "edit",
+            input: {
+                path: "note.txt",
+                edits: [{ old_string: "secret", new_string: "changed" }],
+            },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observedEvents: EngineEvent[] = [];
+    events.subscribe((event) => observedEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerPostToolUse(() => ({
+        power: "mutate",
+        patch: { content: [{ type: "text", text: "redacted" }] },
+    }));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: runtime,
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "edit it" });
+        const turn = runTurn(
+            new FauxAdapter([toolCallResponse, finalResponse]),
+            "test",
+            state,
+        );
+        await expectUserPrompt(channel, "edit it", 1);
+        const updates = await receiveThroughTurnFinished(channel);
+        await turn;
+
+        expect(updates.some((update) =>
+            update.type === "tool_presentation"
+        )).toBe(false);
+        expect(state.messages[2]).not.toHaveProperty("presentation");
+        const changedEvent = observedEvents.find((event) =>
+            event.type === "tool_result_changed"
+        );
+        expect(changedEvent?.type === "tool_result_changed"
+            ? changedEvent.original
+            : undefined).not.toHaveProperty("presentation");
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
 test("a pre-tool hook can deny execution with a tool result", async () => {
     const toolCallResponse: AssistantMessage = {
         role: "assistant",
@@ -2398,11 +2558,13 @@ async function expectUserPrompt(
 
 async function receiveThroughTurnFinished(
     channel: InProcessChannel,
-): Promise<void> {
+): Promise<AgentUpdate[]> {
+    const updates: AgentUpdate[] = [];
     while (true) {
         const update = await channel.client.receive();
+        updates.push(update);
         if (update.type === "turn_finished") {
-            return;
+            return updates;
         }
     }
 }

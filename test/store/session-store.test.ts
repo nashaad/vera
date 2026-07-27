@@ -52,6 +52,11 @@ test("session store creates a header and reloads one message chain", async () =>
         toolName: "read",
         content: [{ type: "text", text: "contents" }],
         isError: false,
+        presentation: {
+            kind: "unified_diff",
+            path: "notes.txt",
+            patch: "--- notes.txt\n+++ notes.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+        },
     };
 
     const store = await SessionStore.create(path, {

@@ -170,6 +170,7 @@ import {
     saveTuiExtensionPreference,
     saveTuiThemePreference,
 } from "./theme-preference.ts";
+import { createTuiDiff } from "./diff.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
@@ -583,6 +584,17 @@ export async function startTui(
         "markup.link": { fg: activeTheme.accent, underline: true },
         "markup.link.label": { fg: activeTheme.accent },
         "markup.link.url": { fg: activeTheme.muted, underline: true },
+        comment: { fg: activeTheme.muted, italic: true },
+        string: { fg: activeTheme.success },
+        number: { fg: activeTheme.notice },
+        boolean: { fg: activeTheme.notice },
+        keyword: { fg: activeTheme.accent },
+        type: { fg: activeTheme.notice },
+        "type.builtin": { fg: activeTheme.notice },
+        function: { fg: activeTheme.accent },
+        "function.call": { fg: activeTheme.accent },
+        constant: { fg: activeTheme.notice },
+        operator: { fg: activeTheme.muted },
         conceal: { fg: activeTheme.muted },
         });
     }
@@ -612,7 +624,7 @@ export async function startTui(
     });
     transcript.add(placeholder);
 
-    const entryNodes: (TextRenderable | MarkdownRenderable)[] = [];
+    const entryNodes: (TextRenderable | MarkdownRenderable | BoxRenderable)[] = [];
 
     const statusText = new TextRenderable(renderer, {
         id: "status",
@@ -2213,7 +2225,16 @@ export async function startTui(
             }
 
             const marginTop = tuiEntryMarginTop(state.entries, index);
-            const node = entry.kind === "assistant"
+            const node = entry.kind === "diff"
+                ? createTuiDiff(
+                    renderer,
+                    `entry-${index}`,
+                    entry.path,
+                    entry.patch,
+                    markdownStyle,
+                    marginTop,
+                )
+                : entry.kind === "assistant"
                 ? new MarkdownRenderable(renderer, {
                     id: `entry-${index}`,
                     content: entry.text,

@@ -19,6 +19,23 @@ import {
 } from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { resolveFileToolPermissionCall } from "../../src/tools/files.ts";
+import { editDiffPresentation } from "../../src/tools/diff-presentation.ts";
+
+test("oversized edit diffs become bounded notices", () => {
+    const before = Array.from(
+        { length: 500 },
+        (_, index) => `before ${index}`,
+    ).join("\n");
+    const after = Array.from(
+        { length: 500 },
+        (_, index) => `after ${index}`,
+    ).join("\n");
+
+    expect(editDiffPresentation("large.txt", before, after)).toEqual({
+        kind: "tool_notice",
+        text: expect.stringContaining("exceeds the inline limit"),
+    });
+});
 
 test("subagent is exposed only when the engine can apply effects", async () => {
     const ordinary = toolDefinitionsForCapabilities([]).map((tool) => tool.name);
@@ -200,6 +217,15 @@ test("edit applies ordered replacements after writing the file", async () => {
 
         expect(result.isError).toBe(false);
         expect(result.content[0]?.text).toBe("Applied 2 edits to notes.txt");
+        expect(result.presentation).toMatchObject({
+            kind: "unified_diff",
+            path: "notes.txt",
+        });
+        if (result.presentation?.kind !== "unified_diff") {
+            throw new Error("expected an inline edit diff");
+        }
+        expect(result.presentation.patch).toContain("-alpha");
+        expect(result.presentation.patch).toContain("+gamma");
         expect(await readFile(join(workspace, "notes.txt"), "utf8")).toBe("gamma\n");
 
         const followUp = await executeToolCall(toolCall(

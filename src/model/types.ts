@@ -72,13 +72,33 @@ export interface ToolResultMessage {
     readonly toolName: string;
     readonly content: readonly TextContent[];
     readonly isError: boolean;
+    readonly presentation?: ToolPresentation;
 }
 
+export interface UnifiedDiffPresentation {
+    readonly kind: "unified_diff";
+    readonly path: string;
+    readonly patch: string;
+}
+
+export interface ToolNoticePresentation {
+    readonly kind: "tool_notice";
+    readonly text: string;
+}
+
+export type ToolPresentation =
+    | UnifiedDiffPresentation
+    | ToolNoticePresentation;
+
 export type ModelMessage = UserMessage | AssistantMessage | ToolResultMessage;
+
+export type ModelInputToolResultMessage =
+    Omit<ToolResultMessage, "presentation">;
+
 export type ModelInputMessage =
     | ModelInputUserMessage
     | AssistantMessage
-    | ToolResultMessage;
+    | ModelInputToolResultMessage;
 
 export interface ModelUsage {
     readonly inputTokens: number;

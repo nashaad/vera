@@ -1,0 +1,48 @@
+import { expect, test } from "bun:test";
+import { createTestRenderer } from "@opentui/core/testing";
+import { SyntaxStyle } from "@opentui/core";
+
+import {
+    createTuiDiff,
+    tuiDiffFiletype,
+} from "../../clients/tui/diff.ts";
+
+test("diff file types cover common source paths", () => {
+    expect(tuiDiffFiletype("src/index.ts")).toBe("typescript");
+    expect(tuiDiffFiletype("component.jsx")).toBe("typescript");
+    expect(tuiDiffFiletype("scripts/release.py")).toBe("python");
+    expect(tuiDiffFiletype("README")).toBeUndefined();
+});
+
+test("inline diffs render line numbers and wrap in a narrow TUI", async () => {
+    const setup = await createTestRenderer({ width: 32, height: 12 });
+    const syntaxStyle = SyntaxStyle.fromStyles({
+        keyword: { fg: "#ff0000" },
+        string: { fg: "#00ff00" },
+    });
+    const diff = createTuiDiff(
+        setup.renderer,
+        "edit-diff",
+        "notes.txt",
+        "--- notes.txt\n"
+            + "+++ notes.txt\n"
+            + "@@ -1,1 +1,1 @@\n"
+            + "-a line whose old value is long\n"
+            + "+a line whose new value is long\n",
+        syntaxStyle,
+    );
+    setup.renderer.root.add(diff);
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("notes.txt");
+        expect(frame).toContain("1");
+        expect(frame).toContain("a line whose old value");
+        expect(frame).toContain("a line whose new value");
+        expect(diff.height).toBeGreaterThan(2);
+    } finally {
+        syntaxStyle.destroy();
+        setup.renderer.destroy();
+    }
+});

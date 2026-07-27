@@ -62,6 +62,30 @@ test("stored model messages project to a client transcript", () => {
     ]);
 });
 
+test("durable tool presentations replay after their tool call", () => {
+    const presentation = {
+        kind: "unified_diff" as const,
+        path: "note.txt",
+        patch: "--- note.txt\n+++ note.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+    };
+    const transcript = projectTranscript([
+        ...messages.slice(0, 2),
+        {
+            role: "tool_result",
+            toolCallId: "call_1",
+            toolName: "edit",
+            content: [{ type: "text", text: "Applied 1 edit to note.txt" }],
+            isError: false,
+            presentation,
+        },
+    ]);
+
+    expect(transcript.at(-1)).toEqual({
+        kind: "presentation",
+        presentation,
+    });
+});
+
 test("attachment IDs remain ordered across commands and transcript projection", () => {
     expect(parseClientCommand({
         type: "prompt",

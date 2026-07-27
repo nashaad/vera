@@ -141,6 +141,9 @@ export function toolResultMessage(
         toolName: toolCall.name,
         content: [{ type: "text", text: result.output }],
         isError: result.isError,
+        ...(result.presentation === undefined
+            ? {}
+            : { presentation: result.presentation }),
     };
 }
 

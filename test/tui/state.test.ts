@@ -68,6 +68,33 @@ test("TUI state tracks a streamed turn and tool activity", () => {
     ]);
 });
 
+test("TUI shows the same edit diff live and from history", () => {
+    const presentation = {
+        kind: "unified_diff" as const,
+        path: "notes.txt",
+        patch: "--- notes.txt\n+++ notes.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+    };
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "tool_presentation",
+        tool: "edit",
+        presentation,
+        seq: 1,
+    });
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "presentation", presentation }],
+        seq: 1,
+    });
+
+    expect(live.entries).toEqual(replayed.entries);
+    expect(live.entries).toEqual([{
+        kind: "diff",
+        text: "notes.txt",
+        path: "notes.txt",
+        patch: presentation.patch,
+    }]);
+});
+
 test("TUI shows model failures when a turn finishes", () => {
     const state = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "testing"),

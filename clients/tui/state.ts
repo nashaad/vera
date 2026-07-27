@@ -3,6 +3,7 @@ import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import type { TranscriptEntry } from "../../src/engine/protocol.ts";
+import type { ToolPresentation } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type {
     ApprovalMode,
@@ -17,12 +18,24 @@ export type TuiTranscriptEntryKind =
     | "tool"
     | "thought"
     | "review"
-    | "notice";
+    | "notice"
+    | "diff";
 
-export interface TuiTranscriptEntry {
-    readonly kind: TuiTranscriptEntryKind;
+export interface TuiTextTranscriptEntry {
+    readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
 }
+
+export interface TuiDiffTranscriptEntry {
+    readonly kind: "diff";
+    readonly text: string;
+    readonly path: string;
+    readonly patch: string;
+}
+
+export type TuiTranscriptEntry =
+    | TuiTextTranscriptEntry
+    | TuiDiffTranscriptEntry;
 
 export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
@@ -142,6 +155,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "tool_finished") {
         return state;
+    }
+    if (update.type === "tool_presentation") {
+        return appendPresentation(state, update.presentation);
     }
     if (update.type === "turn_finished") {
         const finished = {
@@ -282,6 +298,9 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
 }
 
 export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
+    if (entry.kind === "diff") {
+        return new StyledText([fg(TUI_MUTED)(entry.text)]);
+    }
     if (entry.kind === "user") {
         const chunks: TextChunk[] = [];
         entry.text.split("\n").forEach((line, lineIndex) => {
@@ -352,9 +371,32 @@ function toTuiTranscriptEntry(entry: TranscriptEntry): TuiTranscriptEntry {
             text: `Model error: ${entry.detail ?? "Model request failed"}`,
         };
     }
+    if (entry.kind === "presentation") {
+        return presentationEntry(entry.presentation);
+    }
     return entry.kind === "user"
         ? { kind: "user", text: displayUserPrompt(entry.text, entry.attachmentIds) }
         : entry;
+}
+
+function appendPresentation(
+    state: TuiState,
+    presentation: ToolPresentation,
+): TuiState {
+    return appendEntry(state, presentationEntry(presentation));
+}
+
+function presentationEntry(
+    presentation: ToolPresentation,
+): TuiTranscriptEntry {
+    return presentation.kind === "unified_diff"
+        ? {
+            kind: "diff",
+            text: presentation.path,
+            path: presentation.path,
+            patch: presentation.patch,
+        }
+        : { kind: "notice", text: presentation.text };
 }
 
 function displayUserPrompt(text: string, attachmentIds?: readonly string[]): string {
@@ -407,6 +449,9 @@ function transcriptEntriesEqual(
         && left.every((entry, index) =>
             entry.kind === right[index]?.kind
             && entry.text === right[index]?.text
+            && (entry.kind !== "diff"
+                || (right[index]?.kind === "diff"
+                    && entry.patch === right[index].patch))
         );
 }
 

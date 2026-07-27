@@ -9,9 +9,26 @@ import type {
     OpenAICodexRequest,
     OpenAICodexStreamEvent,
 } from "../../src/providers/openai-codex-wire.ts";
-import { readOpenAICodexEvents } from "../../src/providers/openai-codex-wire.ts";
+import {
+    encodeOpenAICodexInput,
+    readOpenAICodexEvents,
+} from "../../src/providers/openai-codex-wire.ts";
 import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 import type { ModelMessage, ModelStreamEvent } from "../../src/model/types.ts";
+
+test("tool result encoding includes only model-facing text", () => {
+    expect(encodeOpenAICodexInput([{
+        role: "tool_result",
+        toolCallId: "call_1",
+        toolName: "edit",
+        content: [{ type: "text", text: "Applied 1 edit to notes.txt" }],
+        isError: false,
+    }])).toEqual([{
+        type: "function_call_output",
+        call_id: "call_1",
+        output: "Applied 1 edit to notes.txt",
+    }]);
+});
 
 describe("OpenAI Codex adapter", () => {
     test("encodes ordered provider-neutral image content", async () => {

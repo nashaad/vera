@@ -47,7 +47,18 @@ export function buildModelRequest(
 export function projectModelRequest(
     snapshot: ModelRequestSnapshot,
 ): ModelRequestProjection {
-    const messages = Object.freeze([...snapshot.messages]);
+    const messages = Object.freeze(snapshot.messages.map(
+        (message): ModelMessage => {
+            if (message.role !== "tool_result") return message;
+            return {
+                role: "tool_result",
+                toolCallId: message.toolCallId,
+                toolName: message.toolName,
+                content: message.content,
+                isError: message.isError,
+            };
+        },
+    ));
     const tools = Object.freeze([...snapshot.tools]);
     const prompt = projectSystemPrompt({
         tools,

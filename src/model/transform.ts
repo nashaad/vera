@@ -4,6 +4,7 @@ import type {
     ModelInputMessage,
     ModelMessage,
     ModelSource,
+    ModelInputToolResultMessage,
     ToolCallContent,
     ToolResultMessage,
 } from "./types.ts";
@@ -108,7 +109,9 @@ function transformAssistant(
 function collectToolResultIds(messages: readonly ModelInputMessage[]): Set<string> {
     return new Set(
         messages
-            .filter((message): message is ToolResultMessage => message.role === "tool_result")
+            .filter((message): message is ModelInputToolResultMessage =>
+                message.role === "tool_result"
+            )
             .map((message) => message.toolCallId),
     );
 }
