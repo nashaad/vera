@@ -67,6 +67,8 @@ export interface ToolApprovalUiRequest {
     readonly toolCall: HookToolCall;
     readonly reason: string;
     readonly warning: string;
+    readonly sourceAgentId?: string;
+    readonly sourceTask?: string;
     readonly permissionGrants?: readonly PermissionGrantProposal[];
 }
 

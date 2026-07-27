@@ -52,6 +52,10 @@ export function toolPermissionInputs(
     return toolRegistry.get(name)?.permissionInputs;
 }
 
+export function toolPermissionOperation(name: string): string | undefined {
+    return toolRegistry.get(name)?.permissionOperation;
+}
+
 function assertValidPermissionInputs(tool: RegisteredTool): void {
     const properties = inputSchemaProperties(tool.definition.inputSchema);
     for (const spec of tool.permissionInputs ?? []) {

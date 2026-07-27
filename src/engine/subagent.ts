@@ -17,18 +17,28 @@ import {
     type InProcessChannel,
 } from "./message-channel.ts";
 import type { ApprovalMode } from "./permissions.ts";
-import { createProtocolEncoder } from "./protocol.ts";
+import {
+    createProtocolEncoder,
+    isToolApprovalUiRequestUpdate,
+    type ToolApprovalUiRequestUpdate,
+} from "./protocol.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 import type { ApplyToolEffect } from "../tools/types.ts";
+import {
+    DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
+    validChildAgentLimit,
+} from "./agent-limits.ts";
 
 export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly workspace: string;
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (sessionId: string) => string;
+    readonly relayToolApproval?: ChildToolApprovalRelay;
+    readonly maxConcurrentChildren?: number;
 }
 
 export interface RunSubagentOptions {
@@ -43,7 +53,15 @@ export interface RunSubagentOptions {
     readonly sessionId?: string;
     readonly sessionPath?: string;
     readonly signal?: AbortSignal;
+    readonly relayToolApproval?: ChildToolApprovalRelay;
 }
+
+export type ChildToolApprovalRelay = (
+    update: ToolApprovalUiRequestUpdate,
+    sourceAgentId: string,
+    sourceTask: string,
+    signal: AbortSignal,
+) => Promise<"allow_once" | "deny">;
 
 export interface SubagentResult {
     readonly text: string;
@@ -55,35 +73,57 @@ export interface SubagentResult {
 export function createSubagentEffectApplier(
     options: CreateSubagentEffectApplierOptions,
 ): ApplyToolEffect {
+    const maxConcurrentChildren = validChildAgentLimit(
+        options.maxConcurrentChildren ?? DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
+    );
+    let activeChildren = 0;
     return async (effect, signal, context) => {
         if (effect.type !== "spawn_subagent") {
             throw new Error(`Unsupported subagent effect: ${effect.type}`);
         }
+        if (activeChildren >= maxConcurrentChildren) {
+            return {
+                kind: "output",
+                output:
+                    `Subagent limit reached (${maxConcurrentChildren} running).`,
+                isError: true,
+            };
+        }
+        activeChildren += 1;
         const sessionId = randomUUID();
-        const result = await runSubagent({
-            adapter: options.adapter,
-            ...(context.provider === undefined ? {} : { provider: context.provider }),
-            model: context.model,
-            description: effect.description,
-            workspace: options.workspace,
-            approvalMode: context.approvalMode,
-            signal,
-            sessionId,
-            ...(context.reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: context.reasoningEffort }),
-            ...(options.modelFallback === undefined
-                ? {}
-                : { modelFallback: options.modelFallback }),
-            ...(options.sessionPathForId === undefined
-                ? {}
-                : { sessionPath: options.sessionPathForId(sessionId) }),
-        });
-        return {
-            kind: "output",
-            output: result.text,
-            isError: result.isError,
-        };
+        try {
+            const result = await runSubagent({
+                adapter: options.adapter,
+                ...(context.provider === undefined
+                    ? {}
+                    : { provider: context.provider }),
+                model: context.model,
+                description: effect.description,
+                workspace: options.workspace,
+                approvalMode: context.approvalMode,
+                signal,
+                sessionId,
+                ...(options.relayToolApproval === undefined
+                    ? {}
+                    : { relayToolApproval: options.relayToolApproval }),
+                ...(context.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: context.reasoningEffort }),
+                ...(options.modelFallback === undefined
+                    ? {}
+                    : { modelFallback: options.modelFallback }),
+                ...(options.sessionPathForId === undefined
+                    ? {}
+                    : { sessionPath: options.sessionPathForId(sessionId) }),
+            });
+            return {
+                kind: "output",
+                output: result.text,
+                isError: result.isError,
+            };
+        } finally {
+            activeChildren -= 1;
+        }
     };
 }
 
@@ -91,6 +131,7 @@ export async function runSubagent(
     options: RunSubagentOptions,
 ): Promise<SubagentResult> {
     const channel = createInProcessChannel();
+    const childSignal = options.signal ?? new AbortController().signal;
     const onAbort = (): void => channel.client.send({ type: "abort" });
     options.signal?.addEventListener("abort", onAbort, { once: true });
 
@@ -125,7 +166,13 @@ export async function runSubagent(
             type: "prompt",
             content: options.description,
         });
-        const updates = drainChildUpdates(channel.client);
+        const updates = drainChildUpdates(
+            channel.client,
+            sessionId,
+            options.description,
+            childSignal,
+            options.relayToolApproval,
+        );
         const finalMessage = await runTurn(
             options.adapter,
             options.model,
@@ -156,15 +203,28 @@ export async function runSubagent(
 
 async function drainChildUpdates(
     client: InProcessChannel["client"],
+    sourceAgentId: string,
+    sourceTask: string,
+    signal: AbortSignal,
+    relayToolApproval?: ChildToolApprovalRelay,
 ): Promise<void> {
     while (true) {
         const update = await client.receive();
         if (update.type === "ui_request") {
+            const decision = isToolApprovalUiRequestUpdate(update)
+                && relayToolApproval !== undefined
+                ? await relayToolApproval(
+                    update,
+                    sourceAgentId,
+                    sourceTask,
+                    signal,
+                )
+                : "deny";
             client.send({
                 type: "ui_response",
                 requestId: update.requestId,
                 response: update.request.type === "tool_approval"
-                    ? { type: "tool_approval", decision: "deny" }
+                    ? { type: "tool_approval", decision }
                     : { type: "user_question", outcome: "cancelled" },
             });
         }

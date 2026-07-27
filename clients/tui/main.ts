@@ -67,6 +67,7 @@ import {
 import {
     createTuiQuestionView,
 } from "./question.ts";
+import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
@@ -3042,35 +3043,4 @@ export async function startTui(
         return Math.floor(Date.now() / interval);
     }
 
-}
-
-function applyTuiUiRequestUpdate(
-    current: UiRequestUpdate | undefined,
-    queued: UiRequestUpdate[],
-    update: AgentUpdate,
-): UiRequestUpdate | undefined {
-    if (update.type === "ui_request") {
-        if (current === undefined) {
-            return update;
-        }
-        if (
-            current.requestId !== update.requestId
-            && !queued.some((request) => request.requestId === update.requestId)
-        ) {
-            queued.push(update);
-        }
-        return current;
-    }
-    if (update.type === "ui_request_closed") {
-        if (current?.requestId === update.requestId) {
-            return queued.shift();
-        }
-        const index = queued.findIndex(
-            (request) => request.requestId === update.requestId,
-        );
-        if (index >= 0) {
-            queued.splice(index, 1);
-        }
-    }
-    return current;
 }

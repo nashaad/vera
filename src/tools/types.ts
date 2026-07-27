@@ -85,6 +85,8 @@ export interface RegisteredTool {
     readonly definition: ModelTool;
     readonly parallel?: boolean;
     readonly effectType?: ToolEffect["type"];
+    /** A deliberately recognized permission operation for this whole tool. */
+    readonly permissionOperation?: string;
     readonly requiresUserInteraction?: boolean;
     /** Path/URL inputs to gate by permission rules. See `PermissionInputSpec`. */
     readonly permissionInputs?: readonly PermissionInputSpec[];

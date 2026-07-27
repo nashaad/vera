@@ -179,6 +179,12 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
         return request?.type === "tool_approval"
                 && typeof request.reason === "string"
                 && typeof request.warning === "string"
+                && (request.sourceAgentId === undefined
+                    || (typeof request.sourceAgentId === "string"
+                        && request.sourceAgentId.length > 0))
+                && (request.sourceTask === undefined
+                    || (typeof request.sourceTask === "string"
+                        && request.sourceTask.length > 0))
                 && (
                     request.permissionGrants === undefined
                     || (
