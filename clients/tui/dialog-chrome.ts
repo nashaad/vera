@@ -154,15 +154,51 @@ export interface DialogRowContent {
 export function dialogOptionRows(
     renderer: RenderContext,
     contents: readonly DialogRowContent[],
+    contentWidth?: number,
 ): BoxRenderable[] {
     const labelWidth = Math.max(
         0,
         ...contents.map((content) => content.label.length),
     );
+    const metaWidth = Math.max(
+        0,
+        ...contents.map((content) => content.meta?.length ?? 0),
+    );
+    // Without a width the description simply runs until the layout clips it,
+    // which is what it did before rows carried a meta column: the two met with
+    // no gap, and a sentence sheared mid-word against a provider name reads as
+    // one mangled word rather than as two columns.
+    const budget = contentWidth === undefined
+        ? undefined
+        : contentWidth - labelWidth - DESCRIPTION_GAP
+            - (metaWidth === 0 ? 0 : metaWidth + META_GAP);
     return contents.map((content) => dialogOptionRow(renderer, {
         ...content,
         label: content.label.padEnd(labelWidth),
+        ...(budget === undefined || content.description === undefined
+            ? {}
+            : { description: clipped(content.description, budget) }),
+        // The column is padded to one width so it reads as a column. Rows
+        // without a meta value keep none, since a blank column is not a fact.
+        ...(content.meta === undefined
+            ? {}
+            : { meta: `${" ".repeat(META_GAP)}${content.meta.padStart(metaWidth)}` }),
     }));
+}
+
+/** The two spaces `dialogOptionRow` puts between the label and description. */
+const DESCRIPTION_GAP = 2;
+
+/** The gap that keeps the description off the meta column. */
+const META_GAP = 2;
+
+function clipped(text: string, budget: number): string {
+    if (budget <= 0) {
+        return "";
+    }
+    return text.length <= budget
+        ? text
+        : `${text.slice(0, budget - 1).trimEnd()}…`;
 }
 
 export function dialogOptionRow(

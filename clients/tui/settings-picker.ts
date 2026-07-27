@@ -877,6 +877,15 @@ function pickerMaxRows(renderer: RenderContext, extraChrome: number): number {
 // Where the card's top edge sits, matching `box.top` below.
 const PICKER_TOP_OFFSET = 2;
 
+/**
+ * The columns a row has for its label, description and meta together. Derived
+ * from the same numbers the card is built from below: 80% of the terminal, less
+ * the card's own left and right padding, the row's, and the leading gutter.
+ */
+function pickerContentWidth(renderer: RenderContext): number {
+    return Math.max(0, Math.floor(renderer.width * 0.8) - 8);
+}
+
 type PickerDisplayRow =
     | { readonly kind: "group"; readonly label: string }
     | {
@@ -942,7 +951,7 @@ function renderListPickerRows(
                 current: isCurrentOption(state, row.option),
             }]
             : []
-    ));
+    ), pickerContentWidth(renderer));
     let optionNodeIndex = 0;
     rows.forEach((row, position) => {
         const node = row.kind === "group"
