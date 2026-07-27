@@ -10,6 +10,7 @@ import {
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
+import type { StashedModel } from "../../src/model/catalog-view.ts";
 import type {
     ReasoningLevel,
     ReasoningLevelId,
@@ -70,6 +71,14 @@ export interface TuiSettingsPickerOption {
     readonly provider?: string;
     readonly model?: string;
     readonly sessionId?: string;
+    /**
+     * Overrides the group heading this row sorts under. Set only on stash
+     * rows, which group by "the user kept this" rather than by provider, and
+     * which is why the heading cannot just be `provider`.
+     */
+    readonly group?: string;
+    /** True on a stash row whose model cannot run right now. */
+    readonly unavailable?: boolean;
 }
 
 export interface TuiExtensionPickerRow {
@@ -153,10 +162,22 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "session"; readonly sessionPath: string }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget };
 
+export interface TuiStashToggle {
+    readonly action: "add" | "remove";
+    readonly provider: string;
+    readonly model: string;
+}
+
 export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
     readonly selection?: TuiSettingsPickerSelection;
     readonly handled: boolean;
+    /**
+     * The pane does not edit the stash itself. It reports the intent and waits
+     * for the settings snapshot to come back, so the list the user sees is
+     * always the list the host actually stored.
+     */
+    readonly stashToggle?: TuiStashToggle;
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
@@ -231,11 +252,12 @@ export function startTuiSettingsPicker(
     currentTheme: TuiThemeName = "default",
     currentProvider: string | undefined = undefined,
     availablePermissionModes: readonly string[] | undefined = undefined,
+    stash: readonly StashedModel[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const options = kind === "theme"
         ? THEME_OPTIONS
         : kind === "model"
-        ? modelOptions(availableModels, currentProvider, currentModel)
+        ? modelOptions(availableModels, currentProvider, currentModel, stash)
         : permissionOptions(availablePermissionModes);
     const currentValue = kind === "theme"
         ? currentTheme
@@ -258,6 +280,53 @@ export function startTuiSettingsPicker(
             ? { initialModel: currentValue }
             : {}),
         ...(kind === "theme" ? { initialTheme: currentTheme } : {}),
+    };
+}
+
+/**
+ * Rebuilds an open model pane from a fresh settings snapshot, keeping the
+ * user where they were. The highlighted model is restored by identity rather
+ * than by index: adding or removing a stash row shifts every index below it,
+ * so an index would move the cursor to a different model than the one the
+ * user just acted on.
+ */
+export function syncTuiModelPicker(
+    state: TuiSettingsPickerState,
+    settings: {
+        readonly provider?: string;
+        readonly model?: string;
+        readonly availableModels?: readonly SuggestedModel[];
+        readonly stash?: readonly StashedModel[];
+    } | undefined,
+): TuiSettingsPickerState {
+    if (state.kind !== "model") {
+        return state;
+    }
+    const selectedValue = state.options[state.selectedIndex]?.value;
+    const rebuilt = startTuiSettingsPicker(
+        "model",
+        settings?.model,
+        undefined,
+        undefined,
+        settings?.availableModels,
+        undefined,
+        settings?.provider,
+        undefined,
+        settings?.stash,
+    );
+    const options = state.query.length === 0
+        ? rebuilt.options
+        : searched(rebuilt, state.query).state?.options ?? rebuilt.options;
+    const selectedIndex = options.findIndex(
+        (option) => option.value === selectedValue,
+    );
+    return {
+        ...rebuilt,
+        options,
+        query: state.query,
+        selectedIndex: selectedIndex === -1
+            ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
+            : selectedIndex,
     };
 }
 
@@ -576,6 +645,31 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
     }
+    // Ahead of the modifier bail-out below, and deliberately a modifier key:
+    // the model pane sends every bare printable key to its search box, and "-"
+    // is a character in most model ids, so no unmodified key is available.
+    if (
+        state.kind === "model"
+        && key.ctrl
+        && key.name === "s"
+        && !key.meta
+        && !key.super
+        && !key.hyper
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (selected?.provider === undefined || selected.model === undefined) {
+            return unchanged(state, true);
+        }
+        return {
+            state,
+            handled: true,
+            stashToggle: {
+                action: isStashed(state, selected) ? "remove" : "add",
+                provider: selected.provider,
+                model: selected.model,
+            },
+        };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
@@ -785,6 +879,20 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
     if (state.kind === "reasoning" && state.pendingModel !== undefined) {
         return "↑↓ move · ⏎ select · esc back";
     }
+    if (state.kind === "model") {
+        const selected = state.options[state.selectedIndex];
+        const stash = selected === undefined || selected.provider === undefined
+            ? undefined
+            : isStashed(state, selected)
+                ? "^s - unstash"
+                : "^s + stash";
+        return [
+            "↑↓ move",
+            "⏎ select",
+            ...(stash === undefined ? [] : [stash]),
+            "esc close",
+        ].join(" · ");
+    }
     return "↑↓ move · ⏎ select · esc close";
 }
 
@@ -805,15 +913,34 @@ function listDisplayRows(
     const grouped = state.kind === "model" && state.query.length === 0;
     const rows: PickerDisplayRow[] = [];
     state.options.forEach((option, index) => {
-        if (
-            grouped
-            && state.options[index - 1]?.provider !== option.provider
-        ) {
-            rows.push({ kind: "group", label: option.provider ?? "Other" });
+        if (grouped && groupLabel(state.options[index - 1]) !== groupLabel(option)) {
+            rows.push({ kind: "group", label: groupLabel(option) ?? "Other" });
         }
         rows.push({ kind: "option", option, index });
     });
     return rows;
+}
+
+/**
+ * Membership is read off the rendered stash group rather than tracked
+ * separately, so the key and the list can never disagree about what is in the
+ * stash: both are looking at the same snapshot the host sent.
+ */
+function isStashed(
+    state: TuiSettingsPickerState,
+    option: TuiSettingsPickerOption,
+): boolean {
+    return state.allOptions.some((candidate) =>
+        candidate.group === STASH_GROUP && candidate.value === option.value
+    );
+}
+
+function groupLabel(
+    option: TuiSettingsPickerOption | undefined,
+): string | undefined {
+    return option === undefined
+        ? undefined
+        : option.group ?? option.provider;
 }
 
 function windowedDisplayRows(
@@ -939,7 +1066,11 @@ function searched(
 ): TuiSettingsPickerTransition {
     const normalized = query.toLowerCase();
     const options = state.allOptions.filter((option) =>
-        `${option.label} ${option.value} ${option.description} ${
+        // A search result is one ranked list, and a stash row is the same
+        // model as its provider row. Keeping both would show every stashed
+        // model twice for no gain.
+        (query.length === 0 || option.group === undefined)
+        && `${option.label} ${option.value} ${option.description} ${
             option.searchText ?? ""
         }`
             .toLowerCase()
@@ -963,10 +1094,36 @@ function themePreview(
     return value === undefined ? {} : { previewTheme: value as TuiThemeName };
 }
 
+const STASH_GROUP = "Stashed";
+
+/**
+ * Stash rows are a second view of models that also appear under their
+ * provider, not a separate set. They carry the same `value`, so selecting one
+ * and selecting its provider row are the same act, and the current-model
+ * marker lands on both.
+ */
+function stashOptions(
+    stash: readonly StashedModel[],
+): readonly TuiSettingsPickerOption[] {
+    return stash.map((entry) => ({
+        value: providerModelKey(entry.provider, entry.model),
+        label: entry.label,
+        description: entry.available
+            ? entry.description ?? ""
+            : "not available right now",
+        searchText: `${entry.provider} ${entry.model}`,
+        provider: entry.provider,
+        model: entry.model,
+        group: STASH_GROUP,
+        ...(entry.available ? {} : { unavailable: true }),
+    }));
+}
+
 function modelOptions(
     available: readonly SuggestedModel[] | undefined,
     currentProvider: string | undefined,
     currentModel: string | undefined,
+    stash: readonly StashedModel[] = [],
 ): readonly TuiSettingsPickerOption[] {
     const options = (available ?? []).map((model) => ({
         value: providerModelKey(model.provider, model.model),
@@ -979,12 +1136,16 @@ function modelOptions(
         left.provider.localeCompare(right.provider)
             || left.label.localeCompare(right.label)
     );
+    const stashed = stashOptions(stash);
     if (currentModel === undefined || currentProvider === undefined) {
-        return options;
+        return [...stashed, ...options];
     }
     const currentValue = providerModelKey(currentProvider, currentModel);
-    if (options.some((option) => option.value === currentValue)) return options;
+    if (options.some((option) => option.value === currentValue)) {
+        return [...stashed, ...options];
+    }
     return [
+        ...stashed,
         {
             value: currentValue,
             label: currentModel,

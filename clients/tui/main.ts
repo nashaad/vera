@@ -112,6 +112,7 @@ import {
     handleTuiSettingsPickerKey,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
+    syncTuiModelPicker,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     startTuiExtensionPicker,
@@ -441,6 +442,7 @@ export async function startTui(
     let shuttingDown = false;
     let abortRequested = false;
     let pendingUiRequest: UiRequestUpdate | undefined;
+    const queuedUiRequests: UiRequestUpdate[] = [];
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiAnySettingsPickerState | undefined;
     let pendingExtensionPicker: {
@@ -856,7 +858,6 @@ export async function startTui(
                 if (result.response !== undefined) {
                     sendCommand(result.response);
                     activity = "thinking";
-                    pendingUiRequest = undefined;
                     focusActiveSurface();
                 }
                 renderState();
@@ -869,7 +870,6 @@ export async function startTui(
                 key.stopPropagation();
                 sendCommand(response);
                 activity = "thinking";
-                pendingUiRequest = undefined;
                 focusActiveSurface();
                 renderState();
                 return;
@@ -1707,6 +1707,7 @@ export async function startTui(
                     const previousRequest = pendingUiRequest;
                     pendingUiRequest = applyTuiUiRequestUpdate(
                         pendingUiRequest,
+                        queuedUiRequests,
                         update,
                     );
                     if (pendingUiRequest !== previousRequest) {
@@ -1761,6 +1762,18 @@ export async function startTui(
                             // One extension listener cannot stop client updates.
                         }
                     }
+                }
+                if (
+                    update.type === "model_settings"
+                    && settingsPicker?.kind === "model"
+                ) {
+                    // The same route the permissions list takes below: the
+                    // open pane is rebuilt from the snapshot the host sent,
+                    // never from a local guess about what the edit did.
+                    settingsPicker = syncTuiModelPicker(
+                        settingsPicker,
+                        state.modelSettings,
+                    );
                 }
                 if (update.type === "permissions" && preferencesList !== undefined) {
                     // How a removal becomes visible: the engine answers with a
@@ -2133,6 +2146,7 @@ export async function startTui(
             composer.setComposerText(interruptedRename.commandText);
         }
         pendingUiRequest = undefined;
+        queuedUiRequests.length = 0;
         timelinePicker = undefined;
         settingsPicker = undefined;
         commandPalette = undefined;
@@ -2330,6 +2344,8 @@ export async function startTui(
             state.modelSettings?.availableModels,
             undefined,
             state.modelSettings?.provider,
+            undefined,
+            state.modelSettings?.stash,
         );
         renderState();
         focusActiveSurface();
@@ -2547,6 +2563,18 @@ export async function startTui(
             && transition.trashCandidate !== undefined
         ) {
             sessionTrashCandidate = transition.trashCandidate;
+        }
+        if ("stashToggle" in transition && transition.stashToggle !== undefined) {
+            // The pane stays open and stays on the same row. It is not updated
+            // here: the settings snapshot that comes back rebuilds it, so what
+            // the user sees is what the host stored rather than a guess.
+            sendCommand({
+                type: "update_stash",
+                requestId: randomUUID(),
+                action: transition.stashToggle.action,
+                provider: transition.stashToggle.provider,
+                model: transition.stashToggle.model,
+            });
         }
         if (transition.selection !== undefined) {
             const selection = transition.selection;
@@ -2874,7 +2902,7 @@ export async function startTui(
         } else if (abortRequested) {
             lifecycleHint = `${STOPPING_HINT} · ${elapsedWorkingTime()}`;
         } else if (pendingUiRequest?.request.type === "tool_approval") {
-            lifecycleHint = `${APPROVAL_HINT} · ${elapsedWorkingTime()}`;
+            lifecycleHint = APPROVAL_HINT;
         } else if (pendingUiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
@@ -3018,16 +3046,31 @@ export async function startTui(
 
 function applyTuiUiRequestUpdate(
     current: UiRequestUpdate | undefined,
+    queued: UiRequestUpdate[],
     update: AgentUpdate,
 ): UiRequestUpdate | undefined {
     if (update.type === "ui_request") {
-        return update;
+        if (current === undefined) {
+            return update;
+        }
+        if (
+            current.requestId !== update.requestId
+            && !queued.some((request) => request.requestId === update.requestId)
+        ) {
+            queued.push(update);
+        }
+        return current;
     }
-    if (
-        update.type === "ui_request_closed"
-        && current?.requestId === update.requestId
-    ) {
-        return undefined;
+    if (update.type === "ui_request_closed") {
+        if (current?.requestId === update.requestId) {
+            return queued.shift();
+        }
+        const index = queued.findIndex(
+            (request) => request.requestId === update.requestId,
+        );
+        if (index >= 0) {
+            queued.splice(index, 1);
+        }
     }
     return current;
 }

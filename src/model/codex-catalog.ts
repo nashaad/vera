@@ -1,3 +1,8 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import { writeProviderCatalogSnapshot } from "./catalog-cache.ts";
 import type {
     CatalogModel,
     ProviderCatalog,
@@ -5,6 +10,59 @@ import type {
 } from "./catalog-shape.ts";
 
 const PROVIDER = "openai-codex";
+
+export interface CodexCatalogRefreshOptions {
+    /** The Codex cache to read. Defaults to `codexModelCachePath()`. */
+    readonly cachePath?: string;
+    /** Where the snapshot is written. Defaults to Vera's cache directory. */
+    readonly cacheDir?: string;
+}
+
+/**
+ * Codex keeps its model list here, refreshed by the Codex CLI itself. Vera
+ * reads it rather than fetching its own copy: the file is already on disk for
+ * anyone who has signed in, and a model list is not worth a startup request.
+ */
+export function codexModelCachePath(): string {
+    return join(homedir(), ".codex", "models_cache.json");
+}
+
+/**
+ * Reads the Codex cache and republishes it as a Vera discovery snapshot.
+ * Returns the catalog so a caller can list the models in the same pass, and
+ * `undefined` when there is nothing to publish: no cache, unreadable cache, or
+ * a cache that yielded no models. None of those are errors. A user who has
+ * never run Codex simply has no Codex models.
+ */
+export function refreshCodexCatalog(
+    options: CodexCatalogRefreshOptions = {},
+): ProviderCatalog | undefined {
+    let raw: unknown;
+    try {
+        raw = JSON.parse(
+            readFileSync(options.cachePath ?? codexModelCachePath(), "utf8"),
+        );
+    } catch {
+        return undefined;
+    }
+
+    const catalog = normalizeCodexModelCache(raw);
+    if (catalog.models.length === 0) {
+        return undefined;
+    }
+
+    try {
+        writeProviderCatalogSnapshot(
+            catalog,
+            options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir },
+        );
+    } catch {
+        // A snapshot Vera cannot write is not a reason to hide models it has
+        // already read: the caller gets the catalog either way, and the next
+        // start tries again.
+    }
+    return catalog;
+}
 
 export function normalizeCodexModelCache(raw: unknown): ProviderCatalog {
     try {
@@ -80,7 +138,11 @@ function normalizeLevels(value: unknown): ReasoningLevel[] {
                 : {}),
         });
     }
-    return levels;
+    // Codex lists its levels weakest-first; the catalog stores them
+    // strongest-first (see `CatalogModel.levels`). Reversing here is the whole
+    // reason a consumer can treat "the next level up" as one step towards the
+    // front without knowing which provider a model came from.
+    return levels.reverse();
 }
 
 function reasoningLevelLabel(id: string): string {

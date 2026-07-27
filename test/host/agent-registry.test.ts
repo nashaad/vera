@@ -1653,3 +1653,62 @@ async function waitForTaskNotification(
         }
     }
 }
+
+test("editing the stash keeps the running model and reports the new list", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-stash-"));
+    const edits: { action: string; provider: string; model: string }[] = [];
+    let stash = [
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            label: "GPT-5.6-Sol",
+            available: true,
+            levels: [],
+        },
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        approvalMode: "auto",
+        readStash: () => stash,
+        updateStash: (action, entry) => {
+            edits.push({ action, ...entry });
+            if (action === "remove") {
+                stash = stash.filter((item) => item.model !== entry.model);
+            }
+        },
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+
+        const settings = await registry.updateStash(agent.id, "remove", {
+            provider: "openai-codex",
+            model: "  gpt-5.6-sol  ",
+        });
+
+        expect(edits).toEqual([{
+            action: "remove",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        }]);
+        // Keeping a model is not choosing one: the turn still runs on kimi.
+        expect(settings).toMatchObject({
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+        });
+        expect(settings?.stash).toEqual([]);
+
+        expect(await registry.updateStash("no-such-agent", "add", {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        })).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});

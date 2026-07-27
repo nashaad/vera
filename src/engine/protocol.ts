@@ -94,6 +94,21 @@ export interface UpdateModelSettingsCommand {
     readonly patch: ModelSettingsPatch;
 }
 
+/**
+ * Keeping a model is not choosing one, so this is its own command rather than
+ * a field on `update_model_settings`: stashing a model the user is only
+ * looking at must not switch the turn to it. The reply is the same
+ * `model_settings_changed` update, because that update already carries the
+ * stash and a client would otherwise have to ask again to see its own edit.
+ */
+export interface UpdateStashCommand {
+    readonly type: "update_stash";
+    readonly requestId: string;
+    readonly action: "add" | "remove";
+    readonly provider: string;
+    readonly model: string;
+}
+
 export interface GetPermissionsCommand {
     readonly type: "get_permissions";
     readonly requestId: string;
@@ -173,6 +188,7 @@ export type ClientCommand =
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
+    | UpdateStashCommand
     | GetPermissionsCommand
     | UpdatePermissionsCommand
     | AddPermissionPreferenceCommand
@@ -579,6 +595,21 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             };
         }
     }
+    if (
+        command.type === "update_stash"
+        && isRequestId(command.requestId)
+        && (command.action === "add" || command.action === "remove")
+        && isNonEmptyString(command.provider)
+        && isNonEmptyString(command.model)
+    ) {
+        return {
+            type: "update_stash",
+            requestId: command.requestId,
+            action: command.action,
+            provider: command.provider,
+            model: command.model,
+        };
+    }
     if (command.type === "get_permissions" && isRequestId(command.requestId)) {
         return {
             type: "get_permissions",
@@ -737,6 +768,10 @@ function parseModelSettingsPatch(
 
 function isRequestId(value: unknown): value is string {
     return typeof value === "string" && value.length > 0;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === "string" && value.trim().length > 0;
 }
 
 function isAttachmentIds(value: unknown): value is readonly string[] | undefined {

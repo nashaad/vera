@@ -9,6 +9,7 @@ import {
     startTuiSessionPicker,
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
+    syncTuiModelPicker,
     type TuiAnySettingsPickerState,
 } from "../../clients/tui/settings-picker.ts";
 
@@ -622,4 +623,125 @@ test("theme picker renders as a borderless palette card with swatches", async ()
     } finally {
         setup.renderer.destroy();
     }
+});
+
+const stashedModels = [
+    {
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        label: "GPT-5.6-Sol",
+        available: true,
+        description: "frontier coding model",
+        levels: [],
+    },
+    {
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        available: false,
+        levels: [],
+    },
+] as const;
+
+function modelPickerWithStash(
+    stash: readonly (typeof stashedModels)[number][] = stashedModels,
+) {
+    return startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "max",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+        undefined,
+        stash,
+    );
+}
+
+test("model picker pins the stash above the provider groups", async () => {
+    const state = modelPickerWithStash();
+    const frame = await pickerFrame(state);
+
+    expect(state.options.slice(0, 2).map((option) => option.model)).toEqual([
+        "gpt-5.6-sol",
+        "z-ai/glm-5.2",
+    ]);
+    expect(frame).toContain("Stashed");
+    expect(frame.indexOf("Stashed")).toBeLessThan(frame.indexOf("openrouter"));
+    // An entry that cannot run right now stays in the list: the user put it
+    // there, so only the user takes it out.
+    expect(frame).toContain("not available right now");
+});
+
+test("a search hides the stash rows rather than listing models twice", () => {
+    const state = modelPickerWithStash();
+    const searched = handleTuiSettingsPickerKey(state, { name: "g" });
+
+    expect(searched.state?.options.filter((option) =>
+        option.model === "z-ai/glm-5.2"
+    )).toHaveLength(1);
+    expect(searched.state?.options.every((option) =>
+        option.group === undefined
+    )).toBe(true);
+});
+
+test("ctrl+s asks to stash the highlighted model, and to unstash a stashed one", () => {
+    const state = modelPickerWithStash([]);
+    const kimi = handleTuiSettingsPickerKey(state, { name: "s", ctrl: true });
+
+    expect(kimi.stashToggle).toEqual({
+        action: "add",
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+    });
+    // The pane does not edit its own list: the row is unchanged until the host
+    // answers with a new snapshot.
+    expect(kimi.state).toBe(state);
+
+    // The cursor opens on the current model, so reaching a stash row takes a
+    // move first. That the pane opens on the running model rather than on the
+    // stash is the point of the ordering.
+    const stashed = modelPickerWithStash();
+    let cursor = stashed;
+    while (cursor.selectedIndex > 0) {
+        cursor = handleTuiSettingsPickerKey(cursor, { name: "up" }).state
+            ?? cursor;
+    }
+
+    expect(cursor.options[cursor.selectedIndex]?.model).toBe("gpt-5.6-sol");
+    expect(
+        handleTuiSettingsPickerKey(cursor, { name: "s", ctrl: true })
+            .stashToggle,
+    ).toEqual({
+        action: "remove",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+    });
+});
+
+test("the model picker footer names the action the highlighted row would take", async () => {
+    const onRunningModel = modelPickerWithStash();
+    expect(await pickerFrame(onRunningModel)).toContain("^s + stash");
+
+    const onStashRow = { ...onRunningModel, selectedIndex: 0 };
+    expect(onStashRow.options[0]?.model).toBe("gpt-5.6-sol");
+    expect(await pickerFrame(onStashRow)).toContain("^s - unstash");
+});
+
+test("a settings snapshot rebuilds the open pane without moving the cursor", () => {
+    const state = modelPickerWithStash([]);
+    const highlighted = state.options[state.selectedIndex];
+    const synced = syncTuiModelPicker(state, {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        availableModels,
+        stash: stashedModels,
+    });
+
+    // Two rows were inserted above the cursor. The cursor follows the model,
+    // not the index.
+    expect(synced.options[synced.selectedIndex]?.value)
+        .toBe(highlighted?.value);
+    expect(synced.options[0]?.group).toBe("Stashed");
 });
