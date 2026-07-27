@@ -8,20 +8,33 @@ import type { ClientExtensionConfig } from "./client-registry.ts";
 
 const HELP_EXTENSION_ID = "vera.help";
 const MODEL_PRESETS_EXTENSION_ID = "vera.model-presets";
+const REASONING_CYCLE_EXTENSION_ID = "vera.reasoning-cycle";
 
 export function bundledClientExtensionConfigs(
     disabledIds: readonly string[],
 ): readonly ClientExtensionConfig[] {
-    return disabledIds.includes(MODEL_PRESETS_EXTENSION_ID)
-        ? []
-        : [{
+    const configs: ClientExtensionConfig[] = [];
+    if (!disabledIds.includes(MODEL_PRESETS_EXTENSION_ID)) {
+        configs.push({
             path: fileURLToPath(new URL(
                 "../../extensions/model-presets",
                 import.meta.url,
             )),
             enabled: true,
             config: {},
-        }];
+        });
+    }
+    if (!disabledIds.includes(REASONING_CYCLE_EXTENSION_ID)) {
+        configs.push({
+            path: fileURLToPath(new URL(
+                "../../extensions/reasoning-cycle",
+                import.meta.url,
+            )),
+            enabled: true,
+            config: {},
+        });
+    }
+    return configs;
 }
 
 export function bundledClientExtensions(): readonly DirectClientExtension[] {

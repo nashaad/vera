@@ -1,7 +1,9 @@
 type Preset = {
     provider: string;
     model: string;
-    reasoningEffort: "off" | "low" | "medium" | "high" | "max";
+    // A level id, not a fixed vocabulary: each model names its own levels, so
+    // a preset saved on one model can hold a word another has never heard of.
+    reasoningEffort: string;
 };
 
 type Slot = Preset | null;

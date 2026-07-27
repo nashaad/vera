@@ -525,6 +525,258 @@ test("bundled preset uses the same public seams as a user extension", async () =
     expect(source).not.toContain("clients/tui");
 });
 
+test("modelSettings.currentLevels finds the current model's own levels off availableModels", async () => {
+    const workspace = createDirectory();
+    const extension = createExtension("client.levels", [
+        "client.commands.register",
+        "client.model_settings",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "levels",
+                description: "Levels",
+                usage: "/levels",
+                run() {
+                    return {
+                        kind: "text",
+                        text: JSON.stringify(vera.modelSettings.currentLevels()),
+                    };
+                },
+            });
+        }
+    `);
+    const availableModels = [
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            label: "gpt-5.6-sol",
+            description: "",
+            levels: [
+                { id: "low", label: "Low" },
+                { id: "max", label: "Max" },
+            ],
+            defaultLevel: "low",
+        },
+        // Not the current model: its levels must not leak into the answer.
+        {
+            provider: "ollama",
+            model: "qwen3",
+            label: "qwen3",
+            description: "",
+            levels: [{ id: "high", label: "High" }],
+        },
+    ];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        preferences: {
+            async get() { return undefined; },
+            async set() {},
+            async delete() {},
+        },
+        modelSettings: {
+            current: () => ({
+                provider: "openai-codex",
+                model: "gpt-5.6-sol",
+                reasoningEffort: "low",
+                availableModels,
+            }),
+            async update(patch) {
+                return {
+                    status: "accepted",
+                    settings: {
+                        provider: "openai-codex",
+                        model: "gpt-5.6-sol",
+                        reasoningEffort: patch.reasoningEffort ?? "low",
+                    },
+                };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    const result = await registry.invokeCommand("levels", "", workspace);
+    expect(JSON.parse((result?.body as { text: string }).text)).toEqual([
+        { id: "low", label: "Low" },
+        { id: "max", label: "Max" },
+    ]);
+
+    await registry.close();
+});
+
+test("modelSettings.currentLevels is empty for a model missing from availableModels", async () => {
+    const workspace = createDirectory();
+    const extension = createExtension("client.no-levels", [
+        "client.commands.register",
+        "client.model_settings",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "levels",
+                description: "Levels",
+                usage: "/levels",
+                run() {
+                    return {
+                        kind: "text",
+                        text: JSON.stringify(vera.modelSettings.currentLevels()),
+                    };
+                },
+            });
+        }
+    `);
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        preferences: {
+            async get() { return undefined; },
+            async set() {},
+            async delete() {},
+        },
+        // The default harness-shaped snapshot below carries no
+        // `availableModels` at all, the same as a model reached through an
+        // escape hatch the client has no facts about.
+        modelSettings: {
+            current: () => ({
+                provider: "openrouter",
+                model: "unknown/model",
+                reasoningEffort: "low",
+            }),
+            async update(patch) {
+                return {
+                    status: "accepted",
+                    settings: {
+                        provider: "openrouter",
+                        model: "unknown/model",
+                        reasoningEffort: patch.reasoningEffort ?? "low",
+                    },
+                };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    const result = await registry.invokeCommand("levels", "", workspace);
+    expect(JSON.parse((result?.body as { text: string }).text)).toEqual([]);
+
+    await registry.close();
+});
+
+test("bundled reasoning cycle uses the same public seams as a user extension", async () => {
+    const extension = join(
+        import.meta.dir,
+        "../../extensions/reasoning-cycle",
+    );
+    const availableModels = [
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            label: "gpt-5.6-sol",
+            description: "",
+            // Most capable first, the order a catalog stores levels in.
+            levels: [
+                { id: "high", label: "High" },
+                { id: "medium", label: "Medium" },
+                { id: "low", label: "Low" },
+            ],
+            defaultLevel: "medium",
+        },
+        {
+            provider: "ollama",
+            model: "qwen3",
+            label: "qwen3",
+            description: "",
+            levels: [],
+        },
+    ];
+    let current: VeraClientModelSettingsSnapshot = {
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "low",
+        availableModels,
+    };
+    const updates: unknown[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        preferences: {
+            async get() { return undefined; },
+            async set() {},
+            async delete() {},
+        },
+        modelSettings: {
+            current: () => current,
+            async update(patch) {
+                updates.push(patch);
+                current = {
+                    ...current,
+                    reasoningEffort: patch.reasoningEffort ?? current.reasoningEffort,
+                };
+                return { status: "accepted", settings: current };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    expect(registry.keybindings()).toEqual([expect.objectContaining({
+        id: "cycle-reasoning",
+        keys: ["ctrl+t"],
+    })]);
+
+    // Each press asks for more thinking, not less.
+    await registry.invokeKeybinding("cycle-reasoning", createDirectory());
+    expect(updates).toEqual([{ reasoningEffort: "medium" }]);
+
+    await registry.invokeKeybinding("cycle-reasoning", createDirectory());
+    expect(updates[1]).toEqual({ reasoningEffort: "high" });
+
+    // Past the model's top level it wraps back to its lowest.
+    await registry.invokeKeybinding("cycle-reasoning", createDirectory());
+    expect(updates[2]).toEqual({ reasoningEffort: "low" });
+
+    // A level this model has never heard of does not make the first press
+    // jump to the top. Placement runs through the host's shared rule, which
+    // puts "ultra" on this model's default of "medium", so one step up from
+    // there is "high".
+    current = {
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "ultra",
+        availableModels,
+    };
+    await registry.invokeKeybinding("cycle-reasoning", createDirectory());
+    expect(updates[3]).toEqual({ reasoningEffort: "high" });
+
+    // A model with no levels at all has nothing to cycle: the same notice
+    // text the TUI's own level pane already shows for this case.
+    current = {
+        provider: "ollama",
+        model: "qwen3",
+        reasoningEffort: undefined,
+        availableModels,
+    };
+    await expect(
+        registry.invokeKeybinding("cycle-reasoning", createDirectory()),
+    ).rejects.toThrow("qwen3 has no reasoning effort setting");
+
+    await registry.close();
+
+    const source = readFileSync(join(extension, "extension.ts"), "utf8");
+    expect(source).not.toContain("../src");
+    expect(source).not.toContain("clients/tui");
+});
+
 function createHarness(): {
     readonly adapters: {
         readonly preferences: ClientExtensionPreferencesAdapter;
