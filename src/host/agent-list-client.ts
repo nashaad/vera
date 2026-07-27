@@ -3,11 +3,20 @@ import { connectHost } from "./connection.ts";
 
 export async function listAgentsThroughHost(
     socketPath: string,
+    responseTimeoutMs = 2_000,
 ): Promise<RegisteredAgentSummary[]> {
     const connection = await connectHost({ socketPath });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({ type: "list_agents" });
-        const response = asRecord(await connection.receive());
+        const response = asRecord(await Promise.race([
+            connection.receive(),
+            new Promise<never>((_, reject) => {
+                timeout = setTimeout(() => {
+                    reject(new Error("Host agent list deadline exceeded"));
+                }, responseTimeoutMs);
+            }),
+        ]));
         if (
             response?.type !== "agent_list"
             || !Array.isArray(response.agents)
@@ -17,6 +26,7 @@ export async function listAgentsThroughHost(
         }
         return response.agents;
     } finally {
+        clearTimeout(timeout);
         connection.close();
     }
 }

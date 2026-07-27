@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -36,6 +37,28 @@ import { startHostServer } from "../../src/host/server.ts";
             }]);
         } finally {
             await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "agent listing stops waiting when a host does not answer",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-list-timeout-"));
+        const socketPath = join(root, "host.sock");
+        const server = createServer(() => undefined);
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+
+        try {
+            await expect(listAgentsThroughHost(socketPath, 10)).rejects.toThrow(
+                "Host agent list deadline exceeded",
+            );
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
             await rm(root, { recursive: true, force: true });
         }
     },
