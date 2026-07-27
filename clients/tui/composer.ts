@@ -44,6 +44,23 @@ export class TuiComposer extends TextareaRenderable {
             return true;
         }
         if (
+            key.name === "down"
+            && !key.shift
+            && !key.ctrl
+            && !key.meta
+            && !key.super
+            && !key.hyper
+            && this.submittedTextIndex !== undefined
+            && this.submittedTexts.length > 0
+        ) {
+            const nextIndex = (this.submittedTextIndex + 1)
+                % this.submittedTexts.length;
+            this.submittedTextIndex = nextIndex;
+            this.setText(this.submittedTexts[nextIndex] ?? "");
+            this.cursorOffset = this.plainText.length;
+            return true;
+        }
+        if (
             key.name === "enter"
             && !key.shift
             && !key.ctrl
