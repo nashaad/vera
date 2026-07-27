@@ -293,6 +293,28 @@ function matchingSubcommand(subcommands: readonly string[]): ReadOnlyClassifier 
     return (args) => subcommands.includes(args[0] ?? "");
 }
 
+function boundedSleep(args: readonly string[]): boolean {
+    if (args.length !== 1) return false;
+    const match = /^(\d+(?:\.\d+)?)([smhd]?)$/.exec(args[0] ?? "");
+    if (match === null) return false;
+    const value = Number(match[1]);
+    const multiplier = {
+        "": 1,
+        s: 1,
+        m: 60,
+        h: 60 * 60,
+        d: 24 * 60 * 60,
+    }[match[2] ?? ""];
+    return Number.isFinite(value)
+        && multiplier !== undefined
+        && value * multiplier <= 5 * 60;
+}
+
+function readingDate(args: readonly string[]): boolean {
+    return args.length === 0
+        || args.every((arg) => arg.startsWith("+"));
+}
+
 /**
  * A small, deliberately incomplete map of commands Vera can prove are
  * read-only from their name and arguments alone, replacing a name-only
@@ -310,6 +332,8 @@ const READ_ONLY_COMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
     stat: alwaysReadOnly,
     ls: alwaysReadOnly,
     grep: alwaysReadOnly,
+    sleep: boundedSleep,
+    date: readingDate,
     find: excludingDangerousFlags([
         "-exec",
         "-execdir",
