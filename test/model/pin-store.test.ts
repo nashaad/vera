@@ -10,12 +10,12 @@ import { join } from "node:path";
 
 import type { CatalogModel } from "../../src/model/catalog-shape.ts";
 import {
-    addToStash,
-    markStashEntryUsed,
-    readStash,
-    removeFromStash,
-    resolveStash,
-} from "../../src/model/stash-store.ts";
+    addPin,
+    markPinUsed,
+    readPins,
+    removePin,
+    resolvePins,
+} from "../../src/model/pin-store.ts";
 
 const directories: string[] = [];
 
@@ -28,11 +28,11 @@ afterEach(() => {
 test("add puts entries at the front and re-adding moves without duplicating", () => {
     const path = temporaryConfigPath();
 
-    addToStash(entry("openai-codex", "gpt-5.6-sol"), { path });
-    addToStash(entry("openrouter", "anthropic/example-model"), { path });
-    addToStash(entry("openai-codex", "gpt-5.6-sol"), { path });
+    addPin(entry("openai-codex", "gpt-5.6-sol"), { path });
+    addPin(entry("openrouter", "anthropic/example-model"), { path });
+    addPin(entry("openai-codex", "gpt-5.6-sol"), { path });
 
-    expect(readStash({ path })).toEqual([
+    expect(readPins({ path })).toEqual([
         entry("openai-codex", "gpt-5.6-sol"),
         entry("openrouter", "anthropic/example-model"),
     ]);
@@ -40,14 +40,14 @@ test("add puts entries at the front and re-adding moves without duplicating", ()
 
 test("remove deletes any position and ignores missing entries", () => {
     const path = temporaryConfigPath();
-    addToStash(entry("one", "first"), { path });
-    addToStash(entry("two", "second"), { path });
-    addToStash(entry("three", "third"), { path });
+    addPin(entry("one", "first"), { path });
+    addPin(entry("two", "second"), { path });
+    addPin(entry("three", "third"), { path });
 
-    removeFromStash(entry("two", "second"), { path });
-    removeFromStash(entry("missing", "model"), { path });
+    removePin(entry("two", "second"), { path });
+    removePin(entry("missing", "model"), { path });
 
-    expect(readStash({ path })).toEqual([
+    expect(readPins({ path })).toEqual([
         entry("three", "third"),
         entry("one", "first"),
     ]);
@@ -55,13 +55,13 @@ test("remove deletes any position and ignores missing entries", () => {
 
 test("mark used moves an existing entry and does not add a missing entry", () => {
     const path = temporaryConfigPath();
-    addToStash(entry("one", "first"), { path });
-    addToStash(entry("two", "second"), { path });
+    addPin(entry("one", "first"), { path });
+    addPin(entry("two", "second"), { path });
 
-    markStashEntryUsed(entry("one", "first"), { path });
-    markStashEntryUsed(entry("missing", "model"), { path });
+    markPinUsed(entry("one", "first"), { path });
+    markPinUsed(entry("missing", "model"), { path });
 
-    expect(readStash({ path })).toEqual([
+    expect(readPins({ path })).toEqual([
         entry("one", "first"),
         entry("two", "second"),
     ]);
@@ -69,12 +69,12 @@ test("mark used moves an existing entry and does not add a missing entry", () =>
 
 test("resolve preserves order and keeps unavailable identifiers", () => {
     const known = catalogModel("known/model", "Known model");
-    const stash = [
+    const pinned = [
         entry("openrouter", "unknown/model"),
         entry("openai-codex", "known/model"),
     ];
 
-    expect(resolveStash(stash, new Map([
+    expect(resolvePins(pinned, new Map([
         ["openai-codex/known/model", known],
     ]))).toEqual([
         {
@@ -91,31 +91,31 @@ test("resolve preserves order and keeps unavailable identifiers", () => {
     ]);
 });
 
-test("read degrades to an empty stash for absent or invalid storage", () => {
+test("read degrades to an empty pinned for absent or invalid storage", () => {
     const path = temporaryConfigPath();
-    expect(readStash({ path })).toEqual([]);
+    expect(readPins({ path })).toEqual([]);
 
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
-    expect(readStash({ path })).toEqual([]);
+    expect(readPins({ path })).toEqual([]);
 
     writeFileSync(path, "{broken");
-    expect(readStash({ path })).toEqual([]);
+    expect(readPins({ path })).toEqual([]);
 
-    writeFileSync(path, JSON.stringify({ stash: [null, 2, {}] }));
-    expect(readStash({ path })).toEqual([]);
+    writeFileSync(path, JSON.stringify({ pinned: [null, 2, {}] }));
+    expect(readPins({ path })).toEqual([]);
 });
 
-test("read filters non-string stash values and splits only the first slash", () => {
+test("read filters non-string pinned values and splits only the first slash", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
-        stash: [
+        pinned: [
             "openrouter/anthropic/example-model",
             null,
             2,
         ],
     }));
 
-    expect(readStash({ path })).toEqual([
+    expect(readPins({ path })).toEqual([
         entry("openrouter", "anthropic/example-model"),
     ]);
 });
@@ -128,30 +128,30 @@ test("writes preserve unrelated top-level config keys", () => {
         nested: { keep: true },
     }));
 
-    addToStash(entry("openai-codex", "gpt-5.6-sol"), { path });
+    addPin(entry("openai-codex", "gpt-5.6-sol"), { path });
 
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
         schema_version: 1,
         model: "existing-model",
         nested: { keep: true },
-        stash: ["openai-codex/gpt-5.6-sol"],
+        pinned: ["openai-codex/gpt-5.6-sol"],
     });
 });
 
 test("each write reads changes made by the previous write", () => {
     const path = temporaryConfigPath();
 
-    addToStash(entry("first", "model"), { path });
-    addToStash(entry("second", "model"), { path });
+    addPin(entry("first", "model"), { path });
+    addPin(entry("second", "model"), { path });
 
-    expect(readStash({ path })).toEqual([
+    expect(readPins({ path })).toEqual([
         entry("second", "model"),
         entry("first", "model"),
     ]);
 });
 
 function temporaryConfigPath(): string {
-    const directory = mkdtempSync(join(tmpdir(), "vera-stash-store-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-pinned-store-"));
     directories.push(directory);
     return join(directory, "config.json");
 }

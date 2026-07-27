@@ -2348,7 +2348,7 @@ export async function startTui(
             undefined,
             state.modelSettings?.provider,
             undefined,
-            state.modelSettings?.stash,
+            state.modelSettings?.pinned,
         );
         renderState();
         focusActiveSurface();
@@ -2567,16 +2567,16 @@ export async function startTui(
         ) {
             sessionTrashCandidate = transition.trashCandidate;
         }
-        if ("stashToggle" in transition && transition.stashToggle !== undefined) {
+        if ("pinToggle" in transition && transition.pinToggle !== undefined) {
             // The pane stays open and stays on the same row. It is not updated
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             sendCommand({
-                type: "update_stash",
+                type: "update_pin",
                 requestId: randomUUID(),
-                action: transition.stashToggle.action,
-                provider: transition.stashToggle.provider,
-                model: transition.stashToggle.model,
+                action: transition.pinToggle.action,
+                provider: transition.pinToggle.provider,
+                model: transition.pinToggle.model,
             });
         }
         if (transition.selection !== undefined) {

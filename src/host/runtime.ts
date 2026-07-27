@@ -11,8 +11,8 @@ import {
 import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
-import { stashedModels } from "../model/catalog-view.ts";
-import { addToStash, removeFromStash } from "../model/stash-store.ts";
+import { pinnedModels } from "../model/catalog-view.ts";
+import { addPin, removePin } from "../model/pin-store.ts";
 import {
     refreshCodexCatalog,
     type CodexCatalogRefreshOptions,
@@ -91,12 +91,12 @@ export async function startResidentHost(
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,
-        readStash: () => stashedModels(models),
-        updateStash: (action, entry) => {
+        readPins: () => pinnedModels(models),
+        updatePin: (action, entry) => {
             if (action === "add") {
-                addToStash(entry);
+                addPin(entry);
             } else {
-                removeFromStash(entry);
+                removePin(entry);
             }
         },
         updateModelDefaults: (settings) => {

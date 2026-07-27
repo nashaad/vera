@@ -156,7 +156,7 @@ export interface RunHeadlessLoopOptions {
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
-    readonly updateStash?: (
+    readonly updatePin?: (
         action: "add" | "remove",
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
@@ -287,9 +287,9 @@ export async function runHeadlessLoop(
         ...(options.updateModelSettings === undefined
             ? {}
             : { updateModelSettings: options.updateModelSettings }),
-        ...(options.updateStash === undefined
+        ...(options.updatePin === undefined
             ? {}
-            : { updateStash: options.updateStash }),
+            : { updatePin: options.updatePin }),
         readApprovalMode,
         readPermissionInspection,
         updateApprovalMode,

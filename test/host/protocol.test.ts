@@ -237,14 +237,14 @@ test("host protocol parses messages after attach", () => {
         patch: { reasoningEffort: "" },
     }))).toBeUndefined();
     expect(parseAttachedClientMessage(JSON.stringify({
-        type: "update_stash",
-        requestId: "stash-1",
+        type: "update_pin",
+        requestId: "pinned-1",
         action: "add",
         provider: "openai-codex",
         model: "gpt-5.6-sol",
     }))).toEqual({
-        type: "update_stash",
-        requestId: "stash-1",
+        type: "update_pin",
+        requestId: "pinned-1",
         action: "add",
         provider: "openai-codex",
         model: "gpt-5.6-sol",
@@ -256,8 +256,8 @@ test("host protocol parses messages after attach", () => {
         { action: "remove", provider: "openai-codex" },
     ]) {
         expect(parseAttachedClientMessage(JSON.stringify({
-            type: "update_stash",
-            requestId: "stash-invalid",
+            type: "update_pin",
+            requestId: "pinned-invalid",
             ...invalid,
         }))).toBeUndefined();
     }

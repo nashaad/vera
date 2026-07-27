@@ -38,7 +38,7 @@ import type {
 import type { SuggestedModel } from "../model/supported-models.ts";
 import {
     availableModelsWithLevels,
-    type StashedModel,
+    type PinnedModel,
 } from "../model/catalog-view.ts";
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
@@ -111,20 +111,20 @@ export interface AgentRegistryOptions {
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
     /**
-     * Read per settings snapshot, not once at startup: the stash is ordered by
+     * Read per settings snapshot, not once at startup: the pin list is ordered by
      * recency of use, so a snapshot taken when the host came up would freeze
      * that order for the life of the host.
      */
-    readonly readStash?: () => readonly StashedModel[];
+    readonly readPins?: () => readonly PinnedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     /**
-     * Writes the stash. Separate from `readStash` because the two have
+     * Writes the pin list. Separate from `readPins` because the two have
      * different lifetimes: reads happen on every snapshot, writes only when the
      * user asks, and only the write touches the user's config file.
      */
-    readonly updateStash?: (
+    readonly updatePin?: (
         action: "add" | "remove",
         entry: { readonly provider: string; readonly model: string },
     ) => void;
@@ -416,17 +416,17 @@ export class AgentRegistry {
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
             this.options.availableModels,
-            this.options.readStash?.(),
+            this.options.readPins?.(),
         );
     }
 
     /**
-     * Editing the stash never changes which model runs, so this returns the
-     * settings unchanged apart from the new stash. It refuses an unknown agent
+     * Editing the pin list never changes which model runs, so this returns the
+     * settings unchanged apart from the new pin list. It refuses an unknown agent
      * for the same reason every other command does: the reply is that agent's
      * snapshot, and there is none to send.
      */
-    async updateStash(
+    async updatePin(
         id: string,
         action: "add" | "remove",
         entry: { readonly provider: string; readonly model: string },
@@ -436,12 +436,12 @@ export class AgentRegistry {
             agentEntry === undefined
             || agentEntry.agent.closed
             || agentEntry.agent.failed
-            || this.options.updateStash === undefined
+            || this.options.updatePin === undefined
         ) {
             return undefined;
         }
 
-        this.options.updateStash(action, {
+        this.options.updatePin(action, {
             provider: entry.provider.trim(),
             model: entry.model.trim(),
         });
@@ -449,7 +449,7 @@ export class AgentRegistry {
             agentEntry.modelSettings,
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.options.availableModels,
-            this.options.readStash?.(),
+            this.options.readPins?.(),
         );
     }
 
@@ -676,12 +676,12 @@ export class AgentRegistry {
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.options.availableModels,
-                    this.options.readStash?.(),
+                    this.options.readPins?.(),
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
-                updateStash: (action, entry) =>
-                    this.updateStash(agent.id, action, entry),
+                updatePin: (action, entry) =>
+                    this.updatePin(agent.id, action, entry),
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
@@ -979,7 +979,7 @@ function settingsForClient(
     settings: ModelTurnSettings,
     provider: string,
     models: readonly SuggestedModel[] = availableModels(),
-    stash: readonly StashedModel[] = [],
+    pinned: readonly PinnedModel[] = [],
 ): ModelTurnSettings {
     const selected = models.find((model) =>
         model.provider === provider && model.model === settings.model
@@ -991,7 +991,7 @@ function settingsForClient(
             settings.model,
         ),
         availableModels: availableModelsWithLevels(models),
-        stash,
+        pinned,
         ...(selected?.contextWindow === undefined
             ? {}
             : { contextWindow: selected.contextWindow }),
