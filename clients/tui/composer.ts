@@ -19,7 +19,8 @@ interface CollapsedPaste {
 
 export class TuiComposer extends TextareaRenderable {
     private collapsedPastes: CollapsedPaste[] = [];
-    private lastSubmittedText?: string;
+    private submittedTexts: string[] = [];
+    private submittedTextIndex?: number;
     onImagePathPaste?: (path: string) => void;
 
     override handleKeyPress(key: Parameters<TextareaRenderable["handleKeyPress"]>[0]): boolean {
@@ -30,10 +31,16 @@ export class TuiComposer extends TextareaRenderable {
             && !key.meta
             && !key.super
             && !key.hyper
-            && this.plainText.length === 0
-            && this.lastSubmittedText !== undefined
+            && (this.plainText.length === 0 || this.submittedTextIndex !== undefined)
+            && this.submittedTexts.length > 0
         ) {
-            this.setComposerText(this.lastSubmittedText);
+            const nextIndex = this.submittedTextIndex === undefined
+                ? this.submittedTexts.length - 1
+                : (this.submittedTextIndex - 1 + this.submittedTexts.length)
+                    % this.submittedTexts.length;
+            this.submittedTextIndex = nextIndex;
+            this.setText(this.submittedTexts[nextIndex] ?? "");
+            this.cursorOffset = this.plainText.length;
             return true;
         }
         if (
@@ -90,12 +97,14 @@ export class TuiComposer extends TextareaRenderable {
 
     rememberSubmittedText(text: string): void {
         if (text.length > 0) {
-            this.lastSubmittedText = text;
+            this.submittedTexts.push(text);
+            this.submittedTextIndex = undefined;
         }
     }
 
     setComposerText(text: string): void {
         this.collapsedPastes = [];
+        this.submittedTextIndex = undefined;
         this.setText(text);
         // OpenTUI resets the editor cursor to offset 0 after setText(). Keep
         // completion and picker-driven text edits natural by placing it at
