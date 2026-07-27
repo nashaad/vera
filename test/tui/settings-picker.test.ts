@@ -659,40 +659,46 @@ function modelPickerWithPins(
     );
 }
 
-test("the model pane opens on All models, which lists what can run", async () => {
+test("the model pane opens on Pinned, in the order the user's own use produced", async () => {
     const state = modelPickerWithPins();
     const frame = await pickerFrame(state);
 
-    expect(state.tab).toBe("all");
-    // A pinned model that cannot run right now is not offered here: choosing it
-    // would be a dead end. It keeps its row on the Pinned tab.
-    expect(state.options.map((option) => option.model)).toEqual([
-        "z-ai/glm-5.2",
-        "moonshotai/kimi-k3",
-    ]);
-    expect(frame).toContain("All models");
-    expect(frame).toContain("Pinned");
-    expect(frame).not.toContain("not available right now");
-});
-
-test("⇥ moves to the Pinned tab, in the order the user's own use produced", async () => {
-    const state = modelPickerWithPins();
-    const pinnedTab = handleTuiSettingsPickerKey(state, { name: "tab" }).state;
-
-    expect(pinnedTab?.tab).toBe("pinned");
+    expect(state.tab).toBe("pinned");
     // Pin order, not provider order: the pin list is ordered by recency of use,
     // and sorting it by provider would throw that away.
-    expect(pinnedTab?.options.map((option) => option.model)).toEqual([
+    expect(state.options.map((option) => option.model)).toEqual([
         "gpt-5.6-sol",
         "z-ai/glm-5.2",
     ]);
     // An entry that cannot run right now stays in the list: the user put it
     // there, so only the user takes it out.
-    expect(await pickerFrame(pinnedTab!)).toContain("not available right now");
+    expect(frame).toContain("not available right now");
+    expect(frame).toContain("All models");
+    expect(frame).toContain("Pinned");
+});
+
+test("with nothing pinned the pane opens on All models", () => {
+    // An empty tab answers no question, so the pane falls back to the list that
+    // can always answer "which model do I switch to".
+    expect(modelPickerWithPins([]).tab).toBe("all");
+});
+
+test("⇥ moves to All models, which lists what can run", async () => {
+    const state = modelPickerWithPins();
+    const allTab = handleTuiSettingsPickerKey(state, { name: "tab" }).state;
+
+    expect(allTab?.tab).toBe("all");
+    // A pinned model that cannot run right now is not offered here: choosing it
+    // would be a dead end. It keeps its row on the Pinned tab.
+    expect(allTab?.options.map((option) => option.model)).toEqual([
+        "z-ai/glm-5.2",
+        "moonshotai/kimi-k3",
+    ]);
+    expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
     // And back, since with two tabs one key is enough for both directions.
-    expect(handleTuiSettingsPickerKey(pinnedTab!, { name: "tab" }).state?.tab)
-        .toBe("all");
+    expect(handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state?.tab)
+        .toBe("pinned");
 });
 
 test("no model appears twice, because a pin is a mark on its own row", () => {
@@ -709,17 +715,17 @@ test("no model appears twice, because a pin is a mark on its own row", () => {
 });
 
 test("a search reaches models on the other tab", () => {
-    const onAll = modelPickerWithPins();
-    const searched = handleTuiSettingsPickerKey(onAll, { name: "g" });
+    const onPinned = modelPickerWithPins();
+    const searched = handleTuiSettingsPickerKey(onPinned, { name: "k" });
 
-    expect(searched.state?.options.filter((option) =>
-        option.model === "z-ai/glm-5.2"
-    )).toHaveLength(1);
-    // gpt-5.6-sol is pinned and unavailable, so it has no row on All. Typing its
+    // kimi is runnable but not pinned, so it has no row on this tab. Typing its
     // name still finds it: the user is asking whether the model exists, not
     // whether it exists on the tab they happen to be standing on.
     expect(searched.state?.options.map((option) => option.model))
-        .toContain("gpt-5.6-sol");
+        .toContain("moonshotai/kimi-k3");
+    expect(searched.state?.options.filter((option) =>
+        option.model === "moonshotai/kimi-k3"
+    )).toHaveLength(1);
 
     // Clearing the query drops back to the tab's own list.
     const cleared = handleTuiSettingsPickerKey(
@@ -727,8 +733,8 @@ test("a search reaches models on the other tab", () => {
         { name: "backspace" },
     );
     expect(cleared.state?.options.map((option) => option.model)).toEqual([
+        "gpt-5.6-sol",
         "z-ai/glm-5.2",
-        "moonshotai/kimi-k3",
     ]);
 });
 
@@ -745,12 +751,8 @@ test("ctrl+s asks to pinned the highlighted model, and to unpin a pinned one", (
     // answers with a new snapshot.
     expect(kimi.state).toBe(state);
 
-    // The pane opens on All with the running model highlighted. The Pinned tab
-    // is one key away, and its first row is the most recently used pin.
-    const cursor = handleTuiSettingsPickerKey(
-        modelPickerWithPins(),
-        { name: "tab" },
-    ).state!;
+    // The pane opens on Pinned, whose first row is the most recently used pin.
+    const cursor = modelPickerWithPins();
 
     expect(cursor.options[cursor.selectedIndex]?.model).toBe("gpt-5.6-sol");
     expect(
@@ -764,17 +766,18 @@ test("ctrl+s asks to pinned the highlighted model, and to unpin a pinned one", (
 });
 
 test("the model picker footer names the action the highlighted row would take", async () => {
-    const onRunningModel = modelPickerWithPins();
+    const onPinnedRow = modelPickerWithPins();
+    expect(onPinnedRow.options[onPinnedRow.selectedIndex]?.model)
+        .toBe("gpt-5.6-sol");
+    expect(await pickerFrame(onPinnedRow)).toContain("^s unpin");
+
+    const onRunningModel = handleTuiSettingsPickerKey(
+        onPinnedRow,
+        { name: "tab" },
+    ).state!;
     expect(onRunningModel.options[onRunningModel.selectedIndex]?.model)
         .toBe("moonshotai/kimi-k3");
     expect(await pickerFrame(onRunningModel)).toContain("^s pin");
-
-    const onPinnedRow = handleTuiSettingsPickerKey(
-        onRunningModel,
-        { name: "tab" },
-    ).state!;
-    expect(onPinnedRow.options[0]?.model).toBe("gpt-5.6-sol");
-    expect(await pickerFrame(onPinnedRow)).toContain("^s unpin");
 });
 
 test("a settings snapshot rebuilds the open pane without moving the cursor", () => {
@@ -796,21 +799,23 @@ test("a settings snapshot rebuilds the open pane without moving the cursor", () 
     )?.pinnedRank).toBe(1);
 });
 
-test("a snapshot arriving on the Pinned tab leaves the user on it", () => {
-    const onPinnedTab = handleTuiSettingsPickerKey(
+test("a snapshot leaves the user on the tab they moved to", () => {
+    // The tab is the user's own place in the pane, so a rebuild must not drop
+    // them back onto the one it opens with mid-action.
+    const onAllTab = handleTuiSettingsPickerKey(
         modelPickerWithPins(),
         { name: "tab" },
     ).state!;
-    const synced = syncTuiModelPicker(onPinnedTab, {
+    const synced = syncTuiModelPicker(onAllTab, {
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
         availableModels,
         pinned: pinnedModels,
     });
 
-    expect(synced.tab).toBe("pinned");
+    expect(synced.tab).toBe("all");
     expect(synced.options.map((option) => option.model)).toEqual([
-        "gpt-5.6-sol",
         "z-ai/glm-5.2",
+        "moonshotai/kimi-k3",
     ]);
 });

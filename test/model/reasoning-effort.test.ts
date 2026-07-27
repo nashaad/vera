@@ -147,18 +147,21 @@ test("OpenRouter reasoning reads model capability metadata", async () => {
     });
 });
 
-test("OpenRouter reasoning rejects models without capability metadata", async () => {
+test("a model announcing no efforts runs with no level, not an error", async () => {
     const fetchRequest = async () => new Response(
         JSON.stringify({ data: [{ id: "provider/model" }] }),
         { status: 200 },
     );
 
-    await expect(resolveReasoningSelection(
+    // Most of OpenRouter's list is chat-only. Having no reasoning control is a
+    // fact about the model, not a failure to look one up, so the turn runs with
+    // no level specified rather than failing.
+    expect(await resolveReasoningSelection(
         "openrouter",
         "provider/model",
         "high",
         { fetch: fetchRequest },
-    )).rejects.toThrow("does not expose reasoning effort metadata");
+    )).toEqual({ requested: "high", inferred: true });
 });
 
 test("an unmapped model runs with no level specified instead of throwing", async () => {
