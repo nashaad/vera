@@ -714,6 +714,31 @@ test("no model appears twice, because a pin is a mark on its own row", () => {
     expect(glm?.pinnedRank).toBe(1);
 });
 
+test("a description stops short of the provider column instead of shearing into it", async () => {
+    const long = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "high",
+        "auto",
+        [{
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            label: "Kimi K3",
+            description:
+                "a description long enough to run the whole way across the card "
+                + "and into the column beside it",
+        }],
+        "default",
+        "openrouter",
+    );
+    // The provider column only shows during a search, which is where the two
+    // used to meet with no gap and read as one mangled word.
+    const searched = handleTuiSettingsPickerKey(long, { name: "k" }).state!;
+    const frame = await pickerFrame(searched);
+
+    expect(frame).toContain("…  openrouter");
+});
+
 test("a search reaches models on the other tab", () => {
     const onPinned = modelPickerWithPins();
     const searched = handleTuiSettingsPickerKey(onPinned, { name: "k" });
