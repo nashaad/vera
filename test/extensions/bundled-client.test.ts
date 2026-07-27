@@ -56,5 +56,22 @@ test("model presets are a default bundled extension with no private tier", () =>
     expect(configured?.enabled).toBe(true);
     expect(loadExtensionManifest(configured!.path).manifest.id)
         .toBe("vera.model-presets");
-    expect(bundledClientExtensionConfigs(["vera.model-presets"])).toEqual([]);
+    expect(
+        bundledClientExtensionConfigs(["vera.model-presets"]).map(
+            (config) => loadExtensionManifest(config.path).manifest.id,
+        ),
+    ).toEqual(["vera.reasoning-cycle"]);
+});
+
+test("reasoning cycle is a default bundled extension with no private tier", () => {
+    const configured = bundledClientExtensionConfigs([]).find(
+        (config) =>
+            loadExtensionManifest(config.path).manifest.id
+                === "vera.reasoning-cycle",
+    );
+
+    expect(configured?.enabled).toBe(true);
+    expect(bundledClientExtensionConfigs(["vera.reasoning-cycle"]).map(
+        (config) => loadExtensionManifest(config.path).manifest.id,
+    )).toEqual(["vera.model-presets"]);
 });

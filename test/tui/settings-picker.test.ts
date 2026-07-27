@@ -425,12 +425,14 @@ test("enter on a chained level pane folds the level into the model selection", (
         });
 });
 
-test("level pane pre-highlight falls back to the model's default level, then its top level", () => {
+test("level pane pre-highlight falls back to the model's default level, then a moderate one", () => {
     const withDefault = startTuiReasoningPicker(REASONING_LEVELS, "medium", "off");
     expect(withDefault.options[withDefault.selectedIndex]?.value).toBe("medium");
 
+    // Never "max": an unplaceable level does not arrive pre-highlighted on the
+    // most expensive row the model offers.
     const withoutDefault = startTuiReasoningPicker(REASONING_LEVELS, undefined, "off");
-    expect(withoutDefault.options[withoutDefault.selectedIndex]?.value).toBe("max");
+    expect(withoutDefault.options[withoutDefault.selectedIndex]?.value).toBe("medium");
 });
 
 test("the settings menu routes into permissions and its two entries", () => {

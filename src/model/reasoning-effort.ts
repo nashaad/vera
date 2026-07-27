@@ -84,7 +84,16 @@ export async function resolveReasoningSelection(
  * The rule mirrors the level pane's own pre-highlight rule on purpose, so
  * resolution and what the user sees highlighted are the same sentence: the
  * requested level if it is valid for this model, else the model's own
- * default, else its top level, else no level specified.
+ * default, else a moderate level, else no level specified.
+ *
+ * "Moderate" is deliberate and the fallback never lands on the top level.
+ * A word this model does not know says nothing about how hard the user wants
+ * it to think, and the cost of guessing wrong is asymmetric: silently
+ * promoting an unrecognised level to maximum reasoning spends the user's
+ * money and latency on an inference they never asked for. Providers
+ * themselves suggest a middle setting as the default, so that is what an
+ * unplaceable level settles on: a literal "medium" when the model has one,
+ * otherwise the middle of its own ladder.
  *
  * Exported so the TUI's level pane can compute its pre-highlight by calling
  * this directly rather than re-implementing the placement rule a second time.
@@ -104,10 +113,18 @@ export function inferReasoningSelection(
         return { requested, providerEffort: defaultLevel, inferred: true };
     }
 
-    const topLevel = supported.find((effort) => effort !== "none");
-    return topLevel === undefined
-        ? { requested, inferred: true }
-        : { requested, providerEffort: topLevel, inferred: true };
+    // "none" is a level a user chooses, never one they get handed by a
+    // fallback: settling someone on no reasoning at all is as wrong a guess
+    // as settling them on maximum.
+    const usable = supported.filter((effort) => effort !== "none");
+    if (usable.length === 0) {
+        return { requested, inferred: true };
+    }
+
+    const moderate = usable.includes("medium")
+        ? "medium"
+        : usable[Math.floor(usable.length / 2)] as string;
+    return { requested, providerEffort: moderate, inferred: true };
 }
 
 async function loadOpenRouterEfforts(

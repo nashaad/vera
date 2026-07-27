@@ -1,0 +1,10 @@
+{
+  "id": "vera.reasoning-cycle",
+  "version": "1.0.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "client.keybindings.register",
+    "client.model_settings"
+  ]
+}

@@ -157,6 +157,22 @@ export interface VeraClientExtensionModelSettings {
         signal?: AbortSignal,
     ): Promise<VeraClientModelSettingsUpdateResult>;
     onChanged(listener: VeraClientModelSettingsListener): VeraExtensionDisposer;
+    /**
+     * The current model's own reasoning levels, most capable first. Derived
+     * from `current().availableModels` by matching provider and model, the
+     * same lookup the TUI's own level pane does, so an extension never has
+     * to carry that filter itself. Empty when the model is unrecognised or
+     * has no reasoning control at all; that is not an error.
+     */
+    currentLevels(): readonly VeraClientReasoningLevel[];
+    /**
+     * Which of `currentLevels()` the model is actually sitting on, by id.
+     * This is not always `current().reasoningEffort`: that field holds what
+     * the user last asked for, which may be a word this model does not know,
+     * and placing it is a rule extensions must not re-derive. Undefined only
+     * when there is nothing to sit on, matching an empty `currentLevels()`.
+     */
+    currentLevel(): string | undefined;
 }
 
 export interface VeraClientPickerRow {

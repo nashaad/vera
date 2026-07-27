@@ -1,8 +1,10 @@
 import { pathToFileURL } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { inferReasoningSelection } from "../model/reasoning-effort.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import type {
+    VeraClientAvailableModel,
     VeraClientExtensionApi,
     VeraClientExtensionCommandHandler,
     VeraClientExtensionCommandSpec,
@@ -15,6 +17,7 @@ import type {
     VeraClientModelSettingsUpdateResult,
     VeraClientPickerRequest,
     VeraClientPickerResult,
+    VeraClientReasoningLevel,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
 import {
@@ -470,6 +473,16 @@ async function activateClientExtension(
                 disposers.push(unsubscribe);
                 return unsubscribe;
             },
+            currentLevels(): readonly VeraClientReasoningLevel[] {
+                requireAvailable();
+                requireCapability(CLIENT_MODEL_SETTINGS_CAPABILITY);
+                return currentModelLevels(options.modelSettings.current());
+            },
+            currentLevel(): string | undefined {
+                requireAvailable();
+                requireCapability(CLIENT_MODEL_SETTINGS_CAPABILITY);
+                return currentModelLevel(options.modelSettings.current());
+            },
         }),
         ui: Object.freeze({
             requestPicker(
@@ -881,6 +894,44 @@ function copySettingsUpdate(
     result: VeraClientModelSettingsUpdateResult,
 ): VeraClientModelSettingsUpdateResult {
     return structuredClone(result);
+}
+
+// A model missing from `availableModels` (unrecognised, or reached through
+// an escape hatch such as `/model <name>`) reads the same as a model with an
+// empty `levels` array: no facts about it have reached the client, so there
+// is nothing to cycle either way.
+function currentModelLevels(
+    settings: VeraClientModelSettingsSnapshot | undefined,
+): readonly VeraClientReasoningLevel[] {
+    const current = currentAvailableModel(settings);
+    return current === undefined ? [] : structuredClone(current.levels);
+}
+
+// Placement runs through `inferReasoningSelection` rather than a local match
+// so an extension sees exactly the level the turn will run at, and so this
+// rule stays stated in one place. `providerEffort` is absent only when the
+// model has no usable level, which is the same case as an empty level list.
+function currentModelLevel(
+    settings: VeraClientModelSettingsSnapshot | undefined,
+): string | undefined {
+    const current = currentAvailableModel(settings);
+    if (current === undefined || current.levels.length === 0) {
+        return undefined;
+    }
+    return inferReasoningSelection(
+        settings?.reasoningEffort ?? "",
+        current.levels.map((level) => level.id),
+        current.defaultLevel,
+    ).providerEffort;
+}
+
+function currentAvailableModel(
+    settings: VeraClientModelSettingsSnapshot | undefined,
+): VeraClientAvailableModel | undefined {
+    return (settings?.availableModels ?? []).find((candidate) =>
+        candidate.provider === settings?.provider
+        && candidate.model === settings?.model
+    );
 }
 
 function safelyReportFailure(
