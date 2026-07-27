@@ -39,6 +39,10 @@ export interface OpenModelPickerTuiCommandAction {
     readonly type: "open_model_picker";
 }
 
+export interface OpenPresetPickerTuiCommandAction {
+    readonly type: "open_preset_picker";
+}
+
 export interface OpenReasoningPickerTuiCommandAction {
     readonly type: "open_reasoning_picker";
 }
@@ -111,6 +115,7 @@ export type TuiCommandAction =
     | UpdateReasoningTuiCommandAction
     | UpdatePermissionsTuiCommandAction
     | OpenModelPickerTuiCommandAction
+    | OpenPresetPickerTuiCommandAction
     | OpenReasoningPickerTuiCommandAction
     | OpenPermissionsPickerTuiCommandAction
     | OpenPreferencesListTuiCommandAction
@@ -160,6 +165,7 @@ export interface TuiCommandDefinition {
     readonly prefixPriority?: "builtin" | "extension";
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
+        | OpenPresetPickerTuiCommandAction
         | OpenPreferencesListTuiCommandAction
         | OpenSettingsMenuTuiCommandAction
         | OpenCommandPaletteTuiCommandAction
@@ -193,6 +199,12 @@ const REASONING_COMMAND = {
     name: "reasoning",
     description: "Change reasoning effort for the next turn",
     usage: "/reasoning <off|low|medium|high|max>",
+} as const satisfies TuiCommandCatalogEntry;
+
+const PRESET_COMMAND = {
+    name: "preset",
+    description: "Save and switch between model presets",
+    usage: "/preset",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PERMISSIONS_COMMAND = {
@@ -247,6 +259,7 @@ export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     FORK_COMMAND,
     MODEL_COMMAND,
+    PRESET_COMMAND,
     REASONING_COMMAND,
     PERMISSIONS_COMMAND,
     SETTINGS_COMMAND,
@@ -495,6 +508,19 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
             group: "Settings",
             slashName: "model",
             action: { type: "open_model_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...PRESET_COMMAND,
+        action: { type: "open_preset_picker" },
+        palette: {
+            name: "preset",
+            label: "Model presets",
+            description: "save the current model, or switch to a saved one",
+            group: "Settings",
+            keyHint: "shift+tab",
+            slashName: "preset",
+            action: { type: "open_preset_picker" },
         },
     });
     registry.registerCommand({

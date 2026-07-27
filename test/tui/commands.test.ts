@@ -305,3 +305,19 @@ test("extension command results preserve their typed presentation", () => {
         },
     })).toBe("test.extension/check [warning]: check this");
 });
+
+test("the preset command opens the client-owned slot picker", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/preset")).toEqual({ type: "open_preset_picker" });
+    expect(registry.dispatch("/pres")).toEqual({ type: "open_preset_picker" });
+    expect(registry.dispatch("/pr")).toEqual({ type: "open_preset_picker" });
+
+    // /p was already ambiguous between /palette and /permissions, and adding
+    // /preset must not make any prefix that used to be unique start guessing.
+    expect(registry.suggestions("/p").map((command) => command.name))
+        .toEqual(["preset", "permissions", "palette"]);
+    expect(registry.dispatch("/p")).toBeUndefined();
+    expect(registry.dispatch("/pa")).toEqual({ type: "open_command_palette" });
+    expect(registry.dispatch("/pe")).toEqual({ type: "open_permissions_picker" });
+});
