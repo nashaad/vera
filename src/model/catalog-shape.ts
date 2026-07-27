@@ -1,10 +1,9 @@
 /**
  * The pinned on-disk fact shape for the model catalog (nash-50).
  *
- * One record, two sources: `config/models.json` ships with Vera and
- * `~/.vera/cache/<provider>.json` is written by provider discovery. Only the
- * cache carries `fetched_at`. Merging is a field overlay: the provider wins on
- * everything it supplies, Vera's file fills the gaps.
+ * One record, one source: `~/.vera/cache/<provider>.json`, written by provider
+ * discovery. Vera shipped a curated file alongside it once; the provider is the
+ * authority on its own model list, so the file only ever went stale (nash-58).
  */
 
 /**

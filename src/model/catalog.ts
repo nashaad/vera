@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 import {
     providerCatalogCacheDir,
@@ -10,10 +9,6 @@ import type {
     ProviderCatalog,
     ReasoningLevel,
 } from "./catalog-shape.ts";
-
-const CATALOG_PATH = fileURLToPath(
-    new URL("../../config/models.json", import.meta.url),
-);
 
 interface SourceModel {
     readonly id: string;
@@ -34,14 +29,7 @@ interface SourceCatalog {
 }
 
 export interface EffectiveCatalogOptions {
-    readonly curatedPath?: string;
     readonly cacheDir?: string;
-}
-
-export function loadCuratedCatalog(
-    path = CATALOG_PATH,
-): ProviderCatalog[] {
-    return loadCuratedSource(path).map(toProviderCatalog);
 }
 
 export function loadDiscoveryCatalog(
@@ -52,48 +40,26 @@ export function loadDiscoveryCatalog(
     return catalog === undefined ? undefined : toProviderCatalog(catalog);
 }
 
+/**
+ * What Vera knows about a provider's models. Discovery is the only source: a
+ * provider is the authority on its own model list, and a list shipped in the
+ * repo is out of date the day after it is written. A provider Vera has never
+ * discovered yields an empty catalog rather than an error, which is the honest
+ * answer to "what does this provider offer" before anyone has asked it.
+ */
 export function effectiveCatalog(
     provider: string,
     options: EffectiveCatalogOptions = {},
 ): ProviderCatalog {
-    const curated = loadCuratedSource(options.curatedPath)
-        .find((catalog) => catalog.provider === provider);
     const discovery = loadDiscoverySource(provider, options.cacheDir);
-    const models = new Map<string, SourceModel>();
-
-    for (const model of curated?.models ?? []) {
-        models.set(model.id, model);
-    }
-    for (const model of discovery?.models ?? []) {
-        const existing = models.get(model.id);
-        models.set(model.id, existing === undefined
-            ? model
-            : mergeSourceModels(existing, model));
-    }
-
     return {
         schema_version: 2,
         provider,
-        models: [...models.values()]
+        models: (discovery?.models ?? [])
             .map(toCatalogModel)
             .filter((model): model is CatalogModel => model !== undefined)
             .sort(compareModels),
     };
-}
-
-function loadCuratedSource(path = CATALOG_PATH): SourceCatalog[] {
-    try {
-        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-        if (!Array.isArray(value)) {
-            return [];
-        }
-        const catalogs = value.map(parseCatalog);
-        return catalogs.every(
-            (catalog): catalog is SourceCatalog => catalog !== undefined,
-        ) ? catalogs : [];
-    } catch {
-        return [];
-    }
 }
 
 function loadDiscoverySource(
@@ -182,78 +148,6 @@ function toProviderCatalog(catalog: SourceCatalog): ProviderCatalog {
             : { fetched_at: catalog.fetched_at }),
         models,
     };
-}
-
-function mergeSourceModels(
-    curated: SourceModel,
-    discovery: SourceModel,
-): SourceModel {
-    return {
-        id: discovery.id,
-        ...(discovery.label !== undefined
-            ? { label: discovery.label }
-            : curated.label !== undefined
-                ? { label: curated.label }
-                : {}),
-        ...(discovery.description !== undefined
-            ? { description: discovery.description }
-            : curated.description !== undefined
-                ? { description: curated.description }
-                : {}),
-        ...(discovery.order !== undefined
-            ? { order: discovery.order }
-            : curated.order !== undefined
-                ? { order: curated.order }
-                : {}),
-        ...(discovery.context_window !== undefined
-            ? { context_window: discovery.context_window }
-            : curated.context_window !== undefined
-                ? { context_window: curated.context_window }
-                : {}),
-        ...(discovery.tool_support !== undefined
-            ? { tool_support: discovery.tool_support }
-            : curated.tool_support !== undefined
-                ? { tool_support: curated.tool_support }
-                : {}),
-        ...(discovery.default_level !== undefined
-            ? { default_level: discovery.default_level }
-            : curated.default_level !== undefined
-                ? { default_level: curated.default_level }
-                : {}),
-        ...(discovery.levels !== undefined && discovery.levels.length > 0
-            ? { levels: mergeLevels(curated.levels ?? [], discovery.levels) }
-            : curated.levels !== undefined
-                ? { levels: curated.levels }
-                : {}),
-    };
-}
-
-/**
- * Discovery decides which levels exist: the set is atomic and never gains an
- * id curated didn't announce. Within that set, curated fills in a label or
- * description discovery left out, matched by level id. A curated level whose
- * id is absent from the discovery set is dropped, not carried forward.
- */
-function mergeLevels(
-    curated: readonly ReasoningLevel[],
-    discovery: readonly ReasoningLevel[],
-): readonly ReasoningLevel[] {
-    const curatedById = new Map(curated.map((level) => [level.id, level]));
-    return discovery.map((level) => {
-        const curatedLevel = curatedById.get(level.id);
-        if (curatedLevel === undefined) {
-            return level;
-        }
-        return {
-            id: level.id,
-            label: level.label,
-            ...(level.description !== undefined
-                ? { description: level.description }
-                : curatedLevel.description !== undefined
-                    ? { description: curatedLevel.description }
-                    : {}),
-        };
-    });
 }
 
 function toCatalogModel(model: SourceModel): CatalogModel | undefined {
