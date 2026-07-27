@@ -521,6 +521,11 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             label: "Change reasoning effort",
             description: "how much the model thinks before answering",
             group: "Settings",
+            // The binding belongs to the reasoning-cycle extension, not to
+            // this command. It is advertised here because a keybinding with no
+            // command of its own has nowhere else to appear, and a binding
+            // nobody can find is a binding nobody has.
+            keyHint: "ctrl+t",
             slashName: "reasoning",
             action: { type: "open_reasoning_picker" },
         },
