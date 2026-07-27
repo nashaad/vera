@@ -9,6 +9,7 @@ import {
     loadVeraConfig,
     updateVeraConfigDefaults,
 } from "../src/config.ts";
+import { addToStash, readStash } from "../src/model/stash-store.ts";
 
 test("Vera config loads the shared model choice", () => {
     const path = temporaryConfigPath();
@@ -458,6 +459,47 @@ test("switching providers clears a provider-specific fallback", () => {
         model: "local-model",
         fallback: undefined,
     });
+});
+
+test("updating the defaults preserves keys the config type does not model", () => {
+    // The stash store writes into the same file, under a key `VeraConfig` has
+    // no field for. Before this, changing model round-tripped the file through
+    // the type and silently erased the user's whole stash.
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        approval_mode: "ask",
+    }));
+    addToStash({ provider: "openai-codex", model: "gpt-5.6-sol" }, { path });
+
+    updateVeraConfigDefaults({ model: "some-other-model" }, { path });
+
+    expect(readStash({ path })).toEqual([
+        { provider: "openai-codex", model: "gpt-5.6-sol" },
+    ]);
+    expect(loadVeraConfig({ path }).model).toBe("some-other-model");
+});
+
+test("preserving unmodelled keys still allows a default to be cleared", () => {
+    // The typed update wins over the raw value even when it sets a field to
+    // undefined, so clearing is not a casualty of preserving unknown keys.
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "high",
+        approval_mode: "ask",
+        stash: ["openai-codex/gpt-5.6-sol"],
+    }));
+
+    updateVeraConfigDefaults({ reasoning_effort: null }, { path });
+
+    const written: unknown = JSON.parse(readFileSync(path, "utf8"));
+    expect(written).not.toHaveProperty("reasoning_effort");
+    expect(written).toHaveProperty("stash", ["openai-codex/gpt-5.6-sol"]);
 });
 
 function temporaryConfigPath(): string {
