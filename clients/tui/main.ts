@@ -1750,6 +1750,11 @@ export async function startTui(
                     );
                 }
                 if (update.type === "history") {
+                    composer.loadSubmittedTexts(
+                        update.entries
+                            .filter((entry) => entry.kind === "user")
+                            .map((entry) => entry.text),
+                    );
                     clearTranscriptNodes();
                 }
                 if (

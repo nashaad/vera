@@ -102,6 +102,11 @@ export class TuiComposer extends TextareaRenderable {
         }
     }
 
+    loadSubmittedTexts(texts: readonly string[]): void {
+        this.submittedTexts = texts.filter((text) => text.length > 0);
+        this.submittedTextIndex = undefined;
+    }
+
     setComposerText(text: string): void {
         this.collapsedPastes = [];
         this.submittedTextIndex = undefined;

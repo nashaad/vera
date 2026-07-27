@@ -228,3 +228,27 @@ test("Up cycles through submitted messages from an empty composer", async () => 
         setup.renderer.destroy();
     }
 });
+
+test("Up recalls user messages loaded from a resumed session", async () => {
+    const setup = await createTestRenderer({
+        width: 40,
+        height: 8,
+        kittyKeyboard: true,
+    });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        composer.loadSubmittedTexts([
+            "message from before resume",
+            "most recent resumed message",
+        ]);
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("most recent resumed message");
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("message from before resume");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
