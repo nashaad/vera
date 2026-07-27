@@ -757,6 +757,92 @@ test("a resumed agent restores its latest durable model settings", async () => {
     }
 });
 
+test("a resumed agent restores its own provider, not the current global default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-provider-resume-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const firstRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("unused")]),
+        provider: "openrouter",
+        model: "first-default",
+        approvalMode: "auto",
+    });
+
+    try {
+        const original = await firstRegistry.create({
+            id: "durable-provider-agent",
+            workspace: root,
+            sessionPath,
+            eventLogPath: join(root, "first-events.jsonl"),
+        });
+        const attachment = original.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "update_model_settings",
+            requestId: "persist-provider",
+            patch: {
+                provider: "ollama",
+                model: "chosen-model",
+            },
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: {
+                provider: "ollama",
+                model: "chosen-model",
+            },
+            pending: false,
+        });
+    } finally {
+        await firstRegistry.close();
+    }
+
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([textResponse("resumed reply")]);
+    const resumedRegistry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return faux.stream(request);
+            },
+        }),
+        provider: "openrouter",
+        model: "new-global-default",
+        approvalMode: "auto",
+    });
+    try {
+        const resumed = await resumedRegistry.resume({
+            sessionPath,
+            eventLogPath: join(root, "resumed-events.jsonl"),
+        });
+        const attachment = resumed.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "get_model_settings",
+            requestId: "read-restored-provider",
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: {
+                provider: "ollama",
+                model: "chosen-model",
+            },
+            pending: false,
+        });
+        // The routed request is what actually reaches an adapter, so the
+        // provider has to survive all the way to the turn, not only to the
+        // settings the client reads back.
+        await runPrompt(attachment, "continue", false);
+        expect(requests.map((request) => ({
+            provider: request.provider,
+            model: request.model,
+        }))).toEqual([{
+            provider: "ollama",
+            model: "chosen-model",
+        }]);
+    } finally {
+        await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a resumed agent restores its durable permissions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-permissions-resume-"));
     const sessionPath = join(root, "agent.jsonl");

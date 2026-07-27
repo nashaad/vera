@@ -526,6 +526,68 @@ test("model settings records restore the latest complete selection", async () =>
     expect(reopened.messages()).toEqual([]);
 });
 
+test("model settings persist the provider and survive reopening", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+        now: dates(
+            "2026-07-17T12:00:00.000Z",
+            "2026-07-17T12:00:01.000Z",
+        ),
+    });
+
+    await store.appendModelSettings({
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "medium",
+    });
+
+    expect(readLines(path).slice(1)).toEqual([
+        {
+            type: "model_settings",
+            timestamp: "2026-07-17T12:00:01.000Z",
+            settings: {
+                provider: "openai-codex",
+                model: "gpt-5.6-sol",
+                reasoningEffort: "medium",
+            },
+        },
+    ]);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.modelSettings()).toEqual({
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "medium",
+    });
+});
+
+test("model settings written before providers were persisted stay unrecorded", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    appendFileSync(path, `${JSON.stringify({
+        type: "model_settings",
+        timestamp: "2026-07-17T12:00:01.000Z",
+        settings: { model: "legacy-model", reasoningEffort: "high" },
+    })}\n`);
+
+    const reopened = await SessionStore.open(path);
+    const settings = reopened.modelSettings();
+    expect(settings).toEqual({
+        model: "legacy-model",
+        reasoningEffort: "high",
+    });
+    // The resume path distinguishes an unrecorded provider from a recorded
+    // one, so the key must be absent rather than present and undefined.
+    expect(Object.keys(settings ?? {})).not.toContain("provider");
+});
+
 test("session store rejects invalid model settings before writing", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

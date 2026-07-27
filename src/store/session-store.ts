@@ -586,6 +586,9 @@ export class SessionStore {
             type: "model_settings",
             timestamp: this.now().toISOString(),
             settings: {
+                ...(settings.provider === undefined
+                    ? {}
+                    : { provider: settings.provider.trim() }),
                 model: settings.model.trim(),
                 ...(settings.reasoningEffort === undefined
                     ? {}
@@ -1391,6 +1394,13 @@ function parseModelSettingsEntry(
         type: "model_settings",
         timestamp: value.timestamp,
         settings: {
+            // Entries written before providers were persisted have no
+            // provider. They stay absent here so the resume path can tell
+            // "unrecorded" from "recorded" and fall back to the default only
+            // for the former.
+            ...(settings.provider === undefined
+                ? {}
+                : { provider: settings.provider.trim() }),
             model: settings.model.trim(),
             ...(settings.reasoningEffort === undefined
                 ? {}
