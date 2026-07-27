@@ -220,6 +220,10 @@ test("Up cycles through submitted messages from an empty composer", async () => 
         expect(composer.plainText).toBe("first prompt");
         setup.mockInput.pressArrow("up");
         expect(composer.plainText).toBe("read the plan");
+        setup.mockInput.pressArrow("down");
+        expect(composer.plainText).toBe("first prompt");
+        setup.mockInput.pressArrow("down");
+        expect(composer.plainText).toBe("second prompt");
 
         composer.setComposerText("draft");
         setup.mockInput.pressArrow("up");
