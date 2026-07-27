@@ -91,16 +91,39 @@ export interface VeraClientModelSettingsSnapshot {
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
-    readonly availableModels?: readonly VeraClientSuggestedModel[];
+    readonly availableModels?: readonly VeraClientAvailableModel[];
+    /** The models the user keeps, most recently used first. */
+    readonly stash?: readonly VeraClientStashedModel[];
     readonly contextWindow?: number;
 }
 
-export interface VeraClientSuggestedModel {
+export interface VeraClientAvailableModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    /** Empty means the model has no reasoning control at all. */
+    readonly levels: readonly VeraClientReasoningLevel[];
+    readonly defaultLevel?: string;
+}
+
+export interface VeraClientStashedModel {
+    readonly provider: string;
+    readonly model: string;
+    readonly label: string;
+    /** False when the model cannot run right now, never a reason to omit it. */
+    readonly available: boolean;
+    readonly description?: string;
+    readonly contextWindow?: number;
+    readonly levels: readonly VeraClientReasoningLevel[];
+    readonly defaultLevel?: string;
+}
+
+export interface VeraClientReasoningLevel {
+    readonly id: string;
+    readonly label: string;
+    readonly description?: string;
 }
 
 export interface VeraClientModelSettingsPatch {

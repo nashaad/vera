@@ -26,6 +26,10 @@ import type {
     ModelReasoningEffort,
 } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
+import {
+    availableModelsWithLevels,
+    type StashedModel,
+} from "../model/catalog-view.ts";
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
     ApplyToolEffect,
@@ -94,6 +98,12 @@ export interface AgentRegistryOptions {
      */
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
+    /**
+     * Read per settings snapshot, not once at startup: the stash is ordered by
+     * recency of use, so a snapshot taken when the host came up would freeze
+     * that order for the life of the host.
+     */
+    readonly readStash?: () => readonly StashedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
@@ -371,6 +381,7 @@ export class AgentRegistry {
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
             this.options.availableModels,
+            this.options.readStash?.(),
         );
     }
 
@@ -579,6 +590,7 @@ export class AgentRegistry {
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.options.availableModels,
+                    this.options.readStash?.(),
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -772,10 +784,16 @@ function strongestReasoningEffort(
     return strongestFirst.find((effort) => efforts.includes(effort));
 }
 
+/**
+ * The levels are resolved here rather than where the runnable list is built,
+ * so every client sees the catalog as it is now, and a client can show the
+ * levels of a model the user is only looking at.
+ */
 function settingsForClient(
     settings: ModelTurnSettings,
     provider: string,
     models: readonly SuggestedModel[] = availableModels(),
+    stash: readonly StashedModel[] = [],
 ): ModelTurnSettings {
     const selected = models.find((model) =>
         model.provider === provider && model.model === settings.model
@@ -786,7 +804,8 @@ function settingsForClient(
             provider,
             settings.model,
         ),
-        availableModels: models,
+        availableModels: availableModelsWithLevels(models),
+        stash,
         ...(selected?.contextWindow === undefined
             ? {}
             : { contextWindow: selected.contextWindow }),

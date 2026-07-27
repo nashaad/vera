@@ -4,13 +4,27 @@ import {
     verifiedReasoningEfforts,
     type SuggestedModel,
 } from "../model/supported-models.ts";
+import type {
+    AvailableModel,
+    StashedModel,
+} from "../model/catalog-view.ts";
 
 export interface ModelTurnSettings {
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
+    /**
+     * The efforts the running model accepts, as flat strings. Kept alongside
+     * the per-model levels below until clients have moved onto them.
+     */
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
-    readonly availableModels?: readonly SuggestedModel[];
+    readonly availableModels?: readonly AvailableModel[];
+    /**
+     * The models the user keeps, most recently used first. Separate from
+     * `availableModels` because it answers a different question and carries
+     * entries that are not currently runnable.
+     */
+    readonly stash?: readonly StashedModel[];
     readonly contextWindow?: number;
 }
 
@@ -37,7 +51,10 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
                 && settings.availableReasoningEfforts.every(isModelReasoningEffort)))
         && (settings.availableModels === undefined
             || (Array.isArray(settings.availableModels)
-                && settings.availableModels.every(isSuggestedModel)))
+                && settings.availableModels.every(isAvailableModel)))
+        && (settings.stash === undefined
+            || (Array.isArray(settings.stash)
+                && settings.stash.every(isStashedModel)))
         && (settings.contextWindow === undefined
             || (Number.isSafeInteger(settings.contextWindow)
                 && (settings.contextWindow as number) > 0));
@@ -109,7 +126,15 @@ export function availableModels(): readonly SuggestedModel[] {
         }));
 }
 
-function isSuggestedModel(value: unknown): boolean {
+/**
+ * `levels` is required, and an entry without it is rejected rather than read
+ * as empty. Do not loosen this: empty already means "this model has no
+ * reasoning control at all", so accepting absent and normalising it would make
+ * a producer that forgot the field render every model with no levels at all.
+ * A rejected update is visible and debuggable; a silently missing level list
+ * is neither.
+ */
+function isAvailableModel(value: unknown): boolean {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;
     }
@@ -120,7 +145,44 @@ function isSuggestedModel(value: unknown): boolean {
         && typeof model.description === "string"
         && (model.contextWindow === undefined
             || (Number.isSafeInteger(model.contextWindow)
-                && (model.contextWindow as number) > 0));
+                && (model.contextWindow as number) > 0))
+        && isLevelList(model.levels)
+        && (model.defaultLevel === undefined
+            || typeof model.defaultLevel === "string");
+}
+
+function isStashedModel(value: unknown): boolean {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const model = value as Record<string, unknown>;
+    return typeof model.provider === "string"
+        && typeof model.model === "string"
+        && typeof model.label === "string"
+        && typeof model.available === "boolean"
+        && (model.description === undefined
+            || typeof model.description === "string")
+        && (model.contextWindow === undefined
+            || (Number.isSafeInteger(model.contextWindow)
+                && (model.contextWindow as number) > 0))
+        && isLevelList(model.levels)
+        && (model.defaultLevel === undefined
+            || typeof model.defaultLevel === "string");
+}
+
+function isLevelList(value: unknown): boolean {
+    return Array.isArray(value) && value.every(isReasoningLevel);
+}
+
+function isReasoningLevel(value: unknown): boolean {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const level = value as Record<string, unknown>;
+    return typeof level.id === "string"
+        && typeof level.label === "string"
+        && (level.description === undefined
+            || typeof level.description === "string");
 }
 
 export function isModelReasoningEffort(

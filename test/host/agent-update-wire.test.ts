@@ -154,6 +154,15 @@ test("host wire validates model settings results", () => {
         model: "z-ai/glm-5.2",
         label: "GLM-5.2",
         description: "fast fallback model",
+        levels: [{ id: "high", label: "High", description: "slow and careful" }],
+        defaultLevel: "high",
+    }];
+    const stash = [{
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        label: "gpt-5.6-sol",
+        available: false,
+        levels: [],
     }];
     expect(parseAgentUpdate({
         type: "model_settings",
@@ -162,6 +171,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
+            stash,
         },
         pending: true,
         seq: 8,
@@ -172,6 +182,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
+            stash,
         },
         pending: true,
         seq: 8,
@@ -180,6 +191,36 @@ test("host wire validates model settings results", () => {
         type: "model_settings",
         requestId: "settings-2",
         settings: { model: "next-model", reasoningEffort: "" },
+        pending: false,
+        seq: 9,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "model_settings",
+        requestId: "settings-2",
+        settings: {
+            model: "next-model",
+            availableModels: [{
+                provider: "openrouter",
+                model: "z-ai/glm-5.2",
+                label: "GLM-5.2",
+                description: "fast fallback model",
+            }],
+        },
+        pending: false,
+        seq: 9,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "model_settings",
+        requestId: "settings-2",
+        settings: {
+            model: "next-model",
+            stash: [{
+                provider: "openai-codex",
+                model: "gpt-5.6-sol",
+                label: "gpt-5.6-sol",
+                levels: [],
+            }],
+        },
         pending: false,
         seq: 9,
     })).toBeUndefined();

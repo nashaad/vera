@@ -821,6 +821,15 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
             : {
                 availableModels: settings.availableModels.map((model) => ({
                     ...model,
+                    levels: model.levels.map((level) => ({ ...level })),
+                })),
+            }),
+        ...(settings.stash === undefined
+            ? {}
+            : {
+                stash: settings.stash.map((model) => ({
+                    ...model,
+                    levels: model.levels.map((level) => ({ ...level })),
                 })),
             }),
     };
