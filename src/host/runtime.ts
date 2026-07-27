@@ -89,9 +89,10 @@ export async function startResidentHost(
             updateVeraConfigDefaults({
                 provider: settings.provider as VeraConfig["provider"],
                 model: settings.model,
-                ...(settings.reasoningEffort === undefined
-                    ? {}
-                    : { reasoning_effort: settings.reasoningEffort }),
+                // Explicitly null rather than omitted: settings that carry no
+                // effort mean the accepted model has none, so a stored default
+                // from an earlier model must not survive into the next session.
+                reasoning_effort: settings.reasoningEffort ?? null,
             });
         },
         updateApprovalDefault: (mode) => {

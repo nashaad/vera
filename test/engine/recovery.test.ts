@@ -163,6 +163,52 @@ test("engine recovery selects a fallback after consecutive overloads", async () 
     }]);
 });
 
+test("a fallback drops a reasoning effort its model cannot take", async () => {
+    const requests: ModelRequest[] = [];
+    const adapter = scriptedAdapter([
+        (stream, request) => {
+            requests.push(request);
+            fail(stream, overloadFailure);
+        },
+        (stream, request) => {
+            requests.push(request);
+            fail(stream, overloadFailure);
+        },
+        (stream, request) => {
+            requests.push(request);
+            succeed(stream, "fallback complete");
+        },
+    ]);
+
+    // The codex adapter throws for a model it has no reasoning profile for, so
+    // carrying "high" across would turn a recoverable overload into a failure.
+    await requestModelWithRecovery(
+        adapter,
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            reasoningEffort: "high",
+            messages: [],
+        },
+        {
+            fallback: { model: "gpt-5.6-codex", afterFailures: 2 },
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(requests.map((request) => ({
+        model: request.model,
+        reasoningEffort: request.reasoningEffort,
+    }))).toEqual([
+        { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        { model: "gpt-5.6-codex", reasoningEffort: undefined },
+    ]);
+});
+
 test("engine recovery requires consecutive overloads for fallback", async () => {
     const adapter = scriptedAdapter([
         (stream) => fail(stream, overloadFailure),

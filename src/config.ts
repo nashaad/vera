@@ -80,7 +80,8 @@ export interface LoadVeraConfigOptions {
 export interface VeraConfigDefaultsPatch {
     readonly provider?: VeraProviderId;
     readonly model?: string;
-    readonly reasoning_effort?: ModelReasoningEffort;
+    /** `null` clears the stored default, for a model that has no effort. */
+    readonly reasoning_effort?: ModelReasoningEffort | null;
     readonly approval_mode?: ApprovalMode;
 }
 
@@ -116,7 +117,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3. OpenAI Codex fallback requires reasoning_effort to be omitted.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
         );
     }
     return config;
@@ -134,10 +135,11 @@ export function updateVeraConfigDefaults(
         ...(patch.model === undefined ? {} : { model: patch.model }),
         ...(patch.reasoning_effort === undefined
             ? {}
-            : { reasoning_effort: patch.reasoning_effort }),
-        ...(patch.provider === "openai-codex"
-            ? { reasoning_effort: undefined }
-            : {}),
+            : {
+                reasoning_effort: patch.reasoning_effort === null
+                    ? undefined
+                    : patch.reasoning_effort,
+            }),
         ...(patch.approval_mode === undefined
             ? {}
             : { approval_mode: patch.approval_mode }),
@@ -249,9 +251,6 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && config.reasoning_effort !== "max")
         || !hasSelectedMode
         || (config.fallback !== undefined && fallback === undefined)
-        || (fallback !== undefined
-            && config.provider === "openai-codex"
-            && config.reasoning_effort !== undefined)
     ) {
         return undefined;
     }

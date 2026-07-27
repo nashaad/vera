@@ -214,7 +214,18 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return { ...state, modelSettings: update.settings };
     }
     if (update.type === "model_settings_rejected") {
-        return state;
+        // Every settings change is announced optimistically the moment it is
+        // sent, so swallowing the refusal leaves the transcript claiming a
+        // change that never happened. Only "invalid" is a refusal of what was
+        // asked for: "unavailable" means the engine is not wired to answer
+        // yet, which a reader can do nothing about and which fires during a
+        // normal startup read.
+        return update.reason === "invalid"
+            ? appendTuiNotice(
+                state,
+                "model settings change rejected: that combination is not supported",
+            )
+            : state;
     }
     if (update.type === "permissions") {
         return {

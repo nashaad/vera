@@ -8,6 +8,32 @@ import type {
     ModelRequest,
     ModelStreamEvent,
 } from "../model/types.ts";
+import { reasoningEffortForModel } from "./model-settings.ts";
+
+/**
+ * Drops a reasoning effort the fallback model cannot be asked for.
+ *
+ * A fallback stays on the same provider (`run-turn.ts` refuses one that does
+ * not), so the only way the effort becomes unaskable is a target with no
+ * efforts at all, which on `openai-codex` means a model absent from
+ * `MODEL_REASONING_PROFILES`. Carrying the effort there would turn a
+ * recoverable overload into a hard failure.
+ */
+function withSupportedReasoningEffort(
+    request: ModelRequest,
+    model: string,
+): ModelRequest {
+    const effort = reasoningEffortForModel(
+        request.provider,
+        model,
+        request.reasoningEffort,
+    );
+    if (effort === request.reasoningEffort) {
+        return request;
+    }
+    const { reasoningEffort: _dropped, ...supported } = request;
+    return supported;
+}
 
 export interface ModelRetryPolicy {
     readonly delaysMs: readonly number[];
@@ -178,7 +204,10 @@ export async function requestModelWithRecovery(
         if (fallback !== undefined) {
             options.onFallback(fallback);
             activeRequest = {
-                ...activeRequest,
+                ...withSupportedReasoningEffort(
+                    activeRequest,
+                    fallback.toModel,
+                ),
                 model: fallback.toModel,
             };
             fallbackSelected = true;

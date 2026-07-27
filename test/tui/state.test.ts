@@ -215,6 +215,31 @@ test("TUI state keeps host-reported model settings", () => {
     expect(state.entries).toEqual([]);
 });
 
+test("a refused settings change says so, an unwired engine does not", () => {
+    // The change was already announced optimistically when it was sent, so an
+    // "invalid" reply that stays silent leaves the transcript claiming it
+    // happened. "unavailable" fires during a normal startup read instead, and
+    // is not something a reader can act on.
+    const refused = applyAgentUpdate(createTuiState(), {
+        type: "model_settings_rejected",
+        requestId: "settings-1",
+        reason: "invalid",
+        seq: 1,
+    });
+    expect(refused.entries).toEqual([{
+        kind: "notice",
+        text: "model settings change rejected: that combination is not supported",
+    }]);
+
+    const unwired = applyAgentUpdate(createTuiState(), {
+        type: "model_settings_rejected",
+        requestId: "settings-2",
+        reason: "unavailable",
+        seq: 1,
+    });
+    expect(unwired.entries).toEqual([]);
+});
+
 test("TUI state keeps host-reported permissions", () => {
     const inspection = {
         selected: {

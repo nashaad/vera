@@ -1,4 +1,5 @@
 import type { ModelReasoningEffort } from "../model/types.ts";
+import { MODEL_REASONING_PROFILES } from "../model/reasoning-effort.ts";
 import {
     loadSupportedModelsCatalog,
     verifiedReasoningEfforts,
@@ -43,14 +44,67 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
                 && (settings.contextWindow as number) > 0));
 }
 
+const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [
+    "off",
+    "low",
+    "medium",
+    "high",
+    "max",
+];
+
+/**
+ * The efforts a provider can actually be asked for on this model.
+ *
+ * The optimistic fallback is only safe where the adapter can cope with an
+ * effort it has no mapping for. OpenRouter can: it looks the model up and
+ * infers a level. `openai-codex` cannot, so `resolveReasoningSelection` throws
+ * for a codex model that is absent from `MODEL_REASONING_PROFILES`, and
+ * offering an effort there would fail the turn rather than degrade it. Such a
+ * model therefore has no efforts to offer, and a mapped one has exactly the
+ * efforts its profile maps.
+ */
 export function availableReasoningEfforts(
     provider: string,
     model: string,
 ): readonly ModelReasoningEffort[] {
     const verified = verifiedReasoningEfforts(provider, model);
-    return verified.length > 0
-        ? verified
-        : ["off", "low", "medium", "high", "max"];
+    if (verified.length > 0) {
+        return verified;
+    }
+    if (provider === "openai-codex") {
+        const profile = MODEL_REASONING_PROFILES.find((candidate) => (
+            candidate.provider === provider && candidate.model === model
+        ));
+        return profile === undefined
+            ? []
+            : EVERY_REASONING_EFFORT.filter((effort) =>
+                profile.efforts[effort] !== undefined
+            );
+    }
+    return EVERY_REASONING_EFFORT;
+}
+
+/**
+ * The reasoning effort to carry onto a model the user did not choose: a
+ * fallback target, or settings restored from config.
+ *
+ * The test is emptiness rather than membership on purpose. A narrower list is
+ * the menu a person is offered, not the limit of what the adapter can resolve,
+ * and OpenRouter infers a level for an effort its catalog entry does not list.
+ * Only a model with no efforts at all cannot be asked, and asking anyway fails
+ * the request inside the adapter.
+ */
+export function reasoningEffortForModel(
+    provider: string | undefined,
+    model: string,
+    requested: ModelReasoningEffort | undefined,
+): ModelReasoningEffort | undefined {
+    if (requested === undefined || provider === undefined) {
+        return requested;
+    }
+    return availableReasoningEfforts(provider, model).length > 0
+        ? requested
+        : undefined;
 }
 
 export function availableModels(): readonly SuggestedModel[] {

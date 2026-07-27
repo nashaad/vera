@@ -290,7 +290,7 @@ test("Vera config rejects an unreachable or circular fallback", () => {
     }
 });
 
-test("OpenAI Codex fallback rejects an unmappable reasoning effort", () => {
+test("a codex fallback no longer forbids a reasoning effort outright", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
@@ -303,9 +303,15 @@ test("OpenAI Codex fallback rejects an unmappable reasoning effort", () => {
         },
     }));
 
-    expect(() => loadVeraConfig({ path })).toThrow(
-        "OpenAI Codex fallback requires reasoning_effort to be omitted",
-    );
+    // This combination used to fail the whole config, because a fallback model
+    // with no reasoning profile would carry the effort into the adapter and
+    // throw. Recovery now drops the effort at the moment it falls back, so the
+    // primary model keeps a dial it can genuinely use.
+    expect(loadVeraConfig({ path })).toMatchObject({
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "medium",
+    });
 });
 
 test("Vera config rejects a missing model", () => {
@@ -374,6 +380,46 @@ test("settings changes become defaults for newly created chats", () => {
         model: "z-ai/glm-5.2",
         reasoning_effort: "high",
         approval_mode: "ask",
+    });
+});
+
+test("a null reasoning effort clears the stored default", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "high",
+    }));
+
+    // Omitting the field keeps whatever is stored, which is right for a patch
+    // that is not about reasoning. Moving to a model that has no effort has to
+    // say so, or the stale default outlives the model it belonged to.
+    expect(updateVeraConfigDefaults({
+        model: "gpt-5.6-codex",
+        reasoning_effort: null,
+    }, { path })).toMatchObject({
+        model: "gpt-5.6-codex",
+        reasoning_effort: undefined,
+    });
+    expect(loadVeraConfig({ path }).reasoning_effort).toBeUndefined();
+});
+
+test("a codex default keeps a reasoning effort its model supports", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+    }));
+
+    expect(updateVeraConfigDefaults({
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoning_effort: "medium",
+    }, { path })).toMatchObject({
+        provider: "openai-codex",
+        reasoning_effort: "medium",
     });
 });
 
