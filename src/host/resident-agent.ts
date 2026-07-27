@@ -79,6 +79,7 @@ export class ResidentAgent {
     private isClosed = false;
     private pendingCommandCount = 0;
     private promptStarting = false;
+    private deliveryTurnQueued = false;
     private readonly maxPendingCommands: number;
     private readonly createAttachmentId: () => string;
 
@@ -104,8 +105,14 @@ export class ResidentAgent {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
                     }
-                    if (queued.command.type === "prompt") {
+                    if (
+                        queued.command.type === "prompt"
+                        || queued.command.type === "trigger_delivery_turn"
+                    ) {
                         this.promptStarting = true;
+                    }
+                    if (queued.command.type === "trigger_delivery_turn") {
+                        this.deliveryTurnQueued = false;
                     }
                     return queued.command;
                 });
@@ -225,6 +232,25 @@ export class ResidentAgent {
         const outgoing = this.attachments.get(ownerId);
         if (outgoing !== undefined && !this.isClosed) {
             outgoing.push(clone(reply));
+        }
+    }
+
+    triggerDeliveryTurn(): void {
+        if (this.isClosed || this.terminalFailure !== undefined) {
+            throw new ResidentAgentClosedError();
+        }
+        if (this.deliveryTurnQueued) {
+            return;
+        }
+        this.deliveryTurnQueued = true;
+        try {
+            this.inbound.push({
+                command: { type: "trigger_delivery_turn" },
+                countsTowardLimit: false,
+            });
+        } catch (error) {
+            this.deliveryTurnQueued = false;
+            throw error;
         }
     }
 
@@ -370,6 +396,9 @@ export class ResidentAgent {
         this.lastSequence = snapshot.seq;
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
+            if (snapshot.state === "working") {
+                this.promptStarting = false;
+            }
         } else if (snapshot.type === "user_prompt") {
             this.promptStarting = false;
             this.currentStatus = "working";
@@ -409,6 +438,7 @@ export class ResidentAgent {
         return this.isClosed || this.terminalFailure !== undefined || (
             this.currentStatus === "idle"
             && !this.promptStarting
+            && !this.deliveryTurnQueued
             && this.pendingCommandCount === 0
             && this.attachments.size === 0
         );

@@ -44,6 +44,7 @@ const config = {
                     ? new FauxAdapter([
                         backgroundToolResponse(),
                         textResponse("Background work started."),
+                        textResponse("I incorporated the background result."),
                     ])
                     : new FauxAdapter([
                         textResponse("All integration tests pass."),
@@ -79,13 +80,19 @@ const config = {
             const parentStore = await SessionStore.open(
                 join(sessionDirectory, "parent.jsonl"),
             );
-            expect(parentStore.pendingDeliveries()).toHaveLength(1);
+            await waitForAgent(
+                socketPath,
+                (agent) => agent.id === "parent" && agent.status === "idle",
+            );
+            expect((await SessionStore.open(
+                join(sessionDirectory, "parent.jsonl"),
+            )).pendingDeliveries()).toEqual([]);
 
             const parentEvents = await eventTypes(
                 join(eventLogDirectory, "parent.jsonl"),
             );
             expect(parentEvents.filter((type) => type === "model_request"))
-                .toHaveLength(2);
+                .toHaveLength(3);
             expect(parentEvents.filter((type) => type === "task_notification"))
                 .toHaveLength(1);
 
@@ -123,10 +130,6 @@ const config = {
         try {
             const parent = await attachAgent({ socketPath, agentId: "parent" });
             expect((await parent.receive()).type).toBe("history");
-            expect(await parent.receive()).toMatchObject({
-                type: "task_notification",
-                content: "All integration tests pass.",
-            });
             await parent.send({
                 type: "prompt",
                 content: "What did the background task report?",

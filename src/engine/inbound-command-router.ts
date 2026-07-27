@@ -93,15 +93,28 @@ export interface InboundTurn {
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
+    readonly triggeredByDelivery?: true;
 }
 
-interface QueuedPrompt {
-    readonly prompt: PromptCommand;
+interface QueuedTurnContext {
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
 }
 
+interface QueuedPrompt extends QueuedTurnContext {
+    readonly prompt: PromptCommand;
+    readonly triggeredByDelivery?: never;
+}
+
+interface QueuedDeliveryTurn extends QueuedTurnContext {
+    readonly prompt?: never;
+    readonly triggeredByDelivery: true;
+}
+
+type QueuedTurn = QueuedPrompt | QueuedDeliveryTurn;
+
 export interface InboundCommandRouterOptions {
+    readonly hasPendingDeliveryTurn?: () => boolean;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
@@ -135,13 +148,14 @@ export interface InboundCommandRouterOptions {
 }
 
 export class InboundCommandRouter {
-    private readonly prompts = new AsyncQueue<QueuedPrompt>();
+    private readonly prompts = new AsyncQueue<QueuedTurn>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
     private readonly pendingQuestions = new Map<string, PendingQuestion>();
     private waitingForPrompt = false;
     private activeTurn: AbortController | undefined;
     private receiveFailed = false;
     private pendingPromptCount = 0;
+    private deliveryTurnQueued = false;
 
     constructor(
         endpoint: MessageChannel<AgentUpdate, EngineCommand>,
@@ -157,17 +171,28 @@ export class InboundCommandRouter {
         }
 
         this.waitingForPrompt = true;
-        let queued: QueuedPrompt;
+        let queued: QueuedTurn;
         try {
-            queued = await this.prompts.receive();
-            this.pendingPromptCount -= 1;
+            while (true) {
+                queued = await this.prompts.receive();
+                this.pendingPromptCount -= 1;
+                if (
+                    queued.triggeredByDelivery !== true
+                    || this.options.hasPendingDeliveryTurn?.() !== false
+                ) {
+                    if (queued.triggeredByDelivery === true) {
+                        this.deliveryTurnQueued = false;
+                    }
+                    break;
+                }
+                this.deliveryTurnQueued = false;
+            }
         } finally {
             this.waitingForPrompt = false;
         }
         const controller = new AbortController();
         this.activeTurn = controller;
-        return {
-            prompt: queued.prompt,
+        const context = {
             signal: controller.signal,
             ...(queued.modelSettings === undefined
                 ? {}
@@ -176,6 +201,13 @@ export class InboundCommandRouter {
                 ? {}
                 : { approvalMode: queued.approvalMode }),
         };
+        return queued.triggeredByDelivery === true
+            ? {
+                ...context,
+                prompt: { type: "prompt", content: "" },
+                triggeredByDelivery: true,
+            }
+            : { ...context, prompt: queued.prompt };
     }
 
     finishTurn(): void {
@@ -326,6 +358,25 @@ export class InboundCommandRouter {
                 }
                 if (command.type === "timeline_owner_detached") {
                     this.options.detachTimelineOwner?.(command.ownerId);
+                    continue;
+                }
+                if (command.type === "trigger_delivery_turn") {
+                    if (this.deliveryTurnQueued) {
+                        continue;
+                    }
+                    this.deliveryTurnQueued = true;
+                    const settings = this.options.readModelSettings?.();
+                    const approvalMode = this.options.readApprovalMode?.();
+                    this.pendingPromptCount += 1;
+                    this.prompts.push({
+                        triggeredByDelivery: true,
+                        ...(settings === undefined
+                            ? {}
+                            : { modelSettings: copyModelSettings(settings) }),
+                        ...(approvalMode === undefined
+                            ? {}
+                            : { approvalMode }),
+                    });
                     continue;
                 }
                 if (isTimelineCommand(command)) {

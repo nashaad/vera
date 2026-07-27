@@ -6,7 +6,12 @@ import { join } from "node:path";
 import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
-import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import {
+    createInProcessChannel,
+    type MessageChannel,
+} from "../../src/engine/message-channel.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type { EngineCommand } from "../../src/engine/timeline-control.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { PermissionPreferenceStore } from "../../src/engine/permission-preferences.ts";
 import {
@@ -51,6 +56,65 @@ test("the inbound router queues prompts and aborts only the active turn", async 
         { type: "prompt_queued", content: "second" },
         { type: "abort_requested" },
     ]);
+});
+
+test("a delivery trigger waits behind the active turn without a fake prompt", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let deliveryPending = true;
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => deliveryPending,
+    });
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "user work" });
+    const active = await firstTurn;
+    expect(active.prompt.content).toBe("user work");
+
+    internalClient.send({ type: "trigger_delivery_turn" });
+    internalClient.send({ type: "trigger_delivery_turn" });
+    router.finishTurn();
+
+    const deliveryTurn = await router.startTurn();
+    expect(deliveryTurn.triggeredByDelivery).toBe(true);
+    expect(deliveryTurn.prompt.content).toBe("");
+    deliveryPending = false;
+    router.finishTurn();
+
+    channel.client.send({ type: "prompt", content: "next user turn" });
+    const next = await router.startTurn();
+    expect(next.prompt.content).toBe("next user turn");
+    expect(next.triggeredByDelivery).toBeUndefined();
+    router.finishTurn();
+});
+
+test("a user turn that drains a delivery cancels its queued wake", async () => {
+    const channel = createInProcessChannel();
+    const internalClient = channel.client as unknown as MessageChannel<
+        EngineCommand,
+        AgentUpdate
+    >;
+    let deliveryPending = true;
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        hasPendingDeliveryTurn: () => deliveryPending,
+    });
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "user work" });
+    internalClient.send({ type: "trigger_delivery_turn" });
+    const active = await firstTurn;
+    deliveryPending = false;
+    router.finishTurn();
+
+    const nextTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "after delivery" });
+    const next = await nextTurn;
+    expect(next.prompt.content).toBe("after delivery");
+    expect(next.triggeredByDelivery).toBeUndefined();
+    router.finishTurn();
 });
 
 test("the inbound router matches one approval response by request ID", async () => {

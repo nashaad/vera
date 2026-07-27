@@ -336,6 +336,19 @@ export class SessionStore {
         );
     }
 
+    hasUnansweredDeliveryTurn(): boolean {
+        const entries = this.activeEntries();
+        const lastDeliveryIndex = entries.findLastIndex(
+            (entry) => entry.deliveryId !== undefined,
+        );
+        if (lastDeliveryIndex === -1) return false;
+        return !entries.slice(lastDeliveryIndex + 1).some(
+            (entry) =>
+                entry.message.role === "assistant"
+                && entry.message.stopReason !== "tool_use",
+        );
+    }
+
     modelSettings(): ModelTurnSettings | undefined {
         const settings = this.modelSettingsEntries.at(-1)?.settings;
         return settings === undefined ? undefined : { ...settings };

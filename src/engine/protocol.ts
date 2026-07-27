@@ -768,6 +768,15 @@ export function createProtocolEncoder(
             });
             return;
         }
+        if (event.type === "delivery_turn_started") {
+            seq += 1;
+            sender.send({
+                type: "status",
+                state: "working",
+                seq,
+            });
+            return;
+        }
         if (event.type === "task_notification") {
             seq += 1;
             sender.send({
