@@ -19,6 +19,7 @@ export type TuiTranscriptEntryKind =
     | "thought"
     | "review"
     | "notice"
+    | "notification"
     | "diff";
 
 export interface TuiTextTranscriptEntry {
@@ -195,7 +196,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "task_notification") {
         return appendEntry(state, {
-            kind: "notice",
+            kind: "notification",
             text: `Background agent ${update.sourceAgentId} completed:\n${update.content}`,
         });
     }
