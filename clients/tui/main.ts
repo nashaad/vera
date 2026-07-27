@@ -19,8 +19,25 @@ import {
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
 import type { UserMessage } from "../../src/model/types.ts";
-import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
+import {
+    loadVeraConfig,
+    type VeraExtensionConfig,
+} from "../../src/config.ts";
+import {
+    bundledClientExtensionConfigs,
+    bundledClientExtensions,
+} from "../../src/extensions/bundled-client.ts";
 import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
+import {
+    startClientExtensionRegistry,
+    type ClientExtensionRegistry,
+} from "../../src/extensions/client-registry.ts";
+import type {
+    VeraClientModelSettingsPatch,
+    VeraClientModelSettingsUpdateResult,
+    VeraClientPickerRequest,
+    VeraClientPickerResult,
+} from "../../src/sdk/extensions.ts";
 import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import type {
     TuiTimelinePickerState,
@@ -65,7 +82,7 @@ import {
     type TuiHelpState,
 } from "./help.ts";
 import {
-    createBuiltinTuiCommandRegistry,
+    createConfiguredBuiltinTuiCommandRegistry,
     extensionCommandResultText,
     registerExtensionTuiCommands,
     renderTuiCommandSuggestions,
@@ -92,11 +109,13 @@ import {
     startTuiSettingsMenu,
     startTuiSettingsPicker,
     startTuiSessionPicker,
-    startTuiPresetPicker,
-    type TuiPresetPickerSelection,
+    startTuiExtensionPicker,
     type TuiSettingsMenuTarget,
+    type TuiAnySettingsPickerState,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
+    type TuiExtensionPickerAction,
+    type TuiExtensionPickerTransition,
 } from "./settings-picker.ts";
 import { renderPermissionInspection } from "./permission-inspection.ts";
 import {
@@ -145,18 +164,12 @@ import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
-    loadTuiModelPresets,
     loadTuiThemePreference,
-    saveTuiModelPresets,
+    loadTuiExtensionPreference,
+    deleteTuiExtensionPreference,
+    saveTuiExtensionPreference,
     saveTuiThemePreference,
 } from "./theme-preference.ts";
-import {
-    nextModelPresetSlot,
-    modelPresetLabel,
-    withModelPresetSlot,
-    type ModelPreset,
-    type ModelPresetSlots,
-} from "./model-presets.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
@@ -175,6 +188,25 @@ const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 
+function normalizedExtensionKey(key: {
+    readonly name: string;
+    readonly ctrl?: boolean;
+    readonly shift?: boolean;
+    readonly meta?: boolean;
+    readonly option?: boolean;
+    readonly super?: boolean;
+    readonly hyper?: boolean;
+}): string | undefined {
+    if (key.meta || key.option || key.super || key.hyper) {
+        return undefined;
+    }
+    const modifiers = [
+        ...(key.ctrl ? ["ctrl"] : []),
+        ...(key.shift ? ["shift"] : []),
+    ];
+    return [...modifiers, key.name].join("+");
+}
+
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
@@ -187,6 +219,8 @@ export interface TuiDependencies {
     readonly initialDraft?: TuiDraft;
     readonly sessionSwitchTimeoutMs?: number;
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
+    readonly disabledBuiltinExtensions?: readonly string[];
+    readonly clientExtensions?: readonly VeraExtensionConfig[];
 }
 
 export interface TuiDraft {
@@ -248,6 +282,7 @@ export async function startConfiguredTui(
     target: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
+    const config = loadVeraConfig();
     const host = await findOrStartResidentHost({
         ...(options.confirmBusyUpgrade === undefined
             ? {}
@@ -338,6 +373,15 @@ export async function startConfiguredTui(
                 ...(initialDraft === undefined
                     ? {}
                     : { initialDraft }),
+                ...(config.disabled_builtin_extensions === undefined
+                    ? {}
+                    : {
+                        disabledBuiltinExtensions:
+                            config.disabled_builtin_extensions,
+                    }),
+                ...(config.extensions === undefined
+                    ? {}
+                    : { clientExtensions: config.extensions }),
             });
             if (exit.nextClient !== undefined) {
                 preparedClient = exit.nextClient;
@@ -371,7 +415,6 @@ export async function startTui(
         ?? ((text: string) => copyTuiText(text, renderer));
     renderer.setTerminalTitle("Vera");
     let themeName = loadTuiThemePreference();
-    let modelPresets: ModelPresetSlots = loadTuiModelPresets();
     let activityAnimation = loadTuiActivityAnimationPreference();
     const activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
@@ -388,7 +431,26 @@ export async function startTui(
     let abortRequested = false;
     let pendingUiRequest: UiRequestUpdate | undefined;
     let timelinePicker: TuiTimelinePickerState | undefined;
-    let settingsPicker: TuiSettingsPickerState | undefined;
+    let settingsPicker: TuiAnySettingsPickerState | undefined;
+    let pendingExtensionPicker: {
+        readonly resolve: (result: VeraClientPickerResult) => void;
+        readonly reject: (error: unknown) => void;
+        readonly removeAbortListener: () => void;
+    } | undefined;
+    const pendingExtensionSettings = new Map<
+        string,
+        {
+            readonly resolve: (
+                result: VeraClientModelSettingsUpdateResult,
+            ) => void;
+            readonly reject: (error: unknown) => void;
+            readonly removeAbortListener: () => void;
+        }
+    >();
+    const extensionSettingsListeners = new Set<
+        (settings: NonNullable<typeof state.modelSettings>) => void
+    >();
+    let clientExtensionRegistry: ClientExtensionRegistry | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
     let help: TuiHelpState | undefined;
@@ -432,7 +494,56 @@ export async function startTui(
         }));
     }
     const finished = Promise.withResolvers<TuiExit>();
-    const commandRegistry = createBuiltinTuiCommandRegistry();
+    const disabledBuiltinExtensions =
+        dependencies.disabledBuiltinExtensions ?? [];
+    const commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
+        disabledBuiltinExtensions,
+    );
+    clientExtensionRegistry = await startClientExtensionRegistry({
+        extensions: [
+            ...bundledClientExtensionConfigs(disabledBuiltinExtensions),
+            ...(dependencies.clientExtensions ?? []),
+        ],
+        preferences: {
+            async get(namespace, key) {
+                return loadTuiExtensionPreference(namespace, key);
+            },
+            async set(namespace, key, value) {
+                saveTuiExtensionPreference(namespace, key, value);
+            },
+            async delete(namespace, key) {
+                deleteTuiExtensionPreference(namespace, key);
+            },
+        },
+        modelSettings: {
+            current: () => state.modelSettings,
+            update: requestExtensionModelSettingsUpdate,
+            subscribe(listener) {
+                extensionSettingsListeners.add(listener);
+                return () => {
+                    extensionSettingsListeners.delete(listener);
+                };
+            },
+        },
+        picker: {
+            request: (_extensionId, request, signal) =>
+                requestExtensionPicker(request, signal),
+        },
+        reservedCommandNames:
+            commandRegistry.registeredCommands().map(({ name }) => name),
+        reservedKeybindingKeys: [],
+        onFailure(failure) {
+            state = appendTuiNotice(
+                state,
+                `${failure.extensionId ?? failure.path}: ${failure.message}`,
+            );
+        },
+    });
+    registerExtensionTuiCommands(
+        commandRegistry,
+        clientExtensionRegistry.commands(),
+        "client",
+    );
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
         if (
@@ -605,7 +716,19 @@ export async function startTui(
     renderer.on(CliRenderEvents.DESTROY, () => {
         shuttingDown = true;
         clearInterval(statusTimer);
-        void client.detach().catch(() => client.close()).then(() => {
+        const picker = pendingExtensionPicker;
+        pendingExtensionPicker = undefined;
+        picker?.removeAbortListener();
+        picker?.resolve({ outcome: "cancelled" });
+        for (const pending of pendingExtensionSettings.values()) {
+            pending.removeAbortListener();
+            pending.reject(new Error("TUI is closing"));
+        }
+        pendingExtensionSettings.clear();
+        void Promise.resolve(clientExtensionRegistry?.close())
+            .catch(() => undefined)
+            .then(() => client.detach().catch(() => client.close()))
+            .then(() => {
             finished.resolve({
                 ...(nextClient === undefined
                     ? {}
@@ -615,7 +738,7 @@ export async function startTui(
                     ? {}
                     : { resumeSessionPath }),
             });
-        });
+            });
     });
 
     const statusTimer = setInterval(() => {
@@ -764,7 +887,9 @@ export async function startTui(
         }
 
         if (settingsPicker !== undefined) {
-            const transition = handleTuiSettingsPickerKey(settingsPicker, key);
+            const transition = settingsPicker.kind === "extension"
+                ? handleTuiSettingsPickerKey(settingsPicker, key)
+                : handleTuiSettingsPickerKey(settingsPicker, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -912,22 +1037,25 @@ export async function startTui(
             }
         }
 
-        // Shift+Tab cycles saved presets. The terminal sends it as its own
-        // sequence, so it never collides with the plain Tab completion above,
-        // and Vera has no plan mode competing for the key.
-        if (
-            key.name === "tab"
-            && key.shift
-            && !key.ctrl
-            && !key.meta
-            && !key.option
-            && !key.super
-            && !key.hyper
-            && !anyOverlayOpen()
-        ) {
+        const extensionKey = normalizedExtensionKey(key);
+        const extensionBinding = extensionKey === undefined
+            ? undefined
+            : clientExtensionRegistry?.keybindings().find((binding) =>
+                binding.keys.includes(extensionKey)
+            );
+        if (extensionBinding !== undefined && !anyOverlayOpen()) {
             key.preventDefault();
             key.stopPropagation();
-            cycleModelPreset();
+            void clientExtensionRegistry!.invokeKeybinding(
+                extensionBinding.id,
+                client.workspace ?? process.cwd(),
+            ).catch((error) => {
+                state = appendTuiNotice(
+                    state,
+                    error instanceof Error ? error.message : String(error),
+                );
+                renderState();
+            });
             return;
         }
 
@@ -1016,6 +1144,8 @@ export async function startTui(
             if (
                 (commandAction.origin === "direct"
                     && directExtension === undefined)
+                || (commandAction.origin === "client"
+                    && clientExtensionRegistry === undefined)
                 || (commandAction.origin === "host"
                     && client.runExtensionCommand === undefined)
             ) {
@@ -1035,6 +1165,12 @@ export async function startTui(
                     commandAction.command,
                     commandAction.argumentsText,
                 )
+                : commandAction.origin === "client"
+                ? clientExtensionRegistry!.invokeCommand(
+                    commandAction.command,
+                    commandAction.argumentsText,
+                    client.workspace ?? process.cwd(),
+                )
                 : invokeDirectClientExtensionCommand(
                     directExtension!,
                     commandAction.command,
@@ -1042,7 +1178,7 @@ export async function startTui(
                     { timeoutMs: DIRECT_EXTENSION_COMMAND_TIMEOUT_MS },
                 );
             void invocation.then((result) => {
-                if (shuttingDown) {
+                if (shuttingDown || result === undefined) {
                     return;
                 }
                 if (result.body.kind === "client_action") {
@@ -1124,11 +1260,6 @@ export async function startTui(
                 `reasoning change requested: ${commandAction.reasoningEffort}`,
             );
             renderState();
-            return;
-        }
-        if (commandAction?.type === "open_preset_picker") {
-            composer.clearComposer();
-            openPresetPicker();
             return;
         }
         if (commandAction?.type === "open_reasoning_picker") {
@@ -1553,8 +1684,41 @@ export async function startTui(
                     }
                     continue;
                 }
+                if (
+                    update.type === "model_settings"
+                    || update.type === "model_settings_rejected"
+                ) {
+                    const pending = pendingExtensionSettings.get(
+                        update.requestId,
+                    );
+                    if (pending !== undefined) {
+                        pendingExtensionSettings.delete(update.requestId);
+                        pending.removeAbortListener();
+                        pending.resolve(update.type === "model_settings"
+                            ? {
+                                status: "accepted",
+                                settings: update.settings,
+                            }
+                            : {
+                                status: "rejected",
+                                reason: update.reason,
+                            });
+                    }
+                }
                 observeActivity(update);
                 state = applyAgentUpdate(state, update);
+                if (
+                    update.type === "model_settings"
+                    && state.modelSettings !== undefined
+                ) {
+                    for (const listener of extensionSettingsListeners) {
+                        try {
+                            listener(structuredClone(state.modelSettings));
+                        } catch {
+                            // One extension listener cannot stop client updates.
+                        }
+                    }
+                }
                 if (update.type === "permissions" && preferencesList !== undefined) {
                     // How a removal becomes visible: the engine answers with a
                     // full refreshed inspection rather than an acknowledgement,
@@ -1621,6 +1785,95 @@ export async function startTui(
 
     function sendCommand(command: ClientCommand): void {
         void client.send(command).catch(reportConnectionError);
+    }
+
+    function requestExtensionModelSettingsUpdate(
+        patch: VeraClientModelSettingsPatch,
+        signal: AbortSignal,
+    ): Promise<VeraClientModelSettingsUpdateResult> {
+        if (signal.aborted) {
+            return Promise.reject(signal.reason);
+        }
+        const requestId = randomUUID();
+        return new Promise((resolve, reject) => {
+            const onAbort = (): void => {
+                pendingExtensionSettings.delete(requestId);
+                reject(signal.reason);
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            pendingExtensionSettings.set(requestId, {
+                resolve,
+                reject,
+                removeAbortListener: () =>
+                    signal.removeEventListener("abort", onAbort),
+            });
+            void client.send({
+                type: "update_model_settings",
+                requestId,
+                patch,
+            }).catch((error) => {
+                pendingExtensionSettings.delete(requestId);
+                signal.removeEventListener("abort", onAbort);
+                reject(error);
+            });
+        });
+    }
+
+    function requestExtensionPicker(
+        request: VeraClientPickerRequest,
+        signal: AbortSignal,
+    ): Promise<VeraClientPickerResult> {
+        if (signal.aborted) {
+            return Promise.reject(signal.reason);
+        }
+        if (pendingExtensionPicker !== undefined || anyOverlayOpen()) {
+            return Promise.reject(
+                new Error("Another client surface is already open"),
+            );
+        }
+        const supported = new Set(["enter", "s", "delete", "backspace"]);
+        const actions: TuiExtensionPickerAction[] = request.actions.flatMap(
+            (action) => action.keys.map((key) => {
+                if (!supported.has(key)) {
+                    throw new Error(
+                        `Unsupported extension picker key: ${key}`,
+                    );
+                }
+                return {
+                    id: action.id,
+                    key: key as TuiExtensionPickerAction["key"],
+                    label: action.label,
+                };
+            }),
+        );
+        settingsPicker = startTuiExtensionPicker(
+            request.title,
+            request.rows,
+            request.selectedId,
+            actions,
+        );
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+        return new Promise((resolve, reject) => {
+            const onAbort = (): void => {
+                if (pendingExtensionPicker?.resolve !== resolve) {
+                    return;
+                }
+                pendingExtensionPicker = undefined;
+                settingsPicker = undefined;
+                focusActiveSurface();
+                renderState();
+                reject(signal.reason);
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            pendingExtensionPicker = {
+                resolve,
+                reject,
+                removeAbortListener: () =>
+                    signal.removeEventListener("abort", onAbort),
+            };
+        });
     }
 
     async function loadExtensionCommands(): Promise<void> {
@@ -2026,69 +2279,6 @@ export async function startTui(
         focusActiveSurface();
     }
 
-    /**
-     * The three dials a preset holds, as they stand right now. Undefined until
-     * the engine has answered `get_model_settings`, since there is nothing to
-     * save or compare against before that.
-     */
-    function currentModelPreset(): ModelPreset | undefined {
-        const settings = state.modelSettings;
-        return settings?.provider === undefined
-                || settings.model === undefined
-                || settings.reasoningEffort === undefined
-            ? undefined
-            : {
-                provider: settings.provider,
-                model: settings.model,
-                reasoningEffort: settings.reasoningEffort,
-            };
-    }
-
-    function openPresetPicker(selectedIndex?: number): void {
-        const picker = startTuiPresetPicker(modelPresets, currentModelPreset());
-        // Reopening after a save or a clear keeps the cursor on the row that
-        // was just edited, instead of snapping back to whichever slot happens
-        // to match the live settings.
-        settingsPicker = selectedIndex === undefined
-            ? picker
-            : { ...picker, selectedIndex };
-        composer.blur();
-        renderState();
-        focusActiveSurface();
-    }
-
-    function applyModelPreset(preset: ModelPreset): void {
-        sendCommand({
-            type: "update_model_settings",
-            requestId: randomUUID(),
-            patch: {
-                provider: preset.provider,
-                model: preset.model,
-                reasoningEffort: preset.reasoningEffort,
-            },
-        });
-        // "requested", like the sibling model and reasoning notices: the engine
-        // still validates the combination and can reject it.
-        state = appendTuiNotice(
-            state,
-            `preset requested: ${modelPresetLabel(preset)}`,
-        );
-    }
-
-    function cycleModelPreset(): void {
-        const slot = nextModelPresetSlot(modelPresets, currentModelPreset());
-        const preset = slot === undefined ? undefined : modelPresets[slot];
-        if (preset == null) {
-            state = appendTuiNotice(
-                state,
-                "no other preset saved · /preset to save this one",
-            );
-        } else {
-            applyModelPreset(preset);
-        }
-        renderState();
-    }
-
     function openReasoningPicker(): void {
         // The engine reports an empty effort list for a model whose provider
         // has no mapping for one. A card with no rows is indistinguishable from
@@ -2210,7 +2400,6 @@ export async function startTui(
             return;
         }
         if (action.type === "open_model_picker") return openModelPicker();
-        if (action.type === "open_preset_picker") return openPresetPicker();
         if (action.type === "open_reasoning_picker") {
             return openReasoningPicker();
         }
@@ -2234,19 +2423,57 @@ export async function startTui(
     }
 
     function applySettingsPickerTransition(
-        transition: TuiSettingsPickerTransition,
+        transition:
+            | TuiSettingsPickerTransition
+            | TuiExtensionPickerTransition,
     ): void {
+        const extensionPickerWasOpen = settingsPicker?.kind === "extension";
         settingsPicker = transition.state;
-        if (transition.previewTheme !== undefined) {
+        if (
+            extensionPickerWasOpen
+            && transition.selection?.kind === "extension"
+        ) {
+            const pending = pendingExtensionPicker;
+            pendingExtensionPicker = undefined;
+            pending?.removeAbortListener();
+            pending?.resolve({
+                outcome: "selected",
+                rowId: transition.selection.rowId,
+                actionId: transition.selection.actionId,
+            });
+            settingsPickerView.box.visible = false;
+            focusActiveSurface();
+            renderState();
+            return;
+        } else if (
+            extensionPickerWasOpen
+            && transition.state === undefined
+            && transition.selection === undefined
+        ) {
+            const pending = pendingExtensionPicker;
+            pendingExtensionPicker = undefined;
+            pending?.removeAbortListener();
+            pending?.resolve({ outcome: "cancelled" });
+            settingsPickerView.box.visible = false;
+            focusActiveSurface();
+            renderState();
+            return;
+        }
+        if (
+            "previewTheme" in transition
+            && transition.previewTheme !== undefined
+        ) {
             void applySelectedTheme(transition.previewTheme, false);
         }
-        if (transition.trashCandidate !== undefined) {
+        if (
+            "trashCandidate" in transition
+            && transition.trashCandidate !== undefined
+        ) {
             sessionTrashCandidate = transition.trashCandidate;
         }
         if (transition.selection !== undefined) {
             const selection = transition.selection;
-            if (selection.kind === "preset") {
-                applyPresetSelection(selection);
+            if (selection.kind === "extension") {
                 return;
             }
             if (selection.kind === "model") {
@@ -2308,46 +2535,6 @@ export async function startTui(
         renderState();
     }
 
-    /**
-     * Applying closes the picker, the way every other picker's choice does.
-     * Saving and clearing keep it open and reopen it against the edited slots,
-     * so the row you just changed shows its new contents and a second slot can
-     * be filled without retyping the command.
-     */
-    function applyPresetSelection(selection: TuiPresetPickerSelection): void {
-        if (selection.intent === "apply") {
-            const preset = modelPresets[selection.slot];
-            settingsPicker = undefined;
-            settingsPickerView.box.visible = false;
-            if (preset != null) {
-                applyModelPreset(preset);
-            }
-            renderState();
-            focusActiveSurface();
-            return;
-        }
-        const preset = selection.intent === "clear"
-            ? null
-            : currentModelPreset();
-        if (preset === undefined) {
-            state = appendTuiNotice(state, "no model settings to save yet");
-        } else {
-            modelPresets = withModelPresetSlot(
-                modelPresets,
-                selection.slot,
-                preset,
-            );
-            saveTuiModelPresets(modelPresets);
-            state = appendTuiNotice(
-                state,
-                preset === null
-                    ? `slot ${selection.slot + 1} cleared`
-                    : `slot ${selection.slot + 1}: ${modelPresetLabel(preset)}`,
-            );
-        }
-        openPresetPicker(selection.slot);
-    }
-
     function beginSessionTrash(candidate: {
         readonly sessionId: string;
         readonly label: string;
@@ -2398,7 +2585,9 @@ export async function startTui(
                         );
                     } catch {
                         settingsPicker = removeSessionPickerOption(
-                            settingsPicker,
+                            settingsPicker?.kind === "extension"
+                                ? undefined
+                                : settingsPicker,
                             candidate.sessionId,
                         );
                     }

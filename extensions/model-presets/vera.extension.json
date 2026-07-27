@@ -1,0 +1,13 @@
+{
+  "id": "vera.model-presets",
+  "version": "1.0.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "client.commands.register",
+    "client.keybindings.register",
+    "client.preferences",
+    "client.model_settings",
+    "client.ui.picker"
+  ]
+}

@@ -23,11 +23,13 @@ import type {
 } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import { acquireHostStartupClaim } from "./startup-claim.ts";
-import type {
-    ExtensionCommandDescriptor,
+import {
+    ExtensionCommandUnavailableError,
+    InvalidExtensionCommandResultError,
+    parseExtensionCommandResult,
+    type ExtensionCommandDescriptor,
 } from "../extensions/commands.ts";
-import { parseExtensionCommandResult } from "../extensions/commands.ts";
-import { ExtensionRpcRemoteError } from "../extensions/rpc.ts";
+import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
 
 const MAX_REQUEST_BYTES = 64 * 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -744,23 +746,13 @@ function extensionCommandFailure(
         | "timeout"
         | "cancelled"
         | "invalid_result" = "handler_failed";
-    if (error instanceof ExtensionRpcRemoteError) {
-        if (error.code === "disposed" || error.code === "exited") {
-            reason = "unavailable";
-        } else if (error.code === "cancelled") {
-            reason = "cancelled";
-        } else if (error.code === "timeout") {
-            reason = "timeout";
-        } else {
-            reason = "handler_failed";
-        }
-    } else if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError") {
         reason = "cancelled";
-    } else if (/timed out/i.test(message)) {
+    } else if (error instanceof ExtensionOperationTimeoutError) {
         reason = "timeout";
-    } else if (/unavailable|no command named/i.test(message)) {
+    } else if (error instanceof ExtensionCommandUnavailableError) {
         reason = "unavailable";
-    } else if (/invalid result/i.test(message)) {
+    } else if (error instanceof InvalidExtensionCommandResultError) {
         reason = "invalid_result";
     }
     return {

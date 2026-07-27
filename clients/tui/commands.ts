@@ -1,6 +1,9 @@
 import { fg, StyledText, type TextChunk } from "@opentui/core";
 
 import type {
+    ClientExtensionCommandDescriptor,
+} from "../../src/extensions/client-registry.ts";
+import type {
     ExtensionCommandDescriptor,
     ExtensionCommandResult,
 } from "../../src/extensions/commands.ts";
@@ -37,10 +40,6 @@ export interface UpdatePermissionsTuiCommandAction {
 
 export interface OpenModelPickerTuiCommandAction {
     readonly type: "open_model_picker";
-}
-
-export interface OpenPresetPickerTuiCommandAction {
-    readonly type: "open_preset_picker";
 }
 
 export interface OpenReasoningPickerTuiCommandAction {
@@ -105,7 +104,7 @@ export interface RunExtensionTuiCommandAction {
     readonly command: string;
     readonly argumentsText: string;
     readonly source: string;
-    readonly origin: "direct" | "host";
+    readonly origin: "direct" | "client" | "host";
 }
 
 export type TuiCommandAction =
@@ -115,7 +114,6 @@ export type TuiCommandAction =
     | UpdateReasoningTuiCommandAction
     | UpdatePermissionsTuiCommandAction
     | OpenModelPickerTuiCommandAction
-    | OpenPresetPickerTuiCommandAction
     | OpenReasoningPickerTuiCommandAction
     | OpenPermissionsPickerTuiCommandAction
     | OpenPreferencesListTuiCommandAction
@@ -165,7 +163,6 @@ export interface TuiCommandDefinition {
     readonly prefixPriority?: "builtin" | "extension";
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
-        | OpenPresetPickerTuiCommandAction
         | OpenPreferencesListTuiCommandAction
         | OpenSettingsMenuTuiCommandAction
         | OpenCommandPaletteTuiCommandAction
@@ -199,12 +196,6 @@ const REASONING_COMMAND = {
     name: "reasoning",
     description: "Change reasoning effort for the next turn",
     usage: "/reasoning <off|low|medium|high|max>",
-} as const satisfies TuiCommandCatalogEntry;
-
-const PRESET_COMMAND = {
-    name: "preset",
-    description: "Save and switch between model presets",
-    usage: "/preset",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PERMISSIONS_COMMAND = {
@@ -259,7 +250,6 @@ export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     FORK_COMMAND,
     MODEL_COMMAND,
-    PRESET_COMMAND,
     REASONING_COMMAND,
     PERMISSIONS_COMMAND,
     SETTINGS_COMMAND,
@@ -381,7 +371,9 @@ export class TuiCommandRegistry {
 
 export function registerExtensionTuiCommands(
     registry: TuiCommandRegistry,
-    commands: readonly ExtensionCommandDescriptor[],
+    commands: readonly (
+        ExtensionCommandDescriptor | ClientExtensionCommandDescriptor
+    )[],
     origin: RunExtensionTuiCommandAction["origin"] = "host",
 ): void {
     const names = new Set(
@@ -394,6 +386,7 @@ export function registerExtensionTuiCommands(
         names.add(command.name);
     }
     for (const command of commands) {
+        const palette = "palette" in command ? command.palette : undefined;
         const run = (argumentsText: string): TuiCommandAction => ({
             type: "run_extension",
             command: command.name,
@@ -407,14 +400,14 @@ export function registerExtensionTuiCommands(
             usage: command.usage,
             prefixPriority: "extension",
             parse: run,
-            // An extension describes itself in one line and has no verb label of
-            // its own, so the description carries the row and the slash name
-            // stays visible in the right-hand column.
             palette: {
                 name: `extension:${command.source}:${command.name}`,
-                label: command.description,
-                description: "",
-                group: "Extensions",
+                label: palette?.label ?? command.description,
+                description: palette?.description ?? "",
+                group: palette?.group ?? "Extensions",
+                ...(palette?.keyHint === undefined
+                    ? {}
+                    : { keyHint: palette.keyHint }),
                 slashName: command.name,
                 action: run(""),
             },
@@ -471,6 +464,12 @@ export function tuiCommandSuggestionsText(styled: StyledText): string {
 }
 
 export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
+    return createConfiguredBuiltinTuiCommandRegistry([]);
+}
+
+export function createConfiguredBuiltinTuiCommandRegistry(
+    _disabledExtensionIds: readonly string[],
+): TuiCommandRegistry {
     const registry = new TuiCommandRegistry();
     registry.registerCommand({
         ...REWIND_COMMAND,
@@ -508,19 +507,6 @@ export function createBuiltinTuiCommandRegistry(): TuiCommandRegistry {
             group: "Settings",
             slashName: "model",
             action: { type: "open_model_picker" },
-        },
-    });
-    registry.registerCommand({
-        ...PRESET_COMMAND,
-        action: { type: "open_preset_picker" },
-        palette: {
-            name: "preset",
-            label: "Model presets",
-            description: "save the current model, or switch to a saved one",
-            group: "Settings",
-            keyHint: "shift+tab",
-            slashName: "preset",
-            action: { type: "open_preset_picker" },
         },
     });
     registry.registerCommand({

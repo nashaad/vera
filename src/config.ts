@@ -71,6 +71,7 @@ export interface VeraConfig {
         Record<string, PermissionMode>
     >;
     readonly extensions?: readonly VeraExtensionConfig[];
+    readonly disabled_builtin_extensions?: readonly string[];
 }
 
 export interface LoadVeraConfigOptions {
@@ -221,6 +222,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         modelCatalog?.reviewer_profiles ?? {},
     );
     const extensions = parseExtensionConfigs(config.extensions);
+    const disabledBuiltinExtensions = parseStringList(
+        config.disabled_builtin_extensions,
+    );
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -234,6 +238,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || modelCatalog === undefined
         || permissionModes === undefined
         || extensions === undefined
+        || disabledBuiltinExtensions === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
@@ -276,7 +281,30 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? {}
             : { permission_modes: permissionModes }),
         ...(config.extensions === undefined ? {} : { extensions }),
+        ...(config.disabled_builtin_extensions === undefined
+            ? {}
+            : {
+                disabled_builtin_extensions: disabledBuiltinExtensions,
+            }),
     };
+}
+
+function parseStringList(value: unknown): readonly string[] | undefined {
+    if (value === undefined) {
+        return [];
+    }
+    if (
+        !Array.isArray(value)
+        || !value.every((item) =>
+            typeof item === "string" && item.trim().length > 0
+        )
+    ) {
+        return undefined;
+    }
+    const normalized = value.map((item) => item.trim());
+    return new Set(normalized).size === normalized.length
+        ? normalized
+        : undefined;
 }
 
 function parseExtensionConfigs(

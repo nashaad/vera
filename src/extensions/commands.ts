@@ -39,15 +39,9 @@ export interface ExtensionCommandDescriptor {
     readonly source: string;
 }
 
-export interface ExtensionCommandDeclaration {
-    readonly handlerId: string;
-    readonly kind: "command";
-    readonly name: string;
-    readonly spec: {
-        readonly description: string;
-        readonly usage: string;
-    };
-}
+export class ExtensionCommandUnavailableError extends Error {}
+
+export class InvalidExtensionCommandResultError extends Error {}
 
 export function parseExtensionCommandBody(
     value: unknown,
@@ -103,65 +97,8 @@ export function parseExtensionCommandResult(
     };
 }
 
-export function parseExtensionCommandDeclarations(
-    value: unknown,
-): readonly ExtensionCommandDeclaration[] | undefined {
-    if (!Array.isArray(value)) {
-        return undefined;
-    }
-    const declarations: ExtensionCommandDeclaration[] = [];
-    const names = new Set<string>();
-    const handlerIds = new Set<string>();
-    for (const item of value) {
-        const declaration = parseDeclaration(item);
-        if (
-            declaration === undefined
-            || names.has(declaration.name)
-            || handlerIds.has(declaration.handlerId)
-        ) {
-            return undefined;
-        }
-        names.add(declaration.name);
-        handlerIds.add(declaration.handlerId);
-        declarations.push(declaration);
-    }
-    return declarations;
-}
-
 export function isExtensionCommandName(value: string): boolean {
     return /^[a-z][a-z0-9-]*$/.test(value);
-}
-
-function parseDeclaration(
-    value: unknown,
-): ExtensionCommandDeclaration | undefined {
-    if (
-        !isPlainObject(value)
-        || !hasExactKeys(
-            value,
-            ["handlerId", "kind", "name", "spec"],
-        )
-        || typeof value.handlerId !== "string"
-        || value.handlerId.length === 0
-        || value.kind !== "command"
-        || typeof value.name !== "string"
-        || !isExtensionCommandName(value.name)
-        || !isPlainObject(value.spec)
-        || !hasExactKeys(value.spec, ["description", "usage"])
-        || !isNonEmptyText(value.spec.description)
-        || !isNonEmptyText(value.spec.usage)
-    ) {
-        return undefined;
-    }
-    return {
-        handlerId: value.handlerId,
-        kind: "command",
-        name: value.name,
-        spec: {
-            description: value.spec.description,
-            usage: value.spec.usage,
-        },
-    };
 }
 
 function isNoticeLevel(

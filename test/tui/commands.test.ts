@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
     BUILTIN_COMMANDS,
     createBuiltinTuiCommandRegistry,
+    createConfiguredBuiltinTuiCommandRegistry,
     extensionCommandResultText,
     registerExtensionTuiCommands,
     renderTuiCommandSuggestions,
@@ -306,18 +307,24 @@ test("extension command results preserve their typed presentation", () => {
     })).toBe("test.extension/check [warning]: check this");
 });
 
-test("the preset command opens the client-owned slot picker", () => {
+test("preset is supplied by the bundled extension, not the core catalog", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
-    expect(registry.dispatch("/preset")).toEqual({ type: "open_preset_picker" });
-    expect(registry.dispatch("/pres")).toEqual({ type: "open_preset_picker" });
-    expect(registry.dispatch("/pr")).toEqual({ type: "open_preset_picker" });
-
-    // /p was already ambiguous between /palette and /permissions, and adding
-    // /preset must not make any prefix that used to be unique start guessing.
+    expect(registry.dispatch("/preset")).toBeUndefined();
     expect(registry.suggestions("/p").map((command) => command.name))
-        .toEqual(["preset", "permissions", "palette"]);
+        .toEqual(["permissions", "palette"]);
     expect(registry.dispatch("/p")).toBeUndefined();
     expect(registry.dispatch("/pa")).toEqual({ type: "open_command_palette" });
     expect(registry.dispatch("/pe")).toEqual({ type: "open_permissions_picker" });
+});
+
+test("the bundled preset can be explicitly disabled for a replacement", () => {
+    const registry = createConfiguredBuiltinTuiCommandRegistry([
+        "vera.model-presets",
+    ]);
+
+    expect(registry.dispatch("/preset")).toBeUndefined();
+    expect(registry.registeredPaletteActions().some(
+        (action) => action.name === "preset",
+    )).toBe(false);
 });

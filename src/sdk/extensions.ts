@@ -1,5 +1,6 @@
 import type { JsonValue } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
+import type { ModelReasoningEffort } from "../model/types.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
@@ -33,3 +34,166 @@ export interface VeraExtensionCommandRequest {
 export type VeraExtensionCommandHandler = (
     request: VeraExtensionCommandRequest,
 ) => ExtensionCommandBody | Promise<ExtensionCommandBody>;
+
+export interface VeraClientExtensionApi {
+    readonly config: JsonValue;
+    readonly commands: VeraClientExtensionCommands;
+    readonly preferences: VeraClientExtensionPreferences;
+    readonly modelSettings: VeraClientExtensionModelSettings;
+    readonly ui: VeraClientExtensionUi;
+    readonly keybindings: VeraClientExtensionKeybindings;
+    onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+export interface VeraClientExtensionModule {
+    activateClient(vera: VeraClientExtensionApi): void | Promise<void>;
+}
+
+export interface VeraClientExtensionCommands {
+    register(spec: VeraClientExtensionCommandSpec): void;
+}
+
+export interface VeraClientExtensionCommandSpec {
+    readonly name: string;
+    readonly description: string;
+    readonly usage: string;
+    readonly palette?: VeraClientExtensionPaletteEntry;
+    /** Human interaction owns the lifetime; TUI close still cancels it. */
+    readonly interactive?: boolean;
+    readonly run: VeraClientExtensionCommandHandler;
+}
+
+export interface VeraClientExtensionPaletteEntry {
+    readonly label: string;
+    readonly description?: string;
+    readonly group?: "Session" | "Settings" | "Extensions";
+    readonly keyHint?: string;
+}
+
+export interface VeraClientExtensionCommandRequest {
+    readonly argumentsText: string;
+    readonly workspace: string;
+    readonly signal: AbortSignal;
+}
+
+export type VeraClientExtensionCommandHandler = (
+    request: VeraClientExtensionCommandRequest,
+) => ExtensionCommandBody | void | Promise<ExtensionCommandBody | void>;
+
+export interface VeraClientExtensionPreferences {
+    get(key: string): Promise<JsonValue | undefined>;
+    set(key: string, value: JsonValue): Promise<void>;
+    delete(key: string): Promise<void>;
+}
+
+export interface VeraClientModelSettingsSnapshot {
+    readonly provider?: string;
+    readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+    readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
+    readonly availableModels?: readonly VeraClientSuggestedModel[];
+    readonly contextWindow?: number;
+}
+
+export interface VeraClientSuggestedModel {
+    readonly provider: string;
+    readonly model: string;
+    readonly label: string;
+    readonly description: string;
+    readonly contextWindow?: number;
+}
+
+export interface VeraClientModelSettingsPatch {
+    readonly provider?: string;
+    readonly model?: string;
+    readonly reasoningEffort?: ModelReasoningEffort | null;
+}
+
+export interface VeraClientModelSettingsAccepted {
+    readonly status: "accepted";
+    readonly settings: VeraClientModelSettingsSnapshot;
+}
+
+export interface VeraClientModelSettingsRejected {
+    readonly status: "rejected";
+    readonly reason: "invalid" | "unavailable";
+}
+
+export type VeraClientModelSettingsUpdateResult =
+    | VeraClientModelSettingsAccepted
+    | VeraClientModelSettingsRejected;
+
+export type VeraClientModelSettingsListener = (
+    settings: VeraClientModelSettingsSnapshot,
+) => void;
+
+export interface VeraClientExtensionModelSettings {
+    current(): VeraClientModelSettingsSnapshot | undefined;
+    update(
+        patch: VeraClientModelSettingsPatch,
+        signal?: AbortSignal,
+    ): Promise<VeraClientModelSettingsUpdateResult>;
+    onChanged(listener: VeraClientModelSettingsListener): VeraExtensionDisposer;
+}
+
+export interface VeraClientPickerRow {
+    readonly id: string;
+    readonly label: string;
+    readonly description?: string;
+    readonly meta?: string;
+    readonly current?: boolean;
+}
+
+export interface VeraClientPickerAction {
+    readonly id: string;
+    readonly label: string;
+    readonly keys: readonly string[];
+}
+
+export interface VeraClientPickerRequest {
+    readonly title: string;
+    readonly rows: readonly VeraClientPickerRow[];
+    readonly selectedId?: string;
+    readonly actions: readonly VeraClientPickerAction[];
+}
+
+export interface VeraClientPickerSelection {
+    readonly outcome: "selected";
+    readonly rowId: string;
+    readonly actionId: string;
+}
+
+export interface VeraClientPickerCancellation {
+    readonly outcome: "cancelled";
+}
+
+export type VeraClientPickerResult =
+    | VeraClientPickerSelection
+    | VeraClientPickerCancellation;
+
+export interface VeraClientExtensionUi {
+    requestPicker(
+        request: VeraClientPickerRequest,
+        signal?: AbortSignal,
+    ): Promise<VeraClientPickerResult>;
+}
+
+export interface VeraClientExtensionKeybindings {
+    register(spec: VeraClientExtensionKeybindingSpec): void;
+}
+
+export interface VeraClientExtensionKeybindingSpec {
+    readonly id: string;
+    readonly description: string;
+    readonly keys: readonly string[];
+    readonly run: VeraClientExtensionKeybindingHandler;
+}
+
+export interface VeraClientExtensionKeybindingRequest {
+    readonly workspace: string;
+    readonly signal: AbortSignal;
+}
+
+export type VeraClientExtensionKeybindingHandler = (
+    request: VeraClientExtensionKeybindingRequest,
+) => void | Promise<void>;

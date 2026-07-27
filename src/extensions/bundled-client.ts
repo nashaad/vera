@@ -1,9 +1,28 @@
+import { fileURLToPath } from "node:url";
+
 import {
     CLIENT_EXTENSION_RESULT_VERSION,
     type DirectClientExtension,
 } from "./client.ts";
+import type { ClientExtensionConfig } from "./client-registry.ts";
 
 const HELP_EXTENSION_ID = "vera.help";
+const MODEL_PRESETS_EXTENSION_ID = "vera.model-presets";
+
+export function bundledClientExtensionConfigs(
+    disabledIds: readonly string[],
+): readonly ClientExtensionConfig[] {
+    return disabledIds.includes(MODEL_PRESETS_EXTENSION_ID)
+        ? []
+        : [{
+            path: fileURLToPath(new URL(
+                "../../extensions/model-presets",
+                import.meta.url,
+            )),
+            enabled: true,
+            config: {},
+        }];
+}
 
 export function bundledClientExtensions(): readonly DirectClientExtension[] {
     return [{

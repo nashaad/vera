@@ -8,9 +8,12 @@ import {
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
     loadTuiModelPresets,
+    loadTuiExtensionPreference,
     loadTuiThemePreference,
     saveTuiActivityAnimationPreference,
     saveTuiModelPresets,
+    saveTuiExtensionPreference,
+    deleteTuiExtensionPreference,
     saveTuiThemePreference,
 } from "../../clients/tui/theme-preference.ts";
 import { emptyModelPresetSlots } from "../../clients/tui/model-presets.ts";
@@ -99,6 +102,11 @@ test("model presets persist beside the other client preferences", () => {
         null,
         null,
     ]);
+    expect(loadTuiExtensionPreference(
+        "vera.model-presets",
+        "slots",
+        path,
+    )).toEqual(JSON.parse(readFileSync(path, "utf8")).model_presets);
 
     saveTuiModelPresets(emptyModelPresetSlots(), path);
     expect(loadTuiModelPresets(path)).toEqual([null, null, null, null]);
@@ -114,4 +122,37 @@ test("saving an unrelated preference does not add an empty preset block", () => 
         theme: "orng",
         animation: "conveyor",
     });
+});
+
+test("extension preferences are isolated and share the atomic client file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-extension-"));
+    const path = join(directory, "tui.json");
+
+    saveTuiThemePreference("github", path);
+    saveTuiExtensionPreference("first.extension", "slots", [1, 2], path);
+    saveTuiExtensionPreference("second.extension", "slots", ["other"], path);
+
+    expect(loadTuiExtensionPreference(
+        "first.extension",
+        "slots",
+        path,
+    )).toEqual([1, 2]);
+    expect(loadTuiExtensionPreference(
+        "second.extension",
+        "slots",
+        path,
+    )).toEqual(["other"]);
+    expect(loadTuiThemePreference(path)).toBe("github");
+
+    deleteTuiExtensionPreference("first.extension", "slots", path);
+    expect(loadTuiExtensionPreference(
+        "first.extension",
+        "slots",
+        path,
+    )).toBeUndefined();
+    expect(loadTuiExtensionPreference(
+        "second.extension",
+        "slots",
+        path,
+    )).toEqual(["other"]);
 });

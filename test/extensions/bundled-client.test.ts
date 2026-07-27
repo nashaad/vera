@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
+import {
+    bundledClientExtensionConfigs,
+    bundledClientExtensions,
+} from "../../src/extensions/bundled-client.ts";
+import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import {
     invokeDirectClientExtensionCommand,
     type DirectClientExtension,
@@ -44,4 +48,13 @@ test("direct client extension calls have a fixed deadline", async () => {
         "",
         { timeoutMs: 10 },
     )).rejects.toThrow("timed out after 10ms");
+});
+
+test("model presets are a default bundled extension with no private tier", () => {
+    const [configured] = bundledClientExtensionConfigs([]);
+
+    expect(configured?.enabled).toBe(true);
+    expect(loadExtensionManifest(configured!.path).manifest.id)
+        .toBe("vera.model-presets");
+    expect(bundledClientExtensionConfigs(["vera.model-presets"])).toEqual([]);
 });
