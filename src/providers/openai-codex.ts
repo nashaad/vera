@@ -83,7 +83,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 tool_choice: "auto",
                 parallel_tool_calls: false,
                 reasoning: {
-                    ...(reasoning === undefined
+                    ...(reasoning?.providerEffort === undefined
                         ? {}
                         : { effort: reasoning.providerEffort }),
                     summary: "auto",

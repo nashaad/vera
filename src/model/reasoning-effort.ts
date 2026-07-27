@@ -6,62 +6,45 @@ export type ProviderReasoningEffort = string;
 
 export interface ReasoningSelection {
     readonly requested: ModelReasoningEffort;
-    readonly providerEffort: ProviderReasoningEffort;
+    // Absent means the model has no known levels: the turn runs with no
+    // level specified rather than guessing one.
+    readonly providerEffort?: ProviderReasoningEffort;
     readonly inferred: boolean;
-}
-
-export interface ModelReasoningProfile {
-    readonly provider: ReasoningProvider;
-    readonly model: string;
-    readonly efforts: Readonly<Record<
-        ModelReasoningEffort,
-        ProviderReasoningEffort
-    >>;
 }
 
 export interface ResolveReasoningOptions {
     readonly fetch?: FetchRequest;
+    // The model's own level ids, most capable first. This is the seam a
+    // catalog loader (any provider) plugs a level list into without this
+    // module needing to know how that list was read.
     readonly supportedEfforts?: readonly string[];
+    // The model's own default level, used when the requested level is not
+    // one of its own. Matches `CatalogModel.default_level`.
+    readonly defaultLevel?: string;
 }
 
 export interface FetchRequest {
     (input: string | URL | Request, init?: RequestInit): Promise<Response>;
 }
 
-export const MODEL_REASONING_PROFILES: readonly ModelReasoningProfile[] = [
-    {
-        provider: "openai-codex",
-        model: "gpt-5.6-sol",
-        efforts: {
-            off: "none",
-            low: "low",
-            medium: "medium",
-            high: "high",
-            max: "xhigh",
-        },
-    },
-    {
-        provider: "openrouter",
-        model: "anthropic/claude-sonnet-5",
-        efforts: {
-            off: "none",
-            low: "low",
-            medium: "medium",
-            high: "high",
-            max: "max",
-        },
-    },
-];
-
-const VERA_ORDER: readonly Exclude<ModelReasoningEffort, "off">[] = [
-    "low",
-    "medium",
-    "high",
-    "max",
-];
-
 const openRouterEffortRequests = new Map<string, Promise<readonly string[]>>();
 
+/**
+ * Resolves what a model should actually be asked for.
+ *
+ * A verified catalog entry (today, OpenRouter models only) wins outright.
+ * Otherwise, when the caller supplies the model's own level list through
+ * `options.supportedEfforts`, that list is placed against the requested
+ * level with no network call: this is the seam any future catalog loader,
+ * for any provider, plugs a level list into.
+ *
+ * OpenRouter additionally falls back to a live discovery fetch when no
+ * level list is supplied, matching its existing behaviour.
+ *
+ * A (provider, model) with no known level list at all is not an error: it
+ * runs with no level specified, since a model can't be asked for a level it
+ * has never announced.
+ */
 export async function resolveReasoningSelection(
     provider: ReasoningProvider,
     model: string,
@@ -80,61 +63,54 @@ export async function resolveReasoningSelection(
             };
         }
     }
-    const profile = MODEL_REASONING_PROFILES.find((candidate) => (
-        candidate.provider === provider && candidate.model === model
-    ));
-    if (profile !== undefined) {
-        return {
-            requested,
-            providerEffort: profile.efforts[requested],
-            inferred: false,
-        };
-    }
-
-    if (provider !== "openrouter") {
-        throw new Error(`No reasoning effort mapping for ${provider}:${model}`);
-    }
 
     const supportedEfforts = options.supportedEfforts
-        ?? await loadOpenRouterEfforts(model, options.fetch ?? globalThis.fetch);
-    return inferReasoningSelection(model, requested, supportedEfforts);
+        ?? (provider === "openrouter"
+            ? await loadOpenRouterEfforts(model, options.fetch ?? globalThis.fetch)
+            : undefined);
+
+    if (supportedEfforts === undefined) {
+        return { requested, inferred: false };
+    }
+
+    return inferReasoningSelection(requested, supportedEfforts, options.defaultLevel);
 }
 
+/**
+ * Places a requested level against a model's own level list. This never
+ * throws: switching to a model whose vocabulary does not contain the
+ * requested level degrades rather than failing the turn.
+ *
+ * The rule mirrors the level pane's own pre-highlight rule on purpose, so
+ * resolution and what the user sees highlighted are the same sentence: the
+ * requested level if it is valid for this model, else the model's own
+ * default, else its top level, else no level specified.
+ */
 function inferReasoningSelection(
-    model: string,
     requested: ModelReasoningEffort,
     supportedDescending: readonly string[],
+    defaultLevel?: string,
 ): ReasoningSelection {
     const supported = uniqueNonEmptyStrings(supportedDescending);
+
     if (requested === "off") {
-        if (!supported.includes("none")) {
-            throw new Error(
-                `OpenRouter model ${model} does not explicitly support reasoning off`,
-            );
-        }
-        return { requested, providerEffort: "none", inferred: true };
+        return supported.includes("none")
+            ? { requested, providerEffort: "none", inferred: true }
+            : { requested, inferred: true };
     }
 
     if (supported.includes(requested)) {
         return { requested, providerEffort: requested, inferred: true };
     }
 
-    const enabledAscending = supported
-        .filter((effort) => effort !== "none")
-        .reverse();
-    if (enabledAscending.length === 0) {
-        throw new Error(`OpenRouter model ${model} has no reasoning effort levels`);
+    if (defaultLevel !== undefined && supported.includes(defaultLevel)) {
+        return { requested, providerEffort: defaultLevel, inferred: true };
     }
 
-    const requestedIndex = VERA_ORDER.indexOf(requested);
-    const providerIndex = Math.ceil(
-        requestedIndex * (enabledAscending.length - 1) / (VERA_ORDER.length - 1),
-    );
-    const providerEffort = enabledAscending[providerIndex];
-    if (providerEffort === undefined) {
-        throw new Error(`OpenRouter model ${model} has invalid reasoning metadata`);
-    }
-    return { requested, providerEffort, inferred: true };
+    const topLevel = supported.find((effort) => effort !== "none");
+    return topLevel === undefined
+        ? { requested, inferred: true }
+        : { requested, providerEffort: topLevel, inferred: true };
 }
 
 async function loadOpenRouterEfforts(

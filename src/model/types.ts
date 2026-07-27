@@ -123,7 +123,15 @@ export interface ModelTool {
     readonly inputSchema: Readonly<Record<string, unknown>>;
 }
 
-export type ModelReasoningEffort = "off" | "low" | "medium" | "high" | "max";
+/**
+ * A reasoning level, as the provider names it (e.g. "off", "low", "xhigh",
+ * "ultra"). Vera does not police this against a fixed word list: what a
+ * level is called, and how many a model offers, is a fact about that model,
+ * not a property of this type. Whether a given string is valid for a
+ * specific (provider, model) is decided against that model's own level
+ * list, not here.
+ */
+export type ModelReasoningEffort = string;
 
 export interface ModelRequest {
     readonly provider?: string;

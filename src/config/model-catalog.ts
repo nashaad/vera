@@ -210,11 +210,7 @@ function isProvider(value: unknown): value is CatalogProviderId {
 }
 
 function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+    return typeof value === "string" && value.length > 0;
 }
 
 function isConfigName(value: string): boolean {

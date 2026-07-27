@@ -88,7 +88,7 @@ test("unreadable stored slots drop out instead of failing the client", () => {
     expect(parseModelPresetSlots(undefined)).toEqual([null, null, null, null]);
     expect(parseModelPresetSlots("nonsense")).toEqual([null, null, null, null]);
     expect(parseModelPresetSlots([
-        { provider: "openrouter", model: "a/b", reasoning_effort: "louder" },
+        { provider: "openrouter", model: "a/b", reasoning_effort: 42 },
         { provider: "", model: "a/b", reasoning_effort: "low" },
         { provider: "openrouter", model: "a/b", reasoning_effort: "high" },
     ])).toEqual([

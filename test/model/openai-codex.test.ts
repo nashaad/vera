@@ -270,7 +270,10 @@ describe("OpenAI Codex adapter", () => {
             model: "gpt-5.6-sol",
             max_output_tokens: 64_000,
             instructions: "Be concise.",
-            reasoning: { effort: "none", summary: "auto" },
+            // gpt-5.6-sol has no known level list in this slice (the
+            // catalog loader is a later slice), so "off" resolves to no
+            // level specified rather than a hardcoded "none".
+            reasoning: { summary: "auto" },
             input: [{
                 type: "message",
                 role: "user",
@@ -282,6 +285,7 @@ describe("OpenAI Codex adapter", () => {
                 description: "Run a command.",
             }],
         });
+        expect(requests[0]?.reasoning).toEqual({ summary: "auto" });
         expect(requests[1]?.input).toEqual([
             {
                 type: "message",

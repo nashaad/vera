@@ -1,0 +1,42 @@
+[
+    {
+        "schema_version": 2,
+        "provider": "openrouter",
+        "models": [
+            {
+                "id": "moonshotai/kimi-k3",
+                "label": "Kimi K3",
+                "description": "primary long-context model",
+                "context_window": 1048576,
+                "tool_support": true,
+                "levels": [
+                    { "id": "max", "label": "Max" },
+                    { "id": "high", "label": "High" },
+                    { "id": "low", "label": "Low" }
+                ]
+            },
+            {
+                "id": "z-ai/glm-5.2",
+                "label": "GLM-5.2",
+                "description": "fast fallback model",
+                "context_window": 1048576,
+                "tool_support": true,
+                "levels": [
+                    { "id": "xhigh", "label": "Max" },
+                    { "id": "high", "label": "High" }
+                ]
+            },
+            {
+                "id": "deepseek/deepseek-v4-pro",
+                "label": "DeepSeek V4 Pro",
+                "description": "low-cost reasoning option",
+                "context_window": 1048576,
+                "tool_support": true,
+                "levels": [
+                    { "id": "xhigh", "label": "Max" },
+                    { "id": "high", "label": "High" }
+                ]
+            }
+        ]
+    }
+]

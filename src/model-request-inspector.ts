@@ -238,11 +238,7 @@ function isModelTool(value: unknown): value is ModelTool {
 }
 
 function isReasoningEffort(value: unknown): boolean {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+    return typeof value === "string" && value.length > 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

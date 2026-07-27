@@ -606,7 +606,7 @@ test("session store rejects invalid model settings before writing", async () => 
     );
     await expect(store.appendModelSettings({
         model: "test",
-        reasoningEffort: "turbo",
+        reasoningEffort: "",
     } as unknown as ModelTurnSettings)).rejects.toThrow(
         "Cannot append invalid model settings",
     );

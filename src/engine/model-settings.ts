@@ -1,5 +1,4 @@
 import type { ModelReasoningEffort } from "../model/types.ts";
-import { MODEL_REASONING_PROFILES } from "../model/reasoning-effort.ts";
 import {
     loadSupportedModelsCatalog,
     verifiedReasoningEfforts,
@@ -57,11 +56,10 @@ const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [
  *
  * The optimistic fallback is only safe where the adapter can cope with an
  * effort it has no mapping for. OpenRouter can: it looks the model up and
- * infers a level. `openai-codex` cannot, so `resolveReasoningSelection` throws
- * for a codex model that is absent from `MODEL_REASONING_PROFILES`, and
- * offering an effort there would fail the turn rather than degrade it. Such a
- * model therefore has no efforts to offer, and a mapped one has exactly the
- * efforts its profile maps.
+ * infers a level. `openai-codex` cannot, so a codex model with no verified
+ * catalog entry has no known levels at all: offering one would fail the
+ * turn rather than degrade it. Such a model therefore has no efforts to
+ * offer, until a catalog loader supplies its level list.
  */
 export function availableReasoningEfforts(
     provider: string,
@@ -72,14 +70,7 @@ export function availableReasoningEfforts(
         return verified;
     }
     if (provider === "openai-codex") {
-        const profile = MODEL_REASONING_PROFILES.find((candidate) => (
-            candidate.provider === provider && candidate.model === model
-        ));
-        return profile === undefined
-            ? []
-            : EVERY_REASONING_EFFORT.filter((effort) =>
-                profile.efforts[effort] !== undefined
-            );
+        return [];
     }
     return EVERY_REASONING_EFFORT;
 }
@@ -135,9 +126,5 @@ function isSuggestedModel(value: unknown): boolean {
 export function isModelReasoningEffort(
     value: unknown,
 ): value is ModelReasoningEffort {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+    return typeof value === "string" && value.length > 0;
 }

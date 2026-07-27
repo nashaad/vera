@@ -30,7 +30,7 @@ export interface UpdateModelTuiCommandAction {
 
 export interface UpdateReasoningTuiCommandAction {
     readonly type: "update_reasoning";
-    readonly reasoningEffort: "off" | "low" | "medium" | "high" | "max";
+    readonly reasoningEffort: string;
 }
 
 export interface UpdatePermissionsTuiCommandAction {
@@ -633,12 +633,8 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     return registry;
 }
 
-function isReasoningEffort(value: string): value is UpdateReasoningTuiCommandAction["reasoningEffort"] {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+function isReasoningEffort(value: string): boolean {
+    return value.length > 0;
 }
 
 function isApprovalMode(value: string): boolean {

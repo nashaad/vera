@@ -118,7 +118,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, optional reasoning_effort off, low, medium, high, or max, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, an optional non-empty reasoning_effort string, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
         );
     }
     return config;
@@ -249,11 +249,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || typeof config.model !== "string"
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined
-            && config.reasoning_effort !== "off"
-            && config.reasoning_effort !== "low"
-            && config.reasoning_effort !== "medium"
-            && config.reasoning_effort !== "high"
-            && config.reasoning_effort !== "max")
+            && !isReasoningEffort(config.reasoning_effort))
         || !hasSelectedMode
         || (config.fallback !== undefined && fallback === undefined)
     ) {
@@ -404,11 +400,7 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
 }
 
 function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
-    return value === "off"
-        || value === "low"
-        || value === "medium"
-        || value === "high"
-        || value === "max";
+    return typeof value === "string" && value.length > 0;
 }
 
 /**

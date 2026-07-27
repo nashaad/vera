@@ -234,7 +234,7 @@ test("host protocol parses messages after attach", () => {
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "update_model_settings",
         requestId: "settings-5",
-        patch: { reasoningEffort: "turbo" },
+        patch: { reasoningEffort: "" },
     }))).toBeUndefined();
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",

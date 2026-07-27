@@ -114,7 +114,12 @@ describe("OpenRouter adapter", () => {
                 }),
             ]);
         };
-        const adapter = new OpenRouterAdapter(sendChat);
+        // anthropic/claude-sonnet-5 has no verified catalog entry in this
+        // test environment, so off->none is supplied directly rather than
+        // resolved through a live OpenRouter discovery fetch.
+        const adapter = new OpenRouterAdapter(sendChat, new Map([
+            ["anthropic/claude-sonnet-5", new Map([["off", "none"]])],
+        ]));
         const stream = adapter.stream({
             model: "anthropic/claude-sonnet-5",
             maxTokens: 64_000,
