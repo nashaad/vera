@@ -209,10 +209,9 @@ test("TUI renders a background completion without starting a turn", () => {
 
     expect(state.working).toBe(false);
     expect(state.entries).toEqual([{
-        kind: "notice",
+        kind: "notification",
         text: "Background agent child-1 completed:\nThe tests pass.",
     }]);
-
     const working = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "keep working"),
         {

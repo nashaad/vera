@@ -171,6 +171,7 @@ import {
     saveTuiThemePreference,
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
+import { createTuiMarkdownEntry } from "./markdown-entry.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
@@ -2230,6 +2231,16 @@ export async function startTui(
             }
 
             const marginTop = tuiEntryMarginTop(state.entries, index);
+            const markdownNode = entry.kind === "diff"
+                ? undefined
+                : createTuiMarkdownEntry(
+                    renderer,
+                    `entry-${index}`,
+                    entry,
+                    markdownStyle,
+                    TUI_TEXT,
+                    marginTop,
+                );
             const node = entry.kind === "diff"
                 ? createTuiDiff(
                     renderer,
@@ -2239,17 +2250,7 @@ export async function startTui(
                     markdownStyle,
                     marginTop,
                 )
-                : entry.kind === "assistant"
-                ? new MarkdownRenderable(renderer, {
-                    id: `entry-${index}`,
-                    content: entry.text,
-                    syntaxStyle: markdownStyle,
-                    fg: TUI_TEXT,
-                    streaming: true,
-                    width: "100%",
-                    marginTop,
-                })
-                : new TextRenderable(renderer, {
+                : markdownNode ?? new TextRenderable(renderer, {
                     id: `entry-${index}`,
                     content: renderTuiEntry(entry),
                     width: "100%",
