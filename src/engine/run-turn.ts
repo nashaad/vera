@@ -273,6 +273,9 @@ export async function runHeadlessLoop(
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
     });
     inbound = new InboundCommandRouter(endpoint, events, {
+        hasPendingDeliveryTurn: () =>
+            store.pendingDeliveries().length > 0
+            || store.hasUnansweredDeliveryTurn(),
         ...(options.readModelSettings === undefined
             ? {}
             : { readModelSettings: options.readModelSettings }),
@@ -469,16 +472,18 @@ export async function runTurn(
                 : state.enabledToolEffects ?? [],
             state.enableUserInteraction === true,
         );
-        const userMessage: UserMessage = {
-            role: "user",
-            content: [
-                { type: "text", text: turn.prompt.content },
-                ...(turn.prompt.attachmentIds ?? []).map((attachmentId) => ({
-                    type: "image_attachment" as const,
-                    attachmentId,
-                })),
-            ],
-        };
+        const userMessage: UserMessage | undefined = turn.triggeredByDelivery
+            ? undefined
+            : {
+                role: "user",
+                content: [
+                    { type: "text", text: turn.prompt.content },
+                    ...(turn.prompt.attachmentIds ?? []).map((attachmentId) => ({
+                        type: "image_attachment" as const,
+                        attachmentId,
+                    })),
+                ],
+            };
         const imageCache = new Map<string, ImageContent>();
         try {
             if (
@@ -486,12 +491,16 @@ export async function runTurn(
                     && adapter.supportsImageInputFor !== undefined
                     ? !adapter.supportsImageInputFor(modelSettings.provider)
                     : adapter.supportsImageInput === false)
-                && userMessage.content.some((block) => block.type === "image_attachment")
+                && userMessage?.content.some(
+                    (block) => block.type === "image_attachment"
+                )
             ) {
                 throw new Error("the selected model provider does not support image input");
             }
             await hydrateImageAttachments(
-                [...state.messages, userMessage],
+                userMessage === undefined
+                    ? state.messages
+                    : [...state.messages, userMessage],
                 requireImageReader(state),
                 imageCache,
             );
@@ -504,8 +513,12 @@ export async function runTurn(
             return assistantMessage;
         }
         await drainPendingDeliveries(state);
-        await commitMessage(state, userMessage);
-        state.events.emit({ type: "turn_started", message: userMessage });
+        if (userMessage === undefined) {
+            state.events.emit({ type: "delivery_turn_started" });
+        } else {
+            await commitMessage(state, userMessage);
+            state.events.emit({ type: "turn_started", message: userMessage });
+        }
 
         while (true) {
             const projectInstructions = await loadProjectInstructions(

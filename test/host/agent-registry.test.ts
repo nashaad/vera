@@ -973,7 +973,7 @@ test("a failed permissions append leaves the live mode unchanged", async () => {
     }
 });
 
-test("a resumed registry replays pending delivery without a model call", async () => {
+test("a resumed registry wakes the model for a pending delivery", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-delivery-resume-"));
     const sessionPath = join(root, "agent.jsonl");
     const eventLogPath = join(root, "events.jsonl");
@@ -999,14 +999,69 @@ test("a resumed registry replays pending delivery without a model call", async (
             content: "The tests pass.",
             seq: 1,
         });
-        expect(store.pendingDeliveries()).toHaveLength(1);
+        expect(await attachment.receive()).toEqual({
+            type: "status",
+            state: "working",
+            seq: 2,
+        });
+        expect(await finishTurnText(attachment)).toBe("unused");
+        expect((await SessionStore.open(sessionPath)).pendingDeliveries())
+            .toEqual([]);
         const events = (await readFile(eventLogPath, "utf8"))
             .trim()
             .split("\n")
             .map((line) => JSON.parse(line) as { type: string });
-        expect(events.map((event) => event.type)).toEqual([
+        expect(events.map((event) => event.type).filter(
+            (type) => type !== "model_stream",
+        )).toEqual([
             "task_notification",
+            "delivery_turn_started",
+            "model_request",
+            "turn_finished",
         ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a resumed registry retries a delivery turn interrupted before its reply", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-delivery-retry-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const eventLogPath = join(root, "events.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "durable-agent",
+        cwd: root,
+    });
+    await store.recordDelivery({
+        id: "completion:child-1",
+        sourceAgentId: "child-1",
+        content: "The tests pass.",
+    });
+    await store.appendDeliveryMessage("completion:child-1", {
+        role: "user",
+        internal: true,
+        content: [{
+            type: "text",
+            text: "<task_notification>The tests pass.</task_notification>",
+        }],
+    });
+    expect(store.pendingDeliveries()).toEqual([]);
+    expect(store.hasUnansweredDeliveryTurn()).toBe(true);
+    const registry = createRegistry(() => [textResponse("Recovered reply")]);
+
+    try {
+        const agent = await registry.resume({ sessionPath, eventLogPath });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        expect(await attachment.receive()).toEqual({
+            type: "status",
+            state: "working",
+            seq: 1,
+        });
+        expect(await finishTurnText(attachment)).toBe("Recovered reply");
+        expect((await SessionStore.open(sessionPath)).hasUnansweredDeliveryTurn())
+            .toBe(false);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -1039,6 +1094,7 @@ test("a background agent returns immediately and delivers its final summary", as
                         stopReason: "tool_use",
                     },
                     textResponse("I started the background work."),
+                    textResponse("I incorporated the background result."),
                 ]);
             }
             return new FauxAdapter([
@@ -1093,17 +1149,16 @@ test("a background agent returns immediately and delivers its final summary", as
         expect((await SessionStore.open(parentSession)).pendingDeliveries())
             .toEqual([]);
 
-        const delivery = await waitForDelivery(parentSession);
-        expect(delivery).toMatchObject({
-            id: `completion:${child!.id}`,
-            sourceAgentId: child!.id,
-            content: "All integration tests pass.",
-        });
         expect(await waitForTaskNotification(parentAttachment)).toMatchObject({
             deliveryId: `completion:${child!.id}`,
             sourceAgentId: child!.id,
             content: "All integration tests pass.",
         });
+        expect(await finishTurnText(parentAttachment)).toBe(
+            "I incorporated the background result.",
+        );
+        expect((await SessionStore.open(parentSession)).pendingDeliveries())
+            .toEqual([]);
         const parentEvents = (await readFile(
             join(root, "parent-events.jsonl"),
             "utf8",
@@ -1111,7 +1166,7 @@ test("a background agent returns immediately and delivers its final summary", as
             (line) => JSON.parse(line) as { type: string },
         );
         expect(parentEvents.filter((event) => event.type === "model_request"))
-            .toHaveLength(2);
+            .toHaveLength(3);
         expect(parentEvents.filter(
             (event) => event.type === "task_notification",
         )).toHaveLength(1);
@@ -1484,6 +1539,20 @@ async function receiveTurnFinished(
 ): Promise<void> {
     while ((await attachment.receive()).type !== "turn_finished") {
         // A client consumes the ordered update stream until the turn boundary.
+    }
+}
+
+async function finishTurnText(
+    attachment: AgentAttachment,
+): Promise<string> {
+    let text = "";
+    while (true) {
+        const update = await attachment.receive();
+        if (update.type === "assistant_delta") {
+            text += update.text;
+        } else if (update.type === "turn_finished") {
+            return text;
+        }
     }
 }
 

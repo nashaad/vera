@@ -517,6 +517,34 @@ test("shutdown idleness includes attachments, queued prompts, and starting turns
     agent.close();
 });
 
+test("one reserved delivery wake survives a full user command queue", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        maxPendingCommands: 1,
+    });
+    const attachment = agent.attach();
+    await attachment.receive();
+    attachment.send({ type: "prompt", content: "queued user work" });
+
+    agent.triggerDeliveryTurn();
+    agent.triggerDeliveryTurn();
+    expect(agent.idleForShutdown()).toBeFalse();
+    expect(await agent.engine.receive()).toEqual({
+        type: "prompt",
+        content: "queued user work",
+    });
+    expect(await agent.engine.receive()).toEqual({
+        type: "trigger_delivery_turn",
+    });
+    agent.engine.send({ type: "status", state: "working", seq: 1 });
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    attachment.detach();
+    expect(await agent.engine.receive()).toMatchObject({
+        type: "timeline_owner_detached",
+    });
+    expect(agent.idleForShutdown()).toBeTrue();
+    agent.close();
+});
+
 test("detached attachment IDs cannot be reused", async () => {
     const attachmentIds = values("owner-a", "owner-a", "owner-b");
     const agent = new ResidentAgent("agent-1", "/work/one", {

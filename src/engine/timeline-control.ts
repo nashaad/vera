@@ -27,6 +27,10 @@ export interface TimelineOwnerDetachedCommand {
     readonly ownerId: string;
 }
 
+export interface TriggerDeliveryTurnCommand {
+    readonly type: "trigger_delivery_turn";
+}
+
 export interface OwnedSessionNameCommand {
     readonly type: "owned_session_name_command";
     readonly ownerId: string;
@@ -37,7 +41,8 @@ export type EngineCommand =
     | ClientCommand
     | OwnedTimelineCommand
     | OwnedSessionNameCommand
-    | TimelineOwnerDetachedCommand;
+    | TimelineOwnerDetachedCommand
+    | TriggerDeliveryTurnCommand;
 
 interface StoredTimelinePlan {
     readonly ownerId: string;

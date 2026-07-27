@@ -42,6 +42,10 @@ export interface TurnStartedEvent {
     readonly message: UserMessage;
 }
 
+export interface DeliveryTurnStartedEvent {
+    readonly type: "delivery_turn_started";
+}
+
 export interface PromptQueuedEvent {
     readonly type: "prompt_queued";
     readonly content: string;
@@ -278,6 +282,7 @@ export interface TurnFinishedEvent {
 
 export type EngineEvent =
     | TurnStartedEvent
+    | DeliveryTurnStartedEvent
     | PromptQueuedEvent
     | AbortRequestedEvent
     | TaskNotificationEvent

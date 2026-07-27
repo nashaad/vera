@@ -258,6 +258,7 @@ test("task notifications share the ordered agent update sequence", () => {
         sourceAgentId: "child-1",
         content: "The tests pass.",
     });
+    protocol({ type: "delivery_turn_started" });
     protocol.checkpoint([]);
 
     expect(updates).toEqual([
@@ -268,7 +269,8 @@ test("task notifications share the ordered agent update sequence", () => {
             content: "The tests pass.",
             seq: 1,
         },
-        { type: "history", entries: [], seq: 1 },
+        { type: "status", state: "working", seq: 2 },
+        { type: "history", entries: [], seq: 2 },
     ]);
 });
 

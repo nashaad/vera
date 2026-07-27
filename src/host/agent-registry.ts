@@ -626,13 +626,20 @@ export class AgentRegistry {
                 agent.fail(failureId, detail);
             }
         });
-        for (const delivery of store.pendingDeliveries()) {
+        const pendingDeliveries = store.pendingDeliveries();
+        for (const delivery of pendingDeliveries) {
             events.emit({
                 type: "task_notification",
                 deliveryId: delivery.id,
                 sourceAgentId: delivery.sourceAgentId,
                 content: delivery.content,
             });
+        }
+        if (
+            pendingDeliveries.length > 0
+            || store.hasUnansweredDeliveryTurn()
+        ) {
+            agent.triggerDeliveryTurn();
         }
         return agent;
     }
@@ -719,14 +726,19 @@ export class AgentRegistry {
             content,
         };
         const parentEvents = this.agents.get(parentStore.header.id)?.events;
-        if (parentEvents === undefined) {
-            await parentStore.recordDelivery(delivery);
-        } else {
-            await recordDeliveryAndNotify(parentStore, parentEvents, delivery);
-        }
+        const recorded = parentEvents === undefined
+            ? await parentStore.recordDelivery(delivery)
+            : await recordDeliveryAndNotify(parentStore, parentEvents, delivery);
         const entry = this.agents.get(childId);
         if (entry !== undefined && entry.failure === undefined) {
             entry.completed = true;
+        }
+        if (!recorded) {
+            return;
+        }
+        const parent = this.agents.get(parentStore.header.id)?.agent;
+        if (parent !== undefined && !parent.closed && !parent.failed) {
+            parent.triggerDeliveryTurn();
         }
     }
 
