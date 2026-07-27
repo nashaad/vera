@@ -195,7 +195,7 @@ test("TUI composer keeps the caret at the end after setting text", async () => {
     }
 });
 
-test("Up recalls the last submitted message into an empty composer", async () => {
+test("Up cycles through submitted messages from an empty composer", async () => {
     const setup = await createTestRenderer({
         width: 40,
         height: 8,
@@ -206,11 +206,20 @@ test("Up recalls the last submitted message into an empty composer", async () =>
     composer.focus();
 
     try {
+        composer.rememberSubmittedText("first prompt");
+        composer.rememberSubmittedText("second prompt");
         composer.rememberSubmittedText("read the plan");
         composer.clearComposer();
+
         setup.mockInput.pressArrow("up");
         expect(composer.plainText).toBe("read the plan");
         expect(composer.cursorOffset).toBe("read the plan".length);
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("second prompt");
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("first prompt");
+        setup.mockInput.pressArrow("up");
+        expect(composer.plainText).toBe("read the plan");
 
         composer.setComposerText("draft");
         setup.mockInput.pressArrow("up");
