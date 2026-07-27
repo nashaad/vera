@@ -179,12 +179,14 @@ async function fetchOpenRouterEfforts(
     const supportedEfforts = typeof reasoning === "object" && reasoning !== null
         ? (reasoning as Record<string, unknown>).supported_efforts
         : undefined;
-    if (!Array.isArray(supportedEfforts)) {
-        throw new Error(
-            `OpenRouter model ${model} does not expose reasoning effort metadata`,
-        );
-    }
-    return uniqueNonEmptyStrings(supportedEfforts);
+    // A model that announces no efforts has no reasoning control, which is a
+    // fact about the model rather than a failure to look it up: most of
+    // OpenRouter's list is in exactly this position. It runs with no level
+    // specified. Only the lookup itself failing is an error, and those throw
+    // above.
+    return Array.isArray(supportedEfforts)
+        ? uniqueNonEmptyStrings(supportedEfforts)
+        : [];
 }
 
 function uniqueNonEmptyStrings(values: readonly unknown[]): string[] {

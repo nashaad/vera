@@ -1,5 +1,9 @@
 import type { ModelReasoningEffort } from "../model/types.ts";
 import {
+    effectiveCatalog,
+    type EffectiveCatalogOptions,
+} from "../model/catalog.ts";
+import {
     loadSupportedModelsCatalog,
     verifiedReasoningEfforts,
     type SuggestedModel,
@@ -70,25 +74,53 @@ const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [
 /**
  * The efforts a provider can actually be asked for on this model.
  *
- * The optimistic fallback is only safe where the adapter can cope with an
+ * Discovery is consulted because it is the same source the picker offers levels
+ * from, and the two disagreeing is a rejection the user cannot act on: every
+ * `openai-codex` model used to land here with no efforts at all, because the
+ * verified list only ever held openrouter entries, so choosing a codex level
+ * the picker had just listed was refused as unsupported.
+ *
+ * The optimistic fallback below is only safe where the adapter can cope with an
  * effort it has no mapping for. OpenRouter can: it looks the model up and
- * infers a level. `openai-codex` cannot, so a codex model with no verified
- * catalog entry has no known levels at all: offering one would fail the
- * turn rather than degrade it. Such a model therefore has no efforts to
- * offer, until a catalog loader supplies its level list.
+ * infers a level. `openai-codex` cannot, so a codex model that neither source
+ * describes still has no efforts to offer: naming one would fail the turn
+ * rather than degrade it.
  */
 export function availableReasoningEfforts(
     provider: string,
     model: string,
+    options: EffectiveCatalogOptions = {},
 ): readonly ModelReasoningEffort[] {
     const verified = verifiedReasoningEfforts(provider, model);
     if (verified.length > 0) {
         return verified;
     }
+    const discovered = discoveredReasoningEfforts(provider, model, options);
+    if (discovered !== undefined) {
+        return discovered;
+    }
     if (provider === "openai-codex") {
         return [];
     }
     return EVERY_REASONING_EFFORT;
+}
+
+/**
+ * Undefined means discovery has never described this model, which is the only
+ * case the optimistic fallback above is for. A model discovery does describe
+ * with no levels has no reasoning control at all, and saying so is what keeps
+ * the dial off a model that would refuse it: most of OpenRouter's list is
+ * chat-only, and the optimistic list used to offer all four efforts on every
+ * one of them.
+ */
+function discoveredReasoningEfforts(
+    provider: string,
+    model: string,
+    options: EffectiveCatalogOptions,
+): readonly ModelReasoningEffort[] | undefined {
+    return effectiveCatalog(provider, options).models
+        .find((candidate) => candidate.id === model)
+        ?.levels.map((level) => level.id);
 }
 
 /**
@@ -105,11 +137,12 @@ export function reasoningEffortForModel(
     provider: string | undefined,
     model: string,
     requested: ModelReasoningEffort | undefined,
+    options: EffectiveCatalogOptions = {},
 ): ModelReasoningEffort | undefined {
     if (requested === undefined || provider === undefined) {
         return requested;
     }
-    return availableReasoningEfforts(provider, model).length > 0
+    return availableReasoningEfforts(provider, model, options).length > 0
         ? requested
         : undefined;
 }

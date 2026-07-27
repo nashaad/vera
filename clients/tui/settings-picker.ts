@@ -270,11 +270,13 @@ export function startTuiSettingsPicker(
         : kind === "model"
         ? modelOptions(availableModels, currentProvider, currentModel, pinned)
         : permissionOptions(availablePermissionModes);
-    // The pane opens on All rather than Pinned even when pins exist: the user
-    // asked to change model, and the tab that can answer that in every case is
-    // the one that lists every model.
+    // The pane opens on Pinned, which is the short list the user built for
+    // exactly this moment. It falls back to All when nothing is pinned yet,
+    // since an empty tab answers no question at all.
+    const openingTab: TuiModelPickerTab =
+        modelTabOptions(allOptions, "pinned").length > 0 ? "pinned" : "all";
     const options = kind === "model"
-        ? modelTabOptions(allOptions, "all")
+        ? modelTabOptions(allOptions, openingTab)
         : allOptions;
     const currentValue = kind === "theme"
         ? currentTheme
@@ -293,7 +295,7 @@ export function startTuiSettingsPicker(
         options,
         selectedIndex,
         query: "",
-        ...(kind === "model" ? { tab: "all" as const } : {}),
+        ...(kind === "model" ? { tab: openingTab } : {}),
         ...(kind === "model" && currentValue !== undefined
             ? { initialModel: currentValue }
             : {}),
@@ -710,8 +712,14 @@ export function handleTuiSettingsPickerKey(
         // The query is dropped on the way across. A search is a question about
         // one list, and carrying it over would land the user on an empty pane
         // with no sign of why.
+        // The cursor follows the highlighted model across. When that model has
+        // no row on the far tab it falls back to the running model rather than
+        // to row one, which is where the user is in every other sense.
         const selectedIndex = options.findIndex(
             (option) => option.value === selectedValue,
+        );
+        const running = options.findIndex(
+            (option) => option.value === state.initialModel,
         );
         return {
             state: {
@@ -719,7 +727,9 @@ export function handleTuiSettingsPickerKey(
                 tab,
                 options,
                 query: "",
-                selectedIndex: selectedIndex === -1 ? 0 : selectedIndex,
+                selectedIndex: selectedIndex !== -1
+                    ? selectedIndex
+                    : Math.max(0, running),
             },
             handled: true,
         };
@@ -954,8 +964,8 @@ function renderListPickerRows(
 const MODEL_TAB_STRIP_HEIGHT = 2;
 
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
-    ["all", "All models"],
     ["pinned", "Pinned"],
+    ["all", "All models"],
 ];
 
 /**
