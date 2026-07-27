@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     configuredReviewer,
+    loadOptionalVeraConfig,
     loadVeraConfig,
     updateVeraConfigDefaults,
 } from "../src/config.ts";
@@ -24,6 +25,25 @@ test("Vera config loads the shared model choice", () => {
         model: "anthropic/example-model",
         approval_mode: "auto",
     });
+});
+
+test("the optional load tolerates absence but not damage", () => {
+    const missing = join(mkdtempSync(join(tmpdir(), "vera-config-")), "none.json");
+    expect(loadOptionalVeraConfig({ path: missing })).toBeUndefined();
+
+    const damaged = temporaryConfigPath();
+    writeFileSync(damaged, "{ not json");
+    // The distinction the TUI relies on: a client with no config gets defaults,
+    // a client with a broken config still hears about it.
+    expect(() => loadOptionalVeraConfig({ path: damaged })).toThrow();
+
+    const present = temporaryConfigPath();
+    writeFileSync(present, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(loadOptionalVeraConfig({ path: present })?.model)
+        .toBe("anthropic/example-model");
 });
 
 test("Vera config selects OpenAI Codex", () => {
