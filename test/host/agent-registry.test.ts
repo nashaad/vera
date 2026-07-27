@@ -1215,6 +1215,191 @@ test("a background agent returns immediately and delivers its final summary", as
     }
 });
 
+test("background agent approvals surface in the interactive parent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-background-approval-"));
+    const outside = `${root}-outside.txt`;
+    const parentSession = join(root, "parent.jsonl");
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            return adapterNumber === 1
+                ? new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "spawn-child",
+                            name: "background_agent",
+                            input: { description: "write the background marker" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Background work started."),
+                    textResponse("Background result received."),
+                ])
+                : new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "write-marker",
+                            name: "bash",
+                            input: { command: `printf child > ${outside}` },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Marker written."),
+                ]);
+        },
+        model: "faux/test",
+        approvalMode: "ask",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: parentSession,
+            eventLogPath: join(root, "parent-events.jsonl"),
+        });
+        const attachment = parent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "prompt",
+            content: "Start the marker task",
+        });
+        let approval: ToolApprovalUiRequestUpdate | undefined;
+        while (true) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && isToolApprovalUiRequestUpdate(update)
+            ) {
+                approval = update;
+            }
+            if (update.type === "turn_finished") {
+                break;
+            }
+        }
+        approval ??= await receiveToolApproval(attachment);
+        expect(approval.request).toMatchObject({
+            sourceAgentId: expect.any(String),
+            sourceTask: "write the background marker",
+        });
+        expect(approval.request.permissionGrants).toBeUndefined();
+        attachment.send({
+            type: "ui_response",
+            requestId: approval.requestId,
+            response: { type: "tool_approval", decision: "allow_once" },
+        });
+
+        expect(await waitForTaskNotification(attachment)).toMatchObject({
+            content: "Marker written.",
+        });
+        expect(await finishTurnText(attachment)).toBe(
+            "Background result received.",
+        );
+        expect(await readFile(outside, "utf8")).toBe("child");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { force: true });
+    }
+});
+
+test("background agent concurrency has an explicit cap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-background-limit-"));
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter: () => {
+            adapterNumber += 1;
+            return adapterNumber === 1
+                ? new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [
+                            {
+                                type: "tool_call",
+                                id: "first-background",
+                                name: "background_agent",
+                                input: { description: "first task" },
+                            },
+                            {
+                                type: "tool_call",
+                                id: "second-background",
+                                name: "background_agent",
+                                input: { description: "second task" },
+                            },
+                        ],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Launches handled."),
+                    textResponse("Background result received."),
+                ])
+                : new FauxAdapter([textResponse("child done")], {
+                    delayMs: 50,
+                });
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        maxConcurrentBackgroundAgents: 1,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    try {
+        expect(() =>
+            new AgentRegistry({
+                createAdapter: () => new FauxAdapter([]),
+                model: "faux/test",
+                approvalMode: "auto",
+                maxConcurrentBackgroundAgents: 0,
+            })
+        ).toThrow("Maximum concurrent child agents must be a positive integer");
+
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        await runPrompt(parent.attach(), "Start both tasks", false);
+        const results = (await SessionStore.open(join(root, "parent.jsonl")))
+            .messages()
+            .filter((message) => message.role === "tool_result");
+        expect(results).toHaveLength(2);
+        expect(results.some((message) =>
+            message.role === "tool_result"
+            && message.isError
+            && message.content[0]?.text
+                === "Background agent limit reached (1 running)."
+        )).toBe(true);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a registry reserves IDs while agents start and stays closed", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-lifecycle-"));
     const firstWorkspace = join(root, "first");

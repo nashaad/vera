@@ -41,13 +41,32 @@ test("TUI approval shows the exact command and honest warning", () => {
         "This command may access the network.",
         "This command runs with your full user permissions.",
         "",
-        "Session grants: command: tool=bash, executable=curl",
-        "",
         "1  Allow once",
-        "2  Allow similar this session  command: tool=bash, executable=curl",
+        "2  Allow similar this session  future curl commands",
         "3  Deny  esc",
-        "4  Allow similar always  command: tool=bash, executable=curl",
+        "4  Allow similar always  future curl commands",
     ].join("\n"));
+});
+
+test("child approvals identify their agent and task", () => {
+    const childRequest: ToolApprovalUiRequestUpdate = {
+        ...request,
+        request: {
+            ...request.request,
+            sourceAgentId: "12345678-aaaa-bbbb-cccc-123456789abc",
+            sourceTask: "Run the focused tests",
+            reason:
+                "Permission mode ask requires ask: bash:unknown (ask.default).",
+        },
+    };
+
+    expect(renderTuiApproval(childRequest)).toContain(
+        "Requested by agent 12345678\nTask: Run the focused tests",
+    );
+    expect(renderTuiApproval(childRequest)).toContain(
+        "Vera needs your approval before running this command.",
+    );
+    expect(renderTuiApproval(childRequest)).not.toContain("ask.default");
 });
 
 test("TUI approval accepts numeric once, similar, and deny keys", () => {

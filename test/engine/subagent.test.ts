@@ -11,7 +11,10 @@ import { EngineEventBus } from "../../src/engine/events.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
-import { createProtocolEncoder } from "../../src/engine/protocol.ts";
+import {
+    createProtocolEncoder,
+    type ToolApprovalUiRequestUpdate,
+} from "../../src/engine/protocol.ts";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import {
     emptyUsage,
@@ -160,6 +163,157 @@ test("subagent inherits the parent turn model and reasoning", async () => {
         expect(result.isError).toBe(false);
     } finally {
         await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("subagent tool approvals relay to the parent owner", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-approval-"));
+    const outside = `${root}-outside.txt`;
+    const toolCall: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "outside-write",
+            name: "bash",
+            input: { command: `printf child > ${outside}` },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const relayed: ToolApprovalUiRequestUpdate[] = [];
+
+    try {
+        const result = await runSubagent({
+            adapter: new FauxAdapter([toolCall, final]),
+            model: "test",
+            description: "write the child marker",
+            workspace: root,
+            approvalMode: "ask",
+            sessionPath: join(root, "child.jsonl"),
+            relayToolApproval(update, sourceAgentId, sourceTask) {
+                relayed.push(update);
+                expect(sourceAgentId).toBeString();
+                expect(sourceTask).toBe("write the child marker");
+                return Promise.resolve("allow_once");
+            },
+        });
+
+        expect(result).toMatchObject({ text: "child done", isError: false });
+        expect(relayed).toHaveLength(1);
+        expect(relayed[0]?.request.toolCall).toEqual({
+            id: "outside-write",
+            name: "bash",
+            input: { command: `printf child > ${outside}` },
+        });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { force: true });
+    }
+});
+
+test("subagent concurrency has an explicit defaultable cap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-limit-"));
+    const applyEffect = createSubagentEffectApplier({
+        adapter: new FauxAdapter([
+            {
+                role: "assistant",
+                content: [{ type: "text", text: "first done" }],
+                source: { provider: "faux", api: "scripted", model: "test" },
+                usage: emptyUsage(),
+                stopReason: "stop",
+            },
+        ], { delayMs: 30 }),
+        workspace: root,
+        maxConcurrentChildren: 1,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    const context = { approvalMode: "auto" as const, model: "test" };
+    const signal = new AbortController().signal;
+
+    try {
+        const first = applyEffect({
+            type: "spawn_subagent",
+            description: "first",
+        }, signal, context);
+        const second = await applyEffect({
+            type: "spawn_subagent",
+            description: "second",
+        }, signal, context);
+
+        expect(second).toEqual({
+            kind: "output",
+            output: "Subagent limit reached (1 running).",
+            isError: true,
+        });
+        expect((await first).isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("aborting a subagent cancels its relayed approval", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-approval-abort-"));
+    const outside = `${root}-outside.txt`;
+    const controller = new AbortController();
+    let markApprovalStarted: (() => void) | undefined;
+    const approvalStarted = new Promise<void>((resolve) => {
+        markApprovalStarted = resolve;
+    });
+    const applyEffect = createSubagentEffectApplier({
+        adapter: new FauxAdapter([{
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "waiting-write",
+                name: "bash",
+                input: { command: `printf child > ${outside}` },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        }]),
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        relayToolApproval(_update, _sourceAgentId, _sourceTask, signal) {
+            markApprovalStarted?.();
+            return new Promise((resolve) => {
+                signal.addEventListener(
+                    "abort",
+                    () => resolve("deny"),
+                    { once: true },
+                );
+            });
+        },
+    });
+
+    try {
+        const running = applyEffect({
+            type: "spawn_subagent",
+            description: "wait for approval",
+        }, controller.signal, {
+            approvalMode: "ask",
+            model: "test",
+        });
+        await approvalStarted;
+        controller.abort();
+        expect(await Promise.race([
+            running.then(
+                () => "settled",
+                () => "settled",
+            ),
+            Bun.sleep(200).then(() => "timed out"),
+        ])).toBe("settled");
+    } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { force: true });
     }
 });
 

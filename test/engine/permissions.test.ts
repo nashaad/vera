@@ -126,6 +126,41 @@ test("inert redirect targets never escalate past a routine read", () => {
     }
 });
 
+test("agent launches are recognized routine operations", () => {
+    for (const name of ["subagent", "background_agent"]) {
+        const toolCall = {
+            id: `call-${name}`,
+            name,
+            input: { description: "Inspect the repository" },
+        };
+        expect(
+            extractPermissionActions({
+                toolCall,
+                workspace,
+                homeDirectory,
+            }),
+        ).toEqual([{
+            tool: name,
+            verb: "unknown",
+            operation: "agent.spawn",
+        }]);
+        expect(decideToolPermission(
+            "ask",
+            toolCall,
+            workspace,
+            [],
+            { homeDirectory },
+        ).behavior).toBe("allow");
+        expect(decideToolPermission(
+            "auto",
+            toolCall,
+            workspace,
+            [],
+            { homeDirectory },
+        ).behavior).toBe("allow");
+    }
+});
+
 test("2>&1 duplicates an fd rather than writing to a file named 1", () => {
     expect(
         extractPermissionActions({

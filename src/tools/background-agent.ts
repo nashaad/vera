@@ -3,6 +3,7 @@ import type { RegisteredTool } from "./types.ts";
 export const backgroundAgentTool: RegisteredTool = {
     parallel: true,
     effectType: "spawn_background_agent",
+    permissionOperation: "agent.spawn",
     definition: {
         name: "background_agent",
         description: "Launch a background agent and return its ID immediately. Its final summary arrives on a later turn.",

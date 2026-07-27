@@ -21,7 +21,10 @@ import {
     type BashRedirectOperator,
     type BashStatement,
 } from "../tools/bash-parser.ts";
-import { toolPermissionInputs } from "../tools/execute.ts";
+import {
+    toolPermissionInputs,
+    toolPermissionOperation,
+} from "../tools/execute.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
 import {
     applyPermissionGrant,
@@ -206,6 +209,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        name: "routine.agent_spawn",
+        when: { operation: "agent.spawn" },
+        then: "allow",
+    },
+    {
         name: "routine.read",
         when: { verb: "read" },
         then: "allow",
@@ -369,6 +377,7 @@ const NETWORK_GIT_OPERATIONS = new Map([
 const GIT_READ_SUBCOMMANDS = new Set(["log", "status", "diff", "show"]);
 
 export const CORE_PERMISSION_OPERATIONS = new Set([
+    "agent.spawn",
     "git.clone",
     "git.commit",
     "git.fetch",
@@ -560,6 +569,14 @@ export function extractPermissionActions(
     request: PermissionRequest,
 ): readonly PermissionAction[] {
     const { toolCall, workspace } = request;
+    const operation = toolPermissionOperation(toolCall.name);
+    if (operation !== undefined) {
+        return [{
+            tool: toolCall.name,
+            verb: "unknown",
+            operation,
+        }];
+    }
     if (toolCall.name === "bash") {
         const command = toolCall.input.command;
         if (typeof command !== "string") {

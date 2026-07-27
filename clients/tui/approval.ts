@@ -119,7 +119,7 @@ export function createTuiApprovalView(
                 ...(unavailable
                     ? { description: "not available for this command" }
                     : derived
-                    ? { description: formatGrants(grants!) }
+                    ? { description: describeGrants(grants!) }
                     : {}),
             });
             actions.add(row);
@@ -185,13 +185,19 @@ export function renderTuiApprovalDetails(
 ): string {
     const grants = update.request.permissionGrants;
     return [
+        ...(update.request.sourceAgentId === undefined
+            ? []
+            : [
+                `Requested by agent ${shortAgentId(update.request.sourceAgentId)}`,
+                ...(update.request.sourceTask === undefined
+                    ? []
+                    : [`Task: ${update.request.sourceTask}`]),
+                "",
+            ]),
         formatToolCall(update),
         "",
-        update.request.reason,
+        friendlyReason(update.request.reason),
         update.request.warning,
-        ...(grants === undefined
-            ? []
-            : ["", `Session grants: ${formatGrants(grants)}`]),
     ].join("\n");
 }
 
@@ -278,18 +284,35 @@ function approvalActions(update: ToolApprovalUiRequestUpdate): string {
             }
             return grants === undefined
                 ? `${action.key}  ${action.label}  not available for this command`
-                : `${action.key}  ${action.label}  ${formatGrants(grants)}`;
+                : `${action.key}  ${action.label}  ${describeGrants(grants)}`;
         }),
     ].join("\n");
 }
 
-function formatGrants(
+function describeGrants(
     grants: NonNullable<ToolApprovalUiRequestUpdate["request"]["permissionGrants"]>,
 ): string {
     return grants.map((grant) => {
-        const fields = Object.entries(grant.when)
-            .map(([name, value]) => `${name}=${String(value)}`)
-            .join(", ");
-        return `${grant.kind}: ${fields}`;
+        const when = grant.when;
+        if (when.path !== undefined) {
+            return `${when.verb ?? "access"} under ${when.path}`;
+        }
+        if (when.executable !== undefined) {
+            return `future ${when.executable} commands`;
+        }
+        if (when.operation !== undefined) {
+            return `future ${when.operation} operations`;
+        }
+        return `future ${when.tool ?? "similar"} actions`;
     }).join("; ");
+}
+
+function friendlyReason(reason: string): string {
+    return reason.startsWith("Permission mode ")
+        ? "Vera needs your approval before running this command."
+        : reason;
+}
+
+function shortAgentId(id: string): string {
+    return id.slice(0, 8);
 }

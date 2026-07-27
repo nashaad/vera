@@ -27,6 +27,7 @@ import {
 } from "../engine/protocol.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
+    MAX_AGENT_DEPTH,
     validChildAgentLimit,
 } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
@@ -160,6 +161,7 @@ export interface BranchedRegisteredAgent {
 interface InheritedAgentSettings {
     readonly approvalMode: ApprovalMode;
     readonly modelSettings?: ModelTurnSettings;
+    readonly parentId?: string;
 }
 
 interface RegisteredAgentEntry {
@@ -169,6 +171,7 @@ interface RegisteredAgentEntry {
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
     readonly eventLogPath: string;
+    readonly parentId?: string;
     modelSettings: ModelTurnSettings;
     approvalMode: ApprovalMode;
     inbound?: InboundCommandRouter;
@@ -188,7 +191,7 @@ export class AgentRegistry {
     private isClosed = false;
     private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
     private readonly maxConcurrentBackgroundAgents: number;
-    private startingBackgroundAgents = 0;
+    private readonly startingBackgroundAgents = new Map<string, number>();
 
     constructor(private readonly options: AgentRegistryOptions) {
         this.defaultModel = options.model;
@@ -231,7 +234,12 @@ export class AgentRegistry {
                 }
             }
             this.requireOpen();
-            return this.start(store, kind, options.eventLogPath);
+            return this.start(
+                store,
+                kind,
+                options.eventLogPath,
+                inherited?.parentId,
+            );
         } finally {
             this.startingIds.delete(id);
         }
@@ -546,6 +554,7 @@ export class AgentRegistry {
         kind: RegisteredAgentKind,
         eventLogPath = this.options.eventLogPathForId?.(store.header.id)
             ?? defaultEventLogPath(store.header.id),
+        parentId?: string,
     ): ResidentAgent {
         const storedFailure = store.agentFailure();
         const adapter = storedFailure === undefined
@@ -571,6 +580,9 @@ export class AgentRegistry {
             kind,
             events,
             eventLogPath,
+            ...(parentId === undefined
+                ? {}
+                : { parentId }),
             ...(adapter === undefined ? {} : { adapter }),
             modelSettings: supportedModelSettings(
                 storedSettings === undefined
@@ -608,12 +620,13 @@ export class AgentRegistry {
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
-            relayToolApproval: (update, sourceAgentId, sourceTask) =>
+            relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
                 this.relayChildToolApproval(
                     entry,
                     update,
                     sourceAgentId,
                     sourceTask,
+                    signal,
                 ),
             ...(this.options.modelFallback === undefined
                 ? {}
@@ -648,7 +661,8 @@ export class AgentRegistry {
                     ? {}
                     : { permissionModes: this.options.permissionModes }),
                 applyToolEffect,
-                enabledToolEffects: kind === "interactive"
+                enabledToolEffects: (kind === "interactive" ? 0 : 1)
+                        < MAX_AGENT_DEPTH
                     ? [
                         "spawn_subagent",
                         "spawn_background_agent",
@@ -726,9 +740,11 @@ export class AgentRegistry {
         const running = [...this.agents.values()].filter(
             (entry) =>
                 entry.kind === "background"
+                && entry.parentId === parentStore.header.id
                 && !entry.completed
                 && !entry.agent.closed,
-        ).length + this.startingBackgroundAgents;
+        ).length
+            + (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0);
         if (running >= this.maxConcurrentBackgroundAgents) {
             return {
                 kind: "output",
@@ -737,7 +753,10 @@ export class AgentRegistry {
                 isError: true,
             };
         }
-        this.startingBackgroundAgents += 1;
+        this.startingBackgroundAgents.set(
+            parentStore.header.id,
+            (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0) + 1,
+        );
         let child: ResidentAgent;
         try {
             child = await this.createWithKind(
@@ -745,6 +764,7 @@ export class AgentRegistry {
                 "background",
                 {
                     approvalMode: context.approvalMode,
+                    parentId: parentStore.header.id,
                     modelSettings: {
                         ...(context.provider === undefined
                             ? { provider: this.defaultProvider }
@@ -757,7 +777,17 @@ export class AgentRegistry {
                 },
             );
         } finally {
-            this.startingBackgroundAgents -= 1;
+            const remaining =
+                (this.startingBackgroundAgents.get(parentStore.header.id) ?? 1)
+                - 1;
+            if (remaining === 0) {
+                this.startingBackgroundAgents.delete(parentStore.header.id);
+            } else {
+                this.startingBackgroundAgents.set(
+                    parentStore.header.id,
+                    remaining,
+                );
+            }
         }
         const attachment = child.attach();
         try {
@@ -872,6 +902,7 @@ export class AgentRegistry {
         update: ToolApprovalUiRequestUpdate,
         sourceAgentId: string,
         sourceTask: string,
+        signal?: AbortSignal,
     ): Promise<"allow_once" | "deny"> {
         const result = await parent.inbound?.requestToolApproval(
             update.request.toolCall,
@@ -880,6 +911,7 @@ export class AgentRegistry {
                 timeoutMs: CHILD_TOOL_APPROVAL_TIMEOUT_MS,
                 sourceAgentId,
                 sourceTask,
+                ...(signal === undefined ? {} : { signal }),
             },
         );
         return result?.behavior === "allow" ? "allow_once" : "deny";
