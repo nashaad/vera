@@ -14,6 +14,12 @@
  */
 export type ReasoningLevelId = string;
 
+/**
+ * `id` currently means "the string sent as the reasoning parameter". A
+ * model controlled by an in-prompt token instead (Qwen3-style `/no_think`)
+ * would need a discriminator here saying how the level is applied; no such
+ * model exists in Vera today, so that discriminator is not built (nash-52).
+ */
 export interface ReasoningLevel {
     readonly id: ReasoningLevelId;
     readonly label: string;

@@ -85,19 +85,16 @@ export async function resolveReasoningSelection(
  * resolution and what the user sees highlighted are the same sentence: the
  * requested level if it is valid for this model, else the model's own
  * default, else its top level, else no level specified.
+ *
+ * Exported so the TUI's level pane can compute its pre-highlight by calling
+ * this directly rather than re-implementing the placement rule a second time.
  */
-function inferReasoningSelection(
+export function inferReasoningSelection(
     requested: ModelReasoningEffort,
     supportedDescending: readonly string[],
     defaultLevel?: string,
 ): ReasoningSelection {
     const supported = uniqueNonEmptyStrings(supportedDescending);
-
-    if (requested === "off") {
-        return supported.includes("none")
-            ? { requested, providerEffort: "none", inferred: true }
-            : { requested, inferred: true };
-    }
 
     if (supported.includes(requested)) {
         return { requested, providerEffort: requested, inferred: true };

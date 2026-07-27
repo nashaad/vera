@@ -89,7 +89,13 @@ test("a switch to a model with no overlapping vocabulary resolves rather than th
     });
 });
 
-test("OpenRouter reasoning degrades rather than throws when off has no equivalent", async () => {
+test("off is not special-cased: it falls back like any other unmatched word", async () => {
+    // Translating Vera's "off" into a provider's literal "none" is the
+    // provider adapter's job (Ollama already does this), not the resolver's.
+    // A model whose level list happens to contain a literal "none" entry
+    // still resolves it by that exact match; a model that does not simply
+    // degrades "off" to its top level, the same as any other word with no
+    // shared vocabulary.
     expect(await resolveReasoningSelection(
         "openrouter",
         "provider/model",
@@ -97,6 +103,7 @@ test("OpenRouter reasoning degrades rather than throws when off has no equivalen
         { supportedEfforts: ["high", "medium", "low"] },
     )).toEqual({
         requested: "off",
+        providerEffort: "high",
         inferred: true,
     });
 
@@ -104,10 +111,10 @@ test("OpenRouter reasoning degrades rather than throws when off has no equivalen
         "openrouter",
         "provider/model",
         "off",
-        { supportedEfforts: ["high", "none"] },
+        { supportedEfforts: ["off", "high"] },
     )).toEqual({
         requested: "off",
-        providerEffort: "none",
+        providerEffort: "off",
         inferred: true,
     });
 });

@@ -10,6 +10,11 @@ import {
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
+import type {
+    ReasoningLevel,
+    ReasoningLevelId,
+} from "../../src/model/catalog-shape.ts";
+import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
@@ -94,6 +99,20 @@ export interface TuiSettingsPickerState {
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly loading?: boolean;
+    /**
+     * Set only on a level pane opened from the model pane. Its presence is
+     * what tells this pane it is pane two of a chain rather than the
+     * standalone `/reasoning` picker: Escape steps back to `modelPaneState`
+     * instead of closing, and Enter folds the level into the model
+     * selection instead of returning a bare reasoning selection.
+     */
+    readonly pendingModel?: TuiPendingModelChoice;
+}
+
+export interface TuiPendingModelChoice {
+    readonly provider: string;
+    readonly model: string;
+    readonly modelPaneState: TuiSettingsPickerState;
 }
 
 export interface TuiExtensionPickerState {
@@ -118,7 +137,13 @@ export interface TuiSettingsPickerKey {
 }
 
 export type TuiSettingsPickerSelection =
-    | { readonly kind: "model"; readonly provider: string; readonly model: string }
+    | {
+        readonly kind: "model";
+        readonly provider: string;
+        readonly model: string;
+        // Present only when this selection folded in a chained level pane.
+        readonly reasoningEffort?: ModelReasoningEffort;
+    }
     | {
         readonly kind: "reasoning";
         readonly reasoningEffort: ModelReasoningEffort;
@@ -160,14 +185,6 @@ export interface TuiSettingsPickerView {
     update(state: TuiAnySettingsPickerState): void;
 }
 
-const REASONING_OPTIONS: readonly TuiSettingsPickerOption[] = [
-    { value: "off", label: "Off", description: "quick response, no extra reasoning" },
-    { value: "low", label: "Low", description: "light reasoning" },
-    { value: "medium", label: "Medium", description: "balanced reasoning" },
-    { value: "high", label: "High", description: "deeper reasoning" },
-    { value: "max", label: "Max", description: "maximum available reasoning" },
-];
-
 const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "ask", label: "Ask", description: "ask before every bash command" },
     {
@@ -206,11 +223,10 @@ const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
 ];
 
 export function startTuiSettingsPicker(
-    kind: TuiSettingsPickerKind,
+    kind: Exclude<TuiSettingsPickerKind, "reasoning">,
     currentModel: string | undefined,
     currentReasoning: ModelReasoningEffort | undefined,
     currentPermissions: ApprovalMode | undefined,
-    availableReasoning: readonly ModelReasoningEffort[] | undefined = undefined,
     availableModels: readonly SuggestedModel[] | undefined = undefined,
     currentTheme: TuiThemeName = "default",
     currentProvider: string | undefined = undefined,
@@ -220,18 +236,14 @@ export function startTuiSettingsPicker(
         ? THEME_OPTIONS
         : kind === "model"
         ? modelOptions(availableModels, currentProvider, currentModel)
-        : kind === "reasoning"
-            ? reasoningOptions(availableReasoning)
-            : permissionOptions(availablePermissionModes);
+        : permissionOptions(availablePermissionModes);
     const currentValue = kind === "theme"
         ? currentTheme
         : kind === "model"
         ? currentModel === undefined || currentProvider === undefined
             ? undefined
             : providerModelKey(currentProvider, currentModel)
-        : kind === "reasoning"
-            ? currentReasoning ?? "default"
-            : currentPermissions;
+        : currentPermissions;
     const selectedIndex = Math.max(
         0,
         options.findIndex((option) => option.value === currentValue),
@@ -246,6 +258,56 @@ export function startTuiSettingsPicker(
             ? { initialModel: currentValue }
             : {}),
         ...(kind === "theme" ? { initialTheme: currentTheme } : {}),
+    };
+}
+
+/**
+ * The level pane. Renders exactly what the model's own `levels` list
+ * contains, no synthesized rows: an empty list means the model has no
+ * reasoning control at all, and the caller checks for that before opening
+ * this pane rather than opening an empty one.
+ *
+ * The pre-highlight reuses `inferReasoningSelection`, the same placement
+ * rule the engine uses to resolve a requested level against a model's own
+ * list, so what lights up here and what a turn actually resolves to are the
+ * same sentence: the current effort if valid for this model, else the
+ * model's own default, else its top level.
+ *
+ * `pendingModel` is set only when this pane was opened from the model pane:
+ * its presence is what tells `pickerSelection` and Escape-handling that this
+ * is pane two of a chain, not the standalone `/reasoning` picker.
+ */
+export function startTuiReasoningPicker(
+    levels: readonly ReasoningLevel[],
+    defaultLevel: ReasoningLevelId | undefined,
+    currentReasoningEffort: ModelReasoningEffort | undefined,
+    pendingModel: TuiPendingModelChoice | undefined = undefined,
+): TuiSettingsPickerState {
+    const options = levels.map(levelOption);
+    const highlighted = inferReasoningSelection(
+        currentReasoningEffort ?? "",
+        levels.map((level) => level.id),
+        defaultLevel,
+    ).providerEffort;
+    const selectedIndex = Math.max(
+        0,
+        options.findIndex((option) => option.value === highlighted),
+    );
+    return {
+        kind: "reasoning",
+        allOptions: options,
+        options,
+        selectedIndex,
+        query: "",
+        ...(pendingModel === undefined ? {} : { pendingModel }),
+    };
+}
+
+function levelOption(level: ReasoningLevel): TuiSettingsPickerOption {
+    return {
+        value: level.id,
+        label: level.label,
+        description: level.description ?? "",
     };
 }
 
@@ -483,16 +545,6 @@ function relativeSessionTime(value: string | undefined, now: Date): string {
         });
 }
 
-function reasoningOptions(
-    available: readonly ModelReasoningEffort[] | undefined,
-): readonly TuiSettingsPickerOption[] {
-    return available === undefined
-        ? REASONING_OPTIONS
-        : REASONING_OPTIONS.filter((option) =>
-            available.includes(option.value as ModelReasoningEffort)
-        );
-}
-
 export function handleTuiSettingsPickerKey(
     state: TuiExtensionPickerState,
     key: TuiSettingsPickerKey,
@@ -532,6 +584,9 @@ export function handleTuiSettingsPickerKey(
         // outright, so a wrong turn costs one key instead of reopening /settings.
         if (state.kind === "permission_settings") {
             return { state: startTuiSettingsMenu("settings"), handled: true };
+        }
+        if (state.kind === "reasoning" && state.pendingModel !== undefined) {
+            return { state: state.pendingModel.modelPaneState, handled: true };
         }
         return {
             handled: true,
@@ -581,7 +636,7 @@ export function handleTuiSettingsPickerKey(
             return unchanged(state, true);
         }
         return {
-            selection: pickerSelection(state.kind, selected),
+            selection: pickerSelection(state, selected),
             handled: true,
         };
     }
@@ -726,6 +781,9 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
     }
     if (state.kind === "permission_settings") {
         return "↑↓ move · ⏎ open · esc back";
+    }
+    if (state.kind === "reasoning" && state.pendingModel !== undefined) {
+        return "↑↓ move · ⏎ select · esc back";
     }
     return "↑↓ move · ⏎ select · esc close";
 }
@@ -944,9 +1002,10 @@ function providerModelKey(provider: string, model: string): string {
 }
 
 function pickerSelection(
-    kind: TuiSettingsPickerKind,
+    state: TuiSettingsPickerState,
     option: TuiSettingsPickerOption,
 ): TuiSettingsPickerSelection {
+    const kind = state.kind;
     if (kind === "model") {
         if (option.provider === undefined || option.model === undefined) {
             throw new Error("model picker option is missing provider identity");
@@ -955,6 +1014,16 @@ function pickerSelection(
     }
     const value = option.value;
     if (kind === "reasoning") {
+        // A chained level pane folds its result into the model choice that
+        // opened it, so the two panes resolve to one patch rather than two.
+        if (state.pendingModel !== undefined) {
+            return {
+                kind: "model",
+                provider: state.pendingModel.provider,
+                model: state.pendingModel.model,
+                reasoningEffort: value as ModelReasoningEffort,
+            };
+        }
         return { kind, reasoningEffort: value as ModelReasoningEffort };
     }
     if (kind === "permissions") {
