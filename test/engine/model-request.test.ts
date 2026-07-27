@@ -54,6 +54,39 @@ test("model request uses one frozen message and tool snapshot", () => {
     expect(request.systemPrompt).not.toContain("- change:");
 });
 
+test("model requests strip durable tool presentation metadata", () => {
+    const request = buildModelRequest({
+        model: "test-model",
+        maxTokens: 4096,
+        messages: [{
+            role: "tool_result",
+            toolCallId: "call-1",
+            toolName: "edit",
+            content: [{ type: "text", text: "Applied 1 edit to notes.txt" }],
+            isError: false,
+            presentation: {
+                kind: "unified_diff",
+                path: "notes.txt",
+                patch: "SECRET DIFF",
+            },
+        }],
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    });
+
+    expect(request.messages).toEqual([{
+        role: "tool_result",
+        toolCallId: "call-1",
+        toolName: "edit",
+        content: [{ type: "text", text: "Applied 1 edit to notes.txt" }],
+        isError: false,
+    }]);
+    expect(JSON.stringify(request)).not.toContain("SECRET DIFF");
+});
+
 test("equal boundary snapshots produce equal prompts including empty tools", () => {
     const input = {
         model: "test-model",

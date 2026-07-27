@@ -64,6 +64,24 @@ test("turn finished accepts an optional model error", () => {
     expect(parseAgentUpdate({ ...update, error: "   " })).toBeUndefined();
 });
 
+test("host wire accepts only complete tool presentations", () => {
+    const update = {
+        type: "tool_presentation" as const,
+        tool: "edit",
+        presentation: {
+            kind: "unified_diff" as const,
+            path: "notes.txt",
+            patch: "--- notes.txt\n+++ notes.txt\n",
+        },
+        seq: 1,
+    };
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({
+        ...update,
+        presentation: { ...update.presentation, patch: "" },
+    })).toBeUndefined();
+});
+
 test("host wire validates context token counts", () => {
     expect(parseAgentUpdate({
         type: "turn_finished",

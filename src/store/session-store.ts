@@ -1681,6 +1681,8 @@ function isModelMessage(value: unknown): value is ModelMessage {
         return typeof message.toolCallId === "string"
             && typeof message.toolName === "string"
             && typeof message.isError === "boolean"
+            && (message.presentation === undefined
+                || isToolPresentation(message.presentation))
             && message.content.every(isTextContent);
     }
     if (message.role !== "assistant") {
@@ -1692,6 +1694,19 @@ function isModelMessage(value: unknown): value is ModelMessage {
         && (message.errorMessage === undefined
             || typeof message.errorMessage === "string")
         && message.content.every(isAssistantContent);
+}
+
+function isToolPresentation(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    if (value.kind === "unified_diff") {
+        return typeof value.path === "string"
+            && value.path.length > 0
+            && typeof value.patch === "string"
+            && value.patch.length > 0;
+    }
+    return value.kind === "tool_notice"
+        && typeof value.text === "string"
+        && value.text.trim().length > 0;
 }
 
 function isModelSource(value: unknown): boolean {

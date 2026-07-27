@@ -558,7 +558,7 @@ export async function runTurn(
                 modelRequest = {
                     ...request,
                     messages: await hydrateImageAttachments(
-                        state.messages,
+                        request.messages,
                         requireImageReader(state),
                     ),
                 };
@@ -1131,11 +1131,19 @@ async function finishExecutedTool(
             workspace: state.toolRuntime.workspace,
             durationMs,
         }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
-        const finalResult = hookResultMessage(toolCall, effective);
+        const toolResultChanged = !sameHookToolResult(
+            hookResult(result),
+            effective,
+        );
+        const finalResult = hookResultMessage(
+            toolCall,
+            effective,
+            toolResultChanged ? undefined : result.presentation,
+        );
         if (!sameToolResult(result, finalResult)) {
             state.events.emit({
                 type: "tool_result_changed",
-                original: result,
+                original: withoutPresentation(result),
                 effective: finalResult,
             });
         }
@@ -1163,6 +1171,16 @@ async function finishExecutedTool(
     }
 }
 
+function withoutPresentation(result: ToolResultMessage): ToolResultMessage {
+    return {
+        role: result.role,
+        toolCallId: result.toolCallId,
+        toolName: result.toolName,
+        content: result.content,
+        isError: result.isError,
+    };
+}
+
 function hookToolCall(toolCall: ToolCallContent): HookToolCall {
     return {
         id: toolCall.id,
@@ -1183,6 +1201,7 @@ function hookResult(result: ToolResultMessage): HookToolResult {
 function hookResultMessage(
     toolCall: ToolCallContent,
     result: Pick<HookToolResult, "content" | "isError">,
+    presentation?: ToolResultMessage["presentation"],
 ): ToolResultMessage {
     return {
         role: "tool_result",
@@ -1190,6 +1209,7 @@ function hookResultMessage(
         toolName: toolCall.name,
         content: result.content,
         isError: result.isError,
+        ...(presentation === undefined ? {} : { presentation }),
     };
 }
 
@@ -1219,6 +1239,13 @@ async function finishToolCalls(
     );
     for (const toolCall of completed) {
         await commitMessage(state, toolCall.result);
+        if (toolCall.result.presentation !== undefined) {
+            state.events.emit({
+                type: "tool_presentation_ready",
+                tool: toolCall.result.toolName,
+                presentation: toolCall.result.presentation,
+            });
+        }
     }
     const rejected = settled.find(
         (toolCall) => toolCall.status === "rejected",
@@ -1228,6 +1255,13 @@ async function finishToolCalls(
     }
     return completed.find((toolCall) => toolCall.interrupt !== undefined)
         ?.interrupt;
+}
+
+function sameHookToolResult(
+    left: Pick<HookToolResult, "content" | "isError">,
+    right: Pick<HookToolResult, "content" | "isError">,
+): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
 }
 
 async function applyToolExecution(

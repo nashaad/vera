@@ -1,4 +1,8 @@
-import type { ModelReasoningEffort, ModelTool } from "../model/types.ts";
+import type {
+    ModelReasoningEffort,
+    ModelTool,
+    ToolPresentation,
+} from "../model/types.ts";
 import type { ApprovalMode } from "../sdk/permissions.ts";
 import type { ToolRuntime } from "./runtime.ts";
 
@@ -6,6 +10,7 @@ export interface ToolOutput {
     readonly kind: "output";
     readonly output: string;
     readonly isError: boolean;
+    readonly presentation?: ToolPresentation;
 }
 
 export interface SpawnSubagentEffect {

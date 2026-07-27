@@ -66,6 +66,12 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (update.type === "tool_finished") {
         return typeof update.tool === "string" ? value as AgentUpdate : undefined;
     }
+    if (update.type === "tool_presentation") {
+        return typeof update.tool === "string"
+                && isToolPresentation(update.presentation)
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "turn_finished") {
         return (update.outcome === undefined
                 || update.outcome === "error"
@@ -187,6 +193,19 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function isToolPresentation(value: unknown): boolean {
+    const presentation = asRecord(value);
+    if (presentation?.kind === "unified_diff") {
+        return typeof presentation.path === "string"
+            && presentation.path.length > 0
+            && typeof presentation.patch === "string"
+            && presentation.patch.length > 0;
+    }
+    return presentation?.kind === "tool_notice"
+        && typeof presentation.text === "string"
+        && presentation.text.trim().length > 0;
 }
 
 function withPermissionInspection(
@@ -492,6 +511,9 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         return entry.detail === undefined
             || (typeof entry.detail === "string"
                 && entry.detail.trim().length > 0);
+    }
+    if (entry?.kind === "presentation") {
+        return isToolPresentation(entry.presentation);
     }
     return entry?.kind === "tool"
         && typeof entry.tool === "string"

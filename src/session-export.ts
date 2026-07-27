@@ -61,6 +61,19 @@ export function renderSessionMarkdown(exported: SessionExport): string {
             lines.push(indentJson(entry.args));
         } else if (entry.kind === "error") {
             lines.push(quoteMarkdown(entry.detail ?? "Model request failed"));
+        } else if (entry.kind === "presentation") {
+            if (entry.presentation.kind === "unified_diff") {
+                const fence = markdownFence(entry.presentation.patch);
+                lines.push(
+                    `File: ${inlineCode(entry.presentation.path)}`,
+                    "",
+                    `${fence}diff`,
+                    entry.presentation.patch.trimEnd(),
+                    fence,
+                );
+            } else {
+                lines.push(quoteMarkdown(entry.presentation.text));
+            }
         } else {
             lines.push(quoteMarkdown(renderTranscriptText(entry)));
         }
@@ -79,7 +92,17 @@ export function renderSessionMarkdown(exported: SessionExport): string {
     return `${lines.join("\n")}\n`;
 }
 
-function renderTranscriptText(entry: Exclude<TranscriptEntry, { kind: "tool" | "error" }>): string {
+function markdownFence(content: string): string {
+    const longest = Math.max(
+        0,
+        ...content.matchAll(/`+/g).map((match) => match[0].length),
+    );
+    return "`".repeat(Math.max(3, longest + 1));
+}
+
+function renderTranscriptText(
+    entry: Extract<TranscriptEntry, { kind: "user" | "assistant" }>,
+): string {
     if (entry.kind !== "user" || entry.attachmentIds === undefined) return entry.text;
     const images = entry.attachmentIds.map((id) => `[Image attachment: ${id}]`).join("\n");
     return entry.text.length === 0 ? images : `${entry.text}\n${images}`;
@@ -92,7 +115,9 @@ function transcriptHeading(entry: TranscriptEntry): string {
             ? "## Vera"
             : entry.kind === "error"
                 ? "## Model error"
-                : `## Tool · ${escapeHeading(entry.tool)}`;
+                : entry.kind === "presentation"
+                    ? "## Tool result"
+                    : `## Tool · ${escapeHeading(entry.tool)}`;
 }
 
 function quoteMarkdown(text: string): string {

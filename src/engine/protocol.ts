@@ -7,6 +7,7 @@ import type {
 import type {
     ModelMessage,
     ModelReasoningEffort,
+    ToolPresentation,
 } from "../model/types.ts";
 import type {
     ModelSettingsPatch,
@@ -43,6 +44,11 @@ export interface ToolTranscriptEntry {
     readonly args: Readonly<Record<string, unknown>>;
 }
 
+export interface PresentationTranscriptEntry {
+    readonly kind: "presentation";
+    readonly presentation: ToolPresentation;
+}
+
 export interface ErrorTranscriptEntry {
     readonly kind: "error";
     readonly detail?: string;
@@ -52,6 +58,7 @@ export type TranscriptEntry =
     | UserTranscriptEntry
     | AssistantTranscriptEntry
     | ToolTranscriptEntry
+    | PresentationTranscriptEntry
     | ErrorTranscriptEntry;
 
 export interface PromptCommand {
@@ -215,6 +222,13 @@ export interface ToolReviewUpdate {
 export interface ToolFinishedUpdate {
     readonly type: "tool_finished";
     readonly tool: string;
+    readonly seq: number;
+}
+
+export interface ToolPresentationUpdate {
+    readonly type: "tool_presentation";
+    readonly tool: string;
+    readonly presentation: ToolPresentation;
     readonly seq: number;
 }
 
@@ -417,6 +431,7 @@ export type AgentUpdate =
     | ToolStartedUpdate
     | ToolReviewUpdate
     | ToolFinishedUpdate
+    | ToolPresentationUpdate
     | TurnFinishedUpdate
     | AgentFailedUpdate
     | StatusUpdate
@@ -815,6 +830,16 @@ export function createProtocolEncoder(
             });
             return;
         }
+        if (event.type === "tool_presentation_ready") {
+            seq += 1;
+            sender.send({
+                type: "tool_presentation",
+                tool: event.tool,
+                presentation: event.presentation,
+                seq,
+            });
+            return;
+        }
 
         if (event.type === "ui_request") {
             seq += 1;
@@ -956,6 +981,12 @@ export function projectTranscript(
             continue;
         }
         if (message.role === "tool_result") {
+            if (message.presentation !== undefined) {
+                entries.push({
+                    kind: "presentation",
+                    presentation: structuredClone(message.presentation),
+                });
+            }
             continue;
         }
         for (const content of message.content) {
