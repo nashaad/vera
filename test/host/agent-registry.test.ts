@@ -1175,6 +1175,24 @@ test("a background agent returns immediately and delivers its final summary", as
         expect(registry.find(child!.id)).toBeDefined();
         const childStore = await SessionStore.open(child!.session_path);
         expect(childStore.approvalMode()).toBe("full_access");
+        const childEvents = (await readFile(
+            join(root, `${child!.id}-events.jsonl`),
+            "utf8",
+        )).trim().split("\n").map(
+            (line) => JSON.parse(line) as {
+                type: string;
+                tools?: readonly { name: string }[];
+            },
+        );
+        const childRequest = childEvents.find(
+            (event) => event.type === "model_request",
+        );
+        expect(childRequest?.tools?.map((tool) => tool.name)).not.toContain(
+            "subagent",
+        );
+        expect(childRequest?.tools?.map((tool) => tool.name)).not.toContain(
+            "background_agent",
+        );
         expect(childStore.messages()).toEqual([
             {
                 role: "user",

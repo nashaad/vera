@@ -581,10 +581,12 @@ export class AgentRegistry {
                     ? {}
                     : { permissionModes: this.options.permissionModes }),
                 applyToolEffect,
-                enabledToolEffects: [
-                    "spawn_subagent",
-                    "spawn_background_agent",
-                ],
+                enabledToolEffects: kind === "interactive"
+                    ? [
+                        "spawn_subagent",
+                        "spawn_background_agent",
+                    ]
+                    : [],
                 enableUserInteraction: kind === "interactive",
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
