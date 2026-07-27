@@ -6,6 +6,7 @@ import {
     createTuiApprovalView,
     createTuiApprovalResponse,
     renderTuiApproval,
+    tuiApprovalHint,
     tuiApprovalDecision,
 } from "../../clients/tui/approval.ts";
 import type {
@@ -67,6 +68,20 @@ test("child approvals identify their agent and task", () => {
         "Vera needs your approval before running this command.",
     );
     expect(renderTuiApproval(childRequest)).not.toContain("ask.default");
+    expect(renderTuiApproval(childRequest)).not.toContain(
+        "Allow similar this session",
+    );
+    expect(renderTuiApproval(childRequest)).not.toContain(
+        "Allow similar always",
+    );
+    expect(tuiApprovalHint(childRequest)).toBe(
+        "approval required · 1 once · 3/esc deny · ctrl+c stop",
+    );
+    expect(tuiApprovalHint(request)).toContain("2 session prefix");
+    expect(createTuiApprovalResponse(childRequest, { name: "2" }))
+        .toBeUndefined();
+    expect(createTuiApprovalResponse(childRequest, { name: "4" }))
+        .toBeUndefined();
 });
 
 test("TUI approval accepts numeric once, similar, and deny keys", () => {

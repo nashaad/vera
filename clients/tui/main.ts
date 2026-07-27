@@ -63,6 +63,7 @@ import { findOrStartResidentHost } from "../host/launch.ts";
 import {
     createTuiApprovalView,
     createTuiApprovalResponse,
+    tuiApprovalHint,
 } from "./approval.ts";
 import {
     createTuiQuestionView,
@@ -185,8 +186,6 @@ import { createTuiMarkdownEntry } from "./markdown-entry.ts";
 const READY_HINT = "ready · ctrl+p commands";
 const WORKING_HINT = "enter queue · esc redirect/stop · ctrl+c stop";
 const STOPPING_HINT = "stopping…";
-const APPROVAL_HINT =
-    "approval required · 1 once · 2 session prefix · 3/esc deny · ctrl+c stop";
 // The question overlay owns the choose/cancel hint now, so the status line only
 // carries the waiting phase and the global interrupt.
 const QUESTION_HINT = "question waiting · ctrl+c stop";
@@ -2902,8 +2901,11 @@ export async function startTui(
             lifecycleHint = "disconnected · /resume reconnect · ctrl+c quit";
         } else if (abortRequested) {
             lifecycleHint = `${STOPPING_HINT} · ${elapsedWorkingTime()}`;
-        } else if (pendingUiRequest?.request.type === "tool_approval") {
-            lifecycleHint = APPROVAL_HINT;
+        } else if (
+            pendingUiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+        ) {
+            lifecycleHint = tuiApprovalHint(pendingUiRequest);
         } else if (pendingUiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
