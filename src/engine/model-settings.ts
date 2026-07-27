@@ -61,7 +61,6 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
 }
 
 const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [
-    "off",
     "low",
     "medium",
     "high",

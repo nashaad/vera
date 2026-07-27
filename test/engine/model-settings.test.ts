@@ -8,7 +8,6 @@ import {
 } from "../../src/engine/model-settings.ts";
 
 const EVERY_EFFORT: readonly ModelReasoningEffort[] = [
-    "off",
     "low",
     "medium",
     "high",

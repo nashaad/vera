@@ -5,11 +5,23 @@ import {
     handleTuiSettingsPickerKey,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
+    startTuiReasoningPicker,
     startTuiSessionPicker,
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
     type TuiAnySettingsPickerState,
 } from "../../clients/tui/settings-picker.ts";
+
+// Most capable first, matching `CatalogModel.levels` ordering: the level
+// pane renders whatever order it is given, and `inferReasoningSelection`'s
+// "top level" fallback is the first entry, so the fixture order is load
+// bearing for the pre-highlight tests below.
+const REASONING_LEVELS = [
+    { id: "max", label: "Max", description: "maximum available reasoning" },
+    { id: "high", label: "High", description: "deeper reasoning" },
+    { id: "medium", label: "Medium", description: "balanced reasoning" },
+    { id: "low", label: "Low", description: "light reasoning" },
+] as const;
 
 // The pickers render as renderable rows, so their look is asserted against a
 // captured frame rather than a string projection of the same state.
@@ -181,7 +193,6 @@ test("model picker keeps the current model selected", async () => {
         "z-ai/glm-5.2",
         "high",
         "auto",
-        undefined,
         availableModels,
         "default",
         "openrouter",
@@ -206,7 +217,6 @@ test("model picker filters its choices as the user types", async () => {
         "moonshotai/kimi-k3",
         "max",
         "auto",
-        undefined,
         availableModels,
         "default",
         "openrouter",
@@ -240,7 +250,6 @@ test("model picker distinguishes the same model id across providers", async () =
         "moonshotai/kimi-k3",
         "off",
         "auto",
-        undefined,
         models,
         "default",
         "ollama",
@@ -264,17 +273,12 @@ test("model picker distinguishes the same model id across providers", async () =
 });
 
 test("every settings picker filters as the user types", async () => {
-    const reasoning = startTuiSettingsPicker(
-        "reasoning",
-        "z-ai/glm-5.2",
-        "high",
-        "auto",
-    );
+    const reasoning = startTuiReasoningPicker(REASONING_LEVELS, undefined, "high");
     const filteredReasoning = handleTuiSettingsPickerKey(reasoning, {
         name: "m",
     });
     expect(filteredReasoning.state?.options.map((option) => option.value))
-        .toEqual(["medium", "max"]);
+        .toEqual(["max", "medium"]);
 
     const permissions = startTuiSettingsPicker(
         "permissions",
@@ -294,13 +298,11 @@ test("every settings picker filters as the user types", async () => {
     expect(await pickerFrame(filteredPermissions)).toContain("⌕  full");
 });
 
-test("Kimi reasoning picker only offers its supported max effort", () => {
-    const reasoning = startTuiSettingsPicker(
-        "reasoning",
-        "moonshotai/kimi-k3",
+test("Kimi reasoning picker renders exactly the model's own levels", () => {
+    const reasoning = startTuiReasoningPicker(
+        [{ id: "max", label: "Max", description: "maximum available reasoning" }],
+        undefined,
         "low",
-        "auto",
-        ["max"],
     );
     const selected = handleTuiSettingsPickerKey(reasoning, { name: "enter" });
     expect(selected.selection).toEqual({
@@ -310,13 +312,11 @@ test("Kimi reasoning picker only offers its supported max effort", () => {
     expect(reasoning.options.map((option) => option.value)).toEqual(["max"]);
 });
 
-test("GLM reasoning picker only offers its supported max effort", () => {
-    const reasoning = startTuiSettingsPicker(
-        "reasoning",
-        "z-ai/glm-5.2",
+test("GLM reasoning picker renders exactly the model's own levels", () => {
+    const reasoning = startTuiReasoningPicker(
+        [{ id: "max", label: "Max", description: "maximum available reasoning" }],
+        undefined,
         "off",
-        "auto",
-        ["max"],
     );
 
     expect(reasoning.options.map((option) => option.value)).toEqual(["max"]);
@@ -353,7 +353,6 @@ test("permissions picker includes configured mode names", () => {
         undefined,
         undefined,
         undefined,
-        undefined,
         ["ask", "auto", "full_access", "unattended"],
     );
 
@@ -370,16 +369,68 @@ test("permissions picker includes configured mode names", () => {
 });
 
 test("escape closes the settings picker", () => {
-    const state = startTuiSettingsPicker(
-        "reasoning",
-        "moonshotai/kimi-k3",
-        "max",
-        "auto",
-    );
+    const state = startTuiReasoningPicker(REASONING_LEVELS, undefined, "max");
 
     expect(handleTuiSettingsPickerKey(state, { name: "escape" })).toEqual({
         handled: true,
     });
+});
+
+test("escape inside a chained level pane steps back to the model pane instead of closing", () => {
+    const modelPane = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "max",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    const levelPane = startTuiReasoningPicker(REASONING_LEVELS, undefined, "max", {
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        modelPaneState: modelPane,
+    });
+
+    const back = handleTuiSettingsPickerKey(levelPane, { name: "escape" });
+    expect(back.handled).toBe(true);
+    expect(back.state).toBe(modelPane);
+});
+
+test("enter on a chained level pane folds the level into the model selection", () => {
+    const modelPane = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "max",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    const levelPane = startTuiReasoningPicker(REASONING_LEVELS, undefined, "low", {
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        modelPaneState: modelPane,
+    });
+
+    // "low" pre-highlights because it is the current effort and is valid for
+    // this model's levels, matching `inferReasoningSelection`'s placement rule.
+    expect(levelPane.options[levelPane.selectedIndex]?.value).toBe("low");
+    expect(handleTuiSettingsPickerKey(levelPane, { name: "enter" }).selection)
+        .toEqual({
+            kind: "model",
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "low",
+        });
+});
+
+test("level pane pre-highlight falls back to the model's default level, then its top level", () => {
+    const withDefault = startTuiReasoningPicker(REASONING_LEVELS, "medium", "off");
+    expect(withDefault.options[withDefault.selectedIndex]?.value).toBe("medium");
+
+    const withoutDefault = startTuiReasoningPicker(REASONING_LEVELS, undefined, "off");
+    expect(withoutDefault.options[withoutDefault.selectedIndex]?.value).toBe("max");
 });
 
 test("the settings menu routes into permissions and its two entries", () => {
@@ -506,7 +557,6 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         undefined,
         undefined,
         undefined,
-        undefined,
         "nightowl",
     );
 
@@ -547,7 +597,6 @@ test("theme picker renders as a borderless palette card with swatches", async ()
     view.box.visible = true;
     view.update(startTuiSettingsPicker(
         "theme",
-        undefined,
         undefined,
         undefined,
         undefined,

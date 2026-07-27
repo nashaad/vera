@@ -779,7 +779,6 @@ function strongestReasoningEffort(
         "high",
         "medium",
         "low",
-        "off",
     ];
     return strongestFirst.find((effort) => efforts.includes(effort));
 }

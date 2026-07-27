@@ -19,6 +19,7 @@ import {
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
 import type { UserMessage } from "../../src/model/types.ts";
+import type { ReasoningLevel } from "../../src/model/catalog-shape.ts";
 import {
     loadVeraConfig,
     type VeraExtensionConfig,
@@ -102,12 +103,16 @@ import {
 } from "./session-trash-confirm.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
-import { renderTuiStatusLine } from "./status.ts";
+import {
+    countRunningBackgroundAgents,
+    renderTuiStatusLine,
+} from "./status.ts";
 import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerKey,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
+    startTuiReasoningPicker,
     startTuiSessionPicker,
     startTuiExtensionPicker,
     type TuiSettingsMenuTarget,
@@ -185,6 +190,7 @@ const APPROVAL_HINT =
 const QUESTION_HINT = "question waiting · ctrl+c stop";
 const COPY_NOTICE_DURATION_MS = 1_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
+const BACKGROUND_AGENT_REFRESH_INTERVAL_MS = 1_000;
 const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
@@ -213,6 +219,7 @@ export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly getRunningBackgroundAgentCount?: () => Promise<number>;
     readonly createSession?: () => Promise<TuiAgentClient>;
     readonly cloneSession?: () => Promise<TuiAgentClient>;
     readonly forkSession?: (
@@ -322,6 +329,8 @@ export async function startConfiguredTui(
             const exit = await startTui({
                 client,
                 listAgents,
+                getRunningBackgroundAgentCount: async () =>
+                    countRunningBackgroundAgents(await listAgents()),
                 createSession: async () => {
                     if (client.workspace === undefined) {
                         throw new Error("Current session workspace is unavailable");
@@ -479,6 +488,8 @@ export async function startTui(
     let extensionCommandActivity: string | undefined;
     let extensionCommandsLoading =
         dependencies.client.listExtensionCommands !== undefined;
+    let runningBackgroundAgents = 0;
+    let backgroundAgentRefreshPending = false;
     let pendingSessionRename: {
         readonly requestId: string;
         readonly commandText: string;
@@ -729,6 +740,7 @@ export async function startTui(
     renderer.on(CliRenderEvents.DESTROY, () => {
         shuttingDown = true;
         clearInterval(statusTimer);
+        clearInterval(backgroundAgentTimer);
         const picker = pendingExtensionPicker;
         pendingExtensionPicker = undefined;
         picker?.removeAbortListener();
@@ -757,6 +769,10 @@ export async function startTui(
     const statusTimer = setInterval(() => {
         renderStatus();
     }, STATUS_REFRESH_INTERVAL_MS);
+    const backgroundAgentTimer = setInterval(() => {
+        void refreshBackgroundAgentCount();
+    }, BACKGROUND_AGENT_REFRESH_INTERVAL_MS);
+    void refreshBackgroundAgentCount();
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
         const copyableNodes = pendingUiRequest !== undefined
@@ -2297,7 +2313,6 @@ export async function startTui(
             state.modelSettings?.model,
             state.modelSettings?.reasoningEffort,
             state.approvalMode,
-            state.modelSettings?.availableReasoningEfforts,
             state.modelSettings?.availableModels,
             undefined,
             state.modelSettings?.provider,
@@ -2306,13 +2321,29 @@ export async function startTui(
         focusActiveSurface();
     }
 
+    // The current model's own levels, looked up off the wire rather than a
+    // flat effort list, so the pane renders exactly what this model offers.
+    // A model missing from `availableModels` (unrecognised, e.g. reached
+    // through the `/model <name>` escape hatch) is treated the same as a
+    // model with an empty `levels` array: no facts about it have reached the
+    // client, so there is nothing to render either way.
+    function currentModelLevels(): readonly ReasoningLevel[] {
+        const models = state.modelSettings?.availableModels ?? [];
+        const current = models.find((candidate) =>
+            candidate.provider === state.modelSettings?.provider
+            && candidate.model === state.modelSettings?.model
+        );
+        return current?.levels ?? [];
+    }
+
     function openReasoningPicker(): void {
-        // The engine reports an empty effort list for a model whose provider
-        // has no mapping for one. A card with no rows is indistinguishable from
-        // the TUI ignoring the key, so say why there is nothing to pick. This
-        // is presentation only: the engine still decides what it will accept.
-        const available = state.modelSettings?.availableReasoningEfforts;
-        if (available !== undefined && available.length === 0) {
+        // An empty (or unresolved) level list means this model has no
+        // reasoning control at all. A card with no rows is indistinguishable
+        // from the TUI ignoring the key, so say why there is nothing to pick.
+        // This is presentation only: the engine still decides what it will
+        // accept.
+        const levels = currentModelLevels();
+        if (levels.length === 0) {
             state = appendTuiNotice(
                 state,
                 `${state.modelSettings?.model ?? "this model"} has no reasoning effort setting`,
@@ -2320,13 +2351,15 @@ export async function startTui(
             renderState();
             return;
         }
-        settingsPicker = startTuiSettingsPicker(
-            "reasoning",
-            state.modelSettings?.model,
+        const current = state.modelSettings?.availableModels?.find(
+            (candidate) =>
+                candidate.provider === state.modelSettings?.provider
+                && candidate.model === state.modelSettings?.model,
+        );
+        settingsPicker = startTuiReasoningPicker(
+            levels,
+            current?.defaultLevel,
             state.modelSettings?.reasoningEffort,
-            state.approvalMode,
-            state.modelSettings?.availableReasoningEfforts,
-            state.modelSettings?.availableModels,
         );
         renderState();
         focusActiveSurface();
@@ -2344,7 +2377,6 @@ export async function startTui(
             state.modelSettings?.model,
             state.modelSettings?.reasoningEffort,
             state.approvalMode,
-            state.modelSettings?.availableReasoningEfforts,
             state.modelSettings?.availableModels,
             undefined,
             undefined,
@@ -2360,7 +2392,6 @@ export async function startTui(
             state.modelSettings?.model,
             state.modelSettings?.reasoningEffort,
             state.approvalMode,
-            state.modelSettings?.availableReasoningEfforts,
             state.modelSettings?.availableModels,
             themeName,
         );
@@ -2455,6 +2486,11 @@ export async function startTui(
             | TuiExtensionPickerTransition,
     ): void {
         const extensionPickerWasOpen = settingsPicker?.kind === "extension";
+        // Captured before the reassignment below so a model selection that
+        // needs to chain into a level pane can hand the model pane back to
+        // Escape: `handleTuiSettingsPickerKey` returns no `state` on Enter,
+        // so this is the only place that still has it.
+        const previousPicker = settingsPicker;
         settingsPicker = transition.state;
         if (
             extensionPickerWasOpen
@@ -2504,17 +2540,52 @@ export async function startTui(
                 return;
             }
             if (selection.kind === "model") {
+                const chosenLevels = selection.reasoningEffort === undefined
+                    ? state.modelSettings?.availableModels?.find(
+                        (candidate) =>
+                            candidate.provider === selection.provider
+                            && candidate.model === selection.model,
+                    )
+                    : undefined;
+                if (
+                    chosenLevels !== undefined
+                    && chosenLevels.levels.length > 0
+                    && previousPicker?.kind === "model"
+                ) {
+                    // A model with levels opens the level pane instead of
+                    // closing: Enter there folds both choices into one patch.
+                    settingsPicker = startTuiReasoningPicker(
+                        chosenLevels.levels,
+                        chosenLevels.defaultLevel,
+                        state.modelSettings?.reasoningEffort,
+                        {
+                            provider: selection.provider,
+                            model: selection.model,
+                            modelPaneState: previousPicker,
+                        },
+                    );
+                    composer.blur();
+                    settingsPickerView.update(settingsPicker);
+                    settingsPickerView.box.focus();
+                    renderState();
+                    return;
+                }
                 sendCommand({
                     type: "update_model_settings",
                     requestId: randomUUID(),
                     patch: {
                         provider: selection.provider,
                         model: selection.model,
+                        ...(selection.reasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: selection.reasoningEffort }),
                     },
                 });
                 state = appendTuiNotice(
                     state,
-                    `model change requested: ${selection.provider}/${selection.model}`,
+                    selection.reasoningEffort === undefined
+                        ? `model change requested: ${selection.provider}/${selection.model}`
+                        : `model change requested: ${selection.provider}/${selection.model} (${selection.reasoningEffort})`,
                 );
             } else if (selection.kind === "reasoning") {
                 sendCommand({
@@ -2820,6 +2891,7 @@ export async function startTui(
             state.contextInputTokens,
             process.cwd(),
             statusNotice ?? lifecycleHint,
+            runningBackgroundAgents,
         );
         statusText.content = state.working
                 && statusNotice === undefined
@@ -2842,6 +2914,32 @@ export async function startTui(
                 activityAnimationWidth,
             )
             : statusLine;
+    }
+
+    async function refreshBackgroundAgentCount(): Promise<void> {
+        if (
+            dependencies.getRunningBackgroundAgentCount === undefined
+            || backgroundAgentRefreshPending
+            || shuttingDown
+        ) {
+            return;
+        }
+        backgroundAgentRefreshPending = true;
+        try {
+            const nextCount =
+                await dependencies.getRunningBackgroundAgentCount();
+            if (!shuttingDown && nextCount !== runningBackgroundAgents) {
+                runningBackgroundAgents = nextCount;
+                renderStatus();
+            }
+        } catch {
+            if (!shuttingDown && runningBackgroundAgents !== 0) {
+                runningBackgroundAgents = 0;
+                renderStatus();
+            }
+        } finally {
+            backgroundAgentRefreshPending = false;
+        }
     }
 
     function observeActivity(update: AgentUpdate): void {
