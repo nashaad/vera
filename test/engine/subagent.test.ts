@@ -111,6 +111,9 @@ test("two real subagent effects overlap and create separate sessions", async () 
                 "subagent",
             );
             expect(request.tools?.map((tool) => tool.name)).not.toContain(
+                "background_agent",
+            );
+            expect(request.tools?.map((tool) => tool.name)).not.toContain(
                 "ask_user",
             );
         }
