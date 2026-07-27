@@ -51,7 +51,7 @@ test("a model the user did not choose keeps any effort it can resolve", () => {
         .toBe(unlisted);
 });
 
-test("settings validation accepts the stash and per-model levels", () => {
+test("settings validation accepts the pinned and per-model levels", () => {
     const available = {
         provider: "test",
         model: "with-levels",
@@ -60,7 +60,7 @@ test("settings validation accepts the stash and per-model levels", () => {
         levels: [{ id: "high", label: "High" }],
         defaultLevel: "high",
     };
-    const stashed = {
+    const pinned = {
         provider: "test",
         model: "kept",
         label: "kept",
@@ -71,14 +71,14 @@ test("settings validation accepts the stash and per-model levels", () => {
     expect(isModelTurnSettings({
         model: "with-levels",
         availableModels: [available],
-        stash: [stashed],
+        pinned: [pinned],
     })).toBe(true);
     // An empty level list is a fact about the model, not a missing field.
     expect(isModelTurnSettings({
         model: "with-levels",
         availableModels: [{ ...available, levels: [], defaultLevel: undefined }],
     })).toBe(true);
-    expect(isModelTurnSettings({ model: "with-levels", stash: [] })).toBe(true);
+    expect(isModelTurnSettings({ model: "with-levels", pinned: [] })).toBe(true);
 });
 
 test("settings validation rejects entries missing their new fields", () => {
@@ -93,7 +93,7 @@ test("settings validation rejects entries missing their new fields", () => {
     })).toBe(false);
     expect(isModelTurnSettings({
         model: "with-levels",
-        stash: [{
+        pinned: [{
             provider: "test",
             model: "kept",
             label: "kept",
@@ -102,7 +102,7 @@ test("settings validation rejects entries missing their new fields", () => {
     })).toBe(false);
     expect(isModelTurnSettings({
         model: "with-levels",
-        stash: [{
+        pinned: [{
             provider: "test",
             model: "kept",
             label: "kept",

@@ -130,9 +130,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && (settings.availableModels === undefined
                     || (Array.isArray(settings.availableModels)
                         && settings.availableModels.every(isAvailableModel)))
-                && (settings.stash === undefined
-                    || (Array.isArray(settings.stash)
-                        && settings.stash.every(isStashedModel)))
+                && (settings.pinned === undefined
+                    || (Array.isArray(settings.pinned)
+                        && settings.pinned.every(isPinnedModel)))
                 && (settings.contextWindow === undefined
                     || (Number.isSafeInteger(settings.contextWindow)
                         && (settings.contextWindow as number) > 0))
@@ -556,7 +556,7 @@ function isAvailableModel(value: unknown): boolean {
             || typeof model.defaultLevel === "string");
 }
 
-function isStashedModel(value: unknown): boolean {
+function isPinnedModel(value: unknown): boolean {
     const model = asRecord(value);
     return typeof model?.provider === "string"
         && typeof model.model === "string"

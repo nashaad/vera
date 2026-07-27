@@ -96,13 +96,13 @@ export interface UpdateModelSettingsCommand {
 
 /**
  * Keeping a model is not choosing one, so this is its own command rather than
- * a field on `update_model_settings`: stashing a model the user is only
+ * a field on `update_model_settings`: pinning a model the user is only
  * looking at must not switch the turn to it. The reply is the same
  * `model_settings_changed` update, because that update already carries the
- * stash and a client would otherwise have to ask again to see its own edit.
+ * pin list and a client would otherwise have to ask again to see its own edit.
  */
-export interface UpdateStashCommand {
-    readonly type: "update_stash";
+export interface UpdatePinCommand {
+    readonly type: "update_pin";
     readonly requestId: string;
     readonly action: "add" | "remove";
     readonly provider: string;
@@ -188,7 +188,7 @@ export type ClientCommand =
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
-    | UpdateStashCommand
+    | UpdatePinCommand
     | GetPermissionsCommand
     | UpdatePermissionsCommand
     | AddPermissionPreferenceCommand
@@ -596,14 +596,14 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         }
     }
     if (
-        command.type === "update_stash"
+        command.type === "update_pin"
         && isRequestId(command.requestId)
         && (command.action === "add" || command.action === "remove")
         && isNonEmptyString(command.provider)
         && isNonEmptyString(command.model)
     ) {
         return {
-            type: "update_stash",
+            type: "update_pin",
             requestId: command.requestId,
             action: command.action,
             provider: command.provider,

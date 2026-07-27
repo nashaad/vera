@@ -189,14 +189,14 @@ export function updateVeraConfigDefaults(
  * Keys in `~/.vera/config.json` that belong to some other writer. `VeraConfig`
  * cannot represent them, so updating the defaults would round-trip the file
  * through a type that drops them: a `/model` change used to silently erase the
- * user's whole stash. They are read back raw and carried across instead.
+ * user's whole pin list. They are read back raw and carried across instead.
  *
  * This is a list rather than "preserve everything unknown" on purpose. A key
  * this file no longer models is not automatically foreign; it may be one this
  * file deliberately migrated away from, and carrying those across would
  * resurrect them. Add a key here when a new owner starts writing to this file.
  */
-const FOREIGN_CONFIG_KEYS = ["stash"] as const;
+const FOREIGN_CONFIG_KEYS = ["pinned"] as const;
 
 function foreignConfigEntries(path: string): Record<string, unknown> {
     let raw: Record<string, unknown>;

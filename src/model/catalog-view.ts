@@ -2,7 +2,7 @@
  * The client-facing projections of the model catalog (nash-50).
  *
  * Two lists reach a client, and they answer different questions.
- * `availableModels` is what can run right now, in catalog order. The stash is
+ * `availableModels` is what can run right now, in catalog order. The pin list is
  * what the user chose to keep, ordered by recency of use, and it keeps an
  * entry that cannot run right now rather than dropping it: the user put it
  * there deliberately, so only the user takes it out.
@@ -20,10 +20,10 @@ import type {
     ReasoningLevelId,
 } from "./catalog-shape.ts";
 import {
-    readStash,
-    resolveStash,
-    type StashStoreOptions,
-} from "./stash-store.ts";
+    readPins,
+    resolvePins,
+    type PinStoreOptions,
+} from "./pin-store.ts";
 import type { SuggestedModel } from "./supported-models.ts";
 
 export interface AvailableModel {
@@ -37,7 +37,7 @@ export interface AvailableModel {
     readonly defaultLevel?: ReasoningLevelId;
 }
 
-export interface StashedModel {
+export interface PinnedModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
@@ -51,7 +51,7 @@ export interface StashedModel {
 }
 
 export interface CatalogViewOptions
-    extends StashStoreOptions, EffectiveCatalogOptions {}
+    extends PinStoreOptions, EffectiveCatalogOptions {}
 
 /**
  * Adds each model's levels to the host's runnable list. Label and description
@@ -88,10 +88,10 @@ export function availableModelsWithLevels(
  * the catalog, so a runnable model the catalog has never heard of falls back
  * to what the runnable list already knows about it.
  */
-export function stashedModels(
+export function pinnedModels(
     available: readonly SuggestedModel[],
     options: CatalogViewOptions = {},
-): readonly StashedModel[] {
+): readonly PinnedModel[] {
     const lookup = catalogLookup(options);
     const knownModels = new Map<string, CatalogModel>();
     for (const model of available) {
@@ -102,7 +102,7 @@ export function stashedModels(
         );
     }
 
-    return resolveStash(readStash(options), knownModels).map((entry) => {
+    return resolvePins(readPins(options), knownModels).map((entry) => {
         if (entry.status === "unavailable") {
             return {
                 provider: entry.provider,

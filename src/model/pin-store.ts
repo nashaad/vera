@@ -10,39 +10,39 @@ import { dirname, join } from "node:path";
 
 import type { CatalogModel } from "./catalog-shape.ts";
 
-export interface StashStoreOptions {
+export interface PinStoreOptions {
     readonly path?: string;
 }
 
-export interface StashEntry {
+export interface PinEntry {
     readonly provider: string;
     readonly model: string;
 }
 
-export interface ResolvedStashEntry extends StashEntry {
+export interface ResolvedPinEntry extends PinEntry {
     readonly status: "resolved";
     readonly catalogModel: CatalogModel;
 }
 
-export interface UnavailableStashEntry extends StashEntry {
+export interface UnavailablePinEntry extends PinEntry {
     readonly status: "unavailable";
 }
 
-export type StashResolution = ResolvedStashEntry | UnavailableStashEntry;
+export type PinResolution = ResolvedPinEntry | UnavailablePinEntry;
 
-export function defaultStashPath(): string {
+export function defaultPinsPath(): string {
     return join(homedir(), ".vera", "config.json");
 }
 
-export function readStash(
-    options: StashStoreOptions = {},
-): readonly StashEntry[] {
-    const config = readConfig(options.path ?? defaultStashPath());
-    if (!Array.isArray(config.stash)) {
+export function readPins(
+    options: PinStoreOptions = {},
+): readonly PinEntry[] {
+    const config = readConfig(options.path ?? defaultPinsPath());
+    if (!Array.isArray(config.pinned)) {
         return [];
     }
 
-    return config.stash.flatMap((value) => {
+    return config.pinned.flatMap((value) => {
         if (typeof value !== "string") {
             return [];
         }
@@ -51,34 +51,34 @@ export function readStash(
     });
 }
 
-export function addToStash(
-    entry: StashEntry,
-    options: StashStoreOptions = {},
-): readonly StashEntry[] {
-    return updateStash(entry, true, options);
+export function addPin(
+    entry: PinEntry,
+    options: PinStoreOptions = {},
+): readonly PinEntry[] {
+    return updatePin(entry, true, options);
 }
 
-export function removeFromStash(
-    entry: StashEntry,
-    options: StashStoreOptions = {},
-): readonly StashEntry[] {
+export function removePin(
+    entry: PinEntry,
+    options: PinStoreOptions = {},
+): readonly PinEntry[] {
     const identifier = formatIdentifier(entry);
-    return writeUpdatedStash(options, (current) =>
+    return writeUpdatedPins(options, (current) =>
         current.filter((value) => formatIdentifier(value) !== identifier)
     );
 }
 
-export function markStashEntryUsed(
-    entry: StashEntry,
-    options: StashStoreOptions = {},
-): readonly StashEntry[] {
-    return updateStash(entry, false, options);
+export function markPinUsed(
+    entry: PinEntry,
+    options: PinStoreOptions = {},
+): readonly PinEntry[] {
+    return updatePin(entry, false, options);
 }
 
-export function resolveStash(
-    entries: readonly StashEntry[],
+export function resolvePins(
+    entries: readonly PinEntry[],
     knownModels: ReadonlyMap<string, CatalogModel>,
-): readonly StashResolution[] {
+): readonly PinResolution[] {
     return entries.map((entry) => {
         const catalogModel = knownModels.get(formatIdentifier(entry));
         if (catalogModel === undefined) {
@@ -95,13 +95,13 @@ export function resolveStash(
     });
 }
 
-function updateStash(
-    entry: StashEntry,
+function updatePin(
+    entry: PinEntry,
     addWhenMissing: boolean,
-    options: StashStoreOptions,
-): readonly StashEntry[] {
+    options: PinStoreOptions,
+): readonly PinEntry[] {
     const identifier = formatIdentifier(entry);
-    return writeUpdatedStash(options, (current) => {
+    return writeUpdatedPins(options, (current) => {
         const exists = current.some(
             (value) => formatIdentifier(value) === identifier,
         );
@@ -117,13 +117,13 @@ function updateStash(
     });
 }
 
-function writeUpdatedStash(
-    options: StashStoreOptions,
-    update: (current: readonly StashEntry[]) => readonly StashEntry[],
-): readonly StashEntry[] {
-    const path = options.path ?? defaultStashPath();
+function writeUpdatedPins(
+    options: PinStoreOptions,
+    update: (current: readonly PinEntry[]) => readonly PinEntry[],
+): readonly PinEntry[] {
+    const path = options.path ?? defaultPinsPath();
     const config = readConfig(path);
-    const current = readStash({ path });
+    const current = readPins({ path });
     const updated = update(current);
     const directory = dirname(path);
     const temporaryPath = join(directory, `.config-${randomUUID()}.tmp`);
@@ -133,7 +133,7 @@ function writeUpdatedStash(
         temporaryPath,
         `${JSON.stringify({
             ...config,
-            stash: updated.map(formatIdentifier),
+            pinned: updated.map(formatIdentifier),
         }, null, 2)}\n`,
         { mode: 0o600 },
     );
@@ -153,7 +153,7 @@ function readConfig(path: string): Record<string, unknown> {
     return {};
 }
 
-function parseIdentifier(identifier: string): StashEntry | undefined {
+function parseIdentifier(identifier: string): PinEntry | undefined {
     const separator = identifier.indexOf("/");
     if (separator <= 0 || separator === identifier.length - 1) {
         return undefined;
@@ -164,6 +164,6 @@ function parseIdentifier(identifier: string): StashEntry | undefined {
     };
 }
 
-function formatIdentifier(entry: StashEntry): string {
+function formatIdentifier(entry: PinEntry): string {
     return `${entry.provider}/${entry.model}`;
 }

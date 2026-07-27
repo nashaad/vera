@@ -1839,10 +1839,10 @@ async function waitForTaskNotification(
     }
 }
 
-test("editing the stash keeps the running model and reports the new list", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-agent-stash-"));
+test("editing the pinned keeps the running model and reports the new list", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-pinned-"));
     const edits: { action: string; provider: string; model: string }[] = [];
-    let stash = [
+    let pinned = [
         {
             provider: "openai-codex",
             model: "gpt-5.6-sol",
@@ -1856,11 +1856,11 @@ test("editing the stash keeps the running model and reports the new list", async
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
         approvalMode: "auto",
-        readStash: () => stash,
-        updateStash: (action, entry) => {
+        readPins: () => pinned,
+        updatePin: (action, entry) => {
             edits.push({ action, ...entry });
             if (action === "remove") {
-                stash = stash.filter((item) => item.model !== entry.model);
+                pinned = pinned.filter((item) => item.model !== entry.model);
             }
         },
     });
@@ -1871,7 +1871,7 @@ test("editing the stash keeps the running model and reports the new list", async
             sessionPath: join(root, "agent.jsonl"),
         });
 
-        const settings = await registry.updateStash(agent.id, "remove", {
+        const settings = await registry.updatePin(agent.id, "remove", {
             provider: "openai-codex",
             model: "  gpt-5.6-sol  ",
         });
@@ -1886,9 +1886,9 @@ test("editing the stash keeps the running model and reports the new list", async
             provider: "openrouter",
             model: "moonshotai/kimi-k3",
         });
-        expect(settings?.stash).toEqual([]);
+        expect(settings?.pinned).toEqual([]);
 
-        expect(await registry.updateStash("no-such-agent", "add", {
+        expect(await registry.updatePin("no-such-agent", "add", {
             provider: "openai-codex",
             model: "gpt-5.6-sol",
         })).toBeUndefined();

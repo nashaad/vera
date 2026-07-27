@@ -93,7 +93,7 @@ export interface VeraClientModelSettingsSnapshot {
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
     readonly availableModels?: readonly VeraClientAvailableModel[];
     /** The models the user keeps, most recently used first. */
-    readonly stash?: readonly VeraClientStashedModel[];
+    readonly pinned?: readonly VeraClientPinnedModel[];
     readonly contextWindow?: number;
 }
 
@@ -108,7 +108,7 @@ export interface VeraClientAvailableModel {
     readonly defaultLevel?: string;
 }
 
-export interface VeraClientStashedModel {
+export interface VeraClientPinnedModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;

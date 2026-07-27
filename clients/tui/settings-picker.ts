@@ -10,7 +10,7 @@ import {
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
-import type { StashedModel } from "../../src/model/catalog-view.ts";
+import type { PinnedModel } from "../../src/model/catalog-view.ts";
 import type {
     ReasoningLevel,
     ReasoningLevelId,
@@ -72,12 +72,12 @@ export interface TuiSettingsPickerOption {
     readonly model?: string;
     readonly sessionId?: string;
     /**
-     * Overrides the group heading this row sorts under. Set only on stash
+     * Overrides the group heading this row sorts under. Set only on pinned
      * rows, which group by "the user kept this" rather than by provider, and
      * which is why the heading cannot just be `provider`.
      */
     readonly group?: string;
-    /** True on a stash row whose model cannot run right now. */
+    /** True on a pinned row whose model cannot run right now. */
     readonly unavailable?: boolean;
 }
 
@@ -162,7 +162,7 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "session"; readonly sessionPath: string }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget };
 
-export interface TuiStashToggle {
+export interface TuiPinToggle {
     readonly action: "add" | "remove";
     readonly provider: string;
     readonly model: string;
@@ -173,11 +173,11 @@ export interface TuiSettingsPickerTransition {
     readonly selection?: TuiSettingsPickerSelection;
     readonly handled: boolean;
     /**
-     * The pane does not edit the stash itself. It reports the intent and waits
+     * The pane does not edit the pin list itself. It reports the intent and waits
      * for the settings snapshot to come back, so the list the user sees is
      * always the list the host actually stored.
      */
-    readonly stashToggle?: TuiStashToggle;
+    readonly pinToggle?: TuiPinToggle;
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
@@ -252,12 +252,12 @@ export function startTuiSettingsPicker(
     currentTheme: TuiThemeName = "default",
     currentProvider: string | undefined = undefined,
     availablePermissionModes: readonly string[] | undefined = undefined,
-    stash: readonly StashedModel[] | undefined = undefined,
+    pinned: readonly PinnedModel[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const options = kind === "theme"
         ? THEME_OPTIONS
         : kind === "model"
-        ? modelOptions(availableModels, currentProvider, currentModel, stash)
+        ? modelOptions(availableModels, currentProvider, currentModel, pinned)
         : permissionOptions(availablePermissionModes);
     const currentValue = kind === "theme"
         ? currentTheme
@@ -286,7 +286,7 @@ export function startTuiSettingsPicker(
 /**
  * Rebuilds an open model pane from a fresh settings snapshot, keeping the
  * user where they were. The highlighted model is restored by identity rather
- * than by index: adding or removing a stash row shifts every index below it,
+ * than by index: adding or removing a pinned row shifts every index below it,
  * so an index would move the cursor to a different model than the one the
  * user just acted on.
  */
@@ -296,7 +296,7 @@ export function syncTuiModelPicker(
         readonly provider?: string;
         readonly model?: string;
         readonly availableModels?: readonly SuggestedModel[];
-        readonly stash?: readonly StashedModel[];
+        readonly pinned?: readonly PinnedModel[];
     } | undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
@@ -312,7 +312,7 @@ export function syncTuiModelPicker(
         undefined,
         settings?.provider,
         undefined,
-        settings?.stash,
+        settings?.pinned,
     );
     const options = state.query.length === 0
         ? rebuilt.options
@@ -663,8 +663,8 @@ export function handleTuiSettingsPickerKey(
         return {
             state,
             handled: true,
-            stashToggle: {
-                action: isStashed(state, selected) ? "remove" : "add",
+            pinToggle: {
+                action: isPinned(state, selected) ? "remove" : "add",
                 provider: selected.provider,
                 model: selected.model,
             },
@@ -881,15 +881,15 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
-        const stash = selected === undefined || selected.provider === undefined
+        const pinned = selected === undefined || selected.provider === undefined
             ? undefined
-            : isStashed(state, selected)
-                ? "^s - unstash"
-                : "^s + stash";
+            : isPinned(state, selected)
+                ? "^s - unpin"
+                : "^s + pinned";
         return [
             "↑↓ move",
             "⏎ select",
-            ...(stash === undefined ? [] : [stash]),
+            ...(pinned === undefined ? [] : [pinned]),
             "esc close",
         ].join(" · ");
     }
@@ -922,16 +922,16 @@ function listDisplayRows(
 }
 
 /**
- * Membership is read off the rendered stash group rather than tracked
+ * Membership is read off the rendered pin group rather than tracked
  * separately, so the key and the list can never disagree about what is in the
- * stash: both are looking at the same snapshot the host sent.
+ * pinned: both are looking at the same snapshot the host sent.
  */
-function isStashed(
+function isPinned(
     state: TuiSettingsPickerState,
     option: TuiSettingsPickerOption,
 ): boolean {
     return state.allOptions.some((candidate) =>
-        candidate.group === STASH_GROUP && candidate.value === option.value
+        candidate.group === PINNED_GROUP && candidate.value === option.value
     );
 }
 
@@ -1066,8 +1066,8 @@ function searched(
 ): TuiSettingsPickerTransition {
     const normalized = query.toLowerCase();
     const options = state.allOptions.filter((option) =>
-        // A search result is one ranked list, and a stash row is the same
-        // model as its provider row. Keeping both would show every stashed
+        // A search result is one ranked list, and a pinned row is the same
+        // model as its provider row. Keeping both would show every pinned
         // model twice for no gain.
         (query.length === 0 || option.group === undefined)
         && `${option.label} ${option.value} ${option.description} ${
@@ -1094,18 +1094,18 @@ function themePreview(
     return value === undefined ? {} : { previewTheme: value as TuiThemeName };
 }
 
-const STASH_GROUP = "Stashed";
+const PINNED_GROUP = "Pinned";
 
 /**
- * Stash rows are a second view of models that also appear under their
+ * Pinned rows are a second view of models that also appear under their
  * provider, not a separate set. They carry the same `value`, so selecting one
  * and selecting its provider row are the same act, and the current-model
  * marker lands on both.
  */
-function stashOptions(
-    stash: readonly StashedModel[],
+function pinnedOptions(
+    pinned: readonly PinnedModel[],
 ): readonly TuiSettingsPickerOption[] {
-    return stash.map((entry) => ({
+    return pinned.map((entry) => ({
         value: providerModelKey(entry.provider, entry.model),
         label: entry.label,
         description: entry.available
@@ -1114,7 +1114,7 @@ function stashOptions(
         searchText: `${entry.provider} ${entry.model}`,
         provider: entry.provider,
         model: entry.model,
-        group: STASH_GROUP,
+        group: PINNED_GROUP,
         ...(entry.available ? {} : { unavailable: true }),
     }));
 }
@@ -1123,7 +1123,7 @@ function modelOptions(
     available: readonly SuggestedModel[] | undefined,
     currentProvider: string | undefined,
     currentModel: string | undefined,
-    stash: readonly StashedModel[] = [],
+    pinned: readonly PinnedModel[] = [],
 ): readonly TuiSettingsPickerOption[] {
     const options = (available ?? []).map((model) => ({
         value: providerModelKey(model.provider, model.model),
@@ -1136,16 +1136,16 @@ function modelOptions(
         left.provider.localeCompare(right.provider)
             || left.label.localeCompare(right.label)
     );
-    const stashed = stashOptions(stash);
+    const pinnedRows = pinnedOptions(pinned);
     if (currentModel === undefined || currentProvider === undefined) {
-        return [...stashed, ...options];
+        return [...pinnedRows, ...options];
     }
     const currentValue = providerModelKey(currentProvider, currentModel);
     if (options.some((option) => option.value === currentValue)) {
-        return [...stashed, ...options];
+        return [...pinnedRows, ...options];
     }
     return [
-        ...stashed,
+        ...pinnedRows,
         {
             value: currentValue,
             label: currentModel,

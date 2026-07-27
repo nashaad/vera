@@ -123,9 +123,9 @@ export interface InboundCommandRouterOptions {
     ) => Promise<ModelTurnSettings | undefined>;
     /**
      * Returns the settings snapshot as it stands after the edit, so the reply
-     * carries the new stash. `undefined` means the edit did not happen.
+     * carries the new pin list. `undefined` means the edit did not happen.
      */
-    readonly updateStash?: (
+    readonly updatePin?: (
         action: "add" | "remove",
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
@@ -442,8 +442,8 @@ export class InboundCommandRouter {
                     continue;
                 }
 
-                if (command.type === "update_stash") {
-                    await this.updateStash(command.requestId, command.action, {
+                if (command.type === "update_pin") {
+                    await this.updatePin(command.requestId, command.action, {
                         provider: command.provider,
                         model: command.model,
                     });
@@ -551,17 +551,17 @@ export class InboundCommandRouter {
         });
     }
 
-    private async updateStash(
+    private async updatePin(
         requestId: string,
         action: "add" | "remove",
         entry: { readonly provider: string; readonly model: string },
     ): Promise<void> {
-        const settings = await this.options.updateStash?.(action, entry);
+        const settings = await this.options.updatePin?.(action, entry);
         if (settings === undefined) {
             this.events.emit({
                 type: "model_settings_rejected",
                 requestId,
-                reason: this.options.updateStash === undefined
+                reason: this.options.updatePin === undefined
                     ? "unavailable"
                     : "invalid",
             });
@@ -923,10 +923,10 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
                     levels: model.levels.map((level) => ({ ...level })),
                 })),
             }),
-        ...(settings.stash === undefined
+        ...(settings.pinned === undefined
             ? {}
             : {
-                stash: settings.stash.map((model) => ({
+                pinned: settings.pinned.map((model) => ({
                     ...model,
                     levels: model.levels.map((level) => ({ ...level })),
                 })),

@@ -6,7 +6,7 @@ import {
 } from "../model/supported-models.ts";
 import type {
     AvailableModel,
-    StashedModel,
+    PinnedModel,
 } from "../model/catalog-view.ts";
 
 export interface ModelTurnSettings {
@@ -24,7 +24,7 @@ export interface ModelTurnSettings {
      * `availableModels` because it answers a different question and carries
      * entries that are not currently runnable.
      */
-    readonly stash?: readonly StashedModel[];
+    readonly pinned?: readonly PinnedModel[];
     readonly contextWindow?: number;
 }
 
@@ -52,9 +52,9 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
         && (settings.availableModels === undefined
             || (Array.isArray(settings.availableModels)
                 && settings.availableModels.every(isAvailableModel)))
-        && (settings.stash === undefined
-            || (Array.isArray(settings.stash)
-                && settings.stash.every(isStashedModel)))
+        && (settings.pinned === undefined
+            || (Array.isArray(settings.pinned)
+                && settings.pinned.every(isPinnedModel)))
         && (settings.contextWindow === undefined
             || (Number.isSafeInteger(settings.contextWindow)
                 && (settings.contextWindow as number) > 0));
@@ -150,7 +150,7 @@ function isAvailableModel(value: unknown): boolean {
             || typeof model.defaultLevel === "string");
 }
 
-function isStashedModel(value: unknown): boolean {
+function isPinnedModel(value: unknown): boolean {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;
     }

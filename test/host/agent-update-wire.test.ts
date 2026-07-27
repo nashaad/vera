@@ -157,7 +157,7 @@ test("host wire validates model settings results", () => {
         levels: [{ id: "high", label: "High", description: "slow and careful" }],
         defaultLevel: "high",
     }];
-    const stash = [{
+    const pinned = [{
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         label: "gpt-5.6-sol",
@@ -171,7 +171,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
-            stash,
+            pinned,
         },
         pending: true,
         seq: 8,
@@ -182,7 +182,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
-            stash,
+            pinned,
         },
         pending: true,
         seq: 8,
@@ -214,7 +214,7 @@ test("host wire validates model settings results", () => {
         requestId: "settings-2",
         settings: {
             model: "next-model",
-            stash: [{
+            pinned: [{
                 provider: "openai-codex",
                 model: "gpt-5.6-sol",
                 label: "gpt-5.6-sol",

@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 import {
     availableModelsWithLevels,
-    stashedModels,
+    pinnedModels,
 } from "../../src/model/catalog-view.ts";
-import { addToStash } from "../../src/model/stash-store.ts";
+import { addPin } from "../../src/model/pin-store.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 
 const directories: string[] = [];
@@ -54,12 +54,12 @@ test("available models carry the catalog levels and default level", () => {
     ]);
 });
 
-test("stash keeps its own order and resolves facts through the catalog", () => {
+test("pinned keeps its own order and resolves facts through the catalog", () => {
     const options = fixture();
-    addToStash({ provider: "test", model: "no-levels" }, options);
-    addToStash({ provider: "test", model: "with-levels" }, options);
+    addPin({ provider: "test", model: "no-levels" }, options);
+    addPin({ provider: "test", model: "with-levels" }, options);
 
-    expect(stashedModels([
+    expect(pinnedModels([
         suggested("test", "no-levels"),
         suggested("test", "with-levels"),
     ], options)).toEqual([
@@ -86,14 +86,14 @@ test("stash keeps its own order and resolves facts through the catalog", () => {
     ]);
 });
 
-test("a stashed model that cannot run right now stays in the list, flagged", () => {
+test("a pinned model that cannot run right now stays in the list, flagged", () => {
     const options = fixture();
-    addToStash({ provider: "test", model: "with-levels" }, options);
-    addToStash({ provider: "gone", model: "forgotten" }, options);
+    addPin({ provider: "test", model: "with-levels" }, options);
+    addPin({ provider: "gone", model: "forgotten" }, options);
 
     // The catalog still describes `with-levels`, but the host cannot run it,
     // so it is unavailable rather than absent.
-    expect(stashedModels([], options)).toEqual([
+    expect(pinnedModels([], options)).toEqual([
         {
             provider: "gone",
             model: "forgotten",
@@ -113,9 +113,9 @@ test("a stashed model that cannot run right now stays in the list, flagged", () 
 
 test("a runnable model the catalog never heard of keeps the host's facts", () => {
     const options = fixture();
-    addToStash({ provider: "test", model: "unknown-to-catalog" }, options);
+    addPin({ provider: "test", model: "unknown-to-catalog" }, options);
 
-    expect(stashedModels([
+    expect(pinnedModels([
         { ...suggested("test", "unknown-to-catalog"), contextWindow: 8_192 },
     ], options)).toEqual([{
         provider: "test",
