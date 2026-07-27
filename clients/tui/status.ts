@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 
 export function renderTuiStatusLine(
     settings: ModelTurnSettings | undefined,
@@ -9,6 +10,7 @@ export function renderTuiStatusLine(
     contextInputTokens: number | undefined,
     workspace: string,
     message: string,
+    runningBackgroundAgents = 0,
 ): string {
     const model = settings?.model ?? "loading";
     const thinking = settings === undefined
@@ -20,7 +22,21 @@ export function renderTuiStatusLine(
             ? "auto"
             : approvalMode ?? "permissions loading";
     const context = renderContextUsage(contextInputTokens, settings?.contextWindow);
-    return `${message} · ${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${context}`;
+    const background = runningBackgroundAgents === 0
+        ? ""
+        : ` · bg ${runningBackgroundAgents}`;
+    return `${message}${background} · ${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${context}`;
+}
+
+export function countRunningBackgroundAgents(
+    agents: readonly RegisteredAgentSummary[],
+): number {
+    return agents.filter((agent) =>
+        agent.kind === "background"
+        && agent.status !== "completed"
+        && agent.status !== "closed"
+        && agent.status !== "failed"
+    ).length;
 }
 
 function compactWorkspace(workspace: string): string {
