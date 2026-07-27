@@ -414,7 +414,7 @@ test("permission mode is fixed for one turn and changes on the next", async () =
             type: "tool_call",
             id,
             name: "bash",
-            input: { command: "date" },
+            input: { command: "uname -a" },
         }],
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
@@ -2070,17 +2070,11 @@ test("aborting a turn stops its foreground bash tool", async () => {
     const turn = runTurn(adapter, "test", state);
     await expectUserPrompt(channel, "run slowly", 1);
 
-    expect(await channel.client.receive()).toMatchObject({
-        type: "tool_review",
-        tool: "bash",
-        decision: "allow",
-        seq: 2,
-    });
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "bash",
         args: { command: "sleep 5" },
-        seq: 3,
+        seq: 2,
     });
     const abortedAt = performance.now();
     channel.client.send({ type: "abort" });
@@ -2088,13 +2082,13 @@ test("aborting a turn stops its foreground bash tool", async () => {
     expect(await channel.client.receive()).toEqual({
         type: "tool_finished",
         tool: "bash",
-        seq: 4,
+        seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
         outcome: "aborted",
         error: "Turn aborted",
-        seq: 5,
+        seq: 4,
     });
     expect(performance.now() - abortedAt).toBeLessThan(1_000);
 

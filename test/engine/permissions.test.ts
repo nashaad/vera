@@ -481,6 +481,20 @@ test("provably read-only git subcommands are routine reads", () => {
     }
 });
 
+test("bounded sleep and clock reads do not require approval", () => {
+    expect(actions("sleep 5 && date")).toEqual([
+        { tool: "bash", verb: "read", executable: "sleep" },
+        { tool: "bash", verb: "read", executable: "date" },
+    ]);
+    expect(decide("ask", bash("sleep 5 && date")).behavior).toBe("allow");
+    expect(decide("ask", bash("sleep 2m && date +%s")).behavior).toBe("allow");
+});
+
+test("long sleeps and commands that may set the clock still require approval", () => {
+    expect(decide("ask", bash("sleep 10m")).behavior).toBe("ask");
+    expect(decide("ask", bash("date 010100002026")).behavior).toBe("ask");
+});
+
 test("git push is unaffected by the read allowlist", () => {
     expect(actions("git push origin main")[0]).toMatchObject({
         verb: "unknown",
