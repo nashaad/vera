@@ -1,4 +1,5 @@
 import {
+    existsSync,
     mkdirSync,
     readFileSync,
     renameSync,
@@ -88,6 +89,21 @@ export interface VeraConfigDefaultsPatch {
 
 export function defaultVeraConfigPath(): string {
     return join(homedir(), ".vera", "config.json");
+}
+
+/**
+ * For callers that only want the optional fields (a client reading its own
+ * extension list, say). A host cannot run without a config, but a client
+ * attaching to a host that is already running should not die over a file it
+ * barely reads. A config that exists and is wrong is still an error: this
+ * tolerates absence, not damage.
+ */
+export function loadOptionalVeraConfig(
+    options: LoadVeraConfigOptions = {},
+): VeraConfig | undefined {
+    const path = options.path ?? defaultVeraConfigPath();
+    if (!existsSync(path)) return undefined;
+    return loadVeraConfig(options);
 }
 
 export function loadVeraConfig(

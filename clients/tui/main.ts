@@ -21,7 +21,7 @@ import {
 import type { UserMessage } from "../../src/model/types.ts";
 import type { ReasoningLevel } from "../../src/model/catalog-shape.ts";
 import {
-    loadVeraConfig,
+    loadOptionalVeraConfig,
     type VeraExtensionConfig,
 } from "../../src/config.ts";
 import {
@@ -292,7 +292,10 @@ export async function startConfiguredTui(
     target: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
-    const config = loadVeraConfig();
+    // Optional on purpose: the host owns the config, and the only fields read
+    // here are the client's own extension lists. Requiring the file made
+    // `vera attach` against an already-running host fail on a fresh machine.
+    const config = loadOptionalVeraConfig();
     const host = await findOrStartResidentHost({
         ...(options.confirmBusyUpgrade === undefined
             ? {}
@@ -385,13 +388,13 @@ export async function startConfiguredTui(
                 ...(initialDraft === undefined
                     ? {}
                     : { initialDraft }),
-                ...(config.disabled_builtin_extensions === undefined
+                ...(config?.disabled_builtin_extensions === undefined
                     ? {}
                     : {
                         disabledBuiltinExtensions:
                             config.disabled_builtin_extensions,
                     }),
-                ...(config.extensions === undefined
+                ...(config?.extensions === undefined
                     ? {}
                     : { clientExtensions: config.extensions }),
             });
