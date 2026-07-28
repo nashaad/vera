@@ -139,7 +139,10 @@ export async function compactSession(
             .map((entry) => entry.message),
     ];
     const request: CompactionRequest = {
-        messages: Object.freeze(span.map((message) => Object.freeze(message))),
+        // A copy, frozen through: the span aliases live store entries and the
+        // previous projection, and a strategy write to either would change the
+        // model context without a log append.
+        messages: deepFreeze(structuredClone(span) as ModelMessage[]),
         targetTokens,
         models: options.models,
     };
@@ -201,6 +204,16 @@ export async function compactSession(
         };
     }
     return { outcome: "compacted", before, after };
+}
+
+function deepFreeze<T>(value: T): T {
+    if (typeof value === "object" && value !== null) {
+        for (const child of Object.values(value)) {
+            deepFreeze(child);
+        }
+        Object.freeze(value);
+    }
+    return value;
 }
 
 interface BoundaryPlan {

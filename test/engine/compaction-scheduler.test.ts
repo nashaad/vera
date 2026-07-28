@@ -175,16 +175,24 @@ test("compacting twice builds on the previous projection", async () => {
 
 test("the strategy cannot reach past its answer to change the transcript", async () => {
     const store = await session(6);
+    const transcript = structuredClone(store.messages());
     await compactSession(
         options(store, (request) => {
             expect(() => {
                 (request.messages as ModelMessage[]).push(summary());
+            }).toThrow();
+            // Deep, not just the array: the content blocks are where a write
+            // would silently rewrite what the store believes was said.
+            const block = request.messages[0]?.content[0];
+            expect(() => {
+                (block as { text: string }).text = "corrupted";
             }).toThrow();
             return { projection: [summary()] };
         }),
         measurement(8_000),
         new AbortController().signal,
     );
+    expect(store.messages()).toEqual(transcript);
 });
 
 function options(
