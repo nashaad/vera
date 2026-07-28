@@ -217,9 +217,49 @@ function attachRowPointer(
     if (handlers.onHover !== undefined) {
         row.onMouseOver = (event: MouseEvent) => {
             event.stopPropagation();
+            if (!pointerMoved(event.x, event.y)) {
+                return;
+            }
             handlers.onHover?.();
         };
     }
+}
+
+/**
+ * Whether the pointer itself moved, as opposed to a row moving under it.
+ *
+ * These lists window around the cursor, so a hover that moves the cursor
+ * re-centres the window and slides a different row beneath a pointer that never
+ * moved. That row reports a hover of its own, moving the cursor again: the
+ * highlight runs away, several rows per row the user actually travelled. Only
+ * the first hover at a given position is the user's, so the rest are dropped.
+ *
+ * One module-level position rather than one per row: there is a single pointer,
+ * and rows are rebuilt on every render, so per-row state would reset exactly
+ * when the loop is running.
+ */
+let lastHoverX: number | undefined;
+let lastHoverY: number | undefined;
+
+/**
+ * Forget where the pointer was.
+ *
+ * The tracker is process-wide because the pointer is. That is right for the
+ * TUI, which has one of each, and wrong for a test file, where the position
+ * left by one test would suppress the first hover of the next.
+ */
+export function resetDialogPointerTracking(): void {
+    lastHoverX = undefined;
+    lastHoverY = undefined;
+}
+
+function pointerMoved(x: number, y: number): boolean {
+    if (x === lastHoverX && y === lastHoverY) {
+        return false;
+    }
+    lastHoverX = x;
+    lastHoverY = y;
+    return true;
 }
 
 /**
