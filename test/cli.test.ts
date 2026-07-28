@@ -25,7 +25,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera resume <session-id|path>");
     expect(output).toContain("vera export <session-path>");
     expect(output).toContain("vera inspect <session-path>");
-    expect(output).toContain("vera login [openai-codex]");
+    expect(output).toContain("vera login");
     expect(output).toContain("-v, --version");
 
     output = "";
@@ -257,22 +257,19 @@ test("vera --yes preapproves a busy resident-host restart", async () => {
     expect(approved).toBe(true);
 });
 
-test("vera login runs OpenAI Codex OAuth and prints the authorization URL", async () => {
+test("vera login is reserved for a Vera account and connects no provider", async () => {
+    // It used to run the Codex flow, which made a bare `login` mean whichever
+    // provider happened to be built first. Providers are connected in the model
+    // pane now, so this says what it is and does nothing.
     let output = "";
-    let loggedIn = false;
 
-    const exitCode = await runCli(["login", "openai-codex"], {
+    const exitCode = await runCli(["login"], {
         stdout: { write: (text) => output += text },
-        runOpenAICodexLogin: async (onAuthorizationUrl) => {
-            onAuthorizationUrl("https://auth.openai.test/authorize");
-            loggedIn = true;
-        },
     });
 
     expect(exitCode).toBe(0);
-    expect(loggedIn).toBe(true);
-    expect(output).toContain("https://auth.openai.test/authorize");
-    expect(output).toContain("Logged in to OpenAI Codex");
+    expect(output).toContain("Vera accounts are not available yet.");
+    expect(output).toContain("ctrl+e");
 });
 
 test("vera reports host upgrades without a runtime stack trace", async () => {

@@ -14,7 +14,6 @@ import {
     HostProtocolMismatchError,
 } from "../../src/host/lockfile.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
-import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 import {
     exportSession,
     type SessionExportFormat,
@@ -46,9 +45,6 @@ export interface CliDependencies {
     readonly runTui?: (
         target: TuiStartTarget,
         options?: TuiStartOptions,
-    ) => Promise<void>;
-    readonly runOpenAICodexLogin?: (
-        onAuthorizationUrl: (url: string) => void,
     ) => Promise<void>;
     readonly stopHost?: () => Promise<number | undefined>;
     readonly version?: string;
@@ -175,21 +171,8 @@ export async function runCli(
         return 0;
     }
 
-    if (
-        (args.length === 1 && args[0] === "login")
-        || (args.length === 2
-            && args[0] === "login"
-            && args[1] === "openai-codex")
-    ) {
-        const runLogin = dependencies.runOpenAICodexLogin
-            ?? (async (onAuthorizationUrl: (url: string) => void) => {
-                await loginOpenAICodex({ onAuthorizationUrl });
-            });
-        await runLogin((url) => {
-            output.write(`Open this URL to sign in:\n${url}\n`);
-        });
-        output.write("Logged in to OpenAI Codex.\n");
-        return 0;
+    if (args[0] === "login" && args.length <= 2) {
+        return runLogin(output);
     }
 
     errorOutput.write(renderCliUsage());
@@ -338,6 +321,23 @@ async function runConfiguredTui(
 ): Promise<void> {
     const { startConfiguredTui } = await import("../tui/main.ts");
     await startConfiguredTui(target, options);
+}
+
+/**
+ * `vera login` is reserved for a Vera platform account, which does not exist
+ * yet. It says so and does nothing.
+ *
+ * It is deliberately not a provider command. It used to run the Codex flow,
+ * which made a bare `login` mean whichever provider happened to be built first.
+ * Connecting a provider now lives in the model pane (ctrl+e), where the list of
+ * them and the marks for what is already connected are visible at once.
+ */
+function runLogin(output: CliOutput): number {
+    output.write(
+        "Vera accounts are not available yet.\n"
+        + "To connect a model provider, open Vera and press ctrl+e in the model pane.\n",
+    );
+    return 0;
 }
 
 async function confirmBusyHostUpgrade(): Promise<boolean> {
