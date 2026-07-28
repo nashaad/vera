@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
  * it is stored and returned as an opaque JSON string.
  */
 
-export const INBOX_SCHEMA_VERSION = 1;
+export const INBOX_SCHEMA_VERSION = 2;
 
 /** A consumer is identified by (nodeId, label) everywhere; the bare label is
  * display sugar. Offsets are durable per pair, so a returning consumer resumes
@@ -226,6 +226,46 @@ export class Inbox {
     }
 
     /**
+     * The resume token last persisted for a watch, or `null` for a watch that
+     * has never admitted anything. Keyed by canonical watch id, which belongs
+     * to the host, so a cursor outlives the extension that declared the watch.
+     * The value is opaque: it is stored and returned, never parsed.
+     */
+    watchCursor(watchId: string): string | null {
+        const row = this.database
+            .query<{ cursor: string }, [string]>(
+                "SELECT cursor FROM watch_cursors WHERE watch_id = ?",
+            )
+            .get(watchId);
+        return row?.cursor ?? null;
+    }
+
+    /** Called only after the corresponding entries are durably appended. */
+    setWatchCursor(watchId: string, cursor: string): void {
+        this.database
+            .query<null, [string, string, string]>(
+                `INSERT INTO watch_cursors (watch_id, cursor, updated_at)
+                 VALUES (?, ?, ?)
+                 ON CONFLICT (watch_id) DO UPDATE
+                 SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
+            )
+            .run(watchId, cursor, new Date().toISOString());
+    }
+
+    listWatchCursors(): { watchId: string; cursor: string; updatedAt: string }[] {
+        return this.database
+            .query<{ watch_id: string; cursor: string; updated_at: string }, []>(
+                "SELECT watch_id, cursor, updated_at FROM watch_cursors ORDER BY watch_id",
+            )
+            .all()
+            .map((row) => ({
+                watchId: row.watch_id,
+                cursor: row.cursor,
+                updatedAt: row.updated_at,
+            }));
+    }
+
+    /**
      * Moves a consumer forward to `seq`. Offsets never move backwards, so a
      * replayed delivery cannot rewind the log.
      */
@@ -284,6 +324,12 @@ function migrate(database: Database): void {
         );
 
         CREATE INDEX IF NOT EXISTS entries_address ON entries (address, seq);
+
+        CREATE TABLE IF NOT EXISTS watch_cursors (
+            watch_id TEXT PRIMARY KEY,
+            cursor TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS consumer_offsets (
             node_id TEXT NOT NULL,
