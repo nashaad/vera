@@ -250,6 +250,88 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host exposes a configured extension tool to the model loop",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-extension-tool-"));
+        const extensionPath = join(root, "extension");
+        await mkdir(extensionPath);
+        await writeFile(
+            join(extensionPath, "vera.extension.json"),
+            JSON.stringify({
+                id: "test.search",
+                version: "1.0.0",
+                sdk: "1",
+                entrypoint: "./extension.ts",
+                capabilities: ["tools.register"],
+            }),
+        );
+        await writeFile(join(extensionPath, "extension.ts"), `
+            export function activate(vera) {
+                vera.tools.register({
+                    name: "web_search",
+                    description: "Search",
+                    inputSchema: {
+                        type: "object",
+                        properties: { query: { type: "string" } },
+                        required: ["query"],
+                        additionalProperties: false,
+                    },
+                    permissionOperation: "web.search",
+                    run({ input }) {
+                        return { output: "result:" + input.query };
+                    },
+                });
+            }
+        `);
+        const sessionPath = join(root, "agent.jsonl");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "full_access",
+                extensions: [{
+                    path: extensionPath,
+                    enabled: true,
+                    config: null,
+                }],
+            },
+            createAdapter: () => new FauxAdapter([
+                toolResponse("web_search", { query: "dag" }),
+                textResponse("done"),
+            ]),
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+        });
+
+        try {
+            const agent = await host.registry.create({
+                id: "agent-1",
+                workspace: root,
+                sessionPath,
+                eventLogPath: join(root, "events.jsonl"),
+            });
+            const client = agent.attach();
+            await client.receive();
+            client.send({ type: "prompt", content: "search for dag" });
+            await receiveUntilType(client, "turn_finished");
+
+            const stored = await SessionStore.open(sessionPath);
+            expect(stored.messages()).toContainEqual(expect.objectContaining({
+                role: "tool_result",
+                toolName: "web_search",
+                isError: false,
+                content: [{ type: "text", text: "result:dag" }],
+            }));
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "resident rewind stays attached across the Unix socket",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-rewind-"));
@@ -683,6 +765,24 @@ function textResponse(text: string): AssistantMessage {
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
         stopReason: "stop",
+    };
+}
+
+function toolResponse(
+    name: string,
+    input: Readonly<Record<string, unknown>>,
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: `${name}-1`,
+            name,
+            input,
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
     };
 }
 

@@ -105,15 +105,6 @@ vera
 For development without linking the command, run
 `bun run clients/cli/main.ts`.
 
-To send a prompt with one or more images to an existing resident agent:
-
-```sh
-vera send <agent-id> --attach ./first.png --attach ./second.png "compare these"
-```
-
-Vera attaches every image in command-line order before submitting the prompt.
-If any image is rejected, the prompt is not sent.
-
 ## Export a conversation
 
 Export the active conversation branch as Markdown:
