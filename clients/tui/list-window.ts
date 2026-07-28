@@ -83,6 +83,12 @@ export function halfPageCursor(
  * Scrolling moves the cursor for the same reason the half-page keys do: these
  * surfaces window themselves around the cursor, so a window that moved on its
  * own would leave ⏎ pointing at a row that is no longer on screen.
+ *
+ * The wheel predates the rest of the pointer support and is independent of it:
+ * a surface can take the wheel without taking clicks, which is what every
+ * overlay did first. Do not fold this into `DialogRowPointer`. The wheel is
+ * bound to the overlay's box and needs no notion of which row it is over, while
+ * clicks and hovers are bound per row and need nothing else.
  */
 export function wheelCursor(
     cursor: number,
