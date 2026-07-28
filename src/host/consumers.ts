@@ -12,11 +12,14 @@ import type {
  * logs, and the bare label is display sugar that is never a key.
  *
  * Offsets are durable per (nodeId, label), so a label that is dormant still
- * owns its place in the log. Collision suffixing therefore runs against live
- * handles only: a returning consumer reclaims its label and resumes its
- * offset, while a second concurrent session asking for the same label gets a
- * distinct one.
+ * owns its place in the log. Collision suffixing therefore runs against both
+ * the live handles and the durable offset rows: a hello can never land on a
+ * label some other consumer already owns an offset for, which would hand the
+ * new session that consumer's place in the log.
  */
+
+/** Labels the host keeps for itself. `hello` refuses them. */
+export const RESERVED_CONSUMER_LABELS: readonly string[] = ["host:spawn"];
 
 /** The floor between two wakes for one consumer. `0` disables rate limiting. */
 export const DEFAULT_MIN_WAKE_INTERVAL_MS = 5_000;
@@ -95,11 +98,19 @@ export class ConsumerHandle {
     }
 
     /**
-     * A consumer with neither actor nor session has nothing to echo, and
-     * filtering on the null pair would drop every unattributed entry.
+     * Suppression needs the whole pair. A consumer that knows only one half
+     * would otherwise match on the other alone, so an entry carrying a null
+     * actor and this session id would be dropped for the very session it was
+     * addressed to.
+     *
+     * Suppression is best-effort: actor and session on an entry are supplied
+     * by whatever produced it, so an entry that carries the exact pair is
+     * suppressed whether or not this session caused it. It becomes a real
+     * guarantee once entries are attributed by the host rather than by their
+     * producer.
      */
     private get hasSelfEcho(): boolean {
-        return this.selfEcho.actor !== null || this.selfEcho.session !== null;
+        return this.selfEcho.actor !== null && this.selfEcho.session !== null;
     }
 
     /** `nodeId/label`, the form durable records and logs use. */
@@ -115,8 +126,13 @@ export class ConsumerHandle {
         return seq;
     }
 
+    /** The newest seq in the log, which bounds anything the handle may skip to. */
+    tail(): number {
+        return this.inbox.tail();
+    }
+
     lag(): number {
-        return Math.max(0, this.inbox.tail() - this.offset());
+        return Math.max(0, this.tail() - this.offset());
     }
 
     /** Entries after the offset. Reading never advances it. */
@@ -258,15 +274,24 @@ export class ConsumerRegistry {
         if (base === "") {
             throw new Error("a consumer label cannot be empty");
         }
-        if (!this.live.has(base)) {
+        if (RESERVED_CONSUMER_LABELS.includes(base)) {
+            throw new Error(`the consumer label ${base} is reserved for the host`);
+        }
+        if (!this.taken(base)) {
             return base;
         }
         for (let suffix = 2; ; suffix += 1) {
             const candidate = `${base}-${suffix}`;
-            if (!this.live.has(candidate)) {
+            if (!this.taken(candidate)) {
                 return candidate;
             }
         }
+    }
+
+    /** Live on this node, or holding a durable offset row on it. */
+    private taken(label: string): boolean {
+        return this.live.has(label)
+            || this.inbox.offsetOf({ nodeId: this.nodeId, label }) !== null;
     }
 }
 
