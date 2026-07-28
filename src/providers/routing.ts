@@ -1,4 +1,11 @@
-import type { ModelAdapter, ModelRequest, ModelStream } from "../model/types.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+    type ModelStream,
+    type ModelStreamEvent,
+} from "../model/types.ts";
 
 /**
  * How this adapter's cached client can be told apart from one built against
@@ -14,25 +21,50 @@ interface CachedAdapter {
 export class ProviderRoutingAdapter implements ModelAdapter {
     private readonly adapters = new Map<string, CachedAdapter>();
 
+    /**
+     * Every client is built on demand, including the default provider's.
+     *
+     * Building it up front meant a configured provider with no credential threw
+     * while the agent was being created, so Vera could not start at all: no
+     * agent, no TUI, and the connect pane that fixes it lives inside the TUI.
+     * Deferred, the same failure arrives on the first turn instead, where it can
+     * be read and acted on.
+     */
     constructor(
         private readonly createAdapter: (provider: string) => ModelAdapter,
         private readonly defaultProvider: string,
-        defaultAdapter: ModelAdapter,
         private readonly fingerprint?: CredentialFingerprint,
-    ) {
-        this.adapters.set(defaultProvider, {
-            fingerprint: fingerprint?.(defaultProvider),
-            adapter: defaultAdapter,
-        });
-    }
+    ) {}
 
+    /**
+     * A client that cannot be built is a failed turn, not a failed agent.
+     *
+     * Building one is where a missing credential is noticed, and the adapter
+     * contract already says provider failures belong in the stream's terminal
+     * error event. Throwing out of here instead would take the whole agent down
+     * on the first prompt, which is the opposite of being able to connect a
+     * provider and carry on.
+     */
     stream(request: ModelRequest): ModelStream {
         const provider = request.provider ?? this.defaultProvider;
-        return this.adapter(provider).stream(request);
+        try {
+            return this.adapter(provider).stream(request);
+        } catch (error) {
+            return failedStream(
+                error instanceof Error ? error : new Error(String(error)),
+            );
+        }
     }
 
     supportsImageInputFor(provider: string): boolean {
-        return this.adapter(provider).supportsImageInput !== false;
+        try {
+            return this.adapter(provider).supportsImageInput !== false;
+        } catch {
+            // Unknown rather than unsupported: the turn should reach the stream
+            // and fail there, with the reason, instead of being turned away
+            // here with a message about images.
+            return true;
+        }
     }
 
     prepareProvider(provider: string): void {
@@ -59,4 +91,25 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         this.adapters.set(provider, { fingerprint, adapter });
         return adapter;
     }
+}
+
+/** A stream that carries one failure, in the shape the engine already handles. */
+function failedStream(error: Error): ModelStream {
+    const message: AssistantMessage = {
+        role: "assistant",
+        content: [],
+        source: { provider: "unavailable", api: "none", model: "none" },
+        usage: emptyUsage(),
+        stopReason: "error",
+        // The turn's terminal detail, which is how the reason reaches the
+        // client: without it the turn ends as a bare "error".
+        errorMessage: error.message,
+    };
+    const event: ModelStreamEvent = { type: "error", error, message };
+    return {
+        async *[Symbol.asyncIterator]() {
+            yield event;
+        },
+        result: () => Promise.resolve(message),
+    };
 }

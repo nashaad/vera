@@ -566,7 +566,6 @@ export class AgentRegistry {
             ? new ProviderRoutingAdapter(
                 (provider) => this.options.createAdapter(provider),
                 this.defaultProvider,
-                this.options.createAdapter(this.defaultProvider),
                 this.options.credentialFingerprint,
             )
             : undefined;

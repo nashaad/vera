@@ -1441,29 +1441,6 @@ test("a registry reserves IDs while agents start and stays closed", async () => 
     }
 });
 
-test("an adapter construction failure does not register an agent", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-agent-adapter-"));
-    const registry = new AgentRegistry({
-        createAdapter(): never {
-            throw new Error("adapter unavailable");
-        },
-        model: "faux/test",
-        approvalMode: "auto",
-    });
-
-    try {
-        await expect(registry.create({
-            id: "failed-agent",
-            workspace: root,
-            sessionPath: join(root, "agent.jsonl"),
-        })).rejects.toThrow("adapter unavailable");
-        expect(registry.list()).toEqual([]);
-    } finally {
-        await registry.close();
-        await rm(root, { recursive: true, force: true });
-    }
-});
-
 test("a restarted registry replays a durable resident failure", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-failure-replay-"));
     const sessionPath = join(root, "agent.jsonl");
@@ -1892,6 +1869,35 @@ test("editing the pinned keeps the running model and reports the new list", asyn
             provider: "openai-codex",
             model: "gpt-5.6-sol",
         })).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an agent starts even when the configured provider has no credential", async () => {
+    // Otherwise there is no way back: no credential means no agent, no agent
+    // means no TUI, and the connect pane that fixes it lives inside the TUI.
+    // This replaces an older rule that a failure to build the adapter left no
+    // agent registered. Nothing builds an adapter at create any more, so the
+    // failure lands on the first turn, where it can be read and acted on.
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-nocreds-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => {
+            throw new Error("No credentials for provider openrouter.");
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "fresh",
+            workspace: root,
+            sessionPath: join(root, "fresh.jsonl"),
+        });
+
+        expect(agent.id).toBe("fresh");
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

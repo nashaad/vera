@@ -19,7 +19,6 @@ test("a provider's client is built once while its credentials hold still", () =>
             return stubAdapter();
         },
         "openai-codex",
-        stubAdapter(),
         () => "same-key",
     );
 
@@ -41,7 +40,6 @@ test("signing in again mid-session stops the old key from being spent", () => {
             return stubAdapter();
         },
         "openai-codex",
-        stubAdapter(),
         () => fingerprint,
     );
 
@@ -52,9 +50,10 @@ test("signing in again mid-session stops the old key from being spent", () => {
     expect(built).toBe(2);
 });
 
-test("the default provider's eager client is rebuilt on a re-key too", () => {
-    // It is the one adapter built before anyone asks for it, so it is also the
-    // one that would otherwise outlive its credential the longest.
+test("nothing is built until something asks, including the default provider", () => {
+    // The default provider used to be built while the agent was being created,
+    // which meant a provider with no credential stopped Vera from starting at
+    // all, and the connect pane that fixes it lives inside the TUI.
     let fingerprint: string | undefined = undefined;
     let built = 0;
     const routing = new ProviderRoutingAdapter(
@@ -63,16 +62,18 @@ test("the default provider's eager client is rebuilt on a re-key too", () => {
             return stubAdapter();
         },
         "openrouter",
-        stubAdapter(),
         () => fingerprint,
     );
 
-    routing.prepareProvider("openrouter");
     expect(built).toBe(0);
 
-    fingerprint = "signed-in";
     routing.prepareProvider("openrouter");
     expect(built).toBe(1);
+
+    // And it is still rebuilt on a re-key, like any other provider.
+    fingerprint = "signed-in";
+    routing.prepareProvider("openrouter");
+    expect(built).toBe(2);
 });
 
 test("a host with no credential store keeps one client per provider", () => {
@@ -83,12 +84,11 @@ test("a host with no credential store keeps one client per provider", () => {
             return stubAdapter();
         },
         "openai-codex",
-        stubAdapter(),
     );
 
     routing.prepareProvider("ollama");
     routing.prepareProvider("ollama");
     routing.prepareProvider("openai-codex");
 
-    expect(built).toBe(1);
+    expect(built).toBe(2);
 });
