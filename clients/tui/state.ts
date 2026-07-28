@@ -324,24 +324,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([fg(TUI_MUTED)(entry.text)]);
     }
     if (entry.kind === "user") {
-        const chunks: TextChunk[] = [];
-        const lines = entry.text.length === 0 ? [] : entry.text.split("\n");
-        lines.forEach((line, lineIndex) => {
-            chunks.push(
-                lineIndex === 0 ? fg(TUI_ACCENT)("▌ ") : fg(TUI_TEXT)("\n  "),
-            );
-            chunks.push(fg(TUI_TEXT)(line));
-        });
-        (entry.attachments ?? []).forEach((name, index) => {
-            chunks.push(
-                lines.length === 0 && index === 0
-                    ? fg(TUI_ACCENT)("▌ ")
-                    : fg(TUI_TEXT)("\n  "),
-            );
-            chunks.push(fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(" File ")));
-            chunks.push(fg(TUI_MUTED)(` ${name}`));
-        });
-        return new StyledText(chunks);
+        // The band around a user message is chrome the renderer draws, so the
+        // text itself carries no marker.
+        return new StyledText([fg(TUI_TEXT)(entry.text)]);
     }
     if (entry.kind === "tool_header") {
         return new StyledText([fg(TUI_ACCENT)(entry.text)]);

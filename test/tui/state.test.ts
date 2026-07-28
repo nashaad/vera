@@ -320,7 +320,7 @@ test("TUI does not duplicate its optimistic user prompt", () => {
 
 test("TUI entries render with kind-specific prefixes", () => {
     expect(plainText(renderTuiEntry({ kind: "user", text: "hi\nthere" })))
-        .toBe("▌ hi\n  there");
+        .toBe("hi\nthere");
     expect(plainText(renderTuiEntry({ kind: "tool_header", text: "Ran" })))
         .toBe("Ran");
     expect(plainText(renderTuiEntry({ kind: "tool", text: "  └ pwd" })))
@@ -616,20 +616,20 @@ test("a named attachment is shown by its file name", () => {
         text: "look",
         attachments: ["Screenshot at 11.08.54 AM.png", "attached image"],
     });
-    expect(plainText(renderTuiEntry(state.entries.at(-1)!))).toBe(
-        "▌ look\n   File  Screenshot at 11.08.54 AM.png\n   File  attached image",
-    );
 });
 
-test("an image sent with no prose starts the entry at the file chip", () => {
+test("an image sent with no prose still carries its file name", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "user_prompt",
         content: "",
         attachments: [{ id: "named-id", name: "diagram.png" }],
         seq: 1,
     });
-    expect(plainText(renderTuiEntry(state.entries.at(-1)!)))
-        .toBe("▌  File  diagram.png");
+    expect(state.entries.at(-1)).toEqual({
+        kind: "user",
+        text: "",
+        attachments: ["diagram.png"],
+    });
 });
 
 test("reviewer decisions remain visible with their risk and authorization", () => {
