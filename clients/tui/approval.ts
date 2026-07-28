@@ -189,6 +189,25 @@ export function createTuiApprovalView(
     content.add(details);
     content.add(actions);
 
+    const panel = new BoxRenderable(renderer, {
+        id: "approval-panel",
+        width: "100%",
+        height: "auto",
+        flexGrow: 1,
+        flexDirection: "row",
+    });
+    panel.add(bar);
+    panel.add(content);
+
+    const separator = new BoxRenderable(renderer, {
+        id: "approval-separator",
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+        border: ["bottom"],
+        borderColor: TUI_MUTED,
+    });
+
     const box = new BoxRenderable(renderer, {
         id: "approval-box",
         border: false,
@@ -200,11 +219,11 @@ export function createTuiApprovalView(
         height: "auto",
         maxHeight: "90%",
         zIndex: 20,
-        flexDirection: "row",
+        flexDirection: "column",
         visible: false,
     });
-    box.add(bar);
-    box.add(content);
+    box.add(panel);
+    box.add(separator);
 
     let buttonNodes: TextRenderable[] = [];
 
@@ -250,6 +269,7 @@ export function createTuiApprovalView(
     function renderChrome(update: ToolApprovalUiRequestUpdate): void {
         bar.backgroundColor = TUI_NOTICE;
         box.backgroundColor = TUI_PANEL;
+        separator.borderColor = TUI_MUTED;
         detailsText.fg = TUI_TEXT;
         const reason = specificReason(update.request.reason);
         headerText.content = new StyledText([
