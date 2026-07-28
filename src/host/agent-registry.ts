@@ -1108,6 +1108,14 @@ export class AgentRegistry {
     }
 
     /**
+     * The posture a session ran under, for a spawn that has one to inherit.
+     * `undefined` when the id names no session here, which is the cold case.
+     */
+    approvalModeOf(agentId: string): ApprovalMode | undefined {
+        return this.agents.get(agentId)?.approvalMode;
+    }
+
+    /**
      * Rename a session by id rather than through an attachment.
      *
      * An attached session is refused: its client holds the name it is
