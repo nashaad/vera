@@ -27,6 +27,11 @@ import {
 import { parsePermissionModes } from "./config/permission-modes.ts";
 import type { PermissionMode } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
+import {
+    defaultVeraExtensionDirectory,
+    discoverExtensionConfigs,
+    mergeExtensionConfigs,
+} from "./extensions/discovery.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -77,6 +82,7 @@ export interface VeraConfig {
 
 export interface LoadVeraConfigOptions {
     readonly path?: string;
+    readonly extensionDirectory?: string;
 }
 
 export interface VeraConfigDefaultsPatch {
@@ -137,7 +143,21 @@ export function loadVeraConfig(
             `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, an optional non-empty reasoning_effort string, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
         );
     }
-    return config;
+    const extensionDirectory = options.extensionDirectory
+        ?? (options.path === undefined
+            ? defaultVeraExtensionDirectory()
+            : join(dirname(path), "extensions"));
+    const extensions = mergeExtensionConfigs(
+        discoverExtensionConfigs(extensionDirectory),
+        config.extensions ?? [],
+    );
+    if (extensions.length === 0 && config.extensions === undefined) {
+        return config;
+    }
+    return {
+        ...config,
+        extensions,
+    };
 }
 
 export function updateVeraConfigDefaults(

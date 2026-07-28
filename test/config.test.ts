@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -128,6 +134,104 @@ test("Vera config loads explicit extension paths and JSON settings", () => {
     expect(loadVeraConfig({ path }).disabled_builtin_extensions).toEqual([
         "vera.model-presets",
     ]);
+});
+
+test("Vera config discovers global extension directories", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const extension = join(extensionDirectory, "web-search");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(
+        join(extension, "vera.extension.json"),
+        JSON.stringify({
+            id: "nash.web-search",
+            version: "0.1.0",
+            sdk: "1",
+            entrypoint: "./index.ts",
+            capabilities: ["tools.register"],
+        }),
+    );
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+    }));
+
+    expect(loadVeraConfig({ path, extensionDirectory }).extensions).toEqual([{
+        path: extension,
+        enabled: true,
+        config: {},
+    }]);
+});
+
+test("an explicit extension entry overrides its discovered defaults", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const extension = join(extensionDirectory, "web-search");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(join(extension, "vera.extension.json"), "{}");
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+        extensions: [{
+            path: extension,
+            enabled: false,
+            config: { provider: "brave" },
+        }],
+    }));
+
+    expect(loadVeraConfig({ path, extensionDirectory }).extensions).toEqual([{
+        path: extension,
+        enabled: false,
+        config: { provider: "brave" },
+    }]);
+});
+
+test("a configured symlink can disable the same discovered extension", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const extension = join(extensionDirectory, "web-search");
+    const alias = join(root, "web-search-alias");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(join(extension, "vera.extension.json"), "{}");
+    symlinkSync(extension, alias);
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+        extensions: [{
+            path: alias,
+            enabled: false,
+        }],
+    }));
+
+    expect(loadVeraConfig({ path }).extensions).toEqual([{
+        path: alias,
+        enabled: false,
+        config: {},
+    }]);
+});
+
+test("global discovery does not follow child symlinks", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const outside = join(root, "outside");
+    mkdirSync(extensionDirectory, { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(outside, "vera.extension.json"), "{}");
+    symlinkSync(outside, join(extensionDirectory, "linked"));
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+    }));
+
+    expect(loadVeraConfig({ path }).extensions).toBeUndefined();
 });
 
 test("Vera config rejects malformed extension entries", () => {
