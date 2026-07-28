@@ -8,6 +8,7 @@ import type {
     ExtensionCommandResult,
 } from "../../src/extensions/commands.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
+import { tuiKeyHint } from "./keymap.ts";
 
 export interface TuiCommandCatalogEntry {
     readonly name: string;
@@ -525,7 +526,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             // this command. It is advertised here because a keybinding with no
             // command of its own has nowhere else to appear, and a binding
             // nobody can find is a binding nobody has.
-            keyHint: "ctrl+t",
+            keyHint: tuiKeyHint("cycle-reasoning"),
             slashName: "reasoning",
             action: { type: "open_reasoning_picker" },
         },

@@ -13,13 +13,13 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
+import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 
 /**
  * The API-key line for one provider.
  *
  * Its own overlay rather than a picker pane with a search box: what is typed
- * here is a secret, so it is masked on screen and never becomes a filter over
- * anything.
+ * here is a secret, and it should never become a filter over anything.
  */
 export interface TuiSecretPromptState {
     readonly providerId: string;
@@ -96,9 +96,8 @@ export function handleTuiSecretPromptKey(
         return { handled: true };
     }
     // Ctrl+U, the readline key for it, because a mistyped key is not worth
-    // holding backspace through and the value is masked, so proofreading it is
-    // not an option either.
-    if (key.ctrl && key.name === "u" && !key.meta && !key.super && !key.hyper) {
+    // holding backspace through.
+    if (tuiBindingId("secret_prompt", key) === "clear_secret") {
         return { state: { ...state, value: "" }, handled: true };
     }
     if (key.ctrl || key.meta || key.super || key.hyper) {
@@ -121,8 +120,8 @@ export function handleTuiSecretPromptKey(
     // Keys arrive one character at a time, but a paste arrives as one event
     // carrying the whole string, which is how most keys get here. The sequence
     // is what was actually typed and the name is not: a shifted letter arrives
-    // as `name: "s", sequence: "S"`, and an API key read back in lower case
-    // would be silently wrong behind the mask.
+    // as `name: "s", sequence: "S"`, and an API key stored in lower case would
+    // fail on the first turn.
     const typed = key.sequence !== undefined && key.sequence.length > 0
         ? key.sequence
         : key.name.length === 1
@@ -167,7 +166,7 @@ export function createTuiSecretPromptView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content: "⏎ save · ^u clear · esc cancel",
+        content: `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`,
         fg: TUI_MUTED,
         width: "100%",
         height: 1,

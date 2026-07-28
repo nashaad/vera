@@ -142,6 +142,12 @@ import {
     type TuiSecretPromptState,
 } from "./secret-prompt.ts";
 import {
+    tuiBindingId,
+    tuiChord,
+    tuiChordOwner,
+    tuiKeyHint,
+} from "./keymap.ts";
+import {
     createAuthStorage,
     unreadableAuthStoragePath,
     type AuthStorage,
@@ -211,12 +217,12 @@ import { createTuiMarkdownEntry } from "./markdown-entry.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
-const READY_HINT = "ready · ctrl+p commands";
-const WORKING_HINT = "enter queue · esc redirect/stop · ctrl+c stop";
+const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
+const WORKING_HINT = `enter queue · esc redirect/stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 // The question overlay owns the choose/cancel hint now, so the status line only
 // carries the waiting phase and the global interrupt.
-const QUESTION_HINT = "question waiting · ctrl+c stop";
+const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
 const COPY_NOTICE_DURATION_MS = 1_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
 const BACKGROUND_AGENT_REFRESH_INTERVAL_MS = 1_000;
@@ -224,25 +230,6 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
-
-function normalizedExtensionKey(key: {
-    readonly name: string;
-    readonly ctrl?: boolean;
-    readonly shift?: boolean;
-    readonly meta?: boolean;
-    readonly option?: boolean;
-    readonly super?: boolean;
-    readonly hyper?: boolean;
-}): string | undefined {
-    if (key.meta || key.option || key.super || key.hyper) {
-        return undefined;
-    }
-    const modifiers = [
-        ...(key.ctrl ? ["ctrl"] : []),
-        ...(key.shift ? ["shift"] : []),
-    ];
-    return [...modifiers, key.name].join("+");
-}
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
@@ -595,6 +582,21 @@ export async function startTui(
             );
         },
     });
+    // An extension chord that a built-in already owns never fires: the global
+    // handler and every overlay read the keymap before the registry is
+    // consulted. Losing that race silently is the thing the keymap exists to
+    // stop, so it is said out loud where the user can see it.
+    for (const binding of clientExtensionRegistry.keybindings()) {
+        for (const key of binding.keys) {
+            const owner = tuiChordOwner(key);
+            if (owner !== undefined && owner.extensionId !== binding.id) {
+                state = appendTuiNotice(
+                    state,
+                    `${binding.id} cannot use ${key}: Vera already uses it to ${owner.description.toLowerCase()}`,
+                );
+            }
+        }
+    }
     registerExtensionTuiCommands(
         commandRegistry,
         clientExtensionRegistry.commands(),
@@ -1183,15 +1185,7 @@ export async function startTui(
             return;
         }
 
-        if (
-            key.name === "tab"
-            && !key.ctrl
-            && !key.shift
-            && !key.meta
-            && !key.option
-            && !key.super
-            && !key.hyper
-        ) {
+        if (tuiBindingId("composer", key) === "complete_command") {
             const completion = commandRegistry.completion(composer.plainText);
             if (completion !== undefined) {
                 key.preventDefault();
@@ -1210,7 +1204,7 @@ export async function startTui(
             }
         }
 
-        const extensionKey = normalizedExtensionKey(key);
+        const extensionKey = tuiChord(key);
         const extensionBinding = extensionKey === undefined
             ? undefined
             : clientExtensionRegistry?.keybindings().find((binding) =>

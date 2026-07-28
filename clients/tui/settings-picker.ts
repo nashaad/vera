@@ -42,6 +42,7 @@ import {
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
+import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
@@ -780,7 +781,7 @@ export function handleTuiSettingsPickerKey(
     }
     if (
         state.kind === "session"
-        && key.name === "delete"
+        && tuiBindingId("session_picker", key) === "trash_session"
     ) {
         const selected = state.options[state.selectedIndex];
         return selected?.sessionId === undefined
@@ -799,11 +800,7 @@ export function handleTuiSettingsPickerKey(
     // is a character in most model ids, so no unmodified key is available.
     if (
         state.kind === "model"
-        && key.ctrl
-        && key.name === "s"
-        && !key.meta
-        && !key.super
-        && !key.hyper
+        && tuiBindingId("model_picker", key) === "toggle_pinned"
     ) {
         const selected = state.options[state.selectedIndex];
         if (selected?.provider === undefined || selected.model === undefined) {
@@ -823,11 +820,7 @@ export function handleTuiSettingsPickerKey(
     // ctrl+s above: every bare key on the model pane belongs to its search box.
     if (
         state.kind === "model"
-        && key.ctrl
-        && key.name === "e"
-        && !key.meta
-        && !key.super
-        && !key.hyper
+        && tuiBindingId("model_picker", key) === "open_providers"
     ) {
         return { state, handled: true, openProviders: true };
     }
@@ -836,11 +829,7 @@ export function handleTuiSettingsPickerKey(
     // are the same move.
     if (
         state.kind === "model"
-        && key.name === "tab"
-        && !key.ctrl
-        && !key.meta
-        && !key.super
-        && !key.hyper
+        && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
         const tab: TuiModelPickerTab = state.tab === "pinned" ? "all" : "pinned";
         const selectedValue = state.options[state.selectedIndex]?.value;
@@ -874,18 +863,15 @@ export function handleTuiSettingsPickerKey(
     // travels with the jump rather than the window sliding out from under it,
     // so ctrl+d is ↓ held down and nothing new has to be learned about where
     // the highlight went.
-    if (
-        key.ctrl
-        && (key.name === "d" || key.name === "u")
-        && !key.meta && !key.super && !key.hyper
-    ) {
+    const halfPage = tuiBindingId("picker", key);
+    if (halfPage === "half_page_down" || halfPage === "half_page_up") {
         const next = {
             ...state,
             selectedIndex: halfPageCursor(
                 state.selectedIndex,
                 state.options.length,
                 viewportRows ?? FALLBACK_JUMP * 2,
-                key.name === "d" ? "down" : "up",
+                halfPage === "half_page_down" ? "down" : "up",
             ),
         };
         return { state: next, handled: true, ...themePreview(next) };
@@ -1205,7 +1191,12 @@ function modelTabStripNode(
 
 function pickerFooter(state: TuiAnySettingsPickerState): string {
     if (state.kind === "session") {
-        return "↑↓ ^d^u move · ⏎ select · del trash · esc close";
+        return [
+            "↑↓ ^d^u move",
+            "⏎ select",
+            tuiKeyHint("trash_session"),
+            "esc close",
+        ].join(" · ");
     }
     if (state.kind === "extension") {
         const actions = (state.extensionActions ?? []).map((action) =>
@@ -1235,8 +1226,10 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
         const pinned = selected === undefined || selected.provider === undefined
             ? undefined
             : isPinned(state, selected)
-                ? "^s unpin"
-                : "^s pin";
+                // Unpinning is the same key saying the opposite thing, which is
+                // the one hint the table cannot hold for us.
+                ? tuiKeyHint("toggle_pinned").replace("pin", "unpin")
+                : tuiKeyHint("toggle_pinned");
         return [
             // The movement entry carries the half-page keys rather than taking a
             // separate slot: they are the same movement, and this footer is
@@ -1244,7 +1237,7 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
             "↑↓ ^d^u move",
             "⏎ select",
             ...(pinned === undefined ? [] : [pinned]),
-            "^e providers",
+            tuiKeyHint("open_providers"),
             "⇥ tabs",
             "esc close",
         ].join(" · ");
