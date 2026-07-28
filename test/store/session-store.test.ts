@@ -1719,6 +1719,30 @@ test("a compaction is refused unless its anchors are on the active branch", asyn
         projection: [assistantMessage("summary")],
         measured: { inputTokens: 40, contextWindow: 0, estimated: true },
     })).rejects.toThrow("not a usable reading");
+    // NaN survives as a number in memory but serializes to null, which the
+    // loader rejects, so accepting it would write a session that cannot open.
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: null,
+        projection: [{
+            ...(assistantMessage("summary") as ModelMessage & {
+                role: "assistant";
+            }),
+            usage: { ...emptyUsage(), inputTokens: Number.NaN },
+        }],
+        measured,
+    })).rejects.toThrow("invalid message");
+    // The projection outlives the strategy that made it, so a reference to an
+    // attachment the session never stored would fail on every later turn.
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: null,
+        projection: [{
+            role: "user",
+            content: [{ type: "image_attachment", attachmentId: "missing" }],
+        }],
+        measured,
+    })).rejects.toThrow("not in this session");
 });
 
 test("a session carrying an unreadable compaction does not load", async () => {
