@@ -85,7 +85,8 @@ describe("watch admission", () => {
 
         admission.admit([event("arc:1", { ts: "not a date" }), event("arc:2")]);
 
-        expect(inbox.tail()).toBe(1);
+        // One admitted entry plus the gap entry recording the drop.
+        expect(inbox.tail()).toBe(2);
         expect(admission.stats().droppedMalformed).toBe(1);
         inbox.close();
     });
@@ -102,7 +103,8 @@ describe("watch admission", () => {
 
         admission.admit([event("arc:1", { payload: { blob: "x".repeat(200) } })]);
 
-        expect(inbox.tail()).toBe(0);
+        // Nothing admitted; the only entry is the gap recording the drop.
+        expect(inbox.tail()).toBe(1);
         expect(admission.stats().droppedOversize).toBe(1);
         inbox.close();
     });
