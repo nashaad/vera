@@ -18,8 +18,15 @@ import {
     TUI_MUTED,
     TUI_NOTICE,
     TUI_PANEL,
+    TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
+import {
+    describeGrantPredicate,
+    tuiApprovalBody,
+    tuiApprovalBodyText,
+    type TuiApprovalTone,
+} from "./approval-body.ts";
 import {
     attachDialogRowPointer,
     dialogBottomOffset,
@@ -35,9 +42,9 @@ import {
  */
 const APPROVAL_ROWS = [
     { key: "1", label: "Allow once" },
-    { key: "2", label: "Allow session" },
+    { key: "2", label: "Session" },
     { key: "3", label: "Deny" },
-    { key: "4", label: "Allow always" },
+    { key: "4", label: "Always" },
 ] as const;
 
 /**
@@ -96,6 +103,11 @@ export function createTuiApprovalView(
     // Highlighted button for ←/→ and ⏎. Client-local: the engine only ever
     // sees the decision.
     let selectedKey: string = "1";
+    // Whether the body is showing past its cap. Reset per request: an expanded
+    // panel that stayed expanded would push the next call's answers down.
+    let expanded = false;
+    /** Whether the cap is holding anything back, which is what ctrl+r is for. */
+    let capped = false;
 
     const bar = new BoxRenderable(renderer, {
         id: "approval-bar",
@@ -207,7 +219,7 @@ export function createTuiApprovalView(
             const node = new TextRenderable(renderer, {
                 content: new StyledText([
                     fg(active ? TUI_BACKGROUND : TUI_MUTED)(
-                        ` ${action.key} ${action.label} `,
+                        ` ${action.key} ${approvalRowLabel(update, action)} `,
                     ),
                 ]),
                 bg: active ? TUI_NOTICE : TUI_PANEL,
@@ -224,13 +236,26 @@ export function createTuiApprovalView(
         }
     }
 
+    function renderBody(update: ToolApprovalUiRequestUpdate): void {
+        const body = tuiApprovalBody(update, expanded);
+        capped = expanded || body.hidden > 0;
+        detailsText.content = new StyledText(
+            body.lines.flatMap((line, index) => [
+                fg(toneColor(line.tone))(line.text),
+                ...(index === body.lines.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+            ]),
+        );
+    }
+
     function renderChrome(update: ToolApprovalUiRequestUpdate): void {
         bar.backgroundColor = TUI_NOTICE;
         box.backgroundColor = TUI_PANEL;
         detailsText.fg = TUI_TEXT;
+        const reason = specificReason(update.request.reason);
         headerText.content = new StyledText([
-            fg(TUI_NOTICE)("△ Permission required\n"),
-            fg(TUI_TEXT)(`← ${friendlyReason(update.request.reason)}`),
+            fg(TUI_NOTICE)("△ Permission required"),
+            fg(TUI_MUTED)(`  ${update.request.toolCall.name}`),
+            ...(reason === undefined ? [] : [fg(TUI_MUTED)(`\n${reason}`)]),
         ]);
         hints.content = new StyledText([
             fg(TUI_TEXT)("←→"),
@@ -239,6 +264,12 @@ export function createTuiApprovalView(
             fg(TUI_MUTED)(" confirm  "),
             fg(TUI_TEXT)("esc"),
             fg(TUI_MUTED)(" deny"),
+            ...(capped
+                ? [
+                    fg(TUI_TEXT)("  ctrl+r"),
+                    fg(TUI_MUTED)(expanded ? " collapse" : " expand"),
+                ]
+                : []),
         ]);
         // Narrow terminals give the hints' columns to the buttons: the keys
         // still work unlabelled, an answer pushed off the screen does not.
@@ -265,11 +296,18 @@ export function createTuiApprovalView(
             }
             currentRequestId = update.requestId;
             selectedKey = "1";
-            detailsText.content = renderTuiApprovalDetails(update);
+            expanded = false;
+            renderBody(update);
             renderChrome(update);
             details.scrollTo(0);
         },
         handleKey(update, key): TuiApprovalKeyResult {
+            if (key.ctrl && !key.meta && !key.shift && key.name === "r") {
+                expanded = !expanded;
+                renderBody(update);
+                renderChrome(update);
+                return { handled: true };
+            }
             if (key.ctrl || key.meta || key.shift) {
                 return { handled: false };
             }
@@ -302,6 +340,7 @@ export function createTuiApprovalView(
             if (lastUpdate === undefined) {
                 return;
             }
+            renderBody(lastUpdate);
             renderChrome(lastUpdate);
         },
     };
@@ -309,36 +348,57 @@ export function createTuiApprovalView(
 }
 
 export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
+    const reason = specificReason(update.request.reason);
     return [
-        "Permission required",
-        `← ${friendlyReason(update.request.reason)}`,
+        `Permission required · ${update.request.toolCall.name}`,
+        ...(reason === undefined ? [] : [reason]),
         "",
         renderTuiApprovalDetails(update),
         "",
         visibleApprovalRows(update)
-            .map((action) => `${action.key} ${action.label}`)
+            .map((action) => `${action.key} ${approvalRowLabel(update, action)}`)
             .join("  ·  "),
     ].join("\n");
 }
 
+/**
+ * What "Session" and "Always" would remember, on the row that offers them.
+ * Stating it twice, once as a label and once as a body block, said the same
+ * thing in two registers.
+ */
+function approvalRowLabel(
+    update: ToolApprovalUiRequestUpdate,
+    action: (typeof APPROVAL_ROWS)[number],
+): string {
+    // Both remembering rows share the predicate, so it is written once, on the
+    // first one that offers it.
+    if (action.key !== "2") {
+        return action.label;
+    }
+    const scope = grantScope(update);
+    return scope === undefined ? action.label : `${action.label} ${scope}`;
+}
+
+/**
+ * The predicate as a label, only when one label can say the whole of it. Every
+ * proposal is stored on the decision, so a set the label cannot hold goes to
+ * the body instead of being summarized by its first member.
+ */
+function grantScope(
+    update: ToolApprovalUiRequestUpdate,
+): string | undefined {
+    const grants = update.request.permissionGrants;
+    if (grants === undefined || grants.length !== 1) {
+        return undefined;
+    }
+    return describeGrantPredicate(grants[0]!.when);
+}
+
 export function renderTuiApprovalDetails(
     update: ToolApprovalUiRequestUpdate,
+    expanded = false,
 ): string {
-    return [
-        ...(update.request.sourceAgentId === undefined
-            ? []
-            : [
-                `Requested by agent ${shortAgentId(update.request.sourceAgentId)}`,
-                ...(update.request.sourceTask === undefined
-                    ? []
-                    : [`Task: ${update.request.sourceTask}`]),
-                "",
-            ]),
-        formatToolCall(update),
-        "",
-        update.request.warning,
-        ...grantsSection(update),
-    ].join("\n");
+    return tuiApprovalBodyText(update, expanded);
 }
 
 export function tuiApprovalDecision(
@@ -401,6 +461,13 @@ export function applyTuiApprovalUpdate(
     return current;
 }
 
+function toneColor(tone: TuiApprovalTone): string {
+    if (tone === "add") return TUI_SUCCESS;
+    if (tone === "del") return TUI_NOTICE;
+    if (tone === "muted" || tone === "path") return TUI_MUTED;
+    return TUI_TEXT;
+}
+
 /** Rows whose meaning comes from the derived grant predicate, not the tool. */
 function isDerivedRow(key: string): boolean {
     return key === "2" || key === "4";
@@ -416,30 +483,6 @@ export function selectableApprovalKeys(
             || update.request.permissionGrants !== undefined
         )
         .map((action) => action.key);
-}
-
-function formatToolCall(update: ToolApprovalUiRequestUpdate): string {
-    const command = update.request.toolCall.input.command;
-    if (update.request.toolCall.name === "bash" && typeof command === "string") {
-        return `$ ${command}`;
-    }
-    return `${update.request.toolCall.name} ${JSON.stringify(update.request.toolCall.input)}`;
-}
-
-/**
- * What "Allow session" and "Allow always" would remember, as body lines. When
- * no predicate can be derived the buttons stay rendered so the digits do not
- * shift, and this section is where their unavailability is stated.
- */
-function grantsSection(update: ToolApprovalUiRequestUpdate): string[] {
-    if (update.request.sourceAgentId !== undefined) {
-        return [];
-    }
-    const grants = update.request.permissionGrants;
-    if (grants === undefined) {
-        return ["", "Allow session / always", "- not available for this command"];
-    }
-    return ["", "Allow session / always", ...grants.map((grant) => `- ${describeGrant(grant)}`)];
 }
 
 export function tuiApprovalHint(
@@ -458,30 +501,10 @@ function visibleApprovalRows(
         : APPROVAL_ROWS.filter((action) => !isDerivedRow(action.key));
 }
 
-function describeGrant(
-    grant: NonNullable<
-        ToolApprovalUiRequestUpdate["request"]["permissionGrants"]
-    >[number],
-): string {
-    const when = grant.when;
-    if (when.path !== undefined) {
-        return `${when.verb ?? "access"} under ${when.path}`;
-    }
-    if (when.executable !== undefined) {
-        return `future ${when.executable} commands`;
-    }
-    if (when.operation !== undefined) {
-        return `future ${when.operation} operations`;
-    }
-    return `future ${when.tool ?? "similar"} actions`;
-}
-
-function friendlyReason(reason: string): string {
-    return reason.startsWith("Permission mode ")
-        ? "Vera needs your approval before running this command."
-        : reason;
-}
-
-function shortAgentId(id: string): string {
-    return id.slice(0, 8);
+/**
+ * The reason, when it says something the header does not. The mode-derived
+ * form only restates that approval is required, which is what the header is.
+ */
+function specificReason(reason: string): string | undefined {
+    return reason.startsWith("Permission mode ") ? undefined : reason;
 }

@@ -30,6 +30,7 @@ export type TuiKeyScope =
     | "session_picker"
     | "secret_prompt"
     | "preferences_list"
+    | "approval"
     | "help";
 
 /** The panes that inherit every `picker` binding on top of their own. */
@@ -154,6 +155,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "session_picker",
         description: "Move the selected session to the trash",
         hint: "del trash",
+    },
+    {
+        id: "expand_call",
+        keys: ["ctrl+r"],
+        scope: "approval",
+        description: "Show the whole call being approved",
+        hint: "ctrl+r expand",
     },
     {
         id: "clear_secret",
