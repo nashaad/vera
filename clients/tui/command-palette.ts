@@ -18,6 +18,8 @@ import {
     dialogGroupHeaderNode,
     dialogHeaderNode,
     dialogOptionRows,
+    dialogRowPointer,
+    type DialogRowPointer,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
@@ -47,6 +49,7 @@ export interface TuiCommandPaletteTransition {
 
 export interface TuiCommandPaletteView {
     readonly box: BoxRenderable;
+    pointer?: DialogRowPointer;
     update(state: TuiCommandPaletteState): void;
 }
 
@@ -153,7 +156,7 @@ export function createTuiCommandPaletteView(
         visible: false,
     });
 
-    return {
+    const view: TuiCommandPaletteView = {
         box,
         update(state): void {
             box.top = renderer.height / 4;
@@ -192,6 +195,7 @@ export function createTuiCommandPaletteView(
                         meta: rowMeta(row.command),
                         active: row.index === state.selectedIndex,
                         current: false,
+                        ...dialogRowPointer(view.pointer, row.index),
                     }]
                     : []
             );
@@ -215,6 +219,7 @@ export function createTuiCommandPaletteView(
             box.height = lines + DIALOG_CHROME_HEIGHT;
         },
     };
+    return view;
 }
 
 

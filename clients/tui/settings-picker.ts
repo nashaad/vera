@@ -38,7 +38,10 @@ import {
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
+    attachDialogRowPointer,
     dialogOptionRows,
+    dialogRowPointer,
+    type DialogRowPointer,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
@@ -263,6 +266,7 @@ export type TuiAnySettingsPickerState =
 
 export interface TuiSettingsPickerView {
     readonly box: BoxRenderable;
+    pointer?: DialogRowPointer;
     update(state: TuiAnySettingsPickerState): void;
 }
 
@@ -1002,7 +1006,7 @@ export function createTuiSettingsPickerView(
         visible: false,
     });
 
-    return {
+    const view: TuiSettingsPickerView = {
         box,
         update(state): void {
             for (const node of nodes) {
@@ -1014,14 +1018,15 @@ export function createTuiSettingsPickerView(
                 box.left = "20%";
                 box.width = "60%";
                 box.height = state.allOptions.length + DIALOG_CHROME_HEIGHT;
-                renderThemePickerRows(renderer, box, state, nodes);
+                renderThemePickerRows(renderer, box, state, nodes, view.pointer);
                 return;
             }
             box.left = "10%";
             box.width = "80%";
-            renderListPickerRows(renderer, box, state, nodes);
+            renderListPickerRows(renderer, box, state, nodes, view.pointer);
         },
     };
+    return view;
 }
 
 /**
@@ -1087,6 +1092,7 @@ function renderListPickerRows(
     box: BoxRenderable,
     state: TuiAnySettingsPickerState,
     nodes: Renderable[],
+    pointer?: DialogRowPointer,
 ): void {
     const searchable = state.kind !== "extension";
     const header = dialogHeaderNode(
@@ -1143,6 +1149,7 @@ function renderListPickerRows(
                 meta: optionMeta(state, row.option),
                 active: row.index === state.selectedIndex,
                 current: isCurrentOption(state, row.option),
+                ...dialogRowPointer(pointer, row.index),
             }]
             : []
     ), pickerContentWidth(renderer));
@@ -1429,6 +1436,7 @@ function renderThemePickerRows(
     box: BoxRenderable,
     state: TuiSettingsPickerState,
     nodes: Renderable[],
+    pointer?: DialogRowPointer,
 ): void {
     const header = dialogHeaderNode(renderer, "Theme");
     const search = dialogSearchNode(renderer, state.query);
@@ -1439,6 +1447,12 @@ function renderThemePickerRows(
     // Show the curated catalog even while filtering: unmatched rows dim rather
     // than vanish, so the list keeps its stable palette-card shape.
     const matches = new Set(state.options.map((option) => option.value));
+    // The theme list is filtered but never shortened, so a row's position in
+    // `allOptions` is not its cursor index: only matched rows are selectable,
+    // and their index is the one the filtered list uses.
+    const selectableIndex = new Map(
+        state.options.map((option, index) => [option.value, index]),
+    );
     state.allOptions.forEach((option) => {
         const active = option.value === state.options[state.selectedIndex]?.value;
         const current = option.value === state.initialTheme;
@@ -1450,6 +1464,10 @@ function renderThemePickerRows(
             height: 1,
             paddingRight: 1,
         });
+        const index = selectableIndex.get(option.value);
+        if (index !== undefined) {
+            attachDialogRowPointer(row, pointer, index);
+        }
         box.add(row);
         nodes.push(row);
     });

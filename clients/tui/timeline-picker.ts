@@ -16,6 +16,8 @@ import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import {
     dialogFooterNode,
     dialogHeaderNode,
+    dialogRowPointer,
+    type DialogRowPointer,
     dialogOptionRow,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
@@ -78,6 +80,7 @@ export interface TuiTimelinePickerTransition {
 
 export interface TuiTimelinePickerView {
     readonly box: BoxRenderable;
+    pointer?: DialogRowPointer;
     update(state: TuiTimelinePickerState): void;
 }
 
@@ -233,18 +236,19 @@ export function createTuiTimelinePickerView(
         visible: false,
     });
 
-    return {
+    const view: TuiTimelinePickerView = {
         box,
         update(state): void {
             for (const node of nodes) {
                 node.destroy();
             }
-            nodes = timelineNodes(renderer, state);
+            nodes = timelineNodes(renderer, state, view.pointer);
             for (const node of nodes) {
                 box.add(node);
             }
         },
     };
+    return view;
 }
 
 // The rewind flow is several screens: a searchable boundary list, an action
@@ -255,6 +259,7 @@ export function createTuiTimelinePickerView(
 function timelineNodes(
     renderer: RenderContext,
     state: TuiTimelinePickerState,
+    pointer?: DialogRowPointer,
 ): Renderable[] {
     const nodes: Renderable[] = [
         dialogHeaderNode(renderer, timelineTitle(state)),
@@ -291,6 +296,7 @@ function timelineNodes(
                         label: oneLine(boundary.prompt),
                         leading: `${boundaryTime(boundary.timestamp)}  `,
                         active: index + visibleStart === selectedIndex,
+                        ...dialogRowPointer(pointer, index + visibleStart),
                     }));
                 },
             );
@@ -323,11 +329,13 @@ function timelineNodes(
             label: "Rewind conversation",
             leading: "1  ",
             active: state.selectedAction === "rewind",
+            ...dialogRowPointer(pointer, 0),
         }));
         nodes.push(dialogOptionRow(renderer, {
             label: "Cancel",
             leading: "2  ",
             active: state.selectedAction === "cancel",
+            ...dialogRowPointer(pointer, 1),
         }));
         nodes.push(dialogFooterNode(renderer, "↑↓ move · ⏎ select · esc back"));
         return nodes;
