@@ -19,9 +19,13 @@ import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
 import {
+    parseCompactionConfig,
     parseModelCatalogConfig,
+    resolveCompactionProfile,
     resolveReviewerProfile,
+    type ResolvedCompactionProfile,
     type VeraCatalogModel,
+    type VeraCompactionConfig,
     type VeraReviewerProfileConfig,
 } from "./config/model-catalog.ts";
 import { parsePermissionModes } from "./config/permission-modes.ts";
@@ -68,6 +72,7 @@ export interface VeraConfig {
     readonly reviewer_profiles?: Readonly<
         Record<string, VeraReviewerProfileConfig>
     >;
+    readonly compaction?: VeraCompactionConfig;
     readonly permission_modes?: Readonly<
         Record<string, PermissionMode>
     >;
@@ -273,6 +278,14 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         rawPermissionModes,
         modelCatalog?.reviewer_profiles ?? {},
     );
+    // Routes come from the catalog, so a compaction block without one has
+    // nothing to name and is rejected rather than half-resolved.
+    const compaction = config.compaction === undefined
+        ? undefined
+        : parseCompactionConfig(
+            config.compaction,
+            modelCatalog?.model_routes ?? {},
+        );
     const extensions = parseExtensionConfigs(config.extensions);
     const disabledBuiltinExtensions = parseStringList(
         config.disabled_builtin_extensions,
@@ -292,6 +305,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || extensions === undefined
         || disabledBuiltinExtensions === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
+        || (config.compaction !== undefined && compaction === undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
@@ -325,6 +339,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
                 reviewer_profiles: modelCatalog.reviewer_profiles,
             }
             : {}),
+        ...(compaction === undefined ? {} : { compaction }),
         ...(rawPermissionModes === undefined
             ? {}
             : { permission_modes: permissionModes }),
@@ -463,6 +478,29 @@ export function configuredReviewer(
     config: VeraConfig,
 ): ToolReviewerSettings | undefined {
     return configuredReviewers(config).default;
+}
+
+/**
+ * The compaction profile with every declared slot bound to catalog entries, or
+ * undefined when compaction is unconfigured or names something the catalog no
+ * longer has. Undefined means the session simply does not compact: a broken
+ * route must not be resolved into a shorter one and used anyway.
+ */
+export function configuredCompaction(
+    config: VeraConfig,
+): ResolvedCompactionProfile | undefined {
+    if (
+        config.compaction === undefined
+        || config.models === undefined
+        || config.model_routes === undefined
+    ) {
+        return undefined;
+    }
+    return resolveCompactionProfile({
+        models: config.models,
+        model_routes: config.model_routes,
+        reviewer_profiles: config.reviewer_profiles ?? {},
+    }, config.compaction);
 }
 
 export function configuredReviewers(
