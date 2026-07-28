@@ -142,6 +142,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "tab switch",
     },
     {
+        id: "rename_session",
+        keys: ["ctrl+r"],
+        scope: "session_picker",
+        description: "Rename the selected session",
+        hint: "^r rename",
+    },
+    {
         id: "trash_session",
         keys: ["delete"],
         scope: "session_picker",

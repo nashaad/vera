@@ -246,6 +246,10 @@ export interface TuiSettingsPickerTransition {
         readonly sessionId: string;
         readonly label: string;
     };
+    readonly renameCandidate?: {
+        readonly sessionId: string;
+        readonly label: string;
+    };
 }
 
 export interface TuiExtensionPickerSelection {
@@ -793,6 +797,22 @@ export function handleTuiSettingsPickerKey(
     }
     if (
         state.kind === "session"
+        && tuiBindingId("session_picker", key) === "rename_session"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        return selected?.sessionId === undefined
+            ? unchanged(state, true)
+            : {
+                state,
+                renameCandidate: {
+                    sessionId: selected.sessionId,
+                    label: selected.label,
+                },
+                handled: true,
+            };
+    }
+    if (
+        state.kind === "session"
         && tuiBindingId("session_picker", key) === "trash_session"
     ) {
         const selected = state.options[state.selectedIndex];
@@ -1209,6 +1229,7 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
         return [
             "↑↓ ^d^u move",
             "⏎ select",
+            tuiKeyHint("rename_session"),
             tuiKeyHint("trash_session"),
             "esc close",
         ].join(" · ");

@@ -88,6 +88,15 @@ test("session picker filters durable interactive conversations and selects an ag
         label: "Fix the deployment race",
     });
 
+    expect(handleTuiSettingsPickerKey(
+        state,
+        { name: "r", ctrl: true },
+    ).renameCandidate).toEqual({
+        sessionId: "11111111-first-session",
+        label: "Fix the deployment race",
+    });
+    expect(frame).toContain("^r rename");
+
     let searched = state;
     for (const name of "11111111-first-session") {
         searched = handleTuiSettingsPickerKey(searched, { name }).state

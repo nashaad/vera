@@ -64,6 +64,10 @@ import {
     trashSessionThroughHost,
     type TrashSessionResult,
 } from "../../src/host/session-trash-client.ts";
+import {
+    renameSessionThroughHost,
+    type RenameSessionResult,
+} from "../../src/host/session-rename-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import {
@@ -144,6 +148,14 @@ import {
     startTuiSecretPrompt,
     type TuiSecretPromptState,
 } from "./secret-prompt.ts";
+import {
+    createTuiSessionRenamePromptView,
+    handleTuiSessionRenamePromptKey,
+    handleTuiSessionRenamePromptPaste,
+    startTuiSessionRenamePrompt,
+    type TuiSessionRenamePromptState,
+    type TuiSessionRenamePromptTransition,
+} from "./session-rename-prompt.ts";
 import {
     tuiBindingId,
     tuiChord,
@@ -258,6 +270,10 @@ export interface TuiDependencies {
     readonly initialDraft?: TuiDraft;
     readonly sessionSwitchTimeoutMs?: number;
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
+    readonly renameSession?: (
+        sessionId: string,
+        name: string | null,
+    ) => Promise<RenameSessionResult>;
     readonly disabledBuiltinExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
@@ -406,6 +422,8 @@ export async function startConfiguredTui(
                 ),
             trashSession: (sessionId) =>
                 trashSessionThroughHost(host.socket_path, sessionId),
+            renameSession: (sessionId, name) =>
+                renameSessionThroughHost(host.socket_path, sessionId, name),
             ...(config?.disabled_builtin_extensions === undefined
                 ? {}
                 : {
@@ -526,6 +544,7 @@ export async function startTui(
     >();
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
     let secretPrompt: TuiSecretPromptState | undefined;
+    let sessionRenamePrompt: TuiSessionRenamePromptState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
     /** The picker pane the preferences list was opened over, restored on close. */
     let preferencesListParent: TuiSettingsPickerState | undefined;
@@ -561,7 +580,8 @@ export async function startTui(
     let backgroundAgentRefreshPending = false;
     let pendingSessionRename: {
         readonly requestId: string;
-        readonly commandText: string;
+        /** Restored to the composer if the rename never lands, when it came from one. */
+        readonly commandText?: string;
     } | undefined;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
@@ -782,6 +802,7 @@ export async function startTui(
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
     const secretPromptView = createTuiSecretPromptView(renderer);
+    const sessionRenamePromptView = createTuiSessionRenamePromptView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
@@ -883,6 +904,7 @@ export async function startTui(
     };
     app.add(settingsPickerView.box);
     app.add(secretPromptView.box);
+    app.add(sessionRenamePromptView.box);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
@@ -983,6 +1005,19 @@ export async function startTui(
     // paste has to be routed here. Ahead of the composer, which would otherwise
     // end up with the key as visible text in the transcript.
     renderer.keyInput.on("paste", (event) => {
+        if (
+            sessionRenamePrompt !== undefined
+            && sessionRenamePromptView.box.visible
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            sessionRenamePrompt = handleTuiSessionRenamePromptPaste(
+                sessionRenamePrompt,
+                stripAnsiSequences(decodePasteBytes(event.bytes)),
+            );
+            renderState();
+            return;
+        }
         if (secretPrompt === undefined) {
             return;
         }
@@ -1020,6 +1055,7 @@ export async function startTui(
             if (
                 pendingUiRequest === undefined && !sessionSwitchPending
                 && secretPrompt === undefined
+                && sessionRenamePrompt === undefined
             ) {
                 openCommandPalette();
             }
@@ -1142,6 +1178,22 @@ export async function startTui(
 
         // Ahead of the picker: the prompt is drawn over the pane that opened
         // it, so it takes the keys while it is up.
+        if (sessionRenamePrompt !== undefined) {
+            const transition = handleTuiSessionRenamePromptKey(
+                sessionRenamePrompt,
+                key,
+            );
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                applySessionRenamePromptTransition(
+                    sessionRenamePrompt,
+                    transition,
+                );
+                return;
+            }
+        }
+
         if (secretPrompt !== undefined) {
             const transition = handleTuiSecretPromptKey(secretPrompt, key);
             if (transition.handled) {
@@ -1997,7 +2049,10 @@ export async function startTui(
                             applyTerminalTitle();
                         }
                     } else {
-                        if (composer.expandedText().length === 0) {
+                        if (
+                            pending.commandText !== undefined
+                            && composer.expandedText().length === 0
+                        ) {
                             composer.setComposerText(pending.commandText);
                         }
                         state = appendTuiNotice(
@@ -2007,8 +2062,17 @@ export async function startTui(
                                 : "Could not rename this session",
                         );
                     }
+                    if (
+                        update.type === "session_name"
+                        && settingsPicker?.kind === "session"
+                    ) {
+                        void refreshSessionPicker();
+                    }
                     renderState();
-                    composer.focus();
+                    if (!anyOverlayOpen()) {
+                        composer.focus();
+                    }
+                    focusActiveSurface();
                     continue;
                 }
                 if (
@@ -2389,6 +2453,10 @@ export async function startTui(
             sessionTrashConfirmView.box.focus();
             return;
         }
+        if (sessionRenamePrompt !== undefined) {
+            sessionRenamePromptView.box.focus();
+            return;
+        }
         if (secretPrompt !== undefined) {
             secretPromptView.box.focus();
             return;
@@ -2508,7 +2576,7 @@ export async function startTui(
         const interruptedRename = pendingSessionRename;
         pendingSessionRename = undefined;
         if (
-            interruptedRename !== undefined
+            interruptedRename?.commandText !== undefined
             && composer.expandedText().length === 0
         ) {
             composer.setComposerText(interruptedRename.commandText);
@@ -2517,6 +2585,7 @@ export async function startTui(
         queuedUiRequests.length = 0;
         timelinePicker = undefined;
         settingsPicker = undefined;
+        sessionRenamePrompt = undefined;
         commandPalette = undefined;
         help = undefined;
         confirmingFullAccess = false;
@@ -2547,16 +2616,23 @@ export async function startTui(
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
+        sessionRenamePromptView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && sessionRenamePrompt !== undefined;
         secretPromptView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && sessionRenamePrompt === undefined
             && secretPrompt !== undefined;
         settingsPickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && secretPrompt === undefined
+            && sessionRenamePrompt === undefined
             && settingsPicker !== undefined;
         preferencesListView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
@@ -2594,6 +2670,7 @@ export async function startTui(
                 || helpView.box.visible
                 || permissionsConfirmView.box.visible
                 || sessionTrashConfirmView.box.visible
+                || sessionRenamePromptView.box.visible
                 || secretPromptView.box.visible
             ? 0.35
             : 1;
@@ -2602,6 +2679,7 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && secretPrompt === undefined
+            && sessionRenamePrompt === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && help === undefined;
@@ -2626,6 +2704,9 @@ export async function startTui(
         }
         if (secretPrompt !== undefined) {
             secretPromptView.update(secretPrompt);
+        }
+        if (sessionRenamePrompt !== undefined) {
+            sessionRenamePromptView.update(sessionRenamePrompt);
         }
         if (preferencesList !== undefined) {
             preferencesListView.update(preferencesList);
@@ -2700,6 +2781,7 @@ export async function startTui(
         return pendingUiRequest !== undefined
             || timelinePicker !== undefined
             || secretPrompt !== undefined
+            || sessionRenamePrompt !== undefined
             || settingsPicker !== undefined
             || preferencesList !== undefined
             || commandPalette !== undefined
@@ -3008,6 +3090,121 @@ export async function startTui(
         focusActiveSurface();
     }
 
+    /**
+     * The name a picker row was given.
+     *
+     * The current session is renamed through its own attachment, because that
+     * is the client holding the name on screen and the host refuses to write
+     * behind an attached client's back. Every other row goes over the host.
+     */
+    function applySessionRenamePromptTransition(
+        prompt: TuiSessionRenamePromptState,
+        transition: TuiSessionRenamePromptTransition,
+    ): void {
+        sessionRenamePrompt = transition.state;
+        if (sessionRenamePrompt !== undefined) {
+            renderState();
+            return;
+        }
+        const parent = prompt.parent;
+        settingsPicker = parent;
+        if (transition.submitted !== undefined) {
+            if (prompt.sessionId === client.agentId) {
+                const requestId = randomUUID();
+                pendingSessionRename = { requestId };
+                sendCommand({
+                    type: "update_session_name",
+                    requestId,
+                    name: transition.submitted,
+                });
+            } else {
+                void performSessionRename(
+                    prompt.sessionId,
+                    transition.submitted,
+                );
+            }
+        }
+        renderState();
+        focusActiveSurface();
+    }
+
+    async function performSessionRename(
+        sessionId: string,
+        name: string | null,
+    ): Promise<void> {
+        if (dependencies.renameSession === undefined) {
+            state = appendTuiNotice(
+                state,
+                "Renaming another conversation is unavailable",
+            );
+            renderState();
+            return;
+        }
+        const generation = clientGeneration;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const result = await Promise.race([
+            dependencies.renameSession(sessionId, name)
+                .catch((): RenameSessionResult => ({
+                    status: "rejected",
+                    reason: "failed",
+                })),
+            new Promise<RenameSessionResult>((resolve) => {
+                timeout = setTimeout(() => {
+                    resolve({ status: "rejected", reason: "failed" });
+                }, dependencies.sessionSwitchTimeoutMs
+                    ?? SESSION_SWITCH_TIMEOUT_MS);
+            }),
+        ]);
+        clearTimeout(timeout);
+        // The session on screen may have been swapped underneath while the
+        // host was answering, and this result belongs to the one that left.
+        if (shuttingDown || generation !== clientGeneration) return;
+        state = appendTuiNotice(
+            state,
+            result.status === "renamed"
+                ? result.name === null
+                    ? "session name cleared"
+                    : `session renamed: ${result.name}`
+                : result.reason === "busy"
+                ? "That conversation is open in another client"
+                : result.reason === "not_found"
+                ? "That conversation is no longer available"
+                : result.reason === "invalid"
+                ? "Session name must be 1 to 200 UTF-8 bytes"
+                : "Could not rename that conversation",
+        );
+        if (result.status === "renamed" && settingsPicker?.kind === "session") {
+            await refreshSessionPicker();
+        }
+        renderState();
+    }
+
+    /**
+     * The session pane, rebuilt from the host.
+     *
+     * A rename changes what a row says, and the row text comes from the host
+     * listing, so the pane is re-read rather than patched with what was asked
+     * for.
+     */
+    async function refreshSessionPicker(): Promise<void> {
+        if (dependencies.listAgents === undefined) return;
+        const generation = clientGeneration;
+        try {
+            const agents = await dependencies.listAgents();
+            if (
+                shuttingDown || generation !== clientGeneration
+                || settingsPicker?.kind !== "session"
+            ) {
+                return;
+            }
+            settingsPicker = startTuiSessionPicker(agents, client.agentId);
+            renderState();
+        } catch {
+            // The pane keeps the rows it has: a failed refresh is not a
+            // reason to close what the user is working in.
+        }
+    }
+
     function openSettingsMenu(): void {
         settingsPicker = startTuiSettingsMenu("settings");
         composer.blur();
@@ -3136,6 +3333,20 @@ export async function startTui(
             && transition.trashCandidate !== undefined
         ) {
             sessionTrashCandidate = transition.trashCandidate;
+        }
+        if (
+            "renameCandidate" in transition
+            && transition.renameCandidate !== undefined
+        ) {
+            sessionRenamePrompt = startTuiSessionRenamePrompt(
+                transition.renameCandidate,
+                previousPicker?.kind === "extension"
+                    ? undefined
+                    : previousPicker,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
         }
         if ("openProviders" in transition && transition.openProviders === true) {
             // The model pane stays underneath: connecting a provider is a
@@ -3309,6 +3520,7 @@ export async function startTui(
         timelinePicker = undefined;
         settingsPicker = undefined;
         secretPrompt = undefined;
+        sessionRenamePrompt = undefined;
         preferencesList = undefined;
         preferencesListParent = undefined;
         confirmingFullAccess = false;
