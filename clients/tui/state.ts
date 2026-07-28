@@ -150,7 +150,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "tool_started") {
         return appendEntry(state, {
             kind: "tool",
-            text: `∗ ${formatToolCall(update.tool, update.args)}`,
+            text: toolEntryText(state.entries, update.tool, update.args),
         });
     }
     if (update.type === "tool_review") {
@@ -218,7 +218,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         });
     }
     if (update.type === "history") {
-        const canonicalEntries = update.entries.map(toTuiTranscriptEntry);
+        const canonicalEntries = toTuiTranscriptEntries(update.entries);
         return {
             ...state,
             entries: preserveLiveReviewEntries(
@@ -358,13 +358,19 @@ export function tuiEntryMarginTop(
     const previous = entries[index - 1];
     if (
         entry?.kind === "tool"
-        && (previous?.kind === "tool" || previous?.kind === "review")
+        && (
+            previous?.kind === "tool"
+            || previous?.kind === "review"
+            || previous?.kind === "thought"
+        )
     ) {
         return 0;
     }
 
     return 1;
 }
+
+const TOOL_SUMMARY_LIMIT = 2000;
 
 function formatToolCall(
     tool: string,
@@ -379,14 +385,51 @@ function formatToolCall(
     if (summary.length === 0) {
         return tool;
     }
-    return `${tool} ${summary.length > 64 ? `${summary.slice(0, 63)}…` : summary}`;
+    // A command wraps rather than being cut at a column, since what ran is the
+    // part worth reading. The cap is far above any terminal width and bounds
+    // only how much of a pathological argument one row can scroll off screen.
+    return summary.length > TOOL_SUMMARY_LIMIT
+        ? `${tool} ${summary.slice(0, TOOL_SUMMARY_LIMIT - 1)}…`
+        : `${tool} ${summary}`;
 }
 
-function toTuiTranscriptEntry(entry: TranscriptEntry): TuiTranscriptEntry {
+/**
+ * The gutter a tool row opens with. The first call of a run heads the group and
+ * the rest hang off it, so a sequence of calls reads as one unit rather than as
+ * n unrelated rows.
+ */
+function toolEntryText(
+    entries: readonly TuiTranscriptEntry[],
+    tool: string,
+    args: Readonly<Record<string, unknown>>,
+): string {
+    // Review and thought rows come and go: a history checkpoint drops them,
+    // and a run of calls has to head the same way either way, or the checkpoint
+    // stops matching what is on screen.
+    const previous = entries.findLast((entry) =>
+        entry.kind !== "review" && entry.kind !== "thought"
+    );
+    return `${previous?.kind === "tool" ? "└ " : "∗ "}${formatToolCall(tool, args)}`;
+}
+
+function toTuiTranscriptEntries(
+    entries: readonly TranscriptEntry[],
+): TuiTranscriptEntry[] {
+    const converted: TuiTranscriptEntry[] = [];
+    for (const entry of entries) {
+        converted.push(toTuiTranscriptEntry(entry, converted));
+    }
+    return converted;
+}
+
+function toTuiTranscriptEntry(
+    entry: TranscriptEntry,
+    preceding: readonly TuiTranscriptEntry[],
+): TuiTranscriptEntry {
     if (entry.kind === "tool") {
         return {
             kind: "tool",
-            text: `∗ ${formatToolCall(entry.tool, entry.args)}`,
+            text: toolEntryText(preceding, entry.tool, entry.args),
         };
     }
     if (entry.kind === "error") {

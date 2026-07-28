@@ -325,7 +325,7 @@ test("TUI entries render with kind-specific prefixes", () => {
         .toBe("Engine error");
 });
 
-test("TUI tool entries truncate long arguments", () => {
+test("TUI tool entries keep their whole argument", () => {
     const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
         type: "tool_started",
         tool: "bash",
@@ -333,7 +333,140 @@ test("TUI tool entries truncate long arguments", () => {
         seq: 1,
     });
 
-    expect(state.entries.at(-1)?.text).toBe(`∗ bash ${"x".repeat(63)}…`);
+    expect(state.entries.at(-1)?.text).toBe(`∗ bash ${"x".repeat(100)}`);
+});
+
+test("a pathological tool argument is still bounded", () => {
+    const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "x".repeat(9000) },
+        seq: 1,
+    });
+
+    expect(state.entries.at(-1)?.text).toBe(`∗ bash ${"x".repeat(1999)}…`);
+});
+
+test("a run of tool calls hangs off the first one", () => {
+    let state = beginTuiTurn(createTuiState(), "go");
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "pwd" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "note.txt" },
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "assistant_delta",
+        text: "ok",
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "ls" },
+        seq: 4,
+    });
+
+    expect(state.entries.map((entry) => entry.text)).toEqual([
+        "go",
+        "∗ bash pwd",
+        "└ read note.txt",
+        "ok",
+        "∗ bash ls",
+    ]);
+});
+
+test("a review between two calls does not break the run", () => {
+    let state = beginTuiTurn(createTuiState(), "go");
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "pwd" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        reason: "Reads only.",
+        riskLevel: "low",
+        userAuthorization: "high",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "ls" },
+        seq: 3,
+    });
+
+    expect(state.entries.at(-1)?.text).toBe("└ bash ls");
+});
+
+test("a checkpoint over a reviewed run keeps the run and the review", () => {
+    let state = beginTuiTurn(createTuiState(), "go");
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "pwd" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "read",
+        decision: "allow",
+        reason: "Reads only.",
+        riskLevel: "low",
+        userAuthorization: "high",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "note.txt" },
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "go" },
+            { kind: "tool", tool: "bash", args: { command: "pwd" } },
+            { kind: "tool", tool: "read", args: { path: "note.txt" } },
+        ],
+        seq: 4,
+    });
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "tool",
+        "review",
+        "tool",
+    ]);
+});
+
+test("history threads a run the same way the live turn did", () => {
+    let state = beginTuiTurn(createTuiState(), "go");
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "go" },
+            { kind: "tool", tool: "bash", args: { command: "pwd" } },
+            { kind: "tool", tool: "read", args: { path: "note.txt" } },
+        ],
+        seq: 1,
+    });
+
+    expect(state.entries.map((entry) => entry.text)).toEqual([
+        "go",
+        "∗ bash pwd",
+        "└ read note.txt",
+    ]);
 });
 
 test("TUI spacing compacts consecutive tools but preserves message boundaries", () => {
