@@ -63,7 +63,8 @@ test("TUI state tracks a streamed turn and tool activity", () => {
     expect(state.entries).toEqual([
         { kind: "user", text: "inspect the project" },
         { kind: "assistant", text: "I will check." },
-        { kind: "tool", text: "∗ bash pwd" },
+        { kind: "tool_header", header: "Ran", text: "Ran" },
+        { kind: "tool", header: "Ran", text: "  └ pwd" },
         { kind: "assistant", text: "Done." },
     ]);
 });
@@ -193,7 +194,8 @@ test("TUI applies canonical history and prompts from other clients", () => {
     expect(state.entries).toEqual([
         { kind: "user", text: "inspect" },
         { kind: "assistant", text: "Checking." },
-        { kind: "tool", text: "∗ read note.txt" },
+        { kind: "tool_header", header: "Explored", text: "Explored" },
+        { kind: "tool", header: "Explored", text: "  └ Read note.txt" },
         { kind: "user", text: "continue" },
     ]);
 });
@@ -319,8 +321,10 @@ test("TUI does not duplicate its optimistic user prompt", () => {
 test("TUI entries render with kind-specific prefixes", () => {
     expect(plainText(renderTuiEntry({ kind: "user", text: "hi\nthere" })))
         .toBe("▌ hi\n  there");
-    expect(plainText(renderTuiEntry({ kind: "tool", text: "∗ bash pwd" })))
-        .toBe("∗ bash pwd");
+    expect(plainText(renderTuiEntry({ kind: "tool_header", text: "Ran" })))
+        .toBe("Ran");
+    expect(plainText(renderTuiEntry({ kind: "tool", text: "  └ pwd" })))
+        .toBe("  └ pwd");
     expect(plainText(renderTuiEntry({ kind: "notice", text: "Engine error" })))
         .toBe("Engine error");
 });
@@ -333,7 +337,7 @@ test("TUI tool entries keep their whole argument", () => {
         seq: 1,
     });
 
-    expect(state.entries.at(-1)?.text).toBe(`∗ bash ${"x".repeat(100)}`);
+    expect(state.entries.at(-1)?.text).toBe(`  └ ${"x".repeat(100)}`);
 });
 
 test("a pathological tool argument is still bounded", () => {
@@ -344,7 +348,7 @@ test("a pathological tool argument is still bounded", () => {
         seq: 1,
     });
 
-    expect(state.entries.at(-1)?.text).toBe(`∗ bash ${"x".repeat(1999)}…`);
+    expect(state.entries.at(-1)?.text).toBe(`  └ ${"x".repeat(1999)}…`);
 });
 
 test("a run of tool calls hangs off the first one", () => {
@@ -375,10 +379,13 @@ test("a run of tool calls hangs off the first one", () => {
 
     expect(state.entries.map((entry) => entry.text)).toEqual([
         "go",
-        "∗ bash pwd",
-        "└ read note.txt",
+        "Ran",
+        "  └ pwd",
+        "Explored",
+        "  └ Read note.txt",
         "ok",
-        "∗ bash ls",
+        "Ran",
+        "  └ ls",
     ]);
 });
 
@@ -406,7 +413,7 @@ test("a review between two calls does not break the run", () => {
         seq: 3,
     });
 
-    expect(state.entries.at(-1)?.text).toBe("└ bash ls");
+    expect(state.entries.at(-1)?.text).toBe("    ls");
 });
 
 test("a checkpoint over a reviewed run keeps the run and the review", () => {
@@ -444,8 +451,10 @@ test("a checkpoint over a reviewed run keeps the run and the review", () => {
 
     expect(state.entries.map((entry) => entry.kind)).toEqual([
         "user",
+        "tool_header",
         "tool",
         "review",
+        "tool_header",
         "tool",
     ]);
 });
@@ -464,21 +473,24 @@ test("history threads a run the same way the live turn did", () => {
 
     expect(state.entries.map((entry) => entry.text)).toEqual([
         "go",
-        "∗ bash pwd",
-        "└ read note.txt",
+        "Ran",
+        "  └ pwd",
+        "Explored",
+        "  └ Read note.txt",
     ]);
 });
 
 test("TUI spacing compacts consecutive tools but preserves message boundaries", () => {
     const entries = [
         { kind: "user", text: "inspect" },
-        { kind: "tool", text: "∗ bash pwd" },
-        { kind: "tool", text: "∗ read clients/tui/main.ts" },
+        { kind: "tool_header", header: "Ran", text: "Ran" },
+        { kind: "tool", header: "Ran", text: "  └ pwd" },
+        { kind: "tool", header: "Ran", text: "    ls" },
         { kind: "assistant", text: "Done." },
     ] as const;
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
-        .toEqual([0, 1, 0, 1]);
+        .toEqual([0, 1, 0, 0, 1]);
 });
 
 test("TUI queues a follow-up without interrupting the active transcript", () => {
@@ -698,6 +710,7 @@ test("a matching history checkpoint preserves a live auto-review notice", () => 
     expect(state.entries.map((entry) => entry.kind)).toEqual([
         "user",
         "review",
+        "tool_header",
         "tool",
         "assistant",
     ]);

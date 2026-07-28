@@ -16,6 +16,7 @@ export type TuiTranscriptEntryKind =
     | "user"
     | "assistant"
     | "tool"
+    | "tool_header"
     | "thought"
     | "review"
     | "notice"
@@ -27,6 +28,8 @@ export interface TuiTextTranscriptEntry {
     readonly text: string;
     /** What the user attached, named for the chips under a user entry. */
     readonly attachments?: readonly string[];
+    /** Which group a tool row belongs to, and what its header reads. */
+    readonly header?: string;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -148,10 +151,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return appendAssistantText(state, update.text);
     }
     if (update.type === "tool_started") {
-        return appendEntry(state, {
-            kind: "tool",
-            text: toolEntryText(state.entries, update.tool, update.args),
-        });
+        return {
+            ...state,
+            entries: [
+                ...state.entries,
+                ...toolEntries(state.entries, update.tool, update.args),
+            ],
+        };
     }
     if (update.type === "tool_review") {
         if (update.decision === "allow") {
@@ -337,6 +343,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         });
         return new StyledText(chunks);
     }
+    if (entry.kind === "tool_header") {
+        return new StyledText([fg(TUI_ACCENT)(entry.text)]);
+    }
     if (entry.kind === "notice" || entry.kind === "review") {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
     }
@@ -354,20 +363,9 @@ export function tuiEntryMarginTop(
         return 0;
     }
 
-    const entry = entries[index];
-    const previous = entries[index - 1];
-    if (
-        entry?.kind === "tool"
-        && (
-            previous?.kind === "tool"
-            || previous?.kind === "review"
-            || previous?.kind === "thought"
-        )
-    ) {
-        return 0;
-    }
-
-    return 1;
+    // Rows inside a group sit flush under their header. Everything else, the
+    // header included, opens with one blank line.
+    return entries[index]?.kind === "tool" ? 0 : 1;
 }
 
 const TOOL_SUMMARY_LIMIT = 2000;
@@ -393,23 +391,114 @@ function formatToolCall(
         : `${tool} ${summary}`;
 }
 
+const TOOL_HEADERS: Readonly<Record<string, string>> = {
+    read: "Explored",
+    grep: "Explored",
+    list: "Explored",
+    bash: "Ran",
+    edit: "Edited",
+    write: "Edited",
+    subagent: "Delegated",
+    background_agent: "Delegated",
+    ask_user: "Asked",
+};
+
+function bounded(value: string): string {
+    return value.length > TOOL_SUMMARY_LIMIT
+        ? `${value.slice(0, TOOL_SUMMARY_LIMIT - 1)}…`
+        : value;
+}
+
+function toolHeader(tool: string): string {
+    return TOOL_HEADERS[tool] ?? "Worked";
+}
+
+function stringArg(
+    args: Readonly<Record<string, unknown>>,
+    name: string,
+): string | undefined {
+    const value = args[name];
+    return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** The workspace-relative path, since the absolute prefix is the same on every row. */
+function displayPath(path: string): string {
+    const workspace = `${process.cwd()}/`;
+    return path.startsWith(workspace) ? path.slice(workspace.length) : path;
+}
+
 /**
- * The gutter a tool row opens with. The first call of a run heads the group and
- * the rest hang off it, so a sequence of calls reads as one unit rather than as
- * n unrelated rows.
+ * What a call did, in the tool's own terms. The generic name-plus-arguments
+ * form stays as the fallback for a tool this client has never heard of.
  */
-function toolEntryText(
-    entries: readonly TuiTranscriptEntry[],
+function toolRowText(
     tool: string,
     args: Readonly<Record<string, unknown>>,
 ): string {
-    // Review and thought rows come and go: a history checkpoint drops them,
-    // and a run of calls has to head the same way either way, or the checkpoint
-    // stops matching what is on screen.
-    const previous = entries.findLast((entry) =>
+    const path = stringArg(args, "path");
+    if (tool === "read" && path !== undefined) {
+        return `Read ${displayPath(path)}`;
+    }
+    if (tool === "list" && path !== undefined) {
+        return `List ${displayPath(path)}`;
+    }
+    if (tool === "grep") {
+        const pattern = stringArg(args, "pattern");
+        if (pattern !== undefined) {
+            return path === undefined
+                ? `Search ${pattern}`
+                : `Search ${pattern} in ${displayPath(path)}`;
+        }
+    }
+    if (tool === "bash") {
+        const command = stringArg(args, "command");
+        if (command !== undefined) {
+            return bounded(command.replaceAll(/\s+/g, " ").trim());
+        }
+    }
+    if ((tool === "edit" || tool === "write") && path !== undefined) {
+        return `${tool === "edit" ? "Edit" : "Write"} ${displayPath(path)}`;
+    }
+    if (tool === "subagent" || tool === "background_agent") {
+        const description = stringArg(args, "description");
+        if (description !== undefined) {
+            return bounded(description.replaceAll(/\s+/g, " ").trim());
+        }
+    }
+    return formatToolCall(tool, args);
+}
+
+/**
+ * The entries a call adds. A call either joins the run above it or opens a new
+ * group with a header, so a sequence of calls reads as one unit rather than as
+ * n unrelated rows.
+ */
+function toolEntries(
+    preceding: readonly TuiTranscriptEntry[],
+    tool: string,
+    args: Readonly<Record<string, unknown>>,
+): TuiTranscriptEntry[] {
+    // Review and thought rows come and go: a history checkpoint drops them, and
+    // a run has to group the same way either way, or the checkpoint stops
+    // matching what is on screen.
+    const previous = preceding.findLast((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
     );
-    return `${previous?.kind === "tool" ? "└ " : "∗ "}${formatToolCall(tool, args)}`;
+    const header = toolHeader(tool);
+    const row = toolRowText(tool, args);
+    const open = (previous?.kind === "tool" || previous?.kind === "tool_header")
+        && previous.header === header;
+    if (open) {
+        return [{
+            kind: "tool",
+            header,
+            text: `${previous?.kind === "tool_header" ? "  └ " : "    "}${row}`,
+        }];
+    }
+    return [
+        { kind: "tool_header", header, text: header },
+        { kind: "tool", header, text: `  └ ${row}` },
+    ];
 }
 
 function toTuiTranscriptEntries(
@@ -417,7 +506,7 @@ function toTuiTranscriptEntries(
 ): TuiTranscriptEntry[] {
     const converted: TuiTranscriptEntry[] = [];
     for (const entry of entries) {
-        converted.push(toTuiTranscriptEntry(entry, converted));
+        converted.push(...toTuiTranscriptEntry(entry, converted));
     }
     return converted;
 }
@@ -425,13 +514,16 @@ function toTuiTranscriptEntries(
 function toTuiTranscriptEntry(
     entry: TranscriptEntry,
     preceding: readonly TuiTranscriptEntry[],
-): TuiTranscriptEntry {
+): TuiTranscriptEntry[] {
     if (entry.kind === "tool") {
-        return {
-            kind: "tool",
-            text: toolEntryText(preceding, entry.tool, entry.args),
-        };
+        return toolEntries(preceding, entry.tool, entry.args);
     }
+    return [toSingleTuiTranscriptEntry(entry)];
+}
+
+function toSingleTuiTranscriptEntry(
+    entry: Exclude<TranscriptEntry, { kind: "tool" }>,
+): TuiTranscriptEntry {
     if (entry.kind === "error") {
         return {
             kind: "notice",
