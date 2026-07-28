@@ -740,7 +740,12 @@ export class AgentRegistry {
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
         });
-        const compaction = bindCompaction(this.options.compaction, adapter);
+        const compaction = bindCompaction(this.options.compaction, adapter, {
+            ...(entry.modelSettings.provider === undefined
+                ? {}
+                : { provider: entry.modelSettings.provider }),
+            model: entry.modelSettings.model,
+        });
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) =>
             effect.type === "spawn_background_agent"
                 ? this.spawnBackgroundAgent(
