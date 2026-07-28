@@ -55,7 +55,7 @@ export function addPin(
     entry: PinEntry,
     options: PinStoreOptions = {},
 ): readonly PinEntry[] {
-    return updatePin(entry, true, options);
+    return addPinToFront(entry, options);
 }
 
 export function removePin(
@@ -66,13 +66,6 @@ export function removePin(
     return writeUpdatedPins(options, (current) =>
         current.filter((value) => formatIdentifier(value) !== identifier)
     );
-}
-
-export function markPinUsed(
-    entry: PinEntry,
-    options: PinStoreOptions = {},
-): readonly PinEntry[] {
-    return updatePin(entry, false, options);
 }
 
 export function resolvePins(
@@ -95,26 +88,21 @@ export function resolvePins(
     });
 }
 
-function updatePin(
+/**
+ * Pin order is when each model was pinned, newest first, and using a model does
+ * not move it. A list that reorders itself under the user is a list they cannot
+ * aim at: the point of an explicit pin over a recents list is that the row stays
+ * where they left it.
+ */
+function addPinToFront(
     entry: PinEntry,
-    addWhenMissing: boolean,
     options: PinStoreOptions,
 ): readonly PinEntry[] {
     const identifier = formatIdentifier(entry);
-    return writeUpdatedPins(options, (current) => {
-        const exists = current.some(
-            (value) => formatIdentifier(value) === identifier,
-        );
-        if (!exists && !addWhenMissing) {
-            return current;
-        }
-        return [
-            entry,
-            ...current.filter(
-                (value) => formatIdentifier(value) !== identifier,
-            ),
-        ];
-    });
+    return writeUpdatedPins(options, (current) => [
+        entry,
+        ...current.filter((value) => formatIdentifier(value) !== identifier),
+    ]);
 }
 
 function writeUpdatedPins(

@@ -11,7 +11,6 @@ import { join } from "node:path";
 import type { CatalogModel } from "../../src/model/catalog-shape.ts";
 import {
     addPin,
-    markPinUsed,
     readPins,
     removePin,
     resolvePins,
@@ -53,17 +52,17 @@ test("remove deletes any position and ignores missing entries", () => {
     ]);
 });
 
-test("mark used moves an existing entry and does not add a missing entry", () => {
+test("using a pinned model does not reorder the list", () => {
     const path = temporaryConfigPath();
     addPin(entry("one", "first"), { path });
     addPin(entry("two", "second"), { path });
 
-    markPinUsed(entry("one", "first"), { path });
-    markPinUsed(entry("missing", "model"), { path });
-
+    // Pin order is the order the user pinned in, and nothing but pinning and
+    // unpinning changes it. Selecting a model is not a write: a list that
+    // floats whatever was last used to the top is one the user cannot aim at.
     expect(readPins({ path })).toEqual([
-        entry("one", "first"),
         entry("two", "second"),
+        entry("one", "first"),
     ]);
 });
 
