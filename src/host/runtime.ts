@@ -29,6 +29,9 @@ import {
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
+import { openInboxIfEnabled } from "../store/inbox.ts";
+import { createConsumerRegistry } from "./consumers.ts";
+import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
@@ -52,6 +55,8 @@ export interface StartResidentHostOptions {
     /** Overrides `~/.vera/auth.json`, so tests never read real credentials. */
     readonly authStorage?: AuthStorage;
     readonly eventLogDirectory?: string;
+    /** Overrides `~/.vera/inbox.db`. Unused while the inbox flag is off. */
+    readonly inboxPath?: string;
     readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
     readonly onExtensionFailure?: (
         failure: ExtensionRegistryFailure,
@@ -91,6 +96,19 @@ export async function startResidentHost(
     // One store for the host, so a sign-in from anywhere is the same fact to
     // every agent it is running.
     const authStorage = options.authStorage ?? createAuthStorage();
+    // The experimental gate is checked here and nowhere downstream: with the
+    // flag off there is no inbox, no consumer registry and no delivery path.
+    const inbox = options.inboxPath === undefined
+        ? openInboxIfEnabled(options.config)
+        : openInboxIfEnabled(options.config, options.inboxPath);
+    const consumers = createConsumerRegistry(inbox);
+    const inboxDelivery = consumers === null
+        ? undefined
+        : new InboxDeliveryCoordinator(consumers);
+    const closeInbox = (): void => {
+        inboxDelivery?.close();
+        inbox?.close();
+    };
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
@@ -134,6 +152,7 @@ export async function startResidentHost(
             ? {}
             : { permissionModes: options.config.permission_modes }),
         permissionPreferences,
+        ...(inboxDelivery === undefined ? {} : { inboxDelivery }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogDirectory === undefined
@@ -191,7 +210,7 @@ export async function startResidentHost(
             ),
             canShutdown: () => registry.idleForShutdown(),
             onShutdownAccepted: () =>
-                closeResidentHost(server, registry, extensions!),
+                closeResidentHost(server, registry, extensions!, closeInbox),
         });
     } catch (error) {
         try {
@@ -200,6 +219,7 @@ export async function startResidentHost(
             // Preserve the host startup failure.
         }
         await registry.close();
+        closeInbox();
         throw error;
     }
 
@@ -209,7 +229,12 @@ export async function startResidentHost(
         extensions,
         server,
         close(): Promise<void> {
-            closing ??= closeResidentHost(server, registry, extensions);
+            closing ??= closeResidentHost(
+                server,
+                registry,
+                extensions,
+                closeInbox,
+            );
             return closing;
         },
     };
@@ -481,6 +506,7 @@ async function closeResidentHost(
     server: HostServer,
     registry: AgentRegistry,
     extensions: ExtensionRegistry,
+    closeInbox: () => void = () => {},
 ): Promise<void> {
     try {
         await server.close();
@@ -488,7 +514,11 @@ async function closeResidentHost(
         try {
             await extensions.close();
         } finally {
-            await registry.close();
+            try {
+                await registry.close();
+            } finally {
+                closeInbox();
+            }
         }
     }
 }
