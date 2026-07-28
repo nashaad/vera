@@ -14,6 +14,13 @@ import { SOURCE_GAP_KIND, type SourceEvent } from "./source.ts";
 export const DEFAULT_MAX_PAYLOAD_BYTES = 32 * 1024;
 export const DEFAULT_MAX_EVENTS_PER_SEC = 50;
 export const DEFAULT_BURST_EVENTS = 500;
+/**
+ * How many event ids are remembered for dedup. arc numbers events from a
+ * per-server sequence; a server-side log reset restarts that sequence, so a
+ * reused seq inside this window reads as a duplicate and its event is dropped.
+ * Accepted: a reset is an operator action, and the alternative is a dedup key
+ * the source does not have.
+ */
 export const DEFAULT_DEDUP_WINDOW = 1_000;
 /** How long a shedding source stays shut out once its bucket empties. */
 export const FLOOD_WINDOW_MS = 1_000;
@@ -69,6 +76,8 @@ export class WatchAdmission {
     private tokens: number;
     private lastRefillMs: number;
     private shedUntilMs = 0;
+    /** The shed episode the last flood gap was written for. */
+    private gapForShedUntilMs = 0;
     private readonly counters: AdmissionCounters = {
         admitted: 0,
         droppedMalformed: 0,
@@ -129,15 +138,22 @@ export class WatchAdmission {
 
     admit(events: readonly SourceEvent[]): void {
         const entries: InboxEntryInput[] = [];
+        const admittedIds: string[] = [];
         let cursor: string | null = null;
         let shedInBatch = 0;
+        let malformedInBatch = 0;
+        let oversizeInBatch = 0;
 
         for (const event of events) {
             if (!isWellFormed(event)) {
                 this.counters.droppedMalformed += 1;
+                malformedInBatch += 1;
                 continue;
             }
-            if (this.seenIds.has(event.id)) {
+            // The pending ids count too: they are not remembered until their
+            // append succeeds, so within one batch this list is the only
+            // record that the id already has an entry coming.
+            if (this.seenIds.has(event.id) || admittedIds.includes(event.id)) {
                 this.counters.droppedDuplicate += 1;
                 if (event.cursor !== undefined) {
                     cursor = event.cursor;
@@ -147,6 +163,7 @@ export class WatchAdmission {
             const payload = JSON.stringify(event.payload);
             if (Buffer.byteLength(payload, "utf8") > this.limits.maxPayloadBytes) {
                 this.counters.droppedOversize += 1;
+                oversizeInBatch += 1;
                 continue;
             }
             if (!this.takeToken()) {
@@ -154,7 +171,7 @@ export class WatchAdmission {
                 shedInBatch += 1;
                 continue;
             }
-            this.remember(event.id);
+            admittedIds.push(event.id);
             entries.push({
                 source: this.watchId,
                 kind: event.kind,
@@ -172,17 +189,41 @@ export class WatchAdmission {
         if (entries.length > 0) {
             this.appendEntries(entries);
             this.counters.admitted += entries.length;
+            // Dedup is remembered only once the entries are durable. Remembering
+            // first would make a failed append permanent: the redelivery that
+            // repairs it would read as an already-seen event and be dropped.
+            for (const id of admittedIds) {
+                this.remember(id);
+            }
         }
         // Cursor after append, never before: the persisted position may only
         // name events the log already holds.
         if (cursor !== null) {
             this.inbox.setWatchCursor(this.watchId, cursor);
         }
-        if (shedInBatch > 0) {
-            this.recordGap("flood", {
+        if (malformedInBatch > 0 || oversizeInBatch > 0) {
+            // The cursor may already have moved past these, so the only record
+            // of the loss is this entry. One per admit call, not per event.
+            this.recordGap("dropped", {
                 watch: this.watchId,
-                dropped: shedInBatch,
+                malformed: malformedInBatch,
+                oversize: oversizeInBatch,
+                detail: oversizeInBatch > 0
+                    ? `payload over ${this.limits.maxPayloadBytes} bytes, or malformed event shape`
+                    : "malformed event shape",
             });
+        }
+        if (shedInBatch > 0) {
+            // Latched to the shed episode: a source held under the cap calls
+            // admit once per event, and one gap per event would be the flood
+            // written a second time into the log it is protecting.
+            if (this.shedUntilMs !== this.gapForShedUntilMs) {
+                this.gapForShedUntilMs = this.shedUntilMs;
+                this.recordGap("flood", {
+                    watch: this.watchId,
+                    dropped: shedInBatch,
+                });
+            }
             if (this.flood === "quarantine") {
                 throw new WatchFloodError(this.watchId, shedInBatch);
             }

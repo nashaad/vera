@@ -105,12 +105,28 @@ export class SupervisedWatch {
         this.loop = null;
         this.controller = null;
         if (loop !== null) {
-            await loop;
+            // The loop already records its own crash as a quarantine; closing
+            // must not raise it a second time at the caller.
+            await loop.catch(() => undefined);
         }
         this.enter("stopped");
     }
 
+    /**
+     * Wrapped whole. An unhandled rejection here would kill the task while
+     * `status()` still reported the last state it reached, so a watch that
+     * silently stopped would read as running.
+     */
     private async supervise(signal: AbortSignal): Promise<void> {
+        try {
+            await this.superviseLoop(signal);
+        } catch (error) {
+            this.lastError = errorMessage(error);
+            this.enterUnconditionally("quarantined");
+        }
+    }
+
+    private async superviseLoop(signal: AbortSignal): Promise<void> {
         while (!signal.aborted) {
             this.enter("starting");
             const startedAt = this.clock();
@@ -136,7 +152,10 @@ export class SupervisedWatch {
             }
 
             if (this.ranLongEnough(startedAt)) {
-                this.consecutiveFailures = 1;
+                // A run that lasted forgets the window as well as the ladder.
+                // Pruning only the ladder let five long healthy runs, each
+                // ending in one failure, still reach the quarantine threshold.
+                this.resetFailureLadder(1);
             }
             if (this.shouldQuarantine()) {
                 this.enter("quarantined");
@@ -166,9 +185,14 @@ export class SupervisedWatch {
             checkpoint: (checkpoint: SourceCheckpoint): void => {
                 this.admission.checkpoint(checkpoint.cursor);
             },
+            recordGap: (
+                reason: string,
+                detail: Record<string, string | number>,
+            ): void => {
+                this.admission.recordGap(reason, detail);
+            },
             healthy: (): void => {
-                this.consecutiveFailures = 0;
-                this.failureTimes = [];
+                this.resetFailureLadder(0);
                 this.lastError = null;
             },
         };
@@ -182,6 +206,12 @@ export class SupervisedWatch {
         this.failureTimes = this.failureTimes.filter(
             (at) => now - at <= FAILURE_WINDOW_MS,
         );
+    }
+
+    /** The one place both healthy paths clear the window and the ladder. */
+    private resetFailureLadder(consecutive: number): void {
+        this.consecutiveFailures = consecutive;
+        this.failureTimes = [];
     }
 
     private ranLongEnough(startedAt: number): boolean {
@@ -205,8 +235,18 @@ export class SupervisedWatch {
         if (this.state === state) {
             return;
         }
+        this.enterUnconditionally(state);
+    }
+
+    /** The state is recorded before the listener runs, so a listener that
+     * throws cannot leave `status()` describing a state the watch has left. */
+    private enterUnconditionally(state: WatchState): void {
         this.state = state;
-        this.onStateChange(this.status());
+        try {
+            this.onStateChange(this.status());
+        } catch {
+            // A status listener is a diagnostic, never part of supervision.
+        }
     }
 }
 

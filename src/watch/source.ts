@@ -45,6 +45,12 @@ export interface WatchRuntimeContext {
     admit(events: readonly SourceEvent[]): Promise<void>;
     /** Advances the cursor without appending anything. */
     checkpoint(checkpoint: SourceCheckpoint): void;
+    /**
+     * Records a hole the connector itself created, such as a frame it could
+     * not read. Admission records its own drops; this is for losses upstream
+     * of it, which admission never sees.
+     */
+    recordGap(reason: string, detail: Record<string, string | number>): void;
     /** Marks the connector as having run correctly, resetting backoff. */
     healthy(): void;
 }

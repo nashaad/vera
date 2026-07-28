@@ -83,12 +83,29 @@ export function createArcConnector(
             if (body === null) {
                 throw new Error("arc events response carried no body");
             }
-            context.healthy();
+            // Not healthy yet. A connection that opens and dies carries no
+            // data, and calling it healthy here would clear the backoff ladder
+            // on every attempt, so a source that only ever connects would never
+            // back off and never quarantine.
+            let admittedAny = false;
 
-            for await (const frame of readFrames(body, context.signal)) {
-                const event = toSourceEvent(frame);
-                if (event !== null) {
-                    await context.admit([event]);
+            for await (const item of readFrames(body, context.signal)) {
+                if (item.kind === "discarded") {
+                    context.recordGap("oversize_frame", {
+                        watch: context.watchId,
+                        bytes: item.bytes,
+                        detail: `SSE frame over ${MAX_FRAME_BYTES} bytes`,
+                    });
+                    continue;
+                }
+                const event = toSourceEvent(item.frame);
+                if (event === null) {
+                    continue;
+                }
+                await context.admit([event]);
+                if (!admittedAny) {
+                    admittedAny = true;
+                    context.healthy();
                 }
             }
         },
@@ -154,32 +171,83 @@ export function arcEventsUrl(config: JsonObject): string {
     return url.toString();
 }
 
+type ReadFramesItem = ParsedFrameItem | DiscardedFrameItem;
+
+interface ParsedFrameItem {
+    readonly kind: "frame";
+    readonly frame: SseFrame;
+}
+
+/** One frame too large to hold, reported so the hole reaches the log. */
+interface DiscardedFrameItem {
+    readonly kind: "discarded";
+    readonly bytes: number;
+}
+
+/**
+ * The cap is on bytes, not characters, because the buffer is a memory bound and
+ * one character can be four bytes. An overlong frame is discarded up to the
+ * next frame boundary and no further: clearing the buffer at whatever chunk
+ * boundary happened to overflow it would splice the remainder of the discarded
+ * frame onto the front of the next one and produce a plausible-looking frame
+ * out of two halves.
+ */
 async function* readFrames(
     body: ReadableStream<Uint8Array>,
     signal: AbortSignal,
-): AsyncGenerator<SseFrame> {
+): AsyncGenerator<ReadFramesItem> {
     const decoder = new TextDecoder();
     const reader = body.getReader();
     let buffer = "";
+    let bufferBytes = 0;
+    let discardingBytes: number | null = null;
     try {
         while (!signal.aborted) {
             const { done, value } = await reader.read();
             if (done) {
                 return;
             }
-            buffer += decoder.decode(value, { stream: true });
+            const chunk = decoder.decode(value, { stream: true });
+            if (discardingBytes !== null) {
+                const end = chunk.indexOf("\n\n");
+                if (end === -1) {
+                    discardingBytes += Buffer.byteLength(chunk, "utf8");
+                    continue;
+                }
+                discardingBytes += Buffer.byteLength(
+                    chunk.slice(0, end),
+                    "utf8",
+                );
+                yield { kind: "discarded", bytes: discardingBytes };
+                discardingBytes = null;
+                buffer = chunk.slice(end + 2);
+                bufferBytes = Buffer.byteLength(buffer, "utf8");
+            } else {
+                buffer += chunk;
+                bufferBytes += Buffer.byteLength(chunk, "utf8");
+            }
             let boundary = buffer.indexOf("\n\n");
             while (boundary !== -1) {
                 const block = buffer.slice(0, boundary);
                 buffer = buffer.slice(boundary + 2);
-                const frame = parseFrame(block);
-                if (frame !== null) {
-                    yield frame;
+                bufferBytes = Buffer.byteLength(buffer, "utf8");
+                const blockBytes = Buffer.byteLength(block, "utf8");
+                if (blockBytes > MAX_FRAME_BYTES) {
+                    // Complete but still over the cap. Arriving whole is not a
+                    // reason to accept it.
+                    yield { kind: "discarded", bytes: blockBytes };
+                } else {
+                    const frame = parseFrame(block);
+                    if (frame !== null) {
+                        yield { kind: "frame", frame };
+                    }
                 }
                 boundary = buffer.indexOf("\n\n");
             }
-            if (buffer.length > MAX_FRAME_BYTES) {
+            if (bufferBytes > MAX_FRAME_BYTES) {
+                discardingBytes = bufferBytes;
                 buffer = "";
+                bufferBytes = 0;
             }
         }
     } finally {
@@ -229,7 +297,10 @@ export function toSourceEvent(frame: SseFrame): SourceEvent | null {
     ) {
         return null;
     }
-    const cursor = frame.id ?? `v1:${event.seq}`;
+    // No id, no cursor. The cursor goes back to arc as `Last-Event-ID`, so a
+    // token synthesised here would be one arc never issued and could not
+    // resume from. A frame without an id leaves the cursor at the last real
+    // one and the events after it are redelivered, which consumers tolerate.
     return {
         id: `arc:${event.seq}`,
         kind: `arc.${event.kind}`,
@@ -240,7 +311,7 @@ export function toSourceEvent(frame: SseFrame): SourceEvent | null {
         session: event.session !== undefined && event.session !== ""
             ? event.session
             : null,
-        cursor,
+        ...(frame.id === null ? {} : { cursor: frame.id }),
         payload: arcPayload(event),
     };
 }

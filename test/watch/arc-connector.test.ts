@@ -58,6 +58,12 @@ function context(
             checkpoint: (checkpoint: SourceCheckpoint): void => {
                 admission.checkpoint(checkpoint.cursor);
             },
+            recordGap: (
+                reason: string,
+                detail: Record<string, string | number>,
+            ): void => {
+                admission.recordGap(reason, detail);
+            },
             healthy: (): void => undefined,
         },
     };

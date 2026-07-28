@@ -135,7 +135,7 @@ function parseWatchContribution(
     }
 
     const config = value.config === undefined
-        ? {}
+        ? EMPTY_WATCH_CONFIG
         : asJsonObject(value.config);
     if (config === undefined) {
         throw new ExtensionContributionError(
@@ -174,6 +174,9 @@ function parseWatchContribution(
         flood: flood as WatchFloodPolicy,
     });
 }
+
+/** Shared by every watch that declares no config, so it must not be mutable. */
+const EMPTY_WATCH_CONFIG: JsonObject = Object.freeze({});
 
 const WATCH_LOCAL_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const SOURCE_FAMILY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
