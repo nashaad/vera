@@ -68,6 +68,60 @@ test("an unpaired tool call is refused", () => {
     ]);
 });
 
+test("a tool result placed before its call is refused", () => {
+    // Set-equal but out of order: a provider refuses the conversation, so
+    // validation has to as well.
+    reject([
+        { role: "user", content: [{ type: "text", text: "a summary" }] },
+        {
+            role: "tool_result",
+            toolCallId: "call_1",
+            toolName: "read",
+            isError: false,
+            content: [{ type: "text", text: "done" }],
+        },
+        {
+            role: "assistant",
+            content: [
+                { type: "tool_call", id: "call_1", name: "read", input: {} },
+            ],
+            source: { provider: "test", api: "scripted", model: "test" },
+            usage: usage(),
+            stopReason: "tool_use",
+        },
+    ]);
+});
+
+test("a duplicated tool call id is refused", () => {
+    const call = {
+        role: "assistant" as const,
+        content: [
+            { type: "tool_call" as const, id: "call_1", name: "read", input: {} },
+        ],
+        source: { provider: "test", api: "scripted", model: "test" },
+        usage: usage(),
+        stopReason: "tool_use" as const,
+    };
+    const result = {
+        role: "tool_result" as const,
+        toolCallId: "call_1",
+        toolName: "read",
+        isError: false,
+        content: [{ type: "text" as const, text: "done" }],
+    };
+    reject([call, result, call, result]);
+});
+
+function usage() {
+    return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 2,
+    };
+}
+
 test("an attachment reference is refused rather than dropped", () => {
     // The reference resolves against a store the projection outlives, so it
     // would fail at the provider on some later turn with nothing to explain it.
