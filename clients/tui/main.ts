@@ -195,7 +195,7 @@ import {
     appendTuiNotice,
     appendTuiThought,
     applyAgentUpdate,
-    attachmentLabel,
+    userEntryShows,
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
@@ -1871,11 +1871,7 @@ export async function startTui(
                 pendingImages = pendingImages.filter(
                     (image) => !submittedRequestIds.has(image.requestId),
                 );
-                const optimisticText = [
-                    prompt,
-                    ...attachments.map(attachmentLabel),
-                ].filter((part) => part.length > 0).join("\n");
-                if (state.entries.at(-1)?.text !== optimisticText) {
+                if (!userEntryShows(state.entries.at(-1), prompt, attachments)) {
                     state = beginTuiTurn(state, prompt, attachments);
                 } else if (!state.working) {
                     state = { ...state, working: true };

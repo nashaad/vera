@@ -439,7 +439,8 @@ test("TUI history and live prompts show attached images", () => {
     });
     expect(state.entries).toEqual([{
         kind: "user",
-        text: "compare\n[Attached image]\n[Attached image]",
+        text: "compare",
+        attachments: ["attached image", "attached image"],
     }]);
 
     state = applyAgentUpdate(state, {
@@ -450,7 +451,8 @@ test("TUI history and live prompts show attached images", () => {
     });
     expect(state.entries.at(-1)).toEqual({
         kind: "user",
-        text: "new image\n[Attached image]",
+        text: "new image",
+        attachments: ["attached image"],
     });
 });
 
@@ -466,8 +468,23 @@ test("a named attachment is shown by its file name", () => {
     });
     expect(state.entries.at(-1)).toEqual({
         kind: "user",
-        text: "look\n[Image Screenshot at 11.08.54 AM.png]\n[Attached image]",
+        text: "look",
+        attachments: ["Screenshot at 11.08.54 AM.png", "attached image"],
     });
+    expect(plainText(renderTuiEntry(state.entries.at(-1)!))).toBe(
+        "▌ look\n   File  Screenshot at 11.08.54 AM.png\n   File  attached image",
+    );
+});
+
+test("an image sent with no prose starts the entry at the file chip", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "user_prompt",
+        content: "",
+        attachments: [{ id: "named-id", name: "diagram.png" }],
+        seq: 1,
+    });
+    expect(plainText(renderTuiEntry(state.entries.at(-1)!)))
+        .toBe("▌  File  diagram.png");
 });
 
 test("reviewer decisions remain visible with their risk and authorization", () => {

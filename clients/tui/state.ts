@@ -1,4 +1,4 @@
-import { fg, StyledText } from "@opentui/core";
+import { bg, fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
@@ -25,6 +25,8 @@ export type TuiTranscriptEntryKind =
 export interface TuiTextTranscriptEntry {
     readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
+    /** What the user attached, named for the chips under a user entry. */
+    readonly attachments?: readonly string[];
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -69,9 +71,21 @@ export function applyTuiTheme(theme: TuiTheme): void {
 }
 
 export function attachmentLabel(attachment: AttachmentRef): string {
-    return attachment.name === undefined
-        ? "[Attached image]"
-        : `[Image ${attachment.name}]`;
+    return attachment.name ?? "attached image";
+}
+
+/** True when an entry already shows this prompt and these attachments. */
+export function userEntryShows(
+    entry: TuiTranscriptEntry | undefined,
+    text: string,
+    attachments?: readonly AttachmentRef[],
+): boolean {
+    return entry?.kind === "user"
+        && entry.text === text
+        && sameAttachments(
+            entryAttachments(entry),
+            (attachments ?? []).map(attachmentLabel),
+        );
 }
 
 export function createTuiState(): TuiState {
@@ -89,10 +103,7 @@ export function beginTuiTurn(
 ): TuiState {
     return {
         ...state,
-        entries: [...state.entries, {
-            kind: "user",
-            text: displayUserPrompt(prompt, attachments),
-        }],
+        entries: [...state.entries, userEntry(prompt, attachments)],
         working: true,
     };
 }
@@ -220,12 +231,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         };
     }
     if (update.type === "user_prompt") {
-        const text = displayUserPrompt(update.content, update.attachments);
-        const last = state.entries.at(-1);
-        if (last?.kind === "user" && last.text === text) {
+        if (userEntryShows(state.entries.at(-1), update.content, update.attachments)) {
             return state;
         }
-        return appendEntry(state, { kind: "user", text });
+        return appendEntry(state, userEntry(update.content, update.attachments));
     }
     if (update.type === "ui_request") {
         return state;
@@ -310,13 +319,21 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "user") {
         const chunks: TextChunk[] = [];
-        entry.text.split("\n").forEach((line, lineIndex) => {
-            if (lineIndex > 0) {
-                chunks.push(fg(TUI_TEXT)("\n  "));
-            } else {
-                chunks.push(fg(TUI_ACCENT)("▌ "));
-            }
+        const lines = entry.text.length === 0 ? [] : entry.text.split("\n");
+        lines.forEach((line, lineIndex) => {
+            chunks.push(
+                lineIndex === 0 ? fg(TUI_ACCENT)("▌ ") : fg(TUI_TEXT)("\n  "),
+            );
             chunks.push(fg(TUI_TEXT)(line));
+        });
+        (entry.attachments ?? []).forEach((name, index) => {
+            chunks.push(
+                lines.length === 0 && index === 0
+                    ? fg(TUI_ACCENT)("▌ ")
+                    : fg(TUI_TEXT)("\n  "),
+            );
+            chunks.push(fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(" File ")));
+            chunks.push(fg(TUI_MUTED)(` ${name}`));
         });
         return new StyledText(chunks);
     }
@@ -382,7 +399,7 @@ function toTuiTranscriptEntry(entry: TranscriptEntry): TuiTranscriptEntry {
         return presentationEntry(entry.presentation);
     }
     return entry.kind === "user"
-        ? { kind: "user", text: displayUserPrompt(entry.text, entry.attachments) }
+        ? userEntry(entry.text, entry.attachments)
         : entry;
 }
 
@@ -406,13 +423,16 @@ function presentationEntry(
         : { kind: "notice", text: presentation.text };
 }
 
-function displayUserPrompt(
+function userEntry(
     text: string,
     attachments?: readonly AttachmentRef[],
-): string {
-    if (attachments === undefined || attachments.length === 0) return text;
-    const labels = attachments.map(attachmentLabel).join("\n");
-    return text.length === 0 ? labels : `${text}\n${labels}`;
+): TuiTextTranscriptEntry {
+    const labels = (attachments ?? []).map(attachmentLabel);
+    return {
+        kind: "user",
+        text,
+        ...(labels.length === 0 ? {} : { attachments: labels }),
+    };
 }
 
 function appendAssistantText(state: TuiState, text: string): TuiState {
@@ -459,10 +479,30 @@ function transcriptEntriesEqual(
         && left.every((entry, index) =>
             entry.kind === right[index]?.kind
             && entry.text === right[index]?.text
+            && sameAttachments(
+                entryAttachments(entry),
+                entryAttachments(right[index]),
+            )
             && (entry.kind !== "diff"
                 || (right[index]?.kind === "diff"
                     && entry.patch === right[index].patch))
         );
+}
+
+function entryAttachments(
+    entry: TuiTranscriptEntry | undefined,
+): readonly string[] {
+    return entry === undefined || entry.kind === "diff"
+        ? []
+        : entry.attachments ?? [];
+}
+
+function sameAttachments(
+    left: readonly string[],
+    right: readonly string[],
+): boolean {
+    return left.length === right.length
+        && left.every((name, index) => name === right[index]);
 }
 
 function assertNever(value: never): never {
