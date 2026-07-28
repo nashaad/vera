@@ -236,11 +236,21 @@ export interface TuiDependencies {
     readonly copyText?: (text: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly getRunningBackgroundAgentCount?: () => Promise<number>;
-    readonly createSession?: () => Promise<TuiAgentClient>;
-    readonly cloneSession?: () => Promise<TuiAgentClient>;
+    /**
+     * The four ways to reach another session, each handed the identity of the
+     * one being left rather than closing over it.
+     *
+     * They used to read the current client from the scope that started the TUI,
+     * which was true exactly once: after the first switch that binding pointed
+     * at a session the user had already left, and cloning would have cloned it.
+     */
+    readonly createSession?: (workspace: string) => Promise<TuiAgentClient>;
+    readonly cloneSession?: (agentId: string) => Promise<TuiAgentClient>;
     readonly forkSession?: (
+        agentId: string,
         boundaryId: string,
     ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
+    readonly resumeSession?: (sessionPath: string) => Promise<TuiAgentClient>;
     readonly initialDraft?: TuiDraft;
     readonly sessionSwitchTimeoutMs?: number;
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
@@ -260,10 +270,18 @@ export interface TuiDraft {
     readonly attachmentIds: readonly string[];
 }
 
+/**
+ * What the TUI reports when it closes.
+ *
+ * Empty, and deliberately still a type: switching sessions used to end the TUI
+ * and ask the caller to start another one against the session that was picked,
+ * so this carried the handover. The host is resident and already holds every
+ * session, so a switch is a detach and an attach with the renderer left alone,
+ * and there is nothing left to hand over.
+ */
 export interface TuiExit {
-    readonly nextClient?: TuiAgentClient;
-    readonly nextDraft?: TuiDraft;
-    readonly resumeSessionPath?: string;
+    /** The session attached when the TUI closed, for a caller that logs it. */
+    readonly agentId?: string;
 }
 
 export interface TuiAgentClient {
@@ -340,110 +358,77 @@ export async function startConfiguredTui(
                 resolvedTarget.sessionPath,
             )).id
             : resolvedTarget.agentId;
-    let preparedClient: TuiAgentClient | undefined;
-    let preparedDraft: TuiDraft | undefined;
-    while (true) {
-        const client = preparedClient ?? await attachAgent({
-            socketPath: host.socket_path,
-            agentId,
-        });
-        preparedClient = undefined;
-        const initialDraft = preparedDraft;
-        preparedDraft = undefined;
-        try {
-            const listAgents = () => listAgentsThroughHost(host.socket_path);
-            const exit = await startTui({
-                client,
-                listAgents,
-                getRunningBackgroundAgentCount: async () =>
-                    countRunningBackgroundAgents(await listAgents()),
-                createSession: async () => {
-                    if (client.workspace === undefined) {
-                        throw new Error("Current session workspace is unavailable");
-                    }
-                    const ready = await createAgentThroughHost(
+    const client = await attachAgent({
+        socketPath: host.socket_path,
+        agentId,
+    });
+    // One call, not a loop: the TUI attaches to whatever session the user moves
+    // to without closing, so there is no longer a "start me again against this
+    // other session" answer for a caller to act on.
+    const attach = (id: string) =>
+        attachAgent({ socketPath: host.socket_path, agentId: id });
+    try {
+        const listAgents = () => listAgentsThroughHost(host.socket_path);
+        await startTui({
+            client,
+            listAgents,
+            getRunningBackgroundAgentCount: async () =>
+                countRunningBackgroundAgents(await listAgents()),
+            createSession: async (workspace) =>
+                attach((await createAgentThroughHost(host.socket_path, workspace)).id),
+            cloneSession: async (currentAgentId) =>
+                attach(
+                    (await branchAgentThroughHost(
                         host.socket_path,
-                        client.workspace,
-                    );
-                    return attachAgent({
-                        socketPath: host.socket_path,
-                        agentId: ready.id,
-                    });
-                },
-                cloneSession: async () => {
-                    if (client.agentId === undefined) {
-                        throw new Error("Current session ID is unavailable");
-                    }
-                    const ready = await branchAgentThroughHost(
-                        host.socket_path,
-                        client.agentId,
+                        currentAgentId,
                         "at",
-                    );
-                    return attachAgent({
-                        socketPath: host.socket_path,
-                        agentId: ready.id,
-                    });
-                },
-                forkSession: async (boundaryId) => {
-                    if (client.agentId === undefined) {
-                        throw new Error("Current session ID is unavailable");
-                    }
-                    const ready = await branchAgentThroughHost(
-                        host.socket_path,
-                        client.agentId,
-                        "before",
-                        boundaryId,
-                    );
-                    if (ready.prompt === undefined) {
-                        throw new Error("Host did not return the fork prompt");
-                    }
-                    return {
-                        client: await attachAgent({
-                            socketPath: host.socket_path,
-                            agentId: ready.id,
-                        }),
-                        prompt: ready.prompt,
-                    };
-                },
-                trashSession: (sessionId) =>
-                    trashSessionThroughHost(host.socket_path, sessionId),
-                ...(initialDraft === undefined
-                    ? {}
-                    : { initialDraft }),
-                ...(config?.disabled_builtin_extensions === undefined
-                    ? {}
-                    : {
-                        disabledBuiltinExtensions:
-                            config.disabled_builtin_extensions,
-                    }),
-                ...(config?.extensions === undefined
-                    ? {}
-                    : { clientExtensions: config.extensions }),
-            });
-            if (exit.nextClient !== undefined) {
-                preparedClient = exit.nextClient;
-                preparedDraft = exit.nextDraft;
-                agentId = exit.nextClient.agentId ?? agentId;
-                continue;
-            }
-            if (exit.resumeSessionPath === undefined) {
-                return;
-            }
-            agentId = (await resumeAgentThroughHost(
-                host.socket_path,
-                exit.resumeSessionPath,
-            )).id;
-        } catch (error) {
-            client.close();
-            throw error;
-        }
+                    )).id,
+                ),
+            forkSession: async (currentAgentId, boundaryId) => {
+                const ready = await branchAgentThroughHost(
+                    host.socket_path,
+                    currentAgentId,
+                    "before",
+                    boundaryId,
+                );
+                if (ready.prompt === undefined) {
+                    throw new Error("Host did not return the fork prompt");
+                }
+                return { client: await attach(ready.id), prompt: ready.prompt };
+            },
+            resumeSession: async (sessionPath) =>
+                attach(
+                    (await resumeAgentThroughHost(host.socket_path, sessionPath)).id,
+                ),
+            trashSession: (sessionId) =>
+                trashSessionThroughHost(host.socket_path, sessionId),
+            ...(config?.disabled_builtin_extensions === undefined
+                ? {}
+                : {
+                    disabledBuiltinExtensions:
+                        config.disabled_builtin_extensions,
+                }),
+            ...(config?.extensions === undefined
+                ? {}
+                : { clientExtensions: config.extensions }),
+        });
+    } catch (error) {
+        client.close();
+        throw error;
     }
 }
 
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<TuiExit> {
-    const { client } = dependencies;
+    /**
+     * The session currently on screen.
+     *
+     * Reassigned by switchToClient rather than fixed for the life of the TUI:
+     * moving to another session is a detach and an attach, and everything that
+     * talks to the host reads this binding at the moment it sends.
+     */
+    let client = dependencies.client;
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
@@ -507,9 +492,12 @@ export async function startTui(
     let phaseSince: number | undefined;
     let activity = "thinking";
     let themeApplicationVersion = 0;
-    let resumeSessionPath: string | undefined;
-    let nextClient: TuiAgentClient | undefined;
-    let nextDraft: TuiDraft | undefined;
+    /**
+     * Bumped by every switch, so the update pump reading the session being left
+     * can tell that it is stale and stop instead of writing that session's
+     * updates into the transcript of the one now on screen.
+     */
+    let clientGeneration = 0;
     let resumeListVersion = 0;
     let promptSubmitting = false;
     let sessionSwitchPending = false;
@@ -862,15 +850,11 @@ export async function startTui(
             .catch(() => undefined)
             .then(() => client.detach().catch(() => client.close()))
             .then(() => {
-            finished.resolve({
-                ...(nextClient === undefined
-                    ? {}
-                    : { nextClient }),
-                ...(nextDraft === undefined ? {} : { nextDraft }),
-                ...(resumeSessionPath === undefined
-                    ? {}
-                    : { resumeSessionPath }),
-            });
+                finished.resolve(
+                    client.agentId === undefined
+                        ? {}
+                        : { agentId: client.agentId },
+                );
             });
     });
 
@@ -1537,16 +1521,24 @@ export async function startTui(
             if (sessionSwitchPending) {
                 return;
             }
+            const workspace = client.workspace;
+            if (workspace === undefined) {
+                state = appendTuiNotice(
+                    state,
+                    "Current session workspace is unavailable",
+                );
+                renderState();
+                return;
+            }
             sessionSwitchPending = true;
             sessionSwitchActivity = "starting new session…";
             renderStatus();
-            void dependencies.createSession().then((client) => {
+            void dependencies.createSession(workspace).then((next) => {
                 if (shuttingDown) {
-                    void client.detach().catch(() => client.close());
+                    void next.detach().catch(() => next.close());
                     return;
                 }
-                nextClient = client;
-                renderer.destroy();
+                switchToClient(next);
             }).catch((error) => {
                 if (shuttingDown) {
                     return;
@@ -1573,16 +1565,24 @@ export async function startTui(
                 renderState();
                 return;
             }
+            const sourceAgentId = client.agentId;
+            if (sourceAgentId === undefined) {
+                state = appendTuiNotice(
+                    state,
+                    "Current session ID is unavailable",
+                );
+                renderState();
+                return;
+            }
             sessionSwitchPending = true;
             sessionSwitchActivity = "cloning session…";
             renderStatus();
-            void dependencies.cloneSession().then((client) => {
+            void dependencies.cloneSession(sourceAgentId).then((next) => {
                 if (shuttingDown) {
-                    void client.detach().catch(() => client.close());
+                    void next.detach().catch(() => next.close());
                     return;
                 }
-                nextClient = client;
-                renderer.destroy();
+                switchToClient(next);
             }).catch((error) => {
                 if (shuttingDown) return;
                 sessionSwitchPending = false;
@@ -1741,10 +1741,15 @@ export async function startTui(
     }
 
     async function receiveAgentUpdates(): Promise<void> {
+        // The session this pump belongs to. A switch bumps the counter, and the
+        // await below can still resolve afterwards with an update from the
+        // session the user just left.
+        const generation = clientGeneration;
+        const source = client;
         try {
-            while (!shuttingDown) {
-                const update = await client.receive();
-                if (shuttingDown) {
+            while (!shuttingDown && generation === clientGeneration) {
+                const update = await source.receive();
+                if (shuttingDown || generation !== clientGeneration) {
                     return;
                 }
                 if (
@@ -1964,7 +1969,11 @@ export async function startTui(
                 }
             }
         } catch (error) {
-            reportConnectionError(error);
+            // A pump left behind by a switch fails on its closed connection.
+            // That is the switch working, not the new session losing its host.
+            if (generation === clientGeneration) {
+                reportConnectionError(error);
+            }
         }
     }
 
@@ -2209,10 +2218,17 @@ export async function startTui(
             renderState();
             return;
         }
+        const sourceAgentId = client.agentId;
+        if (sourceAgentId === undefined) {
+            state = appendTuiNotice(state, "Current session ID is unavailable");
+            composer.focus();
+            renderState();
+            return;
+        }
         sessionSwitchPending = true;
         sessionSwitchActivity = "forking session…";
         renderState();
-        const fork = dependencies.forkSession(boundaryId);
+        const fork = dependencies.forkSession(sourceAgentId, boundaryId);
         let timedOut = false;
         let timeout: ReturnType<typeof setTimeout>;
         const deadline = new Promise<never>((_resolve, reject) => {
@@ -2226,25 +2242,25 @@ export async function startTui(
                 void result.client.detach().catch(() => result.client.close());
             }
         }, () => undefined);
-        void Promise.race([fork, deadline]).then(({ client, prompt }) => {
+        void Promise.race([fork, deadline]).then((result) => {
             clearTimeout(timeout);
             if (shuttingDown) {
-                void client.detach().catch(() => client.close());
+                void result.client.detach().catch(() => result.client.close());
                 return;
             }
-            nextClient = client;
-            nextDraft = {
-                text: prompt.content
+            // The prompt the fork was taken before comes back to the composer,
+            // which is the whole point of forking there rather than cloning.
+            switchToClient(result.client, {
+                text: result.prompt.content
                     .filter((part) => part.type === "text")
                     .map((part) => part.text)
                     .join(""),
-                attachmentIds: prompt.content.flatMap((part) =>
+                attachmentIds: result.prompt.content.flatMap((part) =>
                     part.type === "image_attachment"
                         ? [part.attachmentId]
                         : []
                 ),
-            };
-            renderer.destroy();
+            });
         }).catch((error) => {
             clearTimeout(timeout);
             if (shuttingDown) return;
@@ -3007,8 +3023,7 @@ export async function startTui(
                 );
                 return;
             } else {
-                resumeSessionPath = selection.sessionPath;
-                renderer.destroy();
+                beginSessionResume(selection.sessionPath, selection.sessionId);
                 return;
             }
             // An answered pane returns to the menu it was opened from, so
@@ -3036,6 +3051,131 @@ export async function startTui(
             settingsPickerView.box.focus();
         }
         renderState();
+    }
+
+    /**
+     * Put another session on screen without taking the screen away.
+     *
+     * The renderer, the extension registry, the theme, and the composer's own
+     * widgets all outlive the switch: nothing about them belongs to a session.
+     * What is reset is everything the old session put on screen or was waiting
+     * on, and the host refills the transcript by replaying history to the new
+     * attachment, which is the same path a fresh attach already takes.
+     *
+     * The draft carries over on purpose. A half-written prompt is the user's,
+     * not the session's, and losing it to a keystroke that was meant to change
+     * which conversation it lands in is the worst possible time to lose it.
+     */
+    function switchToClient(next: TuiAgentClient, draft?: TuiDraft): void {
+        const previous = client;
+        clientGeneration += 1;
+        client = next;
+        void previous.detach().catch(() => previous.close());
+
+        state = createTuiState();
+        connectionFailed = false;
+        abortRequested = false;
+        workingSince = undefined;
+        phaseSince = undefined;
+        pendingUiRequest = undefined;
+        queuedUiRequests.length = 0;
+        pendingImages = [];
+        submitAfterImageAttachment = false;
+        promptSubmitting = false;
+        pendingSessionRename = undefined;
+        sessionSwitchPending = false;
+        sessionTrashCandidate = undefined;
+        sessionTrashPending = false;
+        timelinePicker = undefined;
+        settingsPicker = undefined;
+        secretPrompt = undefined;
+        preferencesList = undefined;
+        preferencesListParent = undefined;
+        confirmingFullAccess = false;
+        hostExtensionCommands = [];
+        extensionCommandsLoading = next.listExtensionCommands !== undefined;
+        clearTranscriptNodes();
+
+        composer.clearComposer();
+        if (draft !== undefined) {
+            composer.setComposerText(draft.text);
+            pendingImages = draft.attachmentIds.map((id) => ({
+                requestId: randomUUID(),
+                id,
+            }));
+        }
+        settingsPickerView.box.visible = false;
+        focusActiveSurface();
+        renderCommandSuggestions();
+        renderState();
+        void loadExtensionCommands();
+        void receiveAgentUpdates();
+    }
+
+    /**
+     * Move to the session a picker row named.
+     *
+     * The draft is read before the switch and handed back to it, so a prompt
+     * typed against the wrong conversation can be sent to the right one.
+     */
+    function beginSessionResume(
+        sessionPath: string,
+        sessionId?: string,
+    ): void {
+        settingsPicker = undefined;
+        if (sessionId !== undefined && sessionId === client.agentId) {
+            // The row for the session already on screen. Tearing down that
+            // session's own transcript to put it back is a worse answer to
+            // "this one" than simply leaving.
+            settingsPickerView.box.visible = false;
+            focusActiveSurface();
+            renderState();
+            return;
+        }
+        if (dependencies.resumeSession === undefined) {
+            state = appendTuiNotice(state, "Switching sessions is unavailable");
+            settingsPickerView.box.visible = false;
+            focusActiveSurface();
+            renderState();
+            return;
+        }
+        if (sessionSwitchPending) {
+            return;
+        }
+        const draft = currentDraft();
+        sessionSwitchPending = true;
+        sessionSwitchActivity = "switching conversation…";
+        settingsPickerView.box.visible = false;
+        renderState();
+        void dependencies.resumeSession(sessionPath).then((next) => {
+            if (shuttingDown) {
+                void next.detach().catch(() => next.close());
+                return;
+            }
+            switchToClient(next, draft);
+        }).catch((error) => {
+            if (shuttingDown) return;
+            sessionSwitchPending = false;
+            state = appendTuiNotice(
+                state,
+                `Could not switch conversation: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            focusActiveSurface();
+            renderState();
+        });
+    }
+
+    /** What is in the composer right now, absent when it is empty. */
+    function currentDraft(): TuiDraft | undefined {
+        const text = composer.plainText;
+        const attachmentIds = pendingImages
+            .map((image) => image.id)
+            .filter((id): id is string => id !== undefined);
+        return text.length === 0 && attachmentIds.length === 0
+            ? undefined
+            : { text, attachmentIds };
     }
 
     function beginSessionTrash(candidate: {

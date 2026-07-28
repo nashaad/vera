@@ -209,7 +209,11 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "provider"; readonly providerId: string }
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
-    | { readonly kind: "session"; readonly sessionPath: string }
+    | {
+        readonly kind: "session";
+        readonly sessionPath: string;
+        readonly sessionId?: string;
+    }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget };
 
 export interface TuiPinToggle {
@@ -594,9 +598,11 @@ export function startTuiSessionPicker(
     loading = false,
     now: Date = new Date(),
 ): TuiSettingsPickerState {
+    // The current session is listed rather than hidden. Switching is a
+    // re-attach with the screen left up, so its row costs nothing and answers
+    // "which one am I in" without the user having to remember.
     const options = agents
         .filter((agent) => agent.kind === "interactive"
-            && agent.id !== currentAgentId
             && agent.status !== "closed"
             && agent.status !== "failed"
             && agent.title !== undefined)
@@ -606,7 +612,9 @@ export function startTuiSessionPicker(
         .map((agent) => ({
             value: agent.session_path,
             label: truncateSessionTitle(agent.title!),
-            description: sessionDescription(agent, now),
+            description: agent.id === currentAgentId
+                ? `current · ${sessionDescription(agent, now)}`
+                : sessionDescription(agent, now),
             searchText: `${agent.id} ${agent.workspace}`,
             sessionId: agent.id,
         }));
@@ -1646,7 +1654,15 @@ function pickerSelection(
         return { kind, mode: value as ApprovalMode };
     }
     if (kind === "session") {
-        return { kind, sessionPath: value };
+        // The id rides along with the path because the caller has to recognise
+        // the row for the session already on screen, and it knows itself by id.
+        return {
+            kind,
+            sessionPath: value,
+            ...(option.sessionId === undefined
+                ? {}
+                : { sessionId: option.sessionId }),
+        };
     }
     if (kind === "settings" || kind === "permission_settings") {
         return { kind: "menu", target: value as TuiSettingsMenuTarget };

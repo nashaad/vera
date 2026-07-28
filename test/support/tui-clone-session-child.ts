@@ -7,6 +7,7 @@ import {
 
 let detached = false;
 let cloneAttempts = 0;
+let clonedFrom = "none";
 const client: TuiAgentClient = {
     agentId: "source-session",
     async send(): Promise<void> {},
@@ -21,8 +22,9 @@ const client: TuiAgentClient = {
 
 const exit = await startTui({
     client,
-    cloneSession: async () => {
+    cloneSession: async (agentId) => {
         cloneAttempts += 1;
+        clonedFrom = agentId;
         await Bun.sleep(400);
         return {
             agentId: "cloned-session",
@@ -39,8 +41,9 @@ const exit = await startTui({
 await Bun.write(
     join(process.env.HOME ?? ".", "clone-session-result.txt"),
     [
-        exit.nextClient?.agentId ?? "none",
+        exit.agentId ?? "none",
         detached ? "detached" : "attached",
         `attempts ${cloneAttempts}`,
+        clonedFrom,
     ].join("\n"),
 );
