@@ -385,6 +385,8 @@ test.skipIf(!tmuxAvailable)(
                 "test/support/tui-new-session-child.ts",
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
+            pane = await waitForVisiblePane(socket, session, "current-model");
+            expect(pane).not.toContain("FULL ACCESS");
             sendText(socket, session, "/clear");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
@@ -412,6 +414,11 @@ test.skipIf(!tmuxAvailable)(
                 "the new session on screen",
             );
             expect(pane).toContain("Start a conversation");
+            // The fresh session reports its own model and its own approval
+            // mode: the status line never keeps describing the one that left.
+            pane = await waitForVisiblePane(socket, session, "fresh-model");
+            expect(pane).toContain("FULL ACCESS · RED ZONE");
+            expect(pane).not.toContain("current-model");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(
@@ -590,6 +597,11 @@ test.skipIf(!tmuxAvailable)(
                 "the clone on screen",
             );
             expect(pane).toContain("Start a conversation");
+            // The clone reports its own model and approval mode rather than
+            // inheriting the status line the source session left behind.
+            pane = await waitForVisiblePane(socket, session, "cloned-model");
+            expect(pane).toContain("FULL ACCESS · RED ZONE");
+            expect(pane).not.toContain("source-model");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(
@@ -637,6 +649,10 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "1 image attached");
             expect(pane).toContain("edit this prompt");
             expect(pane).not.toContain("forking session");
+            // The fork reports its own model and approval mode.
+            pane = await waitForVisiblePane(socket, session, "forked-model");
+            expect(pane).toContain("FULL ACCESS · RED ZONE");
+            expect(pane).not.toContain("source-model");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(JSON.parse(readFileSync(
@@ -766,6 +782,11 @@ test.skipIf(!tmuxAvailable)(
             // The pane belongs to the process that started: the transcript was
             // replaced under a TUI that never went away.
             expect(pane).toContain("Message Vera");
+            // The resumed session's own model and approval mode, not the ones
+            // belonging to the conversation that was on screen.
+            pane = await waitForVisiblePane(socket, session, "resumed-model");
+            expect(pane).toContain("FULL ACCESS · RED ZONE");
+            expect(pane).not.toContain("current-model");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(join(home, "resume-result.txt"), "utf8"))

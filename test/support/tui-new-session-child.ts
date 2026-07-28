@@ -1,26 +1,21 @@
 import { join } from "node:path";
 
-import {
-    startTui,
-    type TuiAgentClient,
-} from "../../clients/tui/main.ts";
+import { startTui } from "../../clients/tui/main.ts";
+import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 
 let detached = false;
 let nextDetached = false;
 let createAttempts = 0;
 let createdForWorkspace = "none";
-const client: TuiAgentClient = {
+const client = createSettingsAnsweringClient({
     agentId: "current-session-id",
     workspace: "/work/vera",
-    async send(): Promise<void> {},
-    receive(): Promise<never> {
-        return new Promise(() => {});
-    },
-    async detach(): Promise<void> {
+    model: "current-model",
+    mode: "review",
+    onDetach: () => {
         detached = true;
     },
-    close(): void {},
-};
+});
 
 const exit = await startTui({
     client,
@@ -31,18 +26,15 @@ const exit = await startTui({
             throw new Error("host refused creation");
         }
         await Bun.sleep(400);
-        return {
+        return createSettingsAnsweringClient({
             agentId: "new-session-id",
             workspace,
-            async send(): Promise<void> {},
-            receive(): Promise<never> {
-                return new Promise(() => {});
-            },
-            async detach(): Promise<void> {
+            model: "fresh-model",
+            mode: "full_access",
+            onDetach: () => {
                 nextDetached = true;
             },
-            close(): void {},
-        };
+        });
     },
 });
 

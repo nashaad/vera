@@ -1,25 +1,19 @@
 import { join } from "node:path";
 
-import {
-    startTui,
-    type TuiAgentClient,
-} from "../../clients/tui/main.ts";
-import type {
-    AgentUpdate,
-    ClientCommand,
-} from "../../src/engine/protocol.ts";
+import { startTui } from "../../clients/tui/main.ts";
+import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 
-const updates: AgentUpdate[] = [];
-let wake: (() => void) | undefined;
 let detached = false;
 let forkBoundary = "";
 let forkedFrom = "none";
 
-const client: TuiAgentClient = {
+const client = createSettingsAnsweringClient({
     agentId: "source-session",
-    async send(command: ClientCommand): Promise<void> {
+    model: "source-model",
+    mode: "review",
+    onCommand: (command, push) => {
         if (command.type !== "list_timeline") return;
-        updates.push({
+        push({
             type: "timeline",
             requestId: command.requestId,
             boundaries: [{
@@ -30,21 +24,11 @@ const client: TuiAgentClient = {
                 attachmentIds: ["image-1"],
             }],
         });
-        wake?.();
     },
-    async receive(): Promise<AgentUpdate> {
-        while (updates.length === 0) {
-            await new Promise<void>((resolve) => {
-                wake = resolve;
-            });
-        }
-        return updates.shift()!;
-    },
-    async detach(): Promise<void> {
+    onDetach: () => {
         detached = true;
     },
-    close(): void {},
-};
+});
 
 const exit = await startTui({
     client,
@@ -56,15 +40,11 @@ const exit = await startTui({
         }
         await Bun.sleep(300);
         return {
-            client: {
+            client: createSettingsAnsweringClient({
                 agentId: "forked-session",
-                async send(): Promise<void> {},
-                receive(): Promise<never> {
-                    return new Promise(() => {});
-                },
-                async detach(): Promise<void> {},
-                close(): void {},
-            },
+                model: "forked-model",
+                mode: "full_access",
+            }),
             prompt: {
                 role: "user",
                 content: [

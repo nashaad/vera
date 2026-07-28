@@ -1328,16 +1328,27 @@ export async function startTui(
         };
     }
 
+    /**
+     * Ask the attached session for the state the status line reports.
+     *
+     * Replayed history carries the transcript and context only, so an
+     * attachment that does not ask stays blank about the model and, worse,
+     * silent about full access until some later update happens to arrive.
+     */
+    function requestSessionSettings(): void {
+        sendCommand({
+            type: "get_model_settings",
+            requestId: randomUUID(),
+        });
+        sendCommand({
+            type: "get_permissions",
+            requestId: randomUUID(),
+        });
+    }
+
     void receiveAgentUpdates();
     void loadExtensionCommands();
-    sendCommand({
-        type: "get_model_settings",
-        requestId: randomUUID(),
-    });
-    sendCommand({
-        type: "get_permissions",
-        requestId: randomUUID(),
-    });
+    requestSessionSettings();
 
     function submitPrompt(): void {
         if (
@@ -3208,6 +3219,7 @@ export async function startTui(
         renderState();
         void loadExtensionCommands();
         void receiveAgentUpdates();
+        requestSessionSettings();
     }
 
     /**
