@@ -1,24 +1,19 @@
 import { join } from "node:path";
 
-import {
-    startTui,
-    type TuiAgentClient,
-} from "../../clients/tui/main.ts";
+import { startTui } from "../../clients/tui/main.ts";
+import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 
 let detached = false;
 let cloneAttempts = 0;
 let clonedFrom = "none";
-const client: TuiAgentClient = {
+const client = createSettingsAnsweringClient({
     agentId: "source-session",
-    async send(): Promise<void> {},
-    receive(): Promise<never> {
-        return new Promise(() => {});
-    },
-    async detach(): Promise<void> {
+    model: "source-model",
+    mode: "review",
+    onDetach: () => {
         detached = true;
     },
-    close(): void {},
-};
+});
 
 const exit = await startTui({
     client,
@@ -26,15 +21,11 @@ const exit = await startTui({
         cloneAttempts += 1;
         clonedFrom = agentId;
         await Bun.sleep(400);
-        return {
+        return createSettingsAnsweringClient({
             agentId: "cloned-session",
-            async send(): Promise<void> {},
-            receive(): Promise<never> {
-                return new Promise(() => {});
-            },
-            async detach(): Promise<void> {},
-            close(): void {},
-        };
+            model: "cloned-model",
+            mode: "full_access",
+        });
     },
 });
 

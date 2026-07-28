@@ -1,11 +1,7 @@
 import { join } from "node:path";
-import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AgentUpdate } from "../../src/engine/protocol.ts";
 
-import {
-    startTui,
-    type TuiAgentClient,
-} from "../../clients/tui/main.ts";
+import { startTui } from "../../clients/tui/main.ts";
+import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 
 /**
  * The picker prints this as a relative age, so a fixed date would render
@@ -16,17 +12,14 @@ const updatedAt = new Date(Date.now() - 90 * 60_000).toISOString();
 
 let detached = false;
 let resumedPath = "none";
-const firstClient: TuiAgentClient = {
+const firstClient = createSettingsAnsweringClient({
     agentId: "current-session-id",
-    async send(): Promise<void> {},
-    receive(): Promise<never> {
-        return new Promise(() => {});
-    },
-    async detach(): Promise<void> {
+    model: "current-model",
+    mode: "review",
+    onDetach: () => {
         detached = true;
     },
-    close(): void {},
-};
+});
 
 // One startTui call for the whole run. Switching sessions no longer ends the
 // TUI, so a second call here would be exercising a handover that cannot happen.
@@ -54,21 +47,18 @@ const exit = await startTui({
     ],
     resumeSession: async (sessionPath) => {
         resumedPath = sessionPath;
-        const updates = new AsyncQueue<AgentUpdate>();
-        updates.push({
-            type: "history",
-            entries: [{ kind: "assistant", text: "RESUMED HISTORY LOADED" }],
-            seq: 0,
-        });
-        return {
+        // The resumed session runs a different model in full access: the
+        // status line has to report both as soon as the transcript lands.
+        return createSettingsAnsweringClient({
             agentId: "target-session-id",
-            async send(): Promise<void> {},
-            receive(signal) {
-                return updates.receive(signal);
-            },
-            async detach(): Promise<void> {},
-            close(): void {},
-        };
+            model: "resumed-model",
+            mode: "full_access",
+            initialUpdates: [{
+                type: "history",
+                entries: [{ kind: "assistant", text: "RESUMED HISTORY LOADED" }],
+                seq: 0,
+            }],
+        });
     },
 });
 
