@@ -16,7 +16,7 @@ import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 // This covers background work and host control, not permissions. "auto" would
-// send background_agent to the review model, which no faux adapter here answers,
+// send async_subagent to the review model, which no faux adapter here answers,
 // so the reviewer reports an unreadable decision, the turn falls back to a user
 // prompt, and nothing is listening to answer it.
 const config = {
@@ -216,7 +216,7 @@ function backgroundToolResponse(): AssistantMessage {
         content: [{
             type: "tool_call",
             id: "background-1",
-            name: "background_agent",
+            name: "async_subagent",
             input: { description: "Run the integration tests" },
         }],
         source: { provider: "faux", api: "scripted", model: "test" },

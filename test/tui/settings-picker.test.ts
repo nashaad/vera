@@ -48,7 +48,7 @@ async function pickerFrame(
     }
 }
 
-test("session picker filters durable interactive conversations and selects an agent", async () => {
+test("session picker filters titled durable conversations and selects an agent", async () => {
     const state = startTuiSessionPicker([
         {
             id: "11111111-first-session",
@@ -106,6 +106,43 @@ test("session picker filters durable interactive conversations and selects an ag
             ?? searched;
     }
     expect(searched.options).toHaveLength(1);
+});
+
+test("session picker threads an async subagent under its parent", async () => {
+    const state = startTuiSessionPicker([
+        {
+            id: "parent",
+            workspace: "/work/vera",
+            session_path: "/sessions/parent.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: true,
+            title: "Coordinate parser work",
+            updated_at: "2026-07-20T20:00:00.000Z",
+        },
+        {
+            id: "child",
+            workspace: "/work/vera",
+            session_path: "/sessions/child.jsonl",
+            kind: "background",
+            status: "working",
+            live: true,
+            title: "Audit both parsers",
+            updated_at: "2026-07-20T20:01:00.000Z",
+            parent_id: "parent",
+        },
+    ], "parent", false, new Date("2026-07-20T20:02:00.000Z"));
+
+    expect(state.options.map((option) => option.sessionId))
+        .toEqual(["parent", "child"]);
+    expect(state.options[1]).toMatchObject({
+        depth: 1,
+        activity: "working",
+        threadParent: "parent",
+    });
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("Coordinate parser work");
+    expect(frame).toContain("Audit both parsers");
 });
 
 test("session picker excludes the current and unavailable conversations", async () => {

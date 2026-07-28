@@ -36,6 +36,12 @@ test("the next real prompt drains a delivery preserved across restart", async ()
         sourceAgentId: "background-1",
         content: "Tests pass <cleanly> & quickly.",
     });
+    await original.recordDelivery({
+        id: "attention-1",
+        sourceAgentId: "background-2",
+        content: "Which parser is canonical?",
+        kind: "attention",
+    });
     const store = await SessionStore.open(path);
     const response: AssistantMessage = {
         role: "assistant",
@@ -90,6 +96,21 @@ test("the next real prompt drains a delivery preserved across restart", async ()
                         "  <status>completed</status>",
                         "  <summary>Tests pass &lt;cleanly&gt; &amp; quickly.</summary>",
                         "</task_notification>",
+                    ].join("\n"),
+                }],
+            },
+            {
+                role: "user",
+                internal: true,
+                content: [{
+                    type: "text",
+                    text: [
+                        "<agent_message>",
+                        "  <delivery_id>attention-1</delivery_id>",
+                        "  <agent_id>background-2</agent_id>",
+                        "  <status>attention</status>",
+                        "  <message>Which parser is canonical?</message>",
+                        "</agent_message>",
                     ].join("\n"),
                 }],
             },

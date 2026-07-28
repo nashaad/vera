@@ -216,6 +216,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        name: "routine.agent_message",
+        when: { operation: "agent.message" },
+        then: "allow",
+    },
+    {
         name: "routine.read",
         when: { verb: "read" },
         then: "allow",
@@ -379,6 +384,7 @@ const NETWORK_GIT_OPERATIONS = new Map([
 const GIT_READ_SUBCOMMANDS = new Set(["log", "status", "diff", "show"]);
 
 export const CORE_PERMISSION_OPERATIONS = new Set([
+    "agent.message",
     "agent.spawn",
     "git.clone",
     "git.commit",

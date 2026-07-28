@@ -12,7 +12,7 @@ test("background completions render finished Markdown", async () => {
         "background-completion",
         {
             kind: "notification",
-            text: "Background agent child-1 completed:\n\n## Summary\n\n- **Tests pass.**",
+            text: "Async subagent child-1:\n\n## Summary\n\n- **Tests pass.**",
         },
         syntaxStyle,
         "#ffffff",

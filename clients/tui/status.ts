@@ -24,7 +24,7 @@ export function renderTuiStatusDetailsLine(
     const usage = renderContextUsage(context);
     const background = runningBackgroundAgents === 0
         ? ""
-        : `${runningBackgroundAgents} background agent${
+        : `${runningBackgroundAgents} async subagent${
             runningBackgroundAgents === 1 ? "" : "s"
         } running · `;
     return `${background}${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${usage}`;

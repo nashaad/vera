@@ -33,7 +33,6 @@ import {
 } from "../engine/protocol.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
-    MAX_AGENT_DEPTH,
     validChildAgentLimit,
 } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
@@ -49,8 +48,10 @@ import {
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
     ApplyToolEffect,
+    MessageSubagentEffect,
+    NotifyParentEffect,
     RegisteredTool,
-    SpawnBackgroundAgentEffect,
+    SpawnAsyncSubagentEffect,
     ToolOutput,
 } from "../tools/types.ts";
 import {
@@ -110,6 +111,8 @@ export interface RegisteredAgentSummary {
     readonly live: boolean;
     readonly title?: string;
     readonly updated_at?: string;
+    /** The resident parent that launched this async subagent. */
+    readonly parent_id?: string;
     /**
      * The session this one was branched from, absent on a session that was
      * started rather than forked. The id alone rather than the whole header
@@ -232,6 +235,9 @@ interface RegisteredAgentEntry {
     inbound?: InboundCommandRouter;
     run: Promise<void>;
     completed: boolean;
+    pendingAsyncTurns: number;
+    pendingCompletionDeliveries: number;
+    completionSequence: number;
     failure?: unknown;
 }
 
@@ -366,6 +372,17 @@ export class AgentRegistry {
         if (
             entry.kind !== "interactive"
             || !entry.agent.idleForShutdown()
+            || [...this.agents.values()].some(
+                (candidate) =>
+                    candidate.parentId === targetId
+                    && candidate.failure === undefined
+                    && !candidate.agent.failed
+                    && !candidate.agent.closed
+                    && (
+                        !candidate.completed
+                        || candidate.pendingCompletionDeliveries > 0
+                    ),
+            )
         ) {
             return "busy";
         }
@@ -633,6 +650,9 @@ export class AgentRegistry {
                     ...(entry.store.header.origin === undefined
                         ? {}
                         : { forked_from: entry.store.header.origin.sessionId }),
+                    ...(entry.parentId === undefined
+                        ? {}
+                        : { parent_id: entry.parentId }),
                     updated_at: entry.store.agentFailure()?.timestamp
                         ?? activeEntries.at(-1)?.timestamp
                         ?? entry.store.header.timestamp,
@@ -681,6 +701,12 @@ export class AgentRegistry {
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
             attachImage: (path, signal) =>
                 imageAttachments.attachFile(path, signal),
+            ...(kind === "background"
+                ? {
+                    onPromptQueued: () =>
+                        this.trackAsyncSubagentTurn(store.header.id),
+                }
+                : {}),
         });
         const events = new EngineEventBus();
         const storedSettings = store.modelSettings();
@@ -711,6 +737,9 @@ export class AgentRegistry {
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
             run: Promise.resolve(),
             completed: false,
+            pendingAsyncTurns: 0,
+            pendingCompletionDeliveries: 0,
+            completionSequence: 0,
             ...(storedFailure === undefined
                 ? {}
                 : { failure: new Error(storedFailure.detail) }),
@@ -759,14 +788,22 @@ export class AgentRegistry {
             // join this list when activation lands; binding stays agnostic.
             BUNDLED_COMPACTION_STRATEGIES,
         );
-        const applyToolEffect: ApplyToolEffect = (effect, signal, context) =>
-            effect.type === "spawn_background_agent"
-                ? this.spawnBackgroundAgent(
+        const applyToolEffect: ApplyToolEffect = (effect, signal, context) => {
+            if (effect.type === "spawn_async_subagent") {
+                return this.spawnAsyncSubagent(
                     store,
                     effect,
                     context,
-                )
-                : applySubagentEffect(effect, signal, context);
+                );
+            }
+            if (effect.type === "message_subagent") {
+                return this.messageSubagent(store, effect);
+            }
+            if (effect.type === "notify_parent") {
+                return this.notifyParent(store, effect);
+            }
+            return applySubagentEffect(effect, signal, context);
+        };
         entry.run = runHeadlessLoop(
             agent.engine,
             adapter,
@@ -789,13 +826,13 @@ export class AgentRegistry {
                     : { permissionModes: this.options.permissionModes }),
                 ...(compaction === undefined ? {} : { compaction }),
                 applyToolEffect,
-                enabledToolEffects: (kind === "interactive" ? 0 : 1)
-                        < MAX_AGENT_DEPTH
+                enabledToolEffects: kind === "interactive"
                     ? [
                         "spawn_subagent",
-                        "spawn_background_agent",
+                        "spawn_async_subagent",
+                        "message_subagent",
                     ]
-                    : [],
+                    : ["notify_parent"],
                 enableUserInteraction: kind === "interactive",
                 extensionTools: this.options.extensionTools,
                 onInboundReady: (inbound) => {
@@ -861,15 +898,17 @@ export class AgentRegistry {
         return agent;
     }
 
-    private async spawnBackgroundAgent(
+    private async spawnAsyncSubagent(
         parentStore: SessionStore,
-        effect: SpawnBackgroundAgentEffect,
+        effect: SpawnAsyncSubagentEffect,
         context: Parameters<ApplyToolEffect>[2],
     ): Promise<ToolOutput> {
         const running = [...this.agents.values()].filter(
             (entry) =>
                 entry.kind === "background"
                 && entry.parentId === parentStore.header.id
+                && entry.failure === undefined
+                && !entry.agent.failed
                 && !entry.completed
                 && !entry.agent.closed,
         ).length
@@ -877,7 +916,7 @@ export class AgentRegistry {
         if (running >= this.maxConcurrentBackgroundAgents) {
             return {
                 kind: "output",
-                output: `Background agent limit reached `
+                output: `Async subagent limit reached `
                     + `(${this.maxConcurrentBackgroundAgents} running).`,
                 isError: true,
             };
@@ -918,30 +957,151 @@ export class AgentRegistry {
                 );
             }
         }
-        const attachment = child.attach();
+        const childEntry = this.agents.get(child.id);
+        if (childEntry === undefined) {
+            child.close();
+            throw new Error(`Async subagent ${child.id} was not registered`);
+        }
         try {
-            attachment.send({ type: "prompt", content: effect.description });
+            child.sendPrompt(effect.description);
         } catch (error) {
-            attachment.detach();
             child.close();
             throw error;
         }
+        return {
+            kind: "output",
+            output: `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`,
+            isError: false,
+        };
+    }
+
+    private async messageSubagent(
+        parentStore: SessionStore,
+        effect: MessageSubagentEffect,
+    ): Promise<ToolOutput> {
+        const child = this.agents.get(effect.subagentId);
+        if (
+            child === undefined
+            || child.kind !== "background"
+            || child.parentId !== parentStore.header.id
+        ) {
+            return {
+                kind: "output",
+                output: `Async subagent ${effect.subagentId} is not a child of this agent.`,
+                isError: true,
+            };
+        }
+        if (child.failure !== undefined || child.agent.closed) {
+            return {
+                kind: "output",
+                output: `Async subagent ${effect.subagentId} is no longer running.`,
+                isError: true,
+            };
+        }
+
+        child.agent.sendPrompt(effect.message);
+        return {
+            kind: "output",
+            output: `Message queued for async subagent ${effect.subagentId}.`,
+            isError: false,
+        };
+    }
+
+    private trackAsyncSubagentTurn(childId: string): void {
+        const child = this.agents.get(childId);
+        const parent = child?.parentId === undefined
+            ? undefined
+            : this.agents.get(child.parentId);
+        if (child?.kind !== "background" || parent === undefined) {
+            return;
+        }
+        if (child.pendingAsyncTurns > 0) {
+            child.pendingAsyncTurns += 1;
+            return;
+        }
+
+        const attachment = child.agent.attach();
+        child.completed = false;
+        child.pendingAsyncTurns = 1;
+        child.completionSequence += 1;
+        this.monitorAsyncSubagent(
+            parent.store,
+            childId,
+            attachment,
+            child.completionSequence,
+        );
+    }
+
+    private monitorAsyncSubagent(
+        parentStore: SessionStore,
+        childId: string,
+        attachment: AgentAttachment,
+        completionSequence: number,
+    ): void {
         const deliveryTask = this.deliverBackgroundResult(
             parentStore,
-            child.id,
+            childId,
             attachment,
+            completionSequence,
         ).catch((error: unknown) => {
-            const entry = this.agents.get(child.id);
+            const entry = this.agents.get(childId);
             if (entry !== undefined) {
+                entry.pendingCompletionDeliveries = Math.max(
+                    0,
+                    entry.pendingCompletionDeliveries - 1,
+                );
                 entry.failure = error;
                 entry.agent.close();
+            }
+            const parent = this.agents.get(parentStore.header.id);
+            if (parent !== undefined && !parent.agent.closed) {
+                parent.events.emit({
+                    type: "task_notification",
+                    deliveryId: `completion-failed:${childId}:${completionSequence}`,
+                    sourceAgentId: childId,
+                    content: `Async subagent result could not be saved: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                });
             }
         });
         this.deliveryTasks.add(deliveryTask);
         void deliveryTask.then(() => this.deliveryTasks.delete(deliveryTask));
+    }
+
+    private async notifyParent(
+        childStore: SessionStore,
+        effect: NotifyParentEffect,
+    ): Promise<ToolOutput> {
+        const child = this.agents.get(childStore.header.id);
+        const parentId = child?.parentId;
+        if (child?.kind !== "background" || parentId === undefined) {
+            return {
+                kind: "output",
+                output: "This agent has no parent to notify.",
+                isError: true,
+            };
+        }
+
+        const parent = this.agents.get(parentId);
+        if (parent === undefined || parent.agent.closed || parent.agent.failed) {
+            return {
+                kind: "output",
+                output: "The parent agent is unavailable.",
+                isError: true,
+            };
+        }
+        const delivery = {
+            id: `attention:${childStore.header.id}:${randomUUID()}`,
+            sourceAgentId: childStore.header.id,
+            content: effect.message,
+            kind: "attention" as const,
+        };
+        await recordDeliveryAndNotify(parent.store, parent.events, delivery);
+        parent.agent.triggerDeliveryTurn();
         return {
             kind: "output",
-            output: `Background agent ${child.id} started. Its final summary will arrive as a task notification.`,
+            output: "Parent agent notified.",
             isError: false,
         };
     }
@@ -950,8 +1110,9 @@ export class AgentRegistry {
         parentStore: SessionStore,
         childId: string,
         attachment: AgentAttachment,
+        completionSequence: number,
     ): Promise<void> {
-        let content = "Background agent failed before producing a summary.";
+        let content = "Async subagent failed before producing a summary.";
         try {
             while (true) {
                 const update = await attachment.receive();
@@ -984,7 +1145,22 @@ export class AgentRegistry {
                     });
                 }
                 if (update.type === "turn_finished") {
-                    break;
+                    const entry = this.agents.get(childId);
+                    if (entry === undefined) {
+                        break;
+                    }
+                    entry.pendingAsyncTurns = Math.max(
+                        0,
+                        entry.pendingAsyncTurns - 1,
+                    );
+                    if (entry.pendingAsyncTurns === 0) {
+                        // Mark the completion write pending at the same boundary
+                        // that ends this assignment. A later prompt becomes a
+                        // new assignment, while parent trash remains blocked
+                        // until this result has been saved.
+                        entry.pendingCompletionDeliveries += 1;
+                        break;
+                    }
                 }
             }
             const childStore = this.agents.get(childId)?.store;
@@ -1005,17 +1181,31 @@ export class AgentRegistry {
             attachment.detach();
         }
         const delivery = {
-            id: `completion:${childId}`,
+            id: completionSequence === 1
+                ? `completion:${childId}`
+                : `completion:${childId}:${completionSequence}`,
             sourceAgentId: childId,
             content,
+            kind: "completion" as const,
         };
         const parentEvents = this.agents.get(parentStore.header.id)?.events;
         const recorded = parentEvents === undefined
             ? await parentStore.recordDelivery(delivery)
             : await recordDeliveryAndNotify(parentStore, parentEvents, delivery);
         const entry = this.agents.get(childId);
-        if (entry !== undefined && entry.failure === undefined) {
-            entry.completed = true;
+        if (entry !== undefined) {
+            entry.pendingCompletionDeliveries = Math.max(
+                0,
+                entry.pendingCompletionDeliveries - 1,
+            );
+            if (
+                entry.failure === undefined
+                && entry.pendingAsyncTurns === 0
+                && entry.pendingCompletionDeliveries === 0
+                && entry.completionSequence === completionSequence
+            ) {
+                entry.completed = true;
+            }
         }
         if (!recorded) {
             return;

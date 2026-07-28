@@ -127,7 +127,7 @@ test("inert redirect targets never escalate past a routine read", () => {
 });
 
 test("agent launches are recognized routine operations", () => {
-    for (const name of ["subagent", "background_agent"]) {
+    for (const name of ["subagent", "async_subagent"]) {
         const toolCall = {
             id: `call-${name}`,
             name,
@@ -153,6 +153,37 @@ test("agent launches are recognized routine operations", () => {
         ).behavior).toBe("allow");
         expect(decideToolPermission(
             "auto",
+            toolCall,
+            workspace,
+            [],
+            { homeDirectory },
+        ).behavior).toBe("allow");
+    }
+});
+
+test("agent messages are recognized routine operations", () => {
+    for (const name of ["message_subagent", "notify_parent"]) {
+        const input: Record<string, string> = name === "message_subagent"
+            ? { subagent_id: "child-1", message: "Check the parser" }
+            : { message: "I need a decision" };
+        const toolCall = {
+            id: `call-${name}`,
+            name,
+            input,
+        };
+        expect(
+            extractPermissionActions({
+                toolCall,
+                workspace,
+                homeDirectory,
+            }),
+        ).toEqual([{
+            tool: name,
+            verb: "unknown",
+            operation: "agent.message",
+        }]);
+        expect(decideToolPermission(
+            "ask",
             toolCall,
             workspace,
             [],

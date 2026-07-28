@@ -15,7 +15,7 @@ test("ask_user is exposed only with user-interaction capability", () => {
         .map((tool) => tool.name);
     const withEffectsOnly = toolDefinitionsForCapabilities([
         "spawn_subagent",
-        "spawn_background_agent",
+        "spawn_async_subagent",
     ]).map((tool) => tool.name);
     const withInteraction = toolDefinitionsForCapabilities([], true)
         .map((tool) => tool.name);

@@ -157,7 +157,7 @@ function questionResponse(): AssistantMessage {
 }
 
 function backgroundResponse(): AssistantMessage {
-    return toolResponse("background-1", "background_agent", {
+    return toolResponse("background-1", "async_subagent", {
         description: "run child",
     });
 }

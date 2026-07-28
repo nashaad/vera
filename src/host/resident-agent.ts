@@ -42,6 +42,7 @@ export class AgentCommandQueueFullError extends Error {
 export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
     readonly createAttachmentId?: () => string;
+    readonly onPromptQueued?: () => void;
     readonly attachImage?: (
         path: string,
         signal: AbortSignal,
@@ -181,6 +182,9 @@ export class ResidentAgent {
                             : clone(command),
                         countsTowardLimit: true,
                     });
+                    if (command.type === "prompt") {
+                        this.options.onPromptQueued?.();
+                    }
                 } catch (error) {
                     this.pendingCommandCount -= 1;
                     throw error;
@@ -232,6 +236,26 @@ export class ResidentAgent {
         const outgoing = this.attachments.get(ownerId);
         if (outgoing !== undefined && !this.isClosed) {
             outgoing.push(clone(reply));
+        }
+    }
+
+    sendPrompt(content: string): void {
+        if (this.isClosed || this.terminalFailure !== undefined) {
+            throw new ResidentAgentClosedError();
+        }
+        if (this.pendingCommandCount >= this.maxPendingCommands) {
+            throw new AgentCommandQueueFullError();
+        }
+        this.pendingCommandCount += 1;
+        try {
+            this.inbound.push({
+                command: { type: "prompt", content },
+                countsTowardLimit: true,
+            });
+            this.options.onPromptQueued?.();
+        } catch (error) {
+            this.pendingCommandCount -= 1;
+            throw error;
         }
     }
 
