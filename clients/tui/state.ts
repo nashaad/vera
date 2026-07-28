@@ -30,6 +30,10 @@ export interface TuiTextTranscriptEntry {
     readonly attachments?: readonly string[];
     /** Which group a tool row belongs to, and what its header reads. */
     readonly header?: string;
+    /** The gutter drawn left of a tool row, in its own column. */
+    readonly prefix?: string;
+    /** How many times in a row the same call was made. */
+    readonly repeat?: number;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -153,10 +157,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "tool_started") {
         return {
             ...state,
-            entries: [
-                ...state.entries,
-                ...toolEntries(state.entries, update.tool, update.args),
-            ],
+            entries: withToolEntry(state.entries, update.tool, update.args),
         };
     }
     if (update.type === "tool_review") {
@@ -331,6 +332,11 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     if (entry.kind === "tool_header") {
         return new StyledText([fg(TUI_ACCENT)(entry.text)]);
     }
+    if (entry.kind === "tool") {
+        return new StyledText([
+            fg(TUI_MUTED)(`${entry.prefix ?? ""}${tuiToolRowText(entry)}`),
+        ]);
+    }
     if (entry.kind === "notice" || entry.kind === "review") {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
     }
@@ -338,6 +344,12 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
+}
+
+/** A row's text, carrying the count when the same call repeated. */
+export function tuiToolRowText(entry: TuiTextTranscriptEntry): string {
+    const repeat = entry.repeat ?? 1;
+    return repeat > 1 ? `${entry.text} ×${repeat}` : entry.text;
 }
 
 export function tuiEntryMarginTop(
@@ -438,7 +450,9 @@ function toolRowText(
     if (tool === "bash") {
         const command = stringArg(args, "command");
         if (command !== undefined) {
-            return bounded(command.replaceAll(/\s+/g, " ").trim());
+            // A command keeps its own lines. Flattening a script into one
+            // paragraph loses where each command ended.
+            return bounded(command.replaceAll(/[ \t]+$/gm, "").trim());
         }
     }
     if ((tool === "edit" || tool === "write") && path !== undefined) {
@@ -454,56 +468,64 @@ function toolRowText(
 }
 
 /**
- * The entries a call adds. A call either joins the run above it or opens a new
- * group with a header, so a sequence of calls reads as one unit rather than as
- * n unrelated rows.
+ * The transcript a call leaves behind. A call either repeats the one above it,
+ * joins the run above it, or opens a new group with a header, so a sequence of
+ * calls reads as one unit rather than as n unrelated rows.
  */
-function toolEntries(
-    preceding: readonly TuiTranscriptEntry[],
+function withToolEntry(
+    entries: readonly TuiTranscriptEntry[],
     tool: string,
     args: Readonly<Record<string, unknown>>,
 ): TuiTranscriptEntry[] {
     // Review and thought rows come and go: a history checkpoint drops them, and
     // a run has to group the same way either way, or the checkpoint stops
     // matching what is on screen.
-    const previous = preceding.findLast((entry) =>
+    const previousIndex = entries.findLastIndex((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
     );
+    const previous = entries[previousIndex];
     const header = toolHeader(tool);
     const row = toolRowText(tool, args);
+    if (
+        previous?.kind === "tool"
+        && previous.header === header
+        && previous.text === row
+    ) {
+        const repeated: TuiTranscriptEntry = {
+            ...previous,
+            repeat: (previous.repeat ?? 1) + 1,
+        };
+        return entries.map((entry, index) =>
+            index === previousIndex ? repeated : entry
+        );
+    }
     const open = (previous?.kind === "tool" || previous?.kind === "tool_header")
         && previous.header === header;
     if (open) {
-        return [{
+        return [...entries, {
             kind: "tool",
             header,
-            text: `${previous?.kind === "tool_header" ? "  └ " : "    "}${row}`,
+            prefix: previous?.kind === "tool_header" ? "  └ " : "    ",
+            text: row,
         }];
     }
     return [
+        ...entries,
         { kind: "tool_header", header, text: header },
-        { kind: "tool", header, text: `  └ ${row}` },
+        { kind: "tool", header, prefix: "  └ ", text: row },
     ];
 }
 
 function toTuiTranscriptEntries(
     entries: readonly TranscriptEntry[],
 ): TuiTranscriptEntry[] {
-    const converted: TuiTranscriptEntry[] = [];
+    let converted: TuiTranscriptEntry[] = [];
     for (const entry of entries) {
-        converted.push(...toTuiTranscriptEntry(entry, converted));
+        converted = entry.kind === "tool"
+            ? withToolEntry(converted, entry.tool, entry.args)
+            : [...converted, toSingleTuiTranscriptEntry(entry)];
     }
     return converted;
-}
-
-function toTuiTranscriptEntry(
-    entry: TranscriptEntry,
-    preceding: readonly TuiTranscriptEntry[],
-): TuiTranscriptEntry[] {
-    if (entry.kind === "tool") {
-        return toolEntries(preceding, entry.tool, entry.args);
-    }
-    return [toSingleTuiTranscriptEntry(entry)];
 }
 
 function toSingleTuiTranscriptEntry(

@@ -12,8 +12,18 @@ import {
     renderTuiEntry,
     renderTuiQueuedPrompt,
     tuiEntryMarginTop,
+    tuiToolRowText,
 } from "../../clients/tui/state.ts";
+import type { TuiTranscriptEntry } from "../../clients/tui/state.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+
+/** A transcript row as one line, gutter included. */
+function entryLine(entry: TuiTranscriptEntry): string {
+    if (entry.kind === "diff") {
+        return entry.text;
+    }
+    return `${entry.prefix ?? ""}${tuiToolRowText(entry)}`;
+}
 
 function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
@@ -64,7 +74,7 @@ test("TUI state tracks a streamed turn and tool activity", () => {
         { kind: "user", text: "inspect the project" },
         { kind: "assistant", text: "I will check." },
         { kind: "tool_header", header: "Ran", text: "Ran" },
-        { kind: "tool", header: "Ran", text: "  └ pwd" },
+        { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
         { kind: "assistant", text: "Done." },
     ]);
 });
@@ -195,7 +205,12 @@ test("TUI applies canonical history and prompts from other clients", () => {
         { kind: "user", text: "inspect" },
         { kind: "assistant", text: "Checking." },
         { kind: "tool_header", header: "Explored", text: "Explored" },
-        { kind: "tool", header: "Explored", text: "  └ Read note.txt" },
+        {
+            kind: "tool",
+            header: "Explored",
+            prefix: "  └ ",
+            text: "Read note.txt",
+        },
         { kind: "user", text: "continue" },
     ]);
 });
@@ -323,7 +338,9 @@ test("TUI entries render with kind-specific prefixes", () => {
         .toBe("hi\nthere");
     expect(plainText(renderTuiEntry({ kind: "tool_header", text: "Ran" })))
         .toBe("Ran");
-    expect(plainText(renderTuiEntry({ kind: "tool", text: "  └ pwd" })))
+    expect(
+        plainText(renderTuiEntry({ kind: "tool", prefix: "  └ ", text: "pwd" })),
+    )
         .toBe("  └ pwd");
     expect(plainText(renderTuiEntry({ kind: "notice", text: "Engine error" })))
         .toBe("Engine error");
@@ -337,7 +354,7 @@ test("TUI tool entries keep their whole argument", () => {
         seq: 1,
     });
 
-    expect(state.entries.at(-1)?.text).toBe(`  └ ${"x".repeat(100)}`);
+    expect(state.entries.at(-1)?.text).toBe("x".repeat(100));
 });
 
 test("a pathological tool argument is still bounded", () => {
@@ -348,7 +365,7 @@ test("a pathological tool argument is still bounded", () => {
         seq: 1,
     });
 
-    expect(state.entries.at(-1)?.text).toBe(`  └ ${"x".repeat(1999)}…`);
+    expect(state.entries.at(-1)?.text).toBe(`${"x".repeat(1999)}…`);
 });
 
 test("a run of tool calls hangs off the first one", () => {
@@ -377,7 +394,7 @@ test("a run of tool calls hangs off the first one", () => {
         seq: 4,
     });
 
-    expect(state.entries.map((entry) => entry.text)).toEqual([
+    expect(state.entries.map(entryLine)).toEqual([
         "go",
         "Ran",
         "  └ pwd",
@@ -413,7 +430,7 @@ test("a review between two calls does not break the run", () => {
         seq: 3,
     });
 
-    expect(state.entries.at(-1)?.text).toBe("    ls");
+    expect(entryLine(state.entries.at(-1)!)).toBe("    ls");
 });
 
 test("a checkpoint over a reviewed run keeps the run and the review", () => {
@@ -471,7 +488,7 @@ test("history threads a run the same way the live turn did", () => {
         seq: 1,
     });
 
-    expect(state.entries.map((entry) => entry.text)).toEqual([
+    expect(state.entries.map(entryLine)).toEqual([
         "go",
         "Ran",
         "  └ pwd",
@@ -484,8 +501,8 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
     const entries = [
         { kind: "user", text: "inspect" },
         { kind: "tool_header", header: "Ran", text: "Ran" },
-        { kind: "tool", header: "Ran", text: "  └ pwd" },
-        { kind: "tool", header: "Ran", text: "    ls" },
+        { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
+        { kind: "tool", header: "Ran", prefix: "    ", text: "ls" },
         { kind: "assistant", text: "Done." },
     ] as const;
 
@@ -738,4 +755,43 @@ test("a divergent history checkpoint drops stale auto-review notices", () => {
         kind: "user",
         text: "different history",
     }]);
+});
+
+test("a multi-line command keeps its lines", () => {
+    const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "cd repo\nbun test  \n" },
+        seq: 1,
+    });
+
+    expect(state.entries.at(-1)?.text).toBe("cd repo\nbun test");
+});
+
+test("the same call twice in a row becomes one row with a count", () => {
+    let state = beginTuiTurn(createTuiState(), "go");
+    for (const seq of [1, 2, 3]) {
+        state = applyAgentUpdate(state, {
+            type: "tool_started",
+            tool: "bash",
+            args: { command: "pwd" },
+            seq,
+        });
+    }
+
+    expect(state.entries.map(entryLine)).toEqual(["go", "Ran", "  └ pwd ×3"]);
+});
+
+test("a repeated call counts the same live and from history", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "user", text: "go" },
+            { kind: "tool", tool: "bash", args: { command: "pwd" } },
+            { kind: "tool", tool: "bash", args: { command: "pwd" } },
+        ],
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual(["go", "Ran", "  └ pwd ×2"]);
 });
