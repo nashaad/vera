@@ -93,6 +93,11 @@ export interface RegisteredAgentSummary {
 
 export interface AgentRegistryOptions {
     readonly createAdapter: (provider?: string) => ModelAdapter;
+    /**
+     * Tells a running agent that a provider's credentials changed, so it stops
+     * spending the key it started with. Absent in tests that never sign in.
+     */
+    readonly credentialFingerprint?: (provider: string) => string | undefined;
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
@@ -111,9 +116,9 @@ export interface AgentRegistryOptions {
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
     /**
-     * Read per settings snapshot, not once at startup: the pin list is ordered by
-     * recency of use, so a snapshot taken when the host came up would freeze
-     * that order for the life of the host.
+     * Read per settings snapshot, not once at startup: the user pins and unpins
+     * while the host runs, so a snapshot taken when it came up would freeze the
+     * list for the life of the host.
      */
     readonly readPins?: () => readonly PinnedModel[];
     readonly sessionPathForId?: (agentId: string) => string;
@@ -562,6 +567,7 @@ export class AgentRegistry {
                 (provider) => this.options.createAdapter(provider),
                 this.defaultProvider,
                 this.options.createAdapter(this.defaultProvider),
+                this.options.credentialFingerprint,
             )
             : undefined;
         const imageAttachments = new ImageAttachmentService(

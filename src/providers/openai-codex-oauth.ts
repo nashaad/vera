@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import {
     createAuthStorage,
+    oauthToken,
     type AuthStorage,
 } from "./auth-storage.ts";
 
@@ -104,10 +105,10 @@ export async function loginOpenAICodex(
             pkce.verifier,
         );
         const credentials = credentialsFromTokens(tokens, undefined, now());
-        authStorage.setToken(
-            OPENAI_CODEX_PROVIDER_ID,
-            JSON.stringify(credentials),
-        );
+        authStorage.setCredential(OPENAI_CODEX_PROVIDER_ID, {
+            type: "oauth",
+            token: JSON.stringify(credentials),
+        });
         return credentials;
     } finally {
         callback.close();
@@ -124,7 +125,7 @@ export async function resolveOpenAICodexAuthorization(
 
     if (credentials === undefined) {
         throw new Error(
-            "OpenAI Codex is not authenticated. Run `vera login openai-codex`.",
+            "OpenAI Codex is not authenticated. Connect it from the model pane (ctrl+e).",
         );
     }
 
@@ -158,7 +159,7 @@ async function refreshExpiredCredentials(
         const latest = readCredentials(authStorage);
         if (latest === undefined) {
             throw new Error(
-                "OpenAI Codex is not authenticated. Run `vera login openai-codex`.",
+                "OpenAI Codex is not authenticated. Connect it from the model pane (ctrl+e).",
             );
         }
         const currentTime = now();
@@ -171,10 +172,10 @@ async function refreshExpiredCredentials(
             latest,
             currentTime,
         );
-        authStorage.setToken(
-            OPENAI_CODEX_PROVIDER_ID,
-            JSON.stringify(refreshed),
-        );
+        authStorage.setCredential(OPENAI_CODEX_PROVIDER_ID, {
+            type: "oauth",
+            token: JSON.stringify(refreshed),
+        });
         return refreshed;
     })();
     refreshes.set(authStorage, refresh);
@@ -305,7 +306,7 @@ function credentialsFromTokens(
 function readCredentials(
     authStorage: AuthStorage,
 ): OpenAICodexCredentials | undefined {
-    const stored = authStorage.getToken(OPENAI_CODEX_PROVIDER_ID);
+    const stored = oauthToken(authStorage, OPENAI_CODEX_PROVIDER_ID);
     if (stored === undefined) {
         return undefined;
     }

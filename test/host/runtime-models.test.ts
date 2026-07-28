@@ -45,8 +45,10 @@ function codexFixture(directory: string): string {
 
 function stubAuth(token: string | undefined): AuthStorage {
     return {
-        getToken: () => token,
-        setToken: () => {},
+        getCredential: () => token === undefined
+            ? undefined
+            : { type: "oauth" as const, token },
+        setCredential: () => {},
     } as unknown as AuthStorage;
 }
 
