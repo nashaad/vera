@@ -69,6 +69,7 @@ function harness(overrides: Partial<InboxSpawnOptions> = {}): Harness {
         consumers,
         spawnSession: host.spawn,
         consent: { confirmed: true },
+        subsystemEnabled: true,
         now: () => now,
         ...overrides,
     });
@@ -186,24 +187,35 @@ describe("spawn controller", () => {
         expect(h.host.requests[0]!.approvalMode).toBe(COLD_SPAWN_APPROVAL_MODE);
     });
 
-    test("a prior session's posture is inherited rather than escalated", async () => {
-        const h = harness({
-            inheritedApprovalMode: (address) =>
-                address === "dormant" ? "auto" : undefined,
-        });
+    test("no address can pick a posture: every spawn is cold", async () => {
+        const h = harness();
         h.append({ address: "dormant" });
         h.append({ address: "other" });
         await h.controller.scan();
         const modes = h.host.requests.map((request) => request.approvalMode);
-        expect(modes).toEqual(["auto", COLD_SPAWN_APPROVAL_MODE]);
+        expect(modes).toEqual([
+            COLD_SPAWN_APPROVAL_MODE,
+            COLD_SPAWN_APPROVAL_MODE,
+        ]);
     });
 
-    test("an entry a session caused never spawns for that session", async () => {
+    test("an entry matching a live consumer's own pair never spawns", async () => {
         const h = harness();
+        h.consumers.hello({
+            label: "worker",
+            selfEcho: { actor: "agent", session: "dormant" },
+        });
         h.append({ address: "dormant", session: "dormant", actor: "agent" });
         await h.controller.scan();
         expect(h.host.requests).toHaveLength(0);
         expect(h.controller.held()[0]!.reason).toBe("self-caused");
+    });
+
+    test("a bare address match cannot suppress a spawn on its own", async () => {
+        const h = harness();
+        h.append({ address: "dormant", session: "dormant", actor: "agent" });
+        await h.controller.scan();
+        expect(h.host.requests).toHaveLength(1);
     });
 
     test("an entry any known session caused never spawns", async () => {
@@ -265,7 +277,7 @@ describe("spawn controller", () => {
         expect(addresses).toEqual(["noisy", "quiet"]);
     });
 
-    test("no target holds the entry instead of dropping it", async () => {
+    test("no target records the entry as held and does not re-ask", async () => {
         const h = harness();
         h.host.target = false;
         h.append({ address: "dormant" });
@@ -273,7 +285,7 @@ describe("spawn controller", () => {
         expect(h.controller.held()[0]!.reason).toBe("no-target");
         h.host.target = true;
         await h.controller.scan();
-        expect(h.host.requests).toHaveLength(2);
+        expect(h.host.requests).toHaveLength(1);
     });
 
     test("an unaddressed entry spawns nothing", async () => {

@@ -29,7 +29,7 @@ import {
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
-import { openInboxIfEnabled } from "../store/inbox.ts";
+import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
 import {
@@ -206,8 +206,7 @@ export async function startResidentHost(
             consumers,
             spawnSession,
             consent: SpawnConsentStore.open(options.spawnConsentPath),
-            inheritedApprovalMode: (address) =>
-                registry.approvalModeOf(address),
+            subsystemEnabled: inboxEnabled(options.config),
             causedByKnownSession: (entry) =>
                 entry.session !== null
                 && registry.find(entry.session) !== undefined,
@@ -283,7 +282,7 @@ export async function startResidentHost(
             // Preserve the host startup failure.
         }
         await registry.close();
-        closeInbox();
+        await closeInbox();
         throw error;
     }
 
