@@ -29,7 +29,7 @@ import {
 } from "./approval-body.ts";
 import {
     attachDialogRowPointer,
-    dialogBottomOffset,
+    DIALOG_SHORT_TERMINAL_HEIGHT,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 
@@ -114,6 +114,7 @@ export function createTuiApprovalView(
         width: 1,
         backgroundColor: TUI_NOTICE,
         flexShrink: 0,
+        visible: approvalChromeVisible(renderer),
     });
     const headerText = new TextRenderable(renderer, {
         id: "approval-header-text",
@@ -181,7 +182,8 @@ export function createTuiApprovalView(
         flexGrow: 1,
         flexDirection: "column",
         gap: 0,
-        paddingTop: 1,
+        paddingTop: approvalTopPadding(renderer),
+        paddingBottom: approvalBottomPadding(renderer),
         paddingLeft: 2,
         paddingRight: 2,
     });
@@ -189,41 +191,24 @@ export function createTuiApprovalView(
     content.add(details);
     content.add(actions);
 
-    const panel = new BoxRenderable(renderer, {
-        id: "approval-panel",
-        width: "100%",
-        height: "auto",
-        flexGrow: 1,
-        flexDirection: "row",
-    });
-    panel.add(bar);
-    panel.add(content);
-
-    const separator = new BoxRenderable(renderer, {
-        id: "approval-separator",
-        width: "100%",
-        height: 1,
-        flexShrink: 0,
-        border: ["bottom"],
-        borderColor: TUI_MUTED,
-    });
-
     const box = new BoxRenderable(renderer, {
         id: "approval-box",
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        bottom: dialogBottomOffset(renderer),
-        left: 0,
-        width: "100%",
+        bottom: 1,
+        left: approvalSideInset(renderer),
+        right: 1,
         height: "auto",
-        maxHeight: "90%",
+        maxHeight: renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
+            ? "100%"
+            : "90%",
         zIndex: 20,
-        flexDirection: "column",
+        flexDirection: "row",
         visible: false,
     });
-    box.add(panel);
-    box.add(separator);
+    box.add(bar);
+    box.add(content);
 
     let buttonNodes: TextRenderable[] = [];
 
@@ -269,16 +254,15 @@ export function createTuiApprovalView(
     function renderChrome(update: ToolApprovalUiRequestUpdate): void {
         bar.backgroundColor = TUI_NOTICE;
         box.backgroundColor = TUI_PANEL;
-        separator.borderColor = TUI_MUTED;
         detailsText.fg = TUI_TEXT;
         const reason = specificReason(update.request.reason);
         headerText.content = new StyledText([
-            fg(TUI_NOTICE)("△ Permission required"),
+            fg(TUI_NOTICE)("Permission required"),
             fg(TUI_MUTED)(`  ${update.request.toolCall.name}`),
             ...(reason === undefined ? [] : [fg(TUI_MUTED)(`\n${reason}`)]),
         ]);
         hints.content = new StyledText([
-            fg(TUI_TEXT)("←→"),
+            fg(TUI_TEXT)("left/right"),
             fg(TUI_MUTED)(" select  "),
             fg(TUI_TEXT)("enter"),
             fg(TUI_MUTED)(" confirm  "),
@@ -309,7 +293,15 @@ export function createTuiApprovalView(
         },
         update(update): void {
             lastUpdate = update;
-            box.bottom = dialogBottomOffset(renderer);
+            box.maxHeight = renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
+                ? "100%"
+                : "90%";
+            box.left = approvalSideInset(renderer);
+            bar.visible = approvalChromeVisible(renderer);
+            headerText.visible = approvalHeaderVisible(renderer);
+            content.paddingTop = approvalTopPadding(renderer);
+            content.paddingBottom = approvalBottomPadding(renderer);
+            details.marginTop = approvalDetailsMargin(renderer);
             hints.visible = renderer.width >= 60;
             if (currentRequestId === update.requestId) {
                 return;
@@ -365,6 +357,30 @@ export function createTuiApprovalView(
         },
     };
     return view;
+}
+
+function approvalBottomPadding(renderer: RenderContext): number {
+    return approvalChromeVisible(renderer) ? 1 : 0;
+}
+
+function approvalTopPadding(renderer: RenderContext): number {
+    return approvalHeaderVisible(renderer) ? 1 : 0;
+}
+
+function approvalDetailsMargin(renderer: RenderContext): number {
+    return approvalHeaderVisible(renderer) ? 1 : 0;
+}
+
+function approvalHeaderVisible(renderer: RenderContext): boolean {
+    return renderer.height > 6;
+}
+
+function approvalChromeVisible(renderer: RenderContext): boolean {
+    return renderer.height > DIALOG_SHORT_TERMINAL_HEIGHT;
+}
+
+function approvalSideInset(renderer: RenderContext): number {
+    return approvalChromeVisible(renderer) ? 2 : 0;
 }
 
 export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
