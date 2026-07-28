@@ -43,8 +43,20 @@ export interface AttachInboxConsumerRequest {
     readonly minWakeIntervalMs?: number;
 }
 
+export interface InboxPumpFailure {
+    /** `nodeId/label` of the consumer whose pump failed. */
+    readonly consumer: string;
+    readonly error: unknown;
+}
+
 export interface InboxDeliveryOptions {
     readonly maxEntriesPerWake?: number;
+    /**
+     * Reports a pump that could not record its delivery. The offset stays put
+     * when this fires, so the entries are retried rather than lost; without a
+     * hook the failure would be invisible and the consumer would look idle.
+     */
+    readonly onPumpError?: (failure: InboxPumpFailure) => void;
     readonly now?: () => number;
     readonly setTimer?: (run: () => void, ms: number) => unknown;
     readonly clearTimer?: (timer: unknown) => void;
@@ -115,15 +127,25 @@ export class InboxDeliverySession {
                 highest = Math.max(highest, Number(match[2]));
             }
         }
-        if (highest > 0) {
-            this.handle.advance(highest);
+        // Clamped to the tail the log actually holds. Delivery ids are text
+        // carried on a stored session, so a stale or edited one naming a seq
+        // beyond the log would otherwise skip every entry written after it.
+        const target = Math.min(highest, this.handle.tail());
+        if (target > 0) {
+            this.handle.advance(target);
         }
     }
 
     private async drain(): Promise<void> {
         while (!this.released) {
             const limit = this.coordinator.maxEntriesPerWake;
-            const entries = this.handle.read({ limit });
+            // Addressed entries are for their consumer. Addressing is a filter,
+            // not a private channel, but the default read is the accepted
+            // semantic: unaddressed entries plus this consumer's own.
+            const entries = this.handle.read({
+                limit,
+                addresses: [this.handle.label],
+            });
             if (entries.length === 0) {
                 return;
             }
@@ -140,7 +162,18 @@ export class InboxDeliverySession {
                 sourceAgentId: INBOX_DELIVERY_SOURCE,
                 content: renderEntries(entries),
             };
-            const recorded = await this.target.recordDelivery(delivery);
+            let recorded: boolean;
+            try {
+                recorded = await this.target.recordDelivery(delivery);
+            } catch (error) {
+                // The offset does not move: the entries stay unread and the
+                // next pump retries them rather than skipping the batch.
+                this.coordinator.reportPumpFailure({
+                    consumer: this.handle.toString(),
+                    error,
+                });
+                return;
+            }
             this.handle.advance(last.seq);
             if (this.released) {
                 return;
@@ -186,6 +219,7 @@ export class InboxDeliveryCoordinator {
     private readonly setTimer: (run: () => void, ms: number) => unknown;
     private readonly clearTimer: (timer: unknown) => void;
     private spawnScan: (() => Promise<void>) | null = null;
+    private readonly onPumpError: (failure: InboxPumpFailure) => void;
 
     constructor(consumers: ConsumerRegistry, options: InboxDeliveryOptions = {}) {
         this.consumers = consumers;
@@ -202,6 +236,7 @@ export class InboxDeliveryCoordinator {
             });
         this.clearTimer = options.clearTimer
             ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+        this.onPumpError = options.onPumpError ?? reportPumpFailure;
     }
 
     /** Mints the consumer handle for a session and reconciles its offset. */
@@ -243,6 +278,15 @@ export class InboxDeliveryCoordinator {
         }
     }
 
+    /** @internal Called by a pump that could not record its delivery. */
+    reportPumpFailure(failure: InboxPumpFailure): void {
+        try {
+            this.onPumpError(failure);
+        } catch {
+            // Diagnostics must not take the delivery path down with them.
+        }
+    }
+
     /** @internal */
     now(): number {
         return this.clock();
@@ -262,6 +306,15 @@ export class InboxDeliveryCoordinator {
     forget(session: InboxDeliverySession): void {
         this.sessions.delete(session);
     }
+}
+
+function reportPumpFailure(failure: InboxPumpFailure): void {
+    const detail = failure.error instanceof Error
+        ? failure.error.message
+        : String(failure.error);
+    console.error(
+        `Vera could not record an inbox delivery for ${failure.consumer}: ${detail}`,
+    );
 }
 
 /**
