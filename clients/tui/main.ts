@@ -112,12 +112,16 @@ import {
 import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerKey,
+    tuiPickerViewportRows,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
     syncTuiModelPicker,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     startTuiExtensionPicker,
+    startTuiProviderPicker,
+    tuiPickerMenuAncestor,
+    withTuiPickerParent,
     type TuiSettingsMenuTarget,
     type TuiAnySettingsPickerState,
     type TuiSettingsPickerState,
@@ -125,6 +129,22 @@ import {
     type TuiExtensionPickerAction,
     type TuiExtensionPickerTransition,
 } from "./settings-picker.ts";
+import {
+    createTuiSecretPromptView,
+    handleTuiSecretPromptKey,
+    startTuiSecretPrompt,
+    type TuiSecretPromptState,
+} from "./secret-prompt.ts";
+import {
+    createAuthStorage,
+    type AuthStorage,
+} from "../../src/providers/auth-storage.ts";
+import {
+    findProvider,
+    isProviderConnected,
+    PROVIDERS,
+} from "../../src/providers/registry.ts";
+import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 import { renderPermissionInspection } from "./permission-inspection.ts";
 import {
     createTuiPreferencesListView,
@@ -231,6 +251,13 @@ export interface TuiDependencies {
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
     readonly disabledBuiltinExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
+    /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
+    readonly authStorage?: AuthStorage;
+    /** Overrides the browser hand-off a provider's OAuth row would run. */
+    readonly loginProvider?: (
+        providerId: string,
+        onAuthorizationUrl: (url: string) => void,
+    ) => Promise<void>;
 }
 
 export interface TuiDraft {
@@ -467,7 +494,10 @@ export async function startTui(
         (settings: NonNullable<typeof state.modelSettings>) => void
     >();
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
+    let secretPrompt: TuiSecretPromptState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
+    /** The picker pane the preferences list was opened over, restored on close. */
+    let preferencesListParent: TuiSettingsPickerState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
     let help: TuiHelpState | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
@@ -690,6 +720,7 @@ export async function startTui(
     }
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
+    const secretPromptView = createTuiSecretPromptView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
@@ -743,6 +774,7 @@ export async function startTui(
     app.add(questionView.box);
     app.add(timelinePickerView.box);
     app.add(settingsPickerView.box);
+    app.add(secretPromptView.box);
     app.add(preferencesListView.box);
     app.add(commandPaletteView.box);
     app.add(helpView.box);
@@ -819,7 +851,10 @@ export async function startTui(
                 renderState();
                 return;
             }
-            if (pendingUiRequest === undefined && !sessionSwitchPending) {
+            if (
+                pendingUiRequest === undefined && !sessionSwitchPending
+                && secretPrompt === undefined
+            ) {
                 openCommandPalette();
             }
             return;
@@ -932,10 +967,23 @@ export async function startTui(
             }
         }
 
+        // Ahead of the picker: the prompt is drawn over the pane that opened
+        // it, so it takes the keys while it is up.
+        if (secretPrompt !== undefined) {
+            const transition = handleTuiSecretPromptKey(secretPrompt, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                applySecretPromptTransition(secretPrompt, transition);
+                return;
+            }
+        }
+
         if (settingsPicker !== undefined) {
+            const viewportRows = tuiPickerViewportRows(renderer, settingsPicker);
             const transition = settingsPicker.kind === "extension"
-                ? handleTuiSettingsPickerKey(settingsPicker, key)
-                : handleTuiSettingsPickerKey(settingsPicker, key);
+                ? handleTuiSettingsPickerKey(settingsPicker, key, viewportRows)
+                : handleTuiSettingsPickerKey(settingsPicker, key, viewportRows);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -964,7 +1012,14 @@ export async function startTui(
                 }
                 if (preferencesList === undefined) {
                     preferencesListView.box.visible = false;
-                    composer.focus();
+                    settingsPicker = preferencesListParent;
+                    preferencesListParent = undefined;
+                    if (settingsPicker === undefined) {
+                        composer.focus();
+                    } else {
+                        settingsPickerView.update(settingsPicker);
+                        settingsPickerView.box.focus();
+                    }
                 }
                 renderState();
                 return;
@@ -2035,6 +2090,10 @@ export async function startTui(
             sessionTrashConfirmView.box.focus();
             return;
         }
+        if (secretPrompt !== undefined) {
+            secretPromptView.box.focus();
+            return;
+        }
         if (settingsPicker !== undefined) {
             settingsPickerView.box.focus();
             return;
@@ -2180,10 +2239,18 @@ export async function startTui(
             === "user_question";
         timelinePickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker !== undefined;
+        // Over the connect pane it was opened from, so the pane is still there
+        // to go back to when the key is saved or the prompt is abandoned.
+        secretPromptView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && secretPrompt !== undefined;
         settingsPickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && secretPrompt === undefined
             && settingsPicker !== undefined;
         preferencesListView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
@@ -2196,6 +2263,7 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
+            && secretPrompt === undefined
             && preferencesList === undefined
             && commandPalette !== undefined;
         helpView.box.visible = pendingUiRequest === undefined
@@ -2220,12 +2288,14 @@ export async function startTui(
                 || helpView.box.visible
                 || permissionsConfirmView.box.visible
                 || sessionTrashConfirmView.box.visible
+                || secretPromptView.box.visible
             ? 0.35
             : 1;
         composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && secretPrompt === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && help === undefined;
@@ -2247,6 +2317,9 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
+        }
+        if (secretPrompt !== undefined) {
+            secretPromptView.update(secretPrompt);
         }
         if (preferencesList !== undefined) {
             preferencesListView.update(preferencesList);
@@ -2320,6 +2393,7 @@ export async function startTui(
     function anyOverlayOpen(): boolean {
         return pendingUiRequest !== undefined
             || timelinePicker !== undefined
+            || secretPrompt !== undefined
             || settingsPicker !== undefined
             || preferencesList !== undefined
             || commandPalette !== undefined
@@ -2338,8 +2412,8 @@ export async function startTui(
     // palette row, and a /settings menu entry. Keeping them here means the three
     // routes cannot drift into opening the same picker with different arguments.
 
-    function openModelPicker(): void {
-        settingsPicker = startTuiSettingsPicker(
+    function openModelPicker(parent?: TuiSettingsPickerState): void {
+        settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
             state.modelSettings?.model,
             state.modelSettings?.reasoningEffort,
@@ -2349,7 +2423,7 @@ export async function startTui(
             state.modelSettings?.provider,
             undefined,
             state.modelSettings?.pinned,
-        );
+        ), parent);
         renderState();
         focusActiveSurface();
     }
@@ -2369,7 +2443,7 @@ export async function startTui(
         return current?.levels ?? [];
     }
 
-    function openReasoningPicker(): void {
+    function openReasoningPicker(parent?: TuiSettingsPickerState): void {
         // An empty (or unresolved) level list means this model has no
         // reasoning control at all. A card with no rows is indistinguishable
         // from the TUI ignoring the key, so say why there is nothing to pick.
@@ -2389,23 +2463,23 @@ export async function startTui(
                 candidate.provider === state.modelSettings?.provider
                 && candidate.model === state.modelSettings?.model,
         );
-        settingsPicker = startTuiReasoningPicker(
+        settingsPicker = withTuiPickerParent(startTuiReasoningPicker(
             levels,
             current?.defaultLevel,
             state.modelSettings?.reasoningEffort,
-        );
+        ), parent);
         renderState();
         focusActiveSurface();
     }
 
-    function openPermissionsPicker(): void {
+    function openPermissionsPicker(parent?: TuiSettingsPickerState): void {
         if (state.permissionInspection !== undefined) {
             state = appendTuiNotice(
                 state,
                 renderPermissionInspection(state.permissionInspection),
             );
         }
-        settingsPicker = startTuiSettingsPicker(
+        settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "permissions",
             state.modelSettings?.model,
             state.modelSettings?.reasoningEffort,
@@ -2414,34 +2488,198 @@ export async function startTui(
             undefined,
             undefined,
             state.permissionInspection?.availableModes,
-        );
+        ), parent);
         renderState();
         focusActiveSurface();
     }
 
-    function openThemePicker(): void {
-        settingsPicker = startTuiSettingsPicker(
+    function openThemePicker(parent?: TuiSettingsPickerState): void {
+        settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "theme",
             state.modelSettings?.model,
             state.modelSettings?.reasoningEffort,
             state.approvalMode,
             state.modelSettings?.availableModels,
             themeName,
-        );
+        ), parent);
         renderState();
         focusActiveSurface();
     }
 
-    function openPreferencesList(): void {
+    function openPreferencesList(parent?: TuiSettingsPickerState): void {
         // Opened from the cached inspection, then refreshed by the reply to
         // this fetch. Without the fetch the list could be stale, since a
         // client is only sent an inspection at startup and when something
         // changes it.
         preferencesList = startTuiPreferencesList(state.permissionInspection);
+        // Its own overlay rather than a picker pane, so the pane it came from
+        // is held here instead of on the state, and closing puts it back.
+        preferencesListParent = parent;
         sendCommand({ type: "get_permissions", requestId: randomUUID() });
         composer.blur();
         focusActiveSurface();
         renderState();
+    }
+
+    /**
+     * The store this client reads and writes credentials through, opened once.
+     *
+     * The TUI touches `~/.vera/auth.json` directly rather than asking the host
+     * to write it. The host re-reads the file
+     * on every credential check, so a key saved here is in effect on the next
+     * turn with nothing to notify.
+     */
+    const authStorage: AuthStorage = dependencies.authStorage
+        ?? createAuthStorage();
+    /** Providers with a browser sign-in already running, so Enter cannot start a second. */
+    const connectingProviders = new Set<string>();
+
+    /**
+     * Whether Vera already holds a credential, with an unreadable store read as
+     * "no". The pane is a list of what to connect, so a broken `auth.json`
+     * should show everything as unconnected rather than throw inside a keypress.
+     */
+    function providerConnected(provider: Parameters<typeof isProviderConnected>[0]): boolean {
+        try {
+            return isProviderConnected(provider, { authStorage });
+        } catch {
+            return false;
+        }
+    }
+
+    function openProviderPicker(parent?: TuiSettingsPickerState): void {
+        settingsPicker = withTuiPickerParent(
+            startTuiProviderPicker(PROVIDERS.map((provider) => ({
+                id: provider.id,
+                label: provider.label,
+                group: provider.group === "popular" ? "Popular" : "Providers",
+                ...(provider.hint === undefined ? {} : { hint: provider.hint }),
+                connected: providerConnected(provider),
+            }))),
+            parent,
+        );
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    /**
+     * Connect one provider, by whatever it is that provider wants.
+     *
+     * A row that needs no credential says so rather than pretending to connect,
+     * since a check mark appearing for a step that never happened is the one
+     * thing this pane cannot afford to get wrong.
+     */
+    function connectProvider(
+        providerId: string,
+        pane: TuiSettingsPickerState | undefined,
+    ): void {
+        const provider = findProvider(providerId);
+        if (provider === undefined) {
+            return;
+        }
+        if (provider.credential === "api_key") {
+            secretPrompt = startTuiSecretPrompt(provider, pane);
+            settingsPicker = undefined;
+            composer.blur();
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        settingsPicker = pane;
+        if (provider.credential === "none") {
+            state = appendTuiNotice(
+                state,
+                `${provider.label} needs no credentials${
+                    provider.envVar === undefined
+                        ? ""
+                        : `, point it elsewhere with ${provider.envVar}`
+                }`,
+            );
+            renderState();
+            return;
+        }
+        // The browser hand-off runs while the pane stays open, so the URL and
+        // the outcome both arrive as notices behind it rather than as a modal
+        // that has nothing to offer but waiting. The pane staying open also
+        // means Enter can land twice, and the callback listener binds a fixed
+        // port, so a second run would fail on the first one's own server.
+        if (connectingProviders.has(provider.id)) {
+            return;
+        }
+        connectingProviders.add(provider.id);
+        state = appendTuiNotice(state, `opening a browser to sign in to ${provider.label}…`);
+        renderState();
+        void (dependencies.loginProvider ?? defaultLoginProvider)(
+            provider.id,
+            (url) => {
+                state = appendTuiNotice(state, `sign in at ${url}`);
+                renderState();
+            },
+        ).then(() => {
+            connectingProviders.delete(provider.id);
+            state = appendTuiNotice(state, `connected to ${provider.label}`);
+            if (settingsPicker?.kind === "provider") {
+                openProviderPicker(settingsPicker.parent);
+                return;
+            }
+            renderState();
+        }, (error: unknown) => {
+            connectingProviders.delete(provider.id);
+            state = appendTuiNotice(
+                state,
+                `could not connect to ${provider.label}: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
+    }
+
+    async function defaultLoginProvider(
+        providerId: string,
+        onAuthorizationUrl: (url: string) => void,
+    ): Promise<void> {
+        if (providerId !== "openai-codex") {
+            throw new Error(`No sign-in flow for provider ${providerId}`);
+        }
+        await loginOpenAICodex({ authStorage, onAuthorizationUrl });
+    }
+
+    function applySecretPromptTransition(
+        prompt: TuiSecretPromptState,
+        transition: { readonly state?: TuiSecretPromptState; readonly submitted?: string },
+    ): void {
+        secretPrompt = transition.state;
+        if (secretPrompt !== undefined) {
+            renderState();
+            return;
+        }
+        if (transition.submitted !== undefined) {
+            try {
+                authStorage.setCredential(prompt.providerId, {
+                    type: "api_key",
+                    key: transition.submitted,
+                });
+                state = appendTuiNotice(state, `stored ${prompt.label} API key`);
+            } catch (error) {
+                state = appendTuiNotice(
+                    state,
+                    `could not store the ${prompt.label} API key: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+            }
+        }
+        // Back to the pane the prompt was opened over, rebuilt so the row it
+        // came from carries its new mark.
+        if (prompt.parent?.kind === "provider") {
+            openProviderPicker(prompt.parent.parent);
+            return;
+        }
+        settingsPicker = prompt.parent;
+        renderState();
+        focusActiveSurface();
     }
 
     function openSettingsMenu(): void {
@@ -2451,13 +2689,19 @@ export async function startTui(
         focusActiveSurface();
     }
 
-    function openSettingsMenuTarget(target: TuiSettingsMenuTarget): void {
-        if (target === "model") return openModelPicker();
-        if (target === "reasoning") return openReasoningPicker();
-        if (target === "theme") return openThemePicker();
-        if (target === "permission_mode") return openPermissionsPicker();
-        if (target === "granted_permissions") return openPreferencesList();
-        settingsPicker = startTuiSettingsMenu("permission_settings");
+    function openSettingsMenuTarget(
+        target: TuiSettingsMenuTarget,
+        parent?: TuiSettingsPickerState,
+    ): void {
+        if (target === "model") return openModelPicker(parent);
+        if (target === "reasoning") return openReasoningPicker(parent);
+        if (target === "theme") return openThemePicker(parent);
+        if (target === "permission_mode") return openPermissionsPicker(parent);
+        if (target === "granted_permissions") return openPreferencesList(parent);
+        settingsPicker = withTuiPickerParent(
+            startTuiSettingsMenu("permission_settings"),
+            parent,
+        );
         renderState();
         focusActiveSurface();
     }
@@ -2567,6 +2811,14 @@ export async function startTui(
         ) {
             sessionTrashCandidate = transition.trashCandidate;
         }
+        if ("openProviders" in transition && transition.openProviders === true) {
+            // The model pane stays underneath: connecting a provider is a
+            // detour on the way to picking a model, not a change of subject.
+            openProviderPicker(
+                previousPicker?.kind === "extension" ? undefined : previousPicker,
+            );
+            return;
+        }
         if ("pinToggle" in transition && transition.pinToggle !== undefined) {
             // The pane stays open and stays on the same row. It is not updated
             // here: the settings snapshot that comes back rebuilds it, so what
@@ -2632,6 +2884,14 @@ export async function startTui(
                         ? `model change requested: ${selection.provider}/${selection.model}`
                         : `model change requested: ${selection.provider}/${selection.model} (${selection.reasoningEffort})`,
                 );
+            } else if (selection.kind === "provider") {
+                connectProvider(
+                    selection.providerId,
+                    previousPicker?.kind === "extension"
+                        ? undefined
+                        : previousPicker,
+                );
+                return;
             } else if (selection.kind === "reasoning") {
                 sendCommand({
                     type: "update_model_settings",
@@ -2650,16 +2910,30 @@ export async function startTui(
                 saveTuiThemePreference(themeName);
                 void applySelectedTheme(themeName, true);
             } else if (selection.kind === "menu") {
-                // A menu row opens the next surface, which replaces this one.
+                // A menu row opens the next surface over this one, which stays
+                // remembered as its parent so leaving comes back here.
                 settingsPicker = undefined;
-                openSettingsMenuTarget(selection.target);
+                openSettingsMenuTarget(
+                    selection.target,
+                    previousPicker?.kind === "extension"
+                        ? undefined
+                        : previousPicker,
+                );
                 return;
             } else {
                 resumeSessionPath = selection.sessionPath;
                 renderer.destroy();
                 return;
             }
-            settingsPicker = undefined;
+            // An answered pane returns to the menu it was opened from, so
+            // changing the model and then the theme is one trip through
+            // /settings rather than two. A confirmation is the exception: it
+            // is its own modal level, and the menu would sit open behind it.
+            settingsPicker = confirmingFullAccess
+                || previousPicker === undefined
+                || previousPicker.kind === "extension"
+                ? undefined
+                : tuiPickerMenuAncestor(previousPicker);
         }
         if (sessionTrashCandidate !== undefined) {
             composer.blur();

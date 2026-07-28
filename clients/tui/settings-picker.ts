@@ -39,6 +39,7 @@ import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
+    | "provider"
     | "reasoning"
     | "permissions"
     | "theme"
@@ -74,13 +75,36 @@ export interface TuiSettingsPickerOption {
     readonly sessionId?: string;
     /**
      * Position in the user's pin list, absent on an unpinned row. A rank
-     * rather than a flag because the pin list is ordered by recency of use and
-     * the provider list is ordered by provider: the Pinned tab has to be able
-     * to restore the order the store keeps, which sorting by provider destroys.
+     * rather than a flag because the pin list is ordered by when each model was
+     * pinned and the provider list is ordered by provider: the Pinned tab has to
+     * be able to restore the order the store keeps, which sorting by provider
+     * destroys.
      */
     readonly pinnedRank?: number;
     /** True on a pinned row whose model cannot run right now. */
     readonly unavailable?: boolean;
+    /**
+     * The heading this row belongs under. Model rows leave it unset and are
+     * grouped by their provider instead, which is the same idea: a heading is
+     * whatever one fact a run of rows shares.
+     */
+    readonly group?: string;
+    /** Set only on provider rows: whether Vera already holds a credential. */
+    readonly connected?: boolean;
+}
+
+/**
+ * A provider as the connect pane shows it, which is the registry plus the one
+ * fact the registry cannot know on its own. Passed in rather than read here:
+ * whether a provider is connected comes off disk, and this module stays a pure
+ * function of what it is handed.
+ */
+export interface TuiProviderRow {
+    readonly id: string;
+    readonly label: string;
+    readonly group: string;
+    readonly hint?: string;
+    readonly connected: boolean;
 }
 
 /**
@@ -119,6 +143,13 @@ export interface TuiSettingsPickerState {
     readonly loading?: boolean;
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
+    /**
+     * The pane this one was opened from, absent when a slash command or a
+     * palette row opened it directly. Escape steps back to it rather than
+     * closing the stack, so a wrong turn into a submenu costs one key instead
+     * of reopening `/settings`.
+     */
+    readonly parent?: TuiSettingsPickerState;
     /**
      * Set only on a level pane opened from the model pane. Its presence is
      * what tells this pane it is pane two of a chain rather than the
@@ -168,6 +199,7 @@ export type TuiSettingsPickerSelection =
         readonly kind: "reasoning";
         readonly reasoningEffort: ModelReasoningEffort;
     }
+    | { readonly kind: "provider"; readonly providerId: string }
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
     | { readonly kind: "session"; readonly sessionPath: string }
@@ -189,6 +221,12 @@ export interface TuiSettingsPickerTransition {
      * always the list the host actually stored.
      */
     readonly pinToggle?: TuiPinToggle;
+    /**
+     * The model pane asking for the connect pane over it. A request rather than
+     * a state: which providers are connected is a fact about the disk, and only
+     * the caller can read it.
+     */
+    readonly openProviders?: boolean;
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
@@ -349,6 +387,10 @@ export function syncTuiModelPicker(
         ...onTab,
         options,
         query: state.query,
+        // The pane it was opened from survives a snapshot. A rebuild is the host
+        // answering an edit made inside this pane, not a fresh way in, so
+        // pinning a model must not turn escape into "close everything".
+        ...(state.parent === undefined ? {} : { parent: state.parent }),
         selectedIndex: selectedIndex === -1
             ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
             : selectedIndex,
@@ -393,7 +435,12 @@ export function startTuiReasoningPicker(
         options,
         selectedIndex,
         query: "",
-        ...(pendingModel === undefined ? {} : { pendingModel }),
+        // A chained pane is a step inside the model choice, so the model pane
+        // is both what Escape returns to and what `pendingModel` folds into.
+        ...(pendingModel === undefined ? {} : {
+            pendingModel,
+            parent: pendingModel.modelPaneState,
+        }),
     };
 }
 
@@ -450,6 +497,74 @@ const PERMISSION_SETTINGS_OPTIONS: readonly TuiSettingsPickerOption[] = [
         searchText: "allowed grants preferences",
     },
 ];
+
+/**
+ * The connect pane: every provider Vera ships, with what it wants written on
+ * the row and a mark on the ones already connected.
+ *
+ * The list is short and hand-picked rather than fetched, so it opens with the
+ * cursor on the first unconnected row: with this few rows, the one thing left
+ * to do is the thing worth landing on.
+ */
+export function startTuiProviderPicker(
+    providers: readonly TuiProviderRow[],
+): TuiSettingsPickerState {
+    const options = providers.map((provider) => ({
+        value: provider.id,
+        label: provider.label,
+        description: provider.hint ?? "",
+        searchText: provider.id,
+        group: provider.group,
+        connected: provider.connected,
+    }));
+    const firstUnconnected = options.findIndex(
+        (option) => option.connected !== true,
+    );
+    return {
+        kind: "provider",
+        allOptions: options,
+        options,
+        selectedIndex: Math.max(0, firstUnconnected),
+        query: "",
+    };
+}
+
+/**
+ * The pane, remembering where it was opened from.
+ *
+ * Kept out of the `start*` functions so the parent is one thing set at the one
+ * place that knows it, rather than a trailing argument every opener has to
+ * thread through whether or not it has one.
+ */
+export function withTuiPickerParent(
+    state: TuiSettingsPickerState,
+    parent: TuiSettingsPickerState | undefined,
+): TuiSettingsPickerState {
+    return parent === undefined ? state : { ...state, parent };
+}
+
+/**
+ * The nearest menu above this pane, and where a finished choice lands.
+ *
+ * Escape steps back exactly one level, since a wrong turn should cost one key.
+ * A completed choice skips further: dropping the user back onto the model pane
+ * they just answered, or the level pane that folded into it, re-asks a question
+ * they are done with. A menu is the only ancestor still worth returning to,
+ * because it was a list of other things to change rather than a step in this
+ * one.
+ */
+export function tuiPickerMenuAncestor(
+    state: TuiSettingsPickerState,
+): TuiSettingsPickerState | undefined {
+    let current = state.parent;
+    while (current !== undefined) {
+        if (current.kind === "settings" || current.kind === "permission_settings") {
+            return current;
+        }
+        current = current.parent;
+    }
+    return undefined;
+}
 
 export function startTuiSettingsMenu(
     kind: TuiSettingsMenuKind,
@@ -642,14 +757,17 @@ function relativeSessionTime(value: string | undefined, now: Date): string {
 export function handleTuiSettingsPickerKey(
     state: TuiExtensionPickerState,
     key: TuiSettingsPickerKey,
+    viewportRows?: number,
 ): TuiExtensionPickerTransition;
 export function handleTuiSettingsPickerKey(
     state: TuiSettingsPickerState,
     key: TuiSettingsPickerKey,
+    viewportRows?: number,
 ): TuiSettingsPickerTransition;
 export function handleTuiSettingsPickerKey(
     state: TuiAnySettingsPickerState,
     key: TuiSettingsPickerKey,
+    viewportRows?: number,
 ): TuiSettingsPickerTransition | TuiExtensionPickerTransition {
     if (state.kind === "extension") {
         return handleTuiExtensionPickerKey(state, key);
@@ -695,6 +813,18 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
+    // Also ahead of the modifier bail-out, and modified for the same reason as
+    // ctrl+s above: every bare key on the model pane belongs to its search box.
+    if (
+        state.kind === "model"
+        && key.ctrl
+        && key.name === "e"
+        && !key.meta
+        && !key.super
+        && !key.hyper
+    ) {
+        return { state, handled: true, openProviders: true };
+    }
     // Tab flips between the two views of the same list. Shift is tolerated
     // rather than given its own direction: with two tabs, forward and backward
     // are the same move.
@@ -734,24 +864,41 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
+    // Half-page movement, ahead of the modifier bail-out below. The cursor
+    // travels with the jump rather than the window sliding out from under it,
+    // so ctrl+d is ↓ held down and nothing new has to be learned about where
+    // the highlight went.
+    if (
+        key.ctrl
+        && (key.name === "d" || key.name === "u")
+        && !key.meta && !key.super && !key.hyper
+    ) {
+        const jump = Math.max(1, Math.floor((viewportRows ?? FALLBACK_JUMP * 2) / 2));
+        const next = {
+            ...state,
+            selectedIndex: clampedIndex(
+                state.selectedIndex + (key.name === "d" ? jump : -jump),
+                state.options.length,
+            ),
+        };
+        return { state: next, handled: true, ...themePreview(next) };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
     if (key.name === "escape") {
-        // Escape inside a submenu steps back to its parent rather than closing
-        // outright, so a wrong turn costs one key instead of reopening /settings.
-        if (state.kind === "permission_settings") {
-            return { state: startTuiSettingsMenu("settings"), handled: true };
+        // Leaving a theme pane puts back the theme the user came in with,
+        // whether that lands them in the parent menu or out of the pane.
+        const preview = state.kind === "theme" && state.initialTheme !== undefined
+            ? { previewTheme: state.initialTheme }
+            : {};
+        // Escape inside a pane opened from another one steps back rather than
+        // closing outright, so a wrong turn costs one key instead of reopening
+        // whatever led there.
+        if (state.parent !== undefined) {
+            return { state: state.parent, handled: true, ...preview };
         }
-        if (state.kind === "reasoning" && state.pendingModel !== undefined) {
-            return { state: state.pendingModel.modelPaneState, handled: true };
-        }
-        return {
-            handled: true,
-            ...(state.kind === "theme" && state.initialTheme !== undefined
-                ? { previewTheme: state.initialTheme }
-                : {}),
-        };
+        return { handled: true, ...preview };
     }
     if (key.name === "backspace") {
         return searched(state, state.query.slice(0, -1));
@@ -848,6 +995,16 @@ export function createTuiSettingsPickerView(
 }
 
 /**
+ * Half-page distance when nobody measured the window. Only callers that have no
+ * renderer land here, which today is tests: the TUI always measures.
+ */
+const FALLBACK_JUMP = 5;
+
+function clampedIndex(index: number, length: number): number {
+    return Math.max(0, Math.min(length - 1, index));
+}
+
+/**
  * Even a cramped terminal shows this many rows, at the cost of the card running
  * past where it would rather stop. A list windowed down to one or two rows is
  * not a list, it is a spinner you have to operate.
@@ -876,6 +1033,23 @@ function pickerMaxRows(renderer: RenderContext, extraChrome: number): number {
 
 // Where the card's top edge sits, matching `box.top` below.
 const PICKER_TOP_OFFSET = 2;
+
+/**
+ * How far the half-page keys move, which is half of what is currently on
+ * screen. The key handler is a pure function of state and cannot see the
+ * terminal, so whoever owns the renderer measures this and passes it in: a
+ * second constant here would be free to disagree with the window the user is
+ * actually looking at.
+ */
+export function tuiPickerViewportRows(
+    renderer: RenderContext,
+    state: TuiAnySettingsPickerState,
+): number {
+    return pickerMaxRows(
+        renderer,
+        state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0,
+    );
+}
 
 /**
  * The columns a row has for its label, description and meta together. Derived
@@ -944,8 +1118,14 @@ function renderListPickerRows(
         row.kind === "option"
             ? [{
                 label: row.option.label,
-                leading: isCurrentOption(state, row.option) ? "● " : "  ",
-                description: row.option.description,
+                leading: optionLeading(state, row.option),
+                // Model rows carry no description. A model's marketing line is
+                // not what anyone picks on, and at these widths it only ever
+                // arrived clipped to a few characters, so the row reads as the
+                // name and the provider heading above it.
+                ...(state.kind === "model"
+                    ? {}
+                    : { description: row.option.description }),
                 meta: optionMeta(state, row.option),
                 active: row.index === state.selectedIndex,
                 current: isCurrentOption(state, row.option),
@@ -1022,6 +1202,14 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
     if (state.kind === "reasoning" && state.pendingModel !== undefined) {
         return "↑↓ move · ⏎ select · esc back";
     }
+    if (state.kind === "provider") {
+        const selected = state.options[state.selectedIndex];
+        return [
+            "↑↓ move",
+            selected?.connected === true ? "⏎ reconnect" : "⏎ connect",
+            state.parent === undefined ? "esc close" : "esc back",
+        ].join(" · ");
+    }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
         const pinned = selected === undefined || selected.provider === undefined
@@ -1033,6 +1221,7 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
             "↑↓ move",
             "⏎ select",
             ...(pinned === undefined ? [] : [pinned]),
+            "^e providers",
             "⇥ tabs",
             "esc close",
         ].join(" · ");
@@ -1052,11 +1241,7 @@ function extensionPickerKeyLabel(
 function listDisplayRows(
     state: TuiAnySettingsPickerState,
 ): readonly PickerDisplayRow[] {
-    // Only the unfiltered All tab is grouped. A search result is a single ranked
-    // list, and the Pinned tab is ordered by the user's own use rather than by
-    // provider, so provider headers there would label nothing.
-    const grouped = state.kind === "model" && state.query.length === 0
-        && state.tab !== "pinned";
+    const grouped = isProviderGrouped(state);
     const rows: PickerDisplayRow[] = [];
     state.options.forEach((option, index) => {
         if (grouped && groupLabel(state.options[index - 1]) !== groupLabel(option)) {
@@ -1081,10 +1266,31 @@ function isPinned(
         );
 }
 
+/**
+ * Whether the list carries group headings.
+ *
+ * The connect pane always does: it is two runs of rows, the ones most people
+ * want and the rest, and that split is the only ordering it has.
+ *
+ * Everything but the un-searched Pinned tab does, search results included: a
+ * filtered list is still in provider order, so a heading there labels a real run
+ * of rows. That is what tells apart a subscription model from an OpenRouter one,
+ * and stating it once per group beats repeating it on every row.
+ *
+ * Pinned is the exception. It is ordered by the user's own use rather than by
+ * provider, so headings would label nothing and the provider goes on the row
+ * itself instead.
+ */
+function isProviderGrouped(state: TuiAnySettingsPickerState): boolean {
+    return state.kind === "provider"
+        || (state.kind === "model"
+            && (state.query.length > 0 || state.tab !== "pinned"));
+}
+
 function groupLabel(
     option: TuiSettingsPickerOption | undefined,
 ): string | undefined {
-    return option?.provider;
+    return option?.group ?? option?.provider;
 }
 
 function windowedDisplayRows(
@@ -1145,16 +1351,43 @@ function isCurrentOption(
     if (state.kind === "extension") {
         return option.value === state.selectedId;
     }
+    // A connected provider is the connect pane's version of "this is already
+    // the case", which is what the marker column says everywhere else.
+    if (state.kind === "provider") {
+        return option.connected === true;
+    }
     return state.kind === "model" && option.value === state.initialModel;
+}
+
+/**
+ * The marker column. A check on the connect pane rather than the dot the other
+ * panes use: a dot means "the one in effect", and connected providers are not
+ * exclusive, so several rows can carry it at once.
+ */
+function optionLeading(
+    state: TuiAnySettingsPickerState,
+    option: TuiSettingsPickerOption,
+): string {
+    if (state.kind === "provider") {
+        return option.connected === true ? "✓ " : "  ";
+    }
+    return isCurrentOption(state, option) ? "● " : "  ";
 }
 
 function optionMeta(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
 ): string | undefined {
-    return state.kind === "model" && state.query.length > 0
-        ? option.provider
-        : undefined;
+    if (state.kind !== "model") {
+        return undefined;
+    }
+    // A pin whose model the provider no longer lists says so, on every view. It
+    // is the one thing about a row that a provider heading cannot tell you, and
+    // choosing it is a dead end.
+    if (option.unavailable === true) {
+        return "unavailable";
+    }
+    return isProviderGrouped(state) ? undefined : option.provider;
 }
 
 function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
@@ -1347,8 +1580,11 @@ function modelOptions(
 
 /**
  * The All tab is what can run, in catalog order. The Pinned tab is the pin
- * list in its own order, which is recency of use: sorting it by provider would
- * throw away the only ordering the user's own actions produced.
+ * list in its own order, newest pin first: sorting it by provider would throw
+ * away the only ordering the user's own actions produced.
+ *
+ * That order is stable. Using a model does not move it, so a pinned row stays
+ * where the user last left it and stays worth aiming at.
  */
 function modelTabOptions(
     allOptions: readonly TuiSettingsPickerOption[],
@@ -1378,6 +1614,9 @@ function pickerSelection(
         return { kind, provider: option.provider, model: option.model };
     }
     const value = option.value;
+    if (kind === "provider") {
+        return { kind, providerId: value };
+    }
     if (kind === "reasoning") {
         // A chained level pane folds its result into the model choice that
         // opened it, so the two panes resolve to one patch rather than two.
@@ -1410,6 +1649,8 @@ function pickerTitle(
     if (title !== undefined) return title;
     return kind === "model"
         ? "Select model"
+        : kind === "provider"
+        ? "Connect a provider"
         : kind === "reasoning"
             ? "Reasoning"
             : kind === "permissions"
