@@ -495,6 +495,7 @@ function createExtension(
     id: string,
     source: string,
     capabilities: readonly string[] = ["commands.register"],
+    contributes?: unknown,
 ): string {
     const directory = createDirectory();
     writeFileSync(join(directory, "vera.extension.json"), JSON.stringify({
@@ -503,6 +504,7 @@ function createExtension(
         sdk: "1",
         entrypoint: "./extension.ts",
         capabilities,
+        ...(contributes === undefined ? {} : { contributes }),
     }));
     writeFileSync(join(directory, "extension.ts"), source);
     return directory;
@@ -584,3 +586,118 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     }
     throw new Error("condition was not reached");
 }
+
+test("a declaration-only extension contributes its watches to the host set", async () => {
+    const extension = createExtension(
+        "acme.arc-bridge",
+        "export function activate() {}\n",
+        [],
+        {
+            watches: [
+                {
+                    id: "main",
+                    source_family: "arc",
+                    config: { server: "https://arc.local" },
+                    address: "coordinator",
+                },
+            ],
+        },
+    );
+    const failures: ExtensionRegistryFailure[] = [];
+
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(failures).toEqual([]);
+    expect(registry.contributions().frozen()).toBe(true);
+    expect(registry.contributions().watches()).toEqual([
+        {
+            id: "acme.arc-bridge/main",
+            localId: "main",
+            extensionId: "acme.arc-bridge",
+            definition: {
+                id: "main",
+                source_family: "arc",
+                config: { server: "https://arc.local" },
+                address: "coordinator",
+                flood: "shed",
+            },
+        },
+    ]);
+    await registry.close();
+});
+
+test("a malformed contribution disables the extension before its code is imported", async () => {
+    const workspace = createDirectory();
+    const importedPath = join(workspace, "imported.txt");
+    const extension = createExtension(
+        "acme.arc-bridge",
+        `
+        import { writeFileSync } from "node:fs";
+        writeFileSync(${JSON.stringify(importedPath)}, "imported");
+        export function activate() {}
+        `,
+        [],
+        { watches: [{ id: "main" }] },
+    );
+    const failures: ExtensionRegistryFailure[] = [];
+
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(failures[0]?.message).toContain("acme.arc-bridge");
+    expect(failures[0]?.message).toContain("source_family");
+    expect(registry.contributions().watches()).toEqual([]);
+    expect(existsSync(importedPath)).toBe(false);
+    await registry.close();
+});
+
+test("two extensions may declare the same local watch id", async () => {
+    const first = createExtension(
+        "acme.arc-bridge",
+        "export function activate() {}\n",
+        [],
+        { watches: [{ id: "main", source_family: "arc" }] },
+    );
+    const second = createExtension(
+        "other.arc-bridge",
+        "export function activate() {}\n",
+        [],
+        { watches: [{ id: "main", source_family: "arc" }] },
+    );
+    const failures: ExtensionRegistryFailure[] = [];
+
+    const registry = await startExtensionRegistry({
+        extensions: [configured(first), configured(second)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(failures).toEqual([]);
+    expect(registry.contributions().watches().map((entry) => entry.id))
+        .toEqual(["acme.arc-bridge/main", "other.arc-bridge/main"]);
+    await registry.close();
+    expect(registry.contributions().watches()).toEqual([]);
+});
+
+test("a failed activation withdraws that extension's contributions", async () => {
+    const extension = createExtension(
+        "acme.arc-bridge",
+        `export function activate() { throw new Error("no"); }`,
+        [],
+        { watches: [{ id: "main", source_family: "arc" }] },
+    );
+    const failures: ExtensionRegistryFailure[] = [];
+
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(failures[0]?.extensionId).toBe("acme.arc-bridge");
+    expect(registry.contributions().watches()).toEqual([]);
+    await registry.close();
+});

@@ -1112,6 +1112,11 @@ async function executePreparedTool(
     return finishExecutedTool(state, toolCall, hookCall, result, durationMs);
 }
 
+/**
+ * A model that reasoned and then said nothing has failed the turn, and the
+ * reasoning is where a fake tool call hides. A model that produced nothing at
+ * all has answered a prompt that asked for nothing, so the turn ends quietly.
+ */
 function requireVisibleTerminalResponse(
     message: AssistantMessage,
 ): AssistantMessage {
@@ -1122,6 +1127,12 @@ function requireVisibleTerminalResponse(
             || (block.type === "text" && block.text.length > 0)
         )
     ) {
+        return message;
+    }
+    const reasoned = message.content.some((block) =>
+        block.type === "thinking" && block.text.length > 0
+    );
+    if (!reasoned) {
         return message;
     }
     return {
