@@ -13,6 +13,7 @@ import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import {
     availableModels,
     availableReasoningEfforts,
+    contextWindowForModel,
     isModelReasoningEffort,
     reasoningEffortForModel,
     type ModelSettingsPatch,
@@ -1084,9 +1085,7 @@ function settingsForClient(
     models: readonly SuggestedModel[] = availableModels(),
     pinned: readonly PinnedModel[] = [],
 ): ModelTurnSettings {
-    const selected = models.find((model) =>
-        model.provider === provider && model.model === settings.model
-    );
+    const contextWindow = contextWindowForModel(provider, settings.model, models);
     return {
         ...settings,
         availableReasoningEfforts: availableReasoningEfforts(
@@ -1095,8 +1094,6 @@ function settingsForClient(
         ),
         availableModels: availableModelsWithLevels(models),
         pinned,
-        ...(selected?.contextWindow === undefined
-            ? {}
-            : { contextWindow: selected.contextWindow }),
+        ...(contextWindow === undefined ? {} : { contextWindow }),
     };
 }

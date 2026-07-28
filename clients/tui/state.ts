@@ -5,6 +5,7 @@ import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
 import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type {
     ApprovalMode,
     PermissionInspection,
@@ -50,7 +51,7 @@ export interface TuiState {
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
     readonly permissionInspection?: PermissionInspection;
-    readonly contextInputTokens?: number;
+    readonly context?: ContextMeasurement;
 }
 
 export let TUI_ACCENT = VERA_TUI_THEME.accent;
@@ -184,13 +185,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return appendPresentation(state, update.presentation);
     }
     if (update.type === "turn_finished") {
-        const finished = {
-            ...state,
-            working: false,
-            ...(update.contextInputTokens === undefined
-                ? {}
-                : { contextInputTokens: update.contextInputTokens }),
-        };
+        const finished = { ...state, working: false };
         const error = update.error
             ?? (update.outcome === "error" ? "Model request failed"
                 : update.outcome === "aborted" ? "Turn aborted"
@@ -231,10 +226,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 state.entries,
                 canonicalEntries,
             ),
-            ...(update.contextInputTokens === undefined
+            ...(update.context === undefined
                 ? {}
-                : { contextInputTokens: update.contextInputTokens }),
+                : { context: update.context }),
         };
+    }
+    if (update.type === "context") {
+        return { ...state, context: update.measurement };
     }
     if (update.type === "user_prompt") {
         if (userEntryShows(state.entries.at(-1), update.content, update.attachments)) {

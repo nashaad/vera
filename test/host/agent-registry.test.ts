@@ -1107,6 +1107,7 @@ test("a resumed registry wakes the model for a pending delivery", async () => {
             "task_notification",
             "delivery_turn_started",
             "model_request",
+            "context_measured",
             "turn_finished",
         ]);
     } finally {

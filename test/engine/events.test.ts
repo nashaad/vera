@@ -89,14 +89,24 @@ test("a turn fans out to updates and a per-session event log", async () => {
             content: "say hello",
             seq: 1,
         });
+        // The request is measured as it is built, so the size lands before the
+        // first token rather than after the answer. The exact count tracks the
+        // system prompt and is not worth pinning here.
+        const measured = await channel.client.receive();
+        expect(measured.type).toBe("context");
+        if (measured.type !== "context") throw new Error("expected a measurement");
+        expect(measured.measurement.estimated).toBe(true);
+        expect(measured.measurement.tokens).toBeGreaterThan(0);
+        expect(measured.seq).toBe(2);
+
         expect(await channel.client.receive()).toEqual({
             type: "assistant_delta",
             text: "hello",
-            seq: 2,
+            seq: 3,
         });
         expect(await channel.client.receive()).toEqual({
             type: "turn_finished",
-            seq: 3,
+            seq: 4,
         });
         expect(await turn).toEqual(response);
 
@@ -104,6 +114,7 @@ test("a turn fans out to updates and a per-session event log", async () => {
         expect(eventNames).toEqual([
             "turn_started",
             "model_request",
+            "context_measured",
             "model_stream:start",
             "model_stream:text_start",
             "model_stream:text_delta",

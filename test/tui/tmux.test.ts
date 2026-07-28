@@ -1302,7 +1302,9 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("PARTIAL xxxxx");
             expect(pane).toContain("redirect now");
             expect(pane).not.toContain("FIRST-END");
-            expect(pane).toContain("auto · ctx 25%");
+            // The estimate stands while the request is in flight, so the
+            // provider's own count only replaces it once the turn ends.
+            pane = await waitForPane(socket, session, "auto · ctx 25%");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {

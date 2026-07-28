@@ -82,15 +82,35 @@ test("host wire accepts only complete tool presentations", () => {
     })).toBeUndefined();
 });
 
-test("host wire validates context token counts", () => {
+test("host wire validates context measurements", () => {
     expect(parseAgentUpdate({
-        type: "turn_finished",
-        contextInputTokens: 64_500,
+        type: "context",
+        measurement: { tokens: 64_500, capacity: 258_000, estimated: true },
         seq: 1,
     })).toBeDefined();
+    // A window is optional, but a nonsensical one is not passed through as if
+    // it were absent: it would render a percentage of nothing.
     expect(parseAgentUpdate({
-        type: "turn_finished",
-        contextInputTokens: -1,
+        type: "context",
+        measurement: { tokens: 64_500, capacity: 0, estimated: true },
+        seq: 1,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "context",
+        measurement: { tokens: -1, estimated: true },
+        seq: 1,
+    })).toBeUndefined();
+    // The label is what separates a counted number from a guessed one, so an
+    // unlabelled measurement is refused rather than assumed exact.
+    expect(parseAgentUpdate({
+        type: "context",
+        measurement: { tokens: 64_500 },
+        seq: 1,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "history",
+        entries: [],
+        context: { tokens: -1, estimated: false },
         seq: 1,
     })).toBeUndefined();
 });

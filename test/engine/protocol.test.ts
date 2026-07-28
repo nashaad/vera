@@ -232,13 +232,13 @@ test("protocol checkpoints keep the current update sequence", () => {
         {
             type: "history",
             entries: projectTranscript(messages),
-            contextInputTokens: 64_500,
+            context: { tokens: 64_500, estimated: false },
             seq: 1,
         },
     ]);
 });
 
-test("turn completion reports the latest context input tokens", () => {
+test("turn completion reports the provider's own context count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
         send(update): void {
@@ -255,11 +255,17 @@ test("turn completion reports the latest context input tokens", () => {
         message,
     });
 
-    expect(updates).toEqual([{
-        type: "turn_finished",
-        contextInputTokens: 64_500,
-        seq: 1,
-    }]);
+    // The count lands before the turn ends, so the authoritative number is
+    // what the status line is left holding rather than the estimate the
+    // request was measured at.
+    expect(updates).toEqual([
+        {
+            type: "context",
+            measurement: { tokens: 64_500, estimated: false },
+            seq: 1,
+        },
+        { type: "turn_finished", seq: 2 },
+    ]);
 });
 
 test("task notifications share the ordered agent update sequence", () => {
