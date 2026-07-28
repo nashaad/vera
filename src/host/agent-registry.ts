@@ -81,6 +81,10 @@ import {
 import { createSessionBranch } from "../store/session-branch.ts";
 import type { UserMessage } from "../model/types.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
+import type {
+    InboxDeliveryCoordinator,
+    InboxDeliverySession,
+} from "./inbox-delivery.ts";
 import {
     ImageAttachmentService,
     sessionAttachmentName,
@@ -258,6 +262,14 @@ export interface AgentRegistryOptions {
      * reasoning levels; absent, the per-user cache directory.
      */
     readonly cacheDir?: string;
+    /** Absent when the experimental inbox is off; nothing downstream re-checks. */
+    readonly inboxDelivery?: InboxDeliveryCoordinator;
+    /**
+     * The actor a session's own turns write into inbox entries. Self-echo
+     * suppression matches the (actor, session) pair, so a session with no
+     * known actor suppresses nothing.
+     */
+    readonly inboxActorForSession?: (agentId: string) => string | null;
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -473,6 +485,7 @@ interface RegisteredAgentEntry {
     requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;
     inbound?: InboundCommandRouter;
+    inbox?: InboxDeliverySession;
     run: Promise<void>;
     completed: boolean;
     pendingAsyncTurns: number;
@@ -613,6 +626,7 @@ export class AgentRegistry {
         }
         entry.agent.close();
         await entry.run;
+        entry.inbox?.release();
         this.agents.delete(id);
         this.spawnNotices.delete(id);
         return "closed";
@@ -1218,6 +1232,7 @@ export class AgentRegistry {
         this.isClosed = true;
         const entries = [...this.agents.values()];
         for (const entry of entries) {
+            entry.inbox?.release();
             entry.agent.close();
         }
         await Promise.all(entries.map((entry) => entry.run));
@@ -1470,6 +1485,7 @@ export class AgentRegistry {
                     : { hooks: this.options.createToolHooks() }),
             },
         ).catch(async (error: unknown) => {
+            entry.inbox?.release();
             if (!agent.closed) {
                 entry.failure = error;
                 const failureId = randomUUID();
@@ -1483,6 +1499,26 @@ export class AgentRegistry {
                 agent.fail(failureId, detail);
             }
         });
+        if (kind === "interactive" && this.options.inboxDelivery !== undefined) {
+            const inbox = this.options.inboxDelivery.attach({
+                label: agent.id,
+                actor: this.options.inboxActorForSession?.(agent.id) ?? null,
+                session: agent.id,
+                target: {
+                    recordDelivery: (delivery) =>
+                        recordDeliveryAndNotify(store, events, delivery),
+                    pendingDeliveryIds: () =>
+                        store.pendingDeliveries().map((delivery) => delivery.id),
+                },
+                triggerTurn: () => {
+                    if (!agent.closed && !agent.failed) {
+                        agent.triggerDeliveryTurn();
+                    }
+                },
+            });
+            entry.inbox = inbox;
+            this.trackDelivery(inbox.pump());
+        }
         const pendingDeliveries = store.pendingDeliveries();
         for (const delivery of pendingDeliveries) {
             events.emit({
@@ -1873,6 +1909,12 @@ export class AgentRegistry {
             },
         );
         return result?.behavior === "allow" ? "allow_once" : "deny";
+    }
+
+    /** Keeps shutdown waiting on a delivery that is mid-flight. */
+    private trackDelivery(task: Promise<void>): void {
+        this.deliveryTasks.add(task);
+        void task.then(() => this.deliveryTasks.delete(task));
     }
 
     private reserveId(id: string): void {
