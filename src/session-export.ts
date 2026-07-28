@@ -103,8 +103,10 @@ function markdownFence(content: string): string {
 function renderTranscriptText(
     entry: Extract<TranscriptEntry, { kind: "user" | "assistant" }>,
 ): string {
-    if (entry.kind !== "user" || entry.attachmentIds === undefined) return entry.text;
-    const images = entry.attachmentIds.map((id) => `[Image attachment: ${id}]`).join("\n");
+    if (entry.kind !== "user" || entry.attachments === undefined) return entry.text;
+    const images = entry.attachments.map(
+        (attachment) => `[Image attachment: ${attachment.name ?? attachment.id}]`,
+    ).join("\n");
     return entry.text.length === 0 ? images : `${entry.text}\n${images}`;
 }
 

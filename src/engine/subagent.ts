@@ -17,6 +17,7 @@ import {
     type InProcessChannel,
 } from "./message-channel.ts";
 import type { ApprovalMode } from "./permissions.ts";
+import { sessionAttachmentName } from "../attachments/service.ts";
 import {
     createProtocolEncoder,
     isToolApprovalUiRequestUpdate,
@@ -146,7 +147,10 @@ export async function runSubagent(
         await store.appendApprovalMode(options.approvalMode);
         options.signal?.throwIfAborted();
         const events = new EngineEventBus();
-        const protocol = createProtocolEncoder(channel.engine);
+        const protocol = createProtocolEncoder(
+            channel.engine,
+            sessionAttachmentName(store),
+        );
         events.subscribe(protocol);
         const state: RunTurnState = {
             messages: [],

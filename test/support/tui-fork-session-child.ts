@@ -21,7 +21,7 @@ const client = createSettingsAnsweringClient({
                 timestamp: "2026-07-23T12:00:00.000Z",
                 prompt: "edit this prompt",
                 position: 0,
-                attachmentIds: ["image-1"],
+                attachments: [{ id: "image-1" }],
             }],
         });
     },

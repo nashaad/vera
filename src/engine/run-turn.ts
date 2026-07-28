@@ -14,6 +14,7 @@ import {
 import {
     hydrateImageAttachments,
     readSessionImageContent,
+    sessionAttachmentName,
 } from "../attachments/service.ts";
 import type { JsonObject } from "../sdk/hooks.ts";
 import type {
@@ -262,7 +263,10 @@ export async function runHeadlessLoop(
     const removePermissionGrant = (id: string): Promise<boolean> =>
         store.revokePermissionGrant(id);
     const events = options.eventBus ?? new EngineEventBus();
-    const protocol = createProtocolEncoder(endpoint);
+    const protocol = createProtocolEncoder(
+        endpoint,
+        sessionAttachmentName(store),
+    );
     events.subscribe(protocol);
     events.subscribe(createJsonlEventLogger({
         path: options.eventLogPath ?? defaultEventLogPath(sessionId),

@@ -27,10 +27,20 @@ import type {
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
+export interface AttachmentRef {
+    /** The attachment ID the prompt was sent with. */
+    readonly id: string;
+    /** The file the image came from, absent once its record is gone. */
+    readonly name?: string;
+}
+
+/** Resolves an attachment ID to the file name it was attached from. */
+export type AttachmentNameLookup = (id: string) => string | undefined;
+
 export interface UserTranscriptEntry {
     readonly kind: "user";
     readonly text: string;
-    readonly attachmentIds?: readonly string[];
+    readonly attachments?: readonly AttachmentRef[];
 }
 
 export interface AssistantTranscriptEntry {
@@ -207,7 +217,7 @@ export interface HistoryUpdate {
 export interface UserPromptUpdate {
     readonly type: "user_prompt";
     readonly content: string;
-    readonly attachmentIds?: readonly string[];
+    readonly attachments?: readonly AttachmentRef[];
     readonly seq: number;
 }
 
@@ -364,7 +374,7 @@ export interface TimelineBoundary {
     readonly userMessageId: string;
     readonly timestamp: string;
     readonly prompt: string;
-    readonly attachmentIds?: readonly string[];
+    readonly attachments?: readonly AttachmentRef[];
     readonly position: number;
 }
 
@@ -789,6 +799,7 @@ function isModelReasoningEffort(
 
 export function createProtocolEncoder(
     sender: AgentUpdateSender,
+    attachmentName?: AttachmentNameLookup,
 ): ProtocolEncoder {
     let seq = 0;
 
@@ -798,7 +809,7 @@ export function createProtocolEncoder(
             sender.send({
                 type: "user_prompt",
                 content: textContent(event.message.content),
-                ...attachmentIds(event.message.content),
+                ...attachmentRefs(event.message.content, attachmentName),
                 seq,
             });
             return;
@@ -978,7 +989,7 @@ export function createProtocolEncoder(
         checkpoint(messages: readonly ModelMessage[]): void {
             sender.send({
                 type: "history",
-                entries: projectTranscript(messages),
+                entries: projectTranscript(messages, attachmentName),
                 ...latestContextInputTokens(messages),
                 seq,
             });
@@ -1005,6 +1016,7 @@ function contextInputTokens(
 
 export function projectTranscript(
     messages: readonly ModelMessage[],
+    attachmentName?: AttachmentNameLookup,
 ): readonly TranscriptEntry[] {
     const entries: TranscriptEntry[] = [];
 
@@ -1016,7 +1028,7 @@ export function projectTranscript(
             entries.push({
                 kind: "user",
                 text: textContent(message.content),
-                ...attachmentIds(message.content),
+                ...attachmentRefs(message.content, attachmentName),
             });
             continue;
         }
@@ -1083,13 +1095,19 @@ function textContent(
         : []).join("\n");
 }
 
-function attachmentIds(
+export function attachmentRefs(
     content: readonly { readonly type: string; readonly attachmentId?: string }[],
-): { readonly attachmentIds?: readonly string[] } {
-    const ids = content.flatMap((part) =>
-        part.type === "image_attachment" && part.attachmentId !== undefined
-            ? [part.attachmentId]
-            : []
-    );
-    return ids.length === 0 ? {} : { attachmentIds: ids };
+    attachmentName?: AttachmentNameLookup,
+): { readonly attachments?: readonly AttachmentRef[] } {
+    const refs = content.flatMap((part) => {
+        if (part.type !== "image_attachment" || part.attachmentId === undefined) {
+            return [];
+        }
+        const name = attachmentName?.(part.attachmentId);
+        return [{
+            id: part.attachmentId,
+            ...(name === undefined ? {} : { name }),
+        }];
+    });
+    return refs.length === 0 ? {} : { attachments: refs };
 }
