@@ -721,8 +721,20 @@ export async function startTui(
         submitPrompt,
         attachPastedImage,
     );
+    composer.onImageChipRemoved = (requestId) => {
+        pendingImages = pendingImages.filter(
+            (image) => image.requestId !== requestId,
+        );
+        if (pendingImages.length === 0) {
+            submitAfterImageAttachment = false;
+        }
+        renderState();
+    };
     if (dependencies.initialDraft !== undefined) {
         composer.setComposerText(dependencies.initialDraft.text);
+        for (const image of pendingImages) {
+            composer.attachImageChip(image.requestId);
+        }
     }
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
@@ -1775,7 +1787,14 @@ export async function startTui(
             renderState();
             return;
         }
-        const attachmentIds = pendingImages.map((image) => image.id!);
+        // The chips carry the order the user sees, which reordering the text
+        // can change; `pendingImages` only carries the order they arrived in.
+        const chipOrder = composer.imageChipRequestIds();
+        const attachmentIds = chipOrder
+            .map((requestId) =>
+                pendingImages.find((image) => image.requestId === requestId)?.id
+            )
+            .filter((id): id is string => id !== undefined);
         if (attachmentIds.length > 0) {
             const submittedRequestIds = new Set(
                 pendingImages.map((image) => image.requestId),
@@ -1845,8 +1864,9 @@ export async function startTui(
         }
         const requestId = randomUUID();
         pendingImages.push({ requestId });
+        composer.attachImageChip(requestId);
         sendCommand({ type: "attach_image", requestId, path });
-        showStatusNotice("attaching image…");
+        renderState();
     }
 
     async function receiveAgentUpdates(): Promise<void> {
@@ -1887,7 +1907,10 @@ export async function startTui(
                         }
                     } else {
                         submitAfterImageAttachment = false;
-                        pendingImages.splice(imageIndex, 1);
+                        const [rejected] = pendingImages.splice(imageIndex, 1);
+                        if (rejected !== undefined) {
+                            composer.removeImageChip(rejected.requestId);
+                        }
                         state = appendTuiNotice(
                             state,
                             `Could not attach image: ${update.error}`,

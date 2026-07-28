@@ -258,3 +258,58 @@ test("Up recalls user messages loaded from a resumed session", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("an attached image becomes a numbered chip at the cursor", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+
+    try {
+        composer.insertText("look ");
+        composer.attachImageChip("first");
+        composer.attachImageChip("second");
+        expect(composer.plainText).toBe("look [Image 1] [Image 2] ");
+        expect(composer.imageChipRequestIds()).toEqual(["first", "second"]);
+        // The chips are the attachments, not the prompt.
+        expect(composer.expandedText()).toBe("look");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("one backspace takes a whole chip and renumbers the rest", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const removed: string[] = [];
+    const composer = createTuiComposer(setup.renderer, () => {});
+    composer.onImageChipRemoved = (requestId) => removed.push(requestId);
+
+    try {
+        composer.attachImageChip("first");
+        composer.attachImageChip("second");
+        // Past the trailing space of the second chip, then onto the chip.
+        composer.handleKeyPress({ name: "backspace" } as never);
+        composer.handleKeyPress({ name: "backspace" } as never);
+        expect(removed).toEqual(["second"]);
+        expect(composer.imageChipRequestIds()).toEqual(["first"]);
+        expect(composer.plainText).toBe("[Image 1] ");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a refused attachment drops its chip without reporting a removal", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const removed: string[] = [];
+    const composer = createTuiComposer(setup.renderer, () => {});
+    composer.onImageChipRemoved = (requestId) => removed.push(requestId);
+
+    try {
+        composer.attachImageChip("first");
+        composer.attachImageChip("second");
+        composer.removeImageChip("first");
+        expect(removed).toEqual([]);
+        expect(composer.imageChipRequestIds()).toEqual(["second"]);
+        expect(composer.plainText).toBe("[Image 1] ");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
