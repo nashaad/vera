@@ -97,23 +97,12 @@ export function wheelCursor(
     }
     // A wheel reports whole rows, a trackpad reports fractions of one, and a
     // scroll that moves nothing reads as a dead pane.
-    //
-    // Halved, because these panes are short: a trackpad gesture that reads as a
-    // comfortable glide down a long transcript throws the cursor most of the way
-    // through a picker. A single wheel click still moves one row, so only the
-    // fast gestures are damped.
-    const rows = Math.max(
-        1,
-        Math.round((Math.abs(scroll.delta) || 1) * WHEEL_ROWS_PER_DELTA),
-    );
+    const rows = Math.max(1, Math.round(Math.abs(scroll.delta) || 1));
     return clampedCursor(
         cursor + (scroll.direction === "down" ? rows : -rows),
         length,
     );
 }
-
-/** How far the cursor travels per unit of reported wheel delta. */
-const WHEEL_ROWS_PER_DELTA = 0.5;
 
 function clampedCursor(index: number, length: number): number {
     if (length <= 0) return 0;
