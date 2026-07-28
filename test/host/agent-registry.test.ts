@@ -28,6 +28,9 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
+import { Inbox } from "../../src/store/inbox.ts";
+import { ConsumerRegistry } from "../../src/host/consumers.ts";
+import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 test("resident agents resolve relative file paths from their fixed workspaces", async () => {
@@ -2639,6 +2642,58 @@ test("naming a pool entry reports the refreshed snapshot, and a refusal reports 
         }, "frosty")).toBeUndefined();
     } finally {
         await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an inbox entry landing mid-turn waits for the turn boundary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-inbox-boundary-"));
+    await writeFile(join(root, "marker.txt"), "workspace marker");
+    const eventLogPath = join(root, "events.jsonl");
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        { maxEntriesPerWake: 10 },
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(readMarkerScript()),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "boundary-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath,
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "read your marker" });
+        inbox.append({
+            source: "arc",
+            kind: "post",
+            payload: JSON.stringify({ issue: "nash-93" }),
+        });
+        await coordinator.pumpAll();
+        await receiveTurnFinished(attachment);
+        await receiveTurnFinished(attachment);
+
+        const types = (await readFile(eventLogPath, "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => (JSON.parse(line) as { type: string }).type)
+            .filter((type) => type !== "model_stream");
+        const firstBoundary = types.indexOf("turn_finished");
+        const deliveryTurn = types.indexOf("delivery_turn_started");
+        expect(firstBoundary).toBeGreaterThan(-1);
+        expect(deliveryTurn).toBeGreaterThan(firstBoundary);
+        expect(types.lastIndexOf("turn_finished")).toBeGreaterThan(deliveryTurn);
+    } finally {
+        await registry.close();
+        inbox.close();
         await rm(root, { recursive: true, force: true });
     }
 });
