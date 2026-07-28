@@ -298,6 +298,28 @@ test("task notifications share the ordered agent update sequence", () => {
     ]);
 });
 
+test("task notification kind crosses the protocol boundary", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file?",
+        kind: "attention",
+    });
+
+    expect(updates[0]).toMatchObject({
+        type: "task_notification",
+        kind: "attention",
+    });
+});
+
 test("model settings results share the ordered agent update sequence", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({

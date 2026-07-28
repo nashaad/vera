@@ -222,7 +222,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "task_notification") {
         return appendEntry(state, {
             kind: "notification",
-            text: `Async subagent ${update.sourceAgentId}:\n${update.content}`,
+            text: update.kind === "attention"
+                ? `Async subagent ${update.sourceAgentId} needs attention:\n${update.content}`
+                : `Async subagent ${update.sourceAgentId}:\n${update.content}`,
         });
     }
     if (update.type === "history") {

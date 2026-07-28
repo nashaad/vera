@@ -61,6 +61,7 @@ export interface TaskNotificationEvent {
     readonly deliveryId: string;
     readonly sourceAgentId: string;
     readonly content: string;
+    readonly kind?: "attention" | "completion";
 }
 
 export interface ToolApprovalUiRequest {

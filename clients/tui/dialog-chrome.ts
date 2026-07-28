@@ -219,7 +219,10 @@ function attachRowPointer(
         };
     }
     if (handlers.onHover !== undefined) {
-        row.onMouseOver = (event: MouseEvent) => {
+        // `over` also fires when a newly opened or rebuilt row appears beneath
+        // a stationary pointer. Using it would move a fresh picker's cursor
+        // away from index zero before the user moves the mouse.
+        row.onMouseMove = (event: MouseEvent) => {
             event.stopPropagation();
             if (!pointerMoved(event.x, event.y)) {
                 return;
