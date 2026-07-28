@@ -45,7 +45,6 @@ const adapter = new ProviderRoutingAdapter(
         provider: provider as VeraConfig["provider"],
     }),
     defaultProvider,
-    createConfiguredModelAdapter(config),
 );
 const channel = createInProcessChannel();
 const lines = createInterface({
