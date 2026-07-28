@@ -38,6 +38,11 @@ import {
 } from "../watch/runtime.ts";
 import type { WatchSecretResolver } from "../watch/arc-connector.ts";
 import type { WatchConnector } from "../watch/source.ts";
+import {
+    InboxSpawnController,
+    SpawnConsentStore,
+    type SpawnSessionFn,
+} from "./inbox-spawn.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
@@ -67,6 +72,14 @@ export interface StartResidentHostOptions {
     readonly watchConnectors?: readonly WatchConnector[];
     /** Supplies a watch its bearer token. Definitions never carry one. */
     readonly watchSecret?: WatchSecretResolver;
+    /** Overrides `~/.vera/spawn-consent.json`, so tests never read the real one. */
+    readonly spawnConsentPath?: string;
+    /**
+     * Starts a session for an inbox entry addressed to a consumer with no live
+     * session. Absent means the host has no way to pick a target and spawning
+     * stays off whatever the two gates say.
+     */
+    readonly spawnSession?: SpawnSessionFn;
     readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
     readonly onExtensionFailure?: (
         failure: ExtensionRegistryFailure,
@@ -119,8 +132,10 @@ export async function startResidentHost(
     // definitions are extension contributions. The runtime holds the reference
     // so shutdown stops the connector tasks before the log they write to closes.
     let watches: WatchRuntime | null = null;
+    let spawn: InboxSpawnController | undefined;
     const closeInbox = async (): Promise<void> => {
         await watches?.close();
+        spawn?.release();
         inboxDelivery?.close();
         inbox?.close();
     };
@@ -177,6 +192,28 @@ export async function startResidentHost(
                     join(eventLogDirectory, `${agentId}.jsonl`),
             }),
     });
+
+    // Second gate. It is read here rather than from `options.config` because
+    // no config key can turn spawning on; only an explicit confirmation does.
+    if (
+        inbox !== null
+        && consumers !== null
+        && options.spawnSession !== undefined
+    ) {
+        const spawnSession = options.spawnSession;
+        spawn = new InboxSpawnController({
+            inbox,
+            consumers,
+            spawnSession,
+            consent: SpawnConsentStore.open(options.spawnConsentPath),
+            inheritedApprovalMode: (address) =>
+                registry.approvalModeOf(address),
+            causedByKnownSession: (entry) =>
+                entry.session !== null
+                && registry.find(entry.session) !== undefined,
+        });
+        inboxDelivery?.setSpawnScan(() => spawn!.scan());
+    }
 
     let server: HostServer;
     let extensions: ExtensionRegistry | undefined;
