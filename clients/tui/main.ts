@@ -68,7 +68,6 @@ import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { findOrStartResidentHost } from "../host/launch.ts";
 import {
     createTuiApprovalView,
-    createTuiApprovalResponse,
     tuiApprovalHint,
 } from "./approval.ts";
 import {
@@ -440,7 +439,9 @@ export async function startTui(
     });
     const copyText = dependencies.copyText
         ?? ((text: string) => copyTuiText(text, renderer));
-    renderer.setTerminalTitle("Vera");
+    let sessionTitle: string | undefined;
+    applyTerminalTitle();
+    refreshTerminalTitle();
     let themeName = loadTuiThemePreference();
     let activityAnimation = loadTuiActivityAnimationPreference();
     const activityAnimationInterval =
@@ -460,6 +461,47 @@ export async function startTui(
     const requestedPermissionChanges = new Map<string, string>();
     let shuttingDown = false;
     let abortRequested = false;
+
+    function applyTerminalTitle(): void {
+        renderer.setTerminalTitle(
+            sessionTitle === undefined || sessionTitle.length === 0
+                ? "Vera"
+                : `${sessionTitle} · Vera`,
+        );
+    }
+
+    function fallbackSessionTitle(text: string): string | undefined {
+        const title = text.replaceAll(/\s+/g, " ").trim().slice(0, 80);
+        return title.length === 0 ? undefined : title;
+    }
+
+    function adoptFallbackSessionTitle(text: string): void {
+        if (sessionTitle !== undefined) {
+            return;
+        }
+        const title = fallbackSessionTitle(text);
+        if (title === undefined) {
+            return;
+        }
+        sessionTitle = title;
+        applyTerminalTitle();
+    }
+
+    function refreshTerminalTitle(): void {
+        const agentId = client.agentId;
+        if (agentId === undefined || dependencies.listAgents === undefined) {
+            return;
+        }
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || agentId !== client.agentId) {
+                return;
+            }
+            sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
+            applyTerminalTitle();
+        }).catch(() => {
+            // The title keeps its last value when the host cannot be reached.
+        });
+    }
     let pendingUiRequest: UiRequestUpdate | undefined;
     const queuedUiRequests: UiRequestUpdate[] = [];
     let timelinePicker: TuiTimelinePickerState | undefined;
@@ -1025,14 +1067,21 @@ export async function startTui(
                 renderState();
                 return;
             }
-        } else if (pendingUiRequest !== undefined) {
-            const response = createTuiApprovalResponse(pendingUiRequest, key);
-            if (response !== undefined) {
+        } else if (
+            pendingUiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+        ) {
+            // ←/→ move the button highlight (no engine message); digits, Enter,
+            // and Escape resolve the approval. Selection stays client-local.
+            const result = approvalView.handleKey(pendingUiRequest, key);
+            if (result.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                sendCommand(response);
-                activity = "thinking";
-                focusActiveSurface();
+                if (result.response !== undefined) {
+                    sendCommand(result.response);
+                    activity = "thinking";
+                    focusActiveSurface();
+                }
                 renderState();
                 return;
             }
@@ -1831,6 +1880,7 @@ export async function startTui(
                 } else if (!state.working) {
                     state = { ...state, working: true };
                 }
+                adoptFallbackSessionTitle(prompt);
                 workingSince ??= Date.now();
                 phaseSince = workingSince;
                 activity = "thinking";
@@ -1846,6 +1896,7 @@ export async function startTui(
         state = state.working
             ? queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt, attachments);
+        adoptFallbackSessionTitle(prompt);
         if (workingSince === undefined) {
             workingSince = Date.now();
             phaseSince = workingSince;
@@ -1943,6 +1994,12 @@ export async function startTui(
                                 ? "session name cleared"
                                 : `session renamed: ${update.name}`,
                         );
+                        if (update.name === null) {
+                            refreshTerminalTitle();
+                        } else {
+                            sessionTitle = update.name;
+                            applyTerminalTitle();
+                        }
                     } else {
                         if (composer.expandedText().length === 0) {
                             composer.setComposerText(pending.commandText);
@@ -2092,11 +2149,13 @@ export async function startTui(
                     }
                 }
                 if (update.type === "history") {
-                    composer.loadSubmittedTexts(
-                        update.entries
-                            .filter((entry) => entry.kind === "user")
-                            .map((entry) => entry.text),
-                    );
+                    const userTexts = update.entries
+                        .filter((entry) => entry.kind === "user")
+                        .map((entry) => entry.text);
+                    composer.loadSubmittedTexts(userTexts);
+                    if (userTexts[0] !== undefined) {
+                        adoptFallbackSessionTitle(userTexts[0]);
+                    }
                     clearTranscriptNodes();
                 }
                 if (
@@ -3259,6 +3318,9 @@ export async function startTui(
         confirmingFullAccess = false;
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
+        sessionTitle = undefined;
+        applyTerminalTitle();
+        refreshTerminalTitle();
         clearTranscriptNodes();
 
         composer.clearComposer();
@@ -3483,7 +3545,7 @@ export async function startTui(
         composer.focusedTextColor = theme.text;
         composer.cursorColor = theme.accent;
         approvalView.box.backgroundColor = theme.panel;
-        approvalView.detailsText.fg = theme.text;
+        approvalView.repaint();
         questionView.box.backgroundColor = theme.panel;
         questionView.detailsText.fg = theme.text;
         questionView.choiceAction.fg = theme.muted;
