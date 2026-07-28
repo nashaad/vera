@@ -908,7 +908,7 @@ test.skipIf(!tmuxAvailable)(
             expect(readFileSync(
                 join(home, "trash-session-result.txt"),
                 "utf8",
-            )).toBe("saved-session\nlist calls 2");
+            )).toBe("saved-session\nlist calls 3");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
@@ -1207,7 +1207,7 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("∗ bash env AUTO_REVIEW=ran");
             expect(pane).toContain("auto");
-            expect(pane).not.toContain("Tool approval");
+            expect(pane).not.toContain("Permission required");
             expect(pane).not.toContain("Allow once");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
@@ -1245,7 +1245,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Allow once",
             );
-            expect(pane).toContain("Tool approval");
+            expect(pane).toContain("Permission required");
             expect(pane).toContain("$ grep");
 
             for (let index = 0; index < 20; index += 1) {
@@ -1254,7 +1254,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "full user permissions",
+                "not available for this command",
             );
             expect(pane).toContain("Allow once");
             expect(pane).not.toContain("$ grep");
@@ -1302,9 +1302,10 @@ test.skipIf(!tmuxAvailable)(
                 "Requested by agent 5a5d7460",
             );
             expect(pane).toContain("Task: Write the child approval marker");
-            expect(pane).toContain("1  Allow once");
-            expect(pane).toContain("3  Deny");
-            expect(pane).not.toContain("Allow similar");
+            expect(pane).toContain("1 Allow once");
+            expect(pane).toContain("3 Deny");
+            expect(pane).not.toContain("Allow session");
+            expect(pane).not.toContain("Allow always");
             expect(pane).not.toContain("session prefix");
             expect(pane).not.toContain("ask.default");
 
