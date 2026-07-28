@@ -11,8 +11,16 @@ export interface BranchedAgent extends ReadyAgent {
 }
 
 export class AgentStartError extends Error {
-    constructor(readonly operation: "create" | "resume") {
-        super(`Resident agent ${operation} failed`);
+    /**
+     * `reason` is the host's own words when the failure was written for a user,
+     * and it becomes the message, because "Resident agent create failed" tells
+     * nobody that a provider needs connecting.
+     */
+    constructor(
+        readonly operation: "create" | "resume",
+        readonly reason?: string,
+    ) {
+        super(reason ?? `Resident agent ${operation} failed`);
         this.name = "AgentStartError";
     }
 }
@@ -101,7 +109,13 @@ async function requestAgentStart(
             response?.type === "agent_start_failed"
             && response.operation === operationOf(request)
         ) {
-            throw new AgentStartError(operationOf(request));
+            throw new AgentStartError(
+                operationOf(request),
+                typeof response.reason === "string"
+                        && response.reason.length > 0
+                    ? response.reason
+                    : undefined,
+            );
         }
         if (
             response?.type !== "agent_ready"

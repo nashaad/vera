@@ -11,6 +11,7 @@ import {
 } from "../../src/host/agent-start-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { UserFacingError } from "../../src/user-facing-error.ts";
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "agent startup client creates, resumes, forks, and clones",
@@ -93,6 +94,38 @@ import { startHostServer } from "../../src/host/server.ts";
                 .rejects.toMatchObject({
                     name: AgentStartError.name,
                     operation: "create",
+                });
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "the reason reaches the caller as the message it will print",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-start-client-"));
+        const socketPath = join(root, "host.sock");
+        const host = await startHostServer({
+            socketPath,
+            lockPath: join(root, "host.json"),
+            createAgent: () =>
+                Promise.reject(
+                    new UserFacingError(
+                        "No credentials for provider openrouter. Connect it from the model pane (ctrl+e).",
+                    ),
+                ),
+        });
+        try {
+            // The CLI prints error.message, so the reason has to be the message
+            // rather than a field somebody has to remember to read.
+            await expect(createAgentThroughHost(socketPath, "/missing"))
+                .rejects.toMatchObject({
+                    name: AgentStartError.name,
+                    operation: "create",
+                    message:
+                        "No credentials for provider openrouter. Connect it from the model pane (ctrl+e).",
                 });
         } finally {
             await host.close();

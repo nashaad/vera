@@ -5,6 +5,7 @@ import { createOllamaAdapter } from "./ollama-openai.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
 import { findProvider } from "./registry.ts";
+import { UserFacingError } from "../user-facing-error.ts";
 
 export interface ConfiguredProviderOptions {
     readonly authStorage?: AuthStorage;
@@ -75,7 +76,7 @@ function requiredApiKey(
     if (fromEnv !== undefined && fromEnv.length > 0) {
         return fromEnv;
     }
-    throw new Error(
+    throw new UserFacingError(
         `No credentials for provider ${providerId}. Connect it from the model pane (ctrl+e)${
             envVar === undefined ? "" : ` or set ${envVar}`
         }.`,

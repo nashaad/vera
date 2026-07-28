@@ -5,6 +5,7 @@ import {
     oauthToken,
     type AuthStorage,
 } from "./auth-storage.ts";
+import { UserFacingError } from "../user-facing-error.ts";
 
 export const OPENAI_CODEX_PROVIDER_ID = "openai-codex";
 
@@ -124,7 +125,7 @@ export async function resolveOpenAICodexAuthorization(
     let credentials = readCredentials(authStorage);
 
     if (credentials === undefined) {
-        throw new Error(
+        throw new UserFacingError(
             "OpenAI Codex is not authenticated. Connect it from the model pane (ctrl+e).",
         );
     }
@@ -158,7 +159,7 @@ async function refreshExpiredCredentials(
     const refresh = (async () => {
         const latest = readCredentials(authStorage);
         if (latest === undefined) {
-            throw new Error(
+            throw new UserFacingError(
                 "OpenAI Codex is not authenticated. Connect it from the model pane (ctrl+e).",
             );
         }

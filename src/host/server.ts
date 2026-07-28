@@ -30,6 +30,7 @@ import {
     type ExtensionCommandDescriptor,
 } from "../extensions/commands.ts";
 import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
+import { userFacingMessage } from "../user-facing-error.ts";
 
 const MAX_REQUEST_BYTES = 64 * 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -663,11 +664,23 @@ function receiveConnection(
                 agent_id: agent.id,
                 workspace: agent.workspace,
             }).then(() => socket.end(), () => socket.destroy()),
-            () => send({ type: "agent_start_failed", operation }).then(
+            (error: unknown) => send({
+                type: "agent_start_failed",
+                operation,
+                // A missing credential is the common failure here, and its
+                // message already names the provider and the way to fix it.
+                // Anything else stays generic.
+                ...reasonOf(error),
+            }).then(
                 () => socket.end(),
                 () => socket.destroy(),
             ),
         );
+    }
+
+    function reasonOf(error: unknown): { readonly reason?: string } {
+        const reason = userFacingMessage(error);
+        return reason === undefined ? {} : { reason };
     }
 
     async function forwardAgentUpdates(

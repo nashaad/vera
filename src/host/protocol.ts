@@ -148,6 +148,12 @@ export interface AgentReadyResponse {
 export interface AgentStartFailedResponse {
     readonly type: "agent_start_failed";
     readonly operation: "create" | "resume";
+    /**
+     * Present only when the failure was phrased for the person running Vera.
+     * Internal error text stays inside the host, which is why this is a separate
+     * field rather than the message of whatever was thrown.
+     */
+    readonly reason?: string;
 }
 
 export interface AgentBranchedResponse {
