@@ -8,9 +8,12 @@ import {
     SyntaxStyle,
     TextRenderable,
     createCliRenderer,
+    KeyEvent,
     type Selection,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
+
+import type { DialogRowPointer } from "./dialog-chrome.ts";
 
 import {
     isToolApprovalUiRequestUpdate,
@@ -771,6 +774,37 @@ export async function startTui(
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
+    // Clicking a row is the pointer's version of ⏎ on it, and hovering is the
+    // pointer's version of ↑↓. Each surface only says where its cursor lives;
+    // `rowPointer` supplies the behaviour, so the two input paths cannot drift.
+    timelinePickerView.pointer = rowPointer((index) => {
+        if (timelinePicker === undefined) return;
+        // The rewind flow reuses one overlay for two lists. On the action
+        // screen the rows are the actions themselves, so there is no cursor to
+        // move first; the digit press below carries the choice.
+        if (timelinePicker.screen !== "select") return;
+        timelinePicker = { ...timelinePicker, selectedIndex: index };
+    });
+    settingsPickerView.pointer = rowPointer((index) => {
+        if (settingsPicker === undefined) return;
+        settingsPicker = { ...settingsPicker, selectedIndex: index };
+    });
+    preferencesListView.pointer = rowPointer((index) => {
+        if (preferencesList === undefined) return;
+        preferencesList = { ...preferencesList, selectedIndex: index };
+    });
+    commandPaletteView.pointer = rowPointer((index) => {
+        if (commandPalette === undefined) return;
+        commandPalette = { ...commandPalette, selectedIndex: index };
+    });
+    helpView.pointer = rowPointer((index) => {
+        if (help === undefined) return;
+        help = { ...help, selectedIndex: index };
+    });
+    // The approval and question dialogs are answered by number, not by a
+    // moving highlight, so a click sends the row's own digit.
+    approvalView.pointer = rowPointer(() => {}, "digit");
+    questionView.pointer = rowPointer(() => {}, "digit");
     // The pane windows itself around the cursor, so the wheel moves the cursor
     // and lets the window follow, the same way ctrl+d and ctrl+u do.
     settingsPickerView.box.onMouseScroll = (event) => {
@@ -896,7 +930,16 @@ export async function startTui(
         renderState();
     });
 
-    renderer.keyInput.on("keypress", (key) => {
+    renderer.keyInput.on("keypress", handleKeypress);
+
+    /**
+     * Every key the TUI acts on arrives here, overlays included. Pointer input
+     * is routed back through it (see `pressKey`) rather than growing a second
+     * decision path per overlay: a click on a row has to mean exactly what ⏎ on
+     * that row means, and the only way to guarantee that is for it to be the
+     * same call.
+     */
+    function handleKeypress(key: KeyEvent): void {
         if (parseRawInputEvent(key)?.type === "open_palette") {
             key.preventDefault();
             key.stopPropagation();
@@ -1228,7 +1271,57 @@ export async function startTui(
             sendCommand({ type: "abort" });
             renderStatus();
         }
-    });
+    }
+
+    /**
+     * Press a key the user did not press. `KeyEvent` carries the whole shape
+     * `handleKeypress` reads, so a synthetic press is indistinguishable from a
+     * real one once it is in there.
+     */
+    function pressKey(name: string, sequence = name): void {
+        handleKeypress(new KeyEvent({
+            name,
+            sequence,
+            raw: sequence,
+            ctrl: false,
+            meta: false,
+            shift: false,
+            option: false,
+            number: /^[0-9]$/.test(sequence),
+            eventType: "press",
+            source: "raw",
+        }));
+    }
+
+    /**
+     * The pointer behaviour every overlay row gets, expressed once.
+     *
+     * `moveCursor` is the only thing a surface has to supply: how to put its
+     * own highlight on row `index`. Hovering is that move; clicking is that
+     * move followed by the key the row's highlight responds to, which is ⏎ for
+     * a list and the row's own digit for the numbered dialogs.
+     */
+    function rowPointer(
+        moveCursor: (index: number) => void,
+        key: "return" | "digit" = "return",
+    ): DialogRowPointer {
+        if (key === "digit") {
+            // No hover: these rows carry their own number and are not reached
+            // by a moving highlight, so there is nothing for the pointer to
+            // preview.
+            return { activate: (index) => pressKey(String(index)) };
+        }
+        return {
+            hover: (index) => {
+                moveCursor(index);
+                renderState();
+            },
+            activate: (index) => {
+                moveCursor(index);
+                pressKey("return", "\r");
+            },
+        };
+    }
 
     void receiveAgentUpdates();
     void loadExtensionCommands();

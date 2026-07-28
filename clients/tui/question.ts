@@ -21,6 +21,8 @@ import {
     dialogBottomOffset,
     dialogHeaderNode,
     dialogOptionRow,
+    dialogRowPointer,
+    type DialogRowPointer,
 } from "./dialog-chrome.ts";
 
 export interface TuiQuestionKey {
@@ -40,6 +42,9 @@ export interface TuiQuestionKeyResult {
 }
 
 export interface TuiQuestionView {
+    // Rows are numbered, so a click carries the same digit the keyboard would
+    // have sent rather than a second decision path.
+    pointer?: DialogRowPointer;
     readonly box: BoxRenderable;
     readonly details: ScrollBoxRenderable;
     readonly detailsText: TextRenderable;
@@ -159,6 +164,7 @@ export function createTuiQuestionView(
                 leading: `${index + 1}  `,
                 active: index === selectedIndex,
                 wrap: true,
+                ...dialogRowPointer(view.pointer, index + 1),
             });
             choicesColumn.add(row);
             choiceRows.push(row);
@@ -171,12 +177,13 @@ export function createTuiQuestionView(
             leading: `${otherIndex + 1}  `,
             active: otherIndex === selectedIndex,
             wrap: true,
+            ...dialogRowPointer(view.pointer, otherIndex + 1),
         });
         choicesColumn.add(other);
         choiceRows.push(other);
     }
 
-    return {
+    const view: TuiQuestionView = {
         box,
         details,
         detailsText,
@@ -271,6 +278,7 @@ export function createTuiQuestionView(
                 : { handled: true, response };
         },
     };
+    return view;
 }
 
 export function createTuiQuestionResponse(

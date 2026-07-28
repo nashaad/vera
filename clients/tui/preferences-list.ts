@@ -34,7 +34,12 @@ import type {
     PermissionPredicate,
 } from "../../src/engine/permissions.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
-import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
+import {
+    dialogHeaderNode,
+    dialogOptionRow,
+    dialogRowPointer,
+    type DialogRowPointer,
+} from "./dialog-chrome.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 
 /** Rows shown at once before the list windows around the cursor. */
@@ -75,6 +80,7 @@ export interface TuiPreferencesListTransition {
 
 export interface TuiPreferencesListView {
     readonly box: BoxRenderable;
+    pointer?: DialogRowPointer;
     update(state: TuiPreferencesListState): void;
 }
 
@@ -219,7 +225,7 @@ export function createTuiPreferencesListView(
     box.add(footer);
 
     let current: (BoxRenderable | TextRenderable)[] = [];
-    return {
+    const view: TuiPreferencesListView = {
         box,
         update(state): void {
             for (const row of current) {
@@ -256,12 +262,14 @@ export function createTuiPreferencesListView(
                     label: formatPredicate(entry.when),
                     active: index === state.selectedIndex,
                     leading: index === state.selectedIndex ? "> " : "  ",
+                    ...dialogRowPointer(view.pointer, index),
                 });
                 rows.add(row);
                 current.push(row);
             }
         },
     };
+    return view;
 }
 
 /** An entry paired with its real index, which the highlight compares against. */

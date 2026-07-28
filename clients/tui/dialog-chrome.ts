@@ -1,6 +1,8 @@
 import {
     BoxRenderable,
     fg,
+    type MouseEvent,
+    type Renderable,
     StyledText,
     type TextChunk,
     TextRenderable,
@@ -144,6 +146,80 @@ export interface DialogRowContent {
     // Wrapping rows grow to fit their label; the highlight bar covers every
     // wrapped line. Non-wrapping rows stay one line and clip.
     readonly wrap?: boolean;
+    // A click on the row. Rows are the only thing an overlay does, so a click
+    // means the same as moving the cursor here and pressing ⏎ rather than a
+    // separate "select, then confirm" step.
+    readonly onSelect?: () => void;
+    // The pointer entering the row. Moving the highlight under the pointer is
+    // what makes the row look clickable, since these dialogs have no other
+    // hover state.
+    readonly onHover?: () => void;
+}
+
+/**
+ * What an overlay does with the pointer, in the overlay's own row indices.
+ *
+ * Views take one of these and hand it to their rows; they never see a
+ * `MouseEvent`. `activate` means the same as ⏎ on that row and `hover` the same
+ * as moving the cursor to it, so a surface only has to say which index a row
+ * is, not what clicking one means.
+ */
+export interface DialogRowPointer {
+    readonly activate?: (index: number) => void;
+    readonly hover?: (index: number) => void;
+}
+
+/**
+ * The `onSelect`/`onHover` pair for one row, ready to spread into its content.
+ */
+export function dialogRowPointer(
+    pointer: DialogRowPointer | undefined,
+    index: number,
+): Pick<DialogRowContent, "onSelect" | "onHover"> {
+    if (pointer === undefined) {
+        return {};
+    }
+    return {
+        ...(pointer.activate === undefined
+            ? {}
+            : { onSelect: () => pointer.activate?.(index) }),
+        ...(pointer.hover === undefined
+            ? {}
+            : { onHover: () => pointer.hover?.(index) }),
+    };
+}
+
+/**
+ * The same wiring for a row a surface built itself rather than through
+ * `dialogOptionRow` (the theme picker draws its own palette swatches). Handlers
+ * live in one place either way, so pointer behaviour cannot drift between the
+ * two kinds of row.
+ */
+export function attachDialogRowPointer(
+    row: Renderable,
+    pointer: DialogRowPointer | undefined,
+    index: number,
+): void {
+    attachRowPointer(row, dialogRowPointer(pointer, index));
+}
+
+function attachRowPointer(
+    row: Renderable,
+    handlers: Pick<DialogRowContent, "onSelect" | "onHover">,
+): void {
+    if (handlers.onSelect !== undefined) {
+        row.onMouseDown = (event: MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            handlers.onSelect?.();
+        };
+    }
+    if (handlers.onHover !== undefined) {
+        row.onMouseOver = (event: MouseEvent) => {
+            event.stopPropagation();
+            handlers.onHover?.();
+        };
+    }
 }
 
 /**
@@ -221,6 +297,10 @@ export function dialogOptionRow(
         paddingLeft: 1,
         paddingRight: 1,
     });
+    // Every dialog row in the TUI is built here, so pointer support is one
+    // wiring rather than one per overlay. A row without handlers behaves
+    // exactly as it did before.
+    attachRowPointer(row, content);
     if (content.leading !== undefined) {
         row.add(new TextRenderable(renderer, {
             content: new StyledText([fg(accent)(content.leading)]),

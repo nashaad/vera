@@ -18,6 +18,8 @@ import type { TuiCommandCatalogEntry } from "./commands.ts";
 import {
     dialogFooterNode,
     dialogOptionRows,
+    dialogRowPointer,
+    type DialogRowPointer,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
 import {
@@ -55,6 +57,7 @@ export interface TuiHelpTransition {
 
 export interface TuiHelpView {
     readonly box: BoxRenderable;
+    pointer?: DialogRowPointer;
     update(state: TuiHelpState): void;
 }
 
@@ -170,7 +173,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         visible: false,
     });
 
-    return {
+    const view: TuiHelpView = {
         box,
         update(state): void {
             for (const node of nodes) {
@@ -219,6 +222,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                                 : command.usage,
                             active: index === state.selectedIndex,
                             current: false,
+                            ...dialogRowPointer(view.pointer, index),
                     })));
                     rows.forEach((row) => {
                         box.add(row);
@@ -236,6 +240,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
             nodes.push(footer);
         },
     };
+    return view;
 }
 
 function switchedTab(

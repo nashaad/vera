@@ -16,6 +16,8 @@ import {
     dialogBottomOffset,
     dialogHeaderNode,
     dialogOptionRow,
+    dialogRowPointer,
+    type DialogRowPointer,
 } from "./dialog-chrome.ts";
 
 /**
@@ -57,6 +59,9 @@ export interface TuiApprovalKey {
 
 export interface TuiApprovalView {
     readonly box: BoxRenderable;
+    // Rows are numbered, so a click carries the same digit the keyboard would
+    // have sent rather than a second decision path.
+    pointer?: DialogRowPointer;
     readonly details: ScrollBoxRenderable;
     readonly detailsText: TextRenderable;
     readonly actions: BoxRenderable;
@@ -115,6 +120,9 @@ export function createTuiApprovalView(
                 label: action.label,
                 leading: `${action.key}  `,
                 active: false,
+                ...(unavailable
+                    ? {}
+                    : dialogRowPointer(view.pointer, Number(action.key))),
                 ...("meta" in action ? { meta: action.meta } : {}),
                 ...(unavailable
                     ? { description: "not available for this command" }
@@ -151,7 +159,7 @@ export function createTuiApprovalView(
     box.add(details);
     box.add(actions);
 
-    return {
+    const view: TuiApprovalView = {
         box,
         details,
         detailsText,
@@ -170,6 +178,7 @@ export function createTuiApprovalView(
             details.scrollTo(0);
         },
     };
+    return view;
 }
 
 export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
