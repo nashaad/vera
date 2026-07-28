@@ -208,6 +208,174 @@ test("session columns are bounded in cells, not characters", () => {
     expect(option.label.endsWith("…")).toBe(true);
 });
 
+test("session forks hang under the session they came from", async () => {
+    const base = {
+        workspace: "/work/vera",
+        kind: "interactive" as const,
+        status: "idle" as const,
+    };
+    const state = startTuiSessionPicker([
+        {
+            ...base,
+            id: "parent",
+            session_path: "/sessions/parent.jsonl",
+            title: "lets talk about cooking",
+            updated_at: "2026-07-20T19:00:00.000Z",
+        },
+        {
+            ...base,
+            id: "child",
+            session_path: "/sessions/child.jsonl",
+            title: "cooking, but vegetarian",
+            updated_at: "2026-07-20T20:30:00.000Z",
+            forked_from: "parent",
+        },
+        {
+            ...base,
+            id: "orphan",
+            session_path: "/sessions/orphan.jsonl",
+            title: "forked from a trashed session",
+            updated_at: "2026-07-20T20:45:00.000Z",
+            forked_from: "gone",
+        },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    // The fork moves next to its parent even though it is the more recent of
+    // the two; a fork of a session that is not listed stays where it sorted.
+    expect(state.options.map((option) => option.sessionId))
+        .toEqual(["orphan", "parent", "child"]);
+    expect(state.options[2]?.depth).toBe(1);
+    expect(state.options[0]?.depth).toBeUndefined();
+
+    const frame = await pickerFrame(state);
+    const rows = frame.split("\n");
+    const child = rows.find((row) => row.includes("but vegetarian"));
+    const orphan = rows.find((row) => row.includes("a trashed session"));
+    expect(child).toContain("└");
+    expect(orphan).not.toContain("└");
+    // The fork's title starts right of its parent's, which is the indent.
+    const parent = rows.find((row) => row.includes("talk about cooking"))!;
+    expect(child!.indexOf("cooking, but"))
+        .toBeGreaterThan(parent.indexOf("lets talk"));
+});
+
+test("a fork loses its thread when search hides the parent", async () => {
+    const base = {
+        workspace: "/work/vera",
+        kind: "interactive" as const,
+        status: "idle" as const,
+        updated_at: "2026-07-20T20:00:00.000Z",
+    };
+    let state = startTuiSessionPicker([
+        {
+            ...base,
+            id: "parent",
+            session_path: "/sessions/parent.jsonl",
+            title: "cooking",
+        },
+        {
+            ...base,
+            id: "child",
+            session_path: "/sessions/child.jsonl",
+            title: "cheese omelette",
+            forked_from: "parent",
+        },
+        {
+            ...base,
+            id: "unrelated",
+            session_path: "/sessions/unrelated.jsonl",
+            title: "cheese shopping",
+        },
+    ]);
+
+    for (const name of "cheese") {
+        state = handleTuiSettingsPickerKey(state, { name }).state ?? state;
+    }
+    expect(state.options.map((option) => option.sessionId))
+        .toEqual(["child", "unrelated"]);
+    // Without the parent on screen the fork is its own row, not something
+    // hanging off whichever match search happened to leave above it.
+    expect(await pickerFrame(state)).not.toContain("└");
+});
+
+test("a cycle in reported parentage still lists every session", () => {
+    const base = {
+        workspace: "/work/vera",
+        kind: "interactive" as const,
+        status: "idle" as const,
+        updated_at: "2026-07-20T20:00:00.000Z",
+    };
+    const state = startTuiSessionPicker([
+        {
+            ...base,
+            id: "a",
+            session_path: "/sessions/a.jsonl",
+            title: "first",
+            forked_from: "b",
+        },
+        {
+            ...base,
+            id: "b",
+            session_path: "/sessions/b.jsonl",
+            title: "second",
+            forked_from: "a",
+        },
+    ]);
+
+    expect(state.options.map((option) => option.sessionId).toSorted())
+        .toEqual(["a", "b"]);
+});
+
+test("a long fork chain threads without exhausting the stack", () => {
+    const state = startTuiSessionPicker(
+        Array.from({ length: 40_000 }, (_value, index) => ({
+            workspace: "/work/vera",
+            kind: "interactive" as const,
+            status: "idle" as const,
+            updated_at: "2026-07-20T20:00:00.000Z",
+            id: `s${index}`,
+            session_path: `/sessions/s${index}.jsonl`,
+            title: `session ${index}`,
+            ...(index === 0 ? {} : { forked_from: `s${index - 1}` }),
+        })),
+    );
+
+    expect(state.options).toHaveLength(40_000);
+    expect(state.options[0]?.sessionId).toBe("s0");
+    expect(state.options[1]?.depth).toBe(1);
+    expect(state.options.at(-1)?.depth).toBe(39_999);
+});
+
+test("a duplicated session id keeps both rows on the list", () => {
+    const base = {
+        workspace: "/work/vera",
+        kind: "interactive" as const,
+        status: "idle" as const,
+        updated_at: "2026-07-20T20:00:00.000Z",
+        title: "same id",
+    };
+    const state = startTuiSessionPicker([
+        { ...base, id: "dup", session_path: "/sessions/one.jsonl" },
+        { ...base, id: "dup", session_path: "/sessions/two.jsonl" },
+        {
+            ...base,
+            id: "child",
+            session_path: "/sessions/child.jsonl",
+            forked_from: "dup",
+        },
+    ]);
+
+    // A host reporting one id twice is a host bug, but dropping a session over
+    // it would hide work the user can still open.
+    expect(state.options.map((option) => option.value)).toContain(
+        "/sessions/one.jsonl",
+    );
+    expect(state.options.map((option) => option.value)).toContain(
+        "/sessions/two.jsonl",
+    );
+    expect(state.options).toHaveLength(3);
+});
+
 function session(
     id: string,
     status: "idle" | "working" | "failed" | "closed",

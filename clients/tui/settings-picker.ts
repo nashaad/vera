@@ -92,6 +92,10 @@ export interface TuiSettingsPickerOption {
     readonly workspace?: string;
     /** True on the session the user is attached to right now. */
     readonly current?: boolean;
+    /** The session this one was forked from, when the host reported one. */
+    readonly forkedFrom?: string;
+    /** How deep under its parent a forked row sits. Absent at the top level. */
+    readonly depth?: number;
     /**
      * Position in the user's pin list, absent on an unpinned row. A rank
      * rather than a flag because the pin list is ordered by when each model was
@@ -635,11 +639,15 @@ export function startTuiSessionPicker(
             activity: sessionActivity(agent, now),
             workspace: sessionWorkspace(agent),
             ...(agent.id === currentAgentId ? { current: true } : {}),
+            ...(agent.forked_from === undefined
+                ? {}
+                : { forkedFrom: agent.forked_from }),
         }));
+    const threaded = threadSessionOptions(options);
     return {
         kind: "session",
-        allOptions: options,
-        options,
+        allOptions: threaded,
+        options: threaded,
         selectedIndex: 0,
         query: "",
         loading,
@@ -747,6 +755,66 @@ const SESSION_WORKSPACE_CELLS = 14;
  * malformed row can make the renderer pad and lay out on every visible row.
  */
 const SESSION_TITLE_LIMIT = 200;
+
+/**
+ * Order forks under the session they came from, each one deeper than its parent.
+ *
+ * A fork is only threaded when its parent is on the list: a fork of a session
+ * that has since been trashed is a session in its own right, and hanging it off
+ * nothing would say otherwise. The rest of the list keeps the order it arrived
+ * in, so threading rearranges a fork and nothing else.
+ */
+function threadSessionOptions(
+    options: readonly TuiSettingsPickerOption[],
+): TuiSettingsPickerOption[] {
+    // Rows are tracked by position rather than by session id. A host that
+    // reported the same id twice would otherwise lose a row here, and a list
+    // that silently drops a session is worse than one that threads it oddly.
+    const byParent = new Map<string, number[]>();
+    const listed = new Set(options.map((option) => option.sessionId));
+    options.forEach((option, index) => {
+        const parent = option.forkedFrom;
+        if (parent === undefined || !listed.has(parent)) {
+            return;
+        }
+        byParent.set(parent, [...byParent.get(parent) ?? [], index]);
+    });
+    if (byParent.size === 0) {
+        return [...options];
+    }
+    const threaded: TuiSettingsPickerOption[] = [];
+    const placed = new Set<number>();
+    // An explicit stack rather than recursion: a long enough chain of forks is
+    // a valid list, and walking it on the call stack would overflow.
+    const place = (root: number): void => {
+        const pending: (readonly [number, number])[] = [[root, 0]];
+        while (pending.length > 0) {
+            const [index, depth] = pending.pop()!;
+            if (placed.has(index)) {
+                continue;
+            }
+            placed.add(index);
+            const option = options[index]!;
+            threaded.push(depth === 0 ? option : { ...option, depth });
+            const children = byParent.get(option.sessionId ?? "") ?? [];
+            // Reversed, because the stack pops what went on last and children
+            // keep the order they arrived in.
+            for (let at = children.length - 1; at >= 0; at -= 1) {
+                pending.push([children[at]!, depth + 1]);
+            }
+        }
+    };
+    options.forEach((option, index) => {
+        const parent = option.forkedFrom;
+        if (parent === undefined || !listed.has(parent)) {
+            place(index);
+        }
+    });
+    // A cycle has no root, so nothing above reached it. Those rows are still
+    // sessions and still belong on the list.
+    options.forEach((_option, index) => place(index));
+    return threaded;
+}
 
 function sessionTitle(title: string): string {
     const normalized = title.replaceAll(/\s+/g, " ").trim();
@@ -1205,12 +1273,23 @@ function renderListPickerRows(
     // do not measure the same.
     const activityWidth = Math.max(0, ...rows.map((row) =>
         row.kind === "option" ? row.option.activity?.length ?? 0 : 0));
+    // A fork is drawn under its parent only while the parent is on the list.
+    // Search filters the threaded order without rebuilding it, so a fork whose
+    // parent was filtered out would otherwise appear to hang off whichever
+    // unrelated row the search left above it.
+    const onScreen = new Set(state.options.map((option) => option.sessionId));
     let tinted = false;
     const optionNodes = dialogOptionRows(renderer, rows.flatMap((row) =>
         row.kind === "option"
             ? [{
                 label: row.option.label,
-                leading: optionLeading(state, row.option, activityWidth),
+                leading: optionLeading(
+                    state,
+                    row.option,
+                    activityWidth,
+                    row.option.forkedFrom !== undefined
+                        && onScreen.has(row.option.forkedFrom),
+                ),
                 ...(state.kind === "session"
                     ? { tint: (tinted = !tinted) }
                     : {}),
@@ -1474,17 +1553,22 @@ function optionLeading(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
     activityWidth = 0,
+    threaded = false,
 ): string {
     if (state.kind === "provider") {
         return option.connected === true ? "✓ " : "  ";
     }
     const marker = isCurrentOption(state, option) ? "● " : "  ";
-    // The session list turns the marker column into a marker and a time
-    // column, so the fact a row is worth reading for sits left of the title
-    // rather than after it.
-    return state.kind === "session"
-        ? `${marker}${(option.activity ?? "").padEnd(activityWidth)}  `
-        : marker;
+    if (state.kind !== "session") {
+        return marker;
+    }
+    // The session list turns the marker column into a marker, a fork gutter and
+    // a time column, so the facts a row is worth reading for sit left of the
+    // title rather than after it. A fork indents under its parent, which is
+    // what makes the list read as a history rather than a pile.
+    const depth = threaded ? option.depth ?? 0 : 0;
+    const thread = depth === 0 ? "" : `${"  ".repeat(depth - 1)}└ `;
+    return `${marker}${thread}${(option.activity ?? "").padEnd(activityWidth)}  `;
 }
 
 function optionMeta(
