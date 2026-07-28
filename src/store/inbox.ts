@@ -187,7 +187,12 @@ export class Inbox {
      * `limit`. Reading does not move the offset.
      */
     read(consumer: ConsumerId, options: InboxReadOptions): InboxEntry[] {
-        const after = this.registerConsumer(consumer);
+        const after = this.offsetOf(consumer);
+        if (after === null) {
+            throw new Error(
+                `unknown inbox consumer ${consumer.nodeId}/${consumer.label}`,
+            );
+        }
         return this.readAfter(after, options);
     }
 
@@ -225,20 +230,44 @@ export class Inbox {
      * replayed delivery cannot rewind the log.
      */
     advance(consumer: ConsumerId, seq: number): number {
+        if (this.offsetOf(consumer) === null) {
+            throw new Error(
+                `unknown inbox consumer ${consumer.nodeId}/${consumer.label}`,
+            );
+        }
         this.database
-            .query<null, [string, string, number, string]>(
-                `INSERT INTO consumer_offsets (node_id, label, seq, updated_at)
-                 VALUES (?, ?, ?, ?)
-                 ON CONFLICT (node_id, label)
-                 DO UPDATE SET seq = MAX(seq, excluded.seq), updated_at = excluded.updated_at`,
+            .query<null, [number, string, string, string]>(
+                `UPDATE consumer_offsets
+                 SET seq = MAX(seq, ?), updated_at = ?
+                 WHERE node_id = ? AND label = ?`,
             )
-            .run(consumer.nodeId, consumer.label, seq, new Date().toISOString());
+            .run(seq, new Date().toISOString(), consumer.nodeId, consumer.label);
         return this.offsetOf(consumer) ?? seq;
     }
 }
 
 export function defaultInboxPath(): string {
     return join(homedir(), ".vera", "inbox.db");
+}
+
+export function inboxEnabled(config: InboxFeatureConfig): boolean {
+    return config.experimental?.inbox === true;
+}
+
+/**
+ * The one gate for the subsystem. `null` means the feature is off, and nothing
+ * downstream runs: no file, no tables, no offsets. Callers hold the `Inbox`
+ * or nothing, so the flag is never re-checked inside the log.
+ */
+export function openInboxIfEnabled(
+    config: InboxFeatureConfig,
+    path: string = defaultInboxPath(),
+): Inbox | null {
+    return inboxEnabled(config) ? Inbox.open(path) : null;
+}
+
+export interface InboxFeatureConfig {
+    readonly experimental?: { readonly inbox?: boolean };
 }
 
 function migrate(database: Database): void {
