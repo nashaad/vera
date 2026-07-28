@@ -1870,6 +1870,19 @@ export async function startTui(
             });
             return;
         }
+        if (commandAction?.type === "compact_session") {
+            composer.clearComposer();
+            // No reply is awaited: the compaction updates the engine already
+            // emits say what happened, and they are the same ones an automatic
+            // compaction produces.
+            void client.send({ type: "compact", requestId: randomUUID() })
+                .catch((error) => {
+                    composer.setComposerText(prompt);
+                    reportConnectionError(error);
+                });
+            showStatusNotice("summarizing earlier messages…");
+            return;
+        }
         if (commandAction?.type === "update_session_name") {
             const requestId = randomUUID();
             pendingSessionRename = { requestId, commandText: prompt };

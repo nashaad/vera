@@ -59,6 +59,7 @@ import { promptContributionMetadata } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
 import {
+    measureMessages,
     measureProjectedRequest,
     type ContextMeasurement,
 } from "./context-measurement.ts";
@@ -318,6 +319,10 @@ export async function runHeadlessLoop(
     }));
     const messages = [...store.messages()];
     let inbound: InboundCommandRouter;
+    // Assigned once the compaction closure exists, further down. Undefined
+    // while the session has no strategy bound, which makes an asked-for
+    // compaction a no-op rather than an error.
+    let compactOnRequest: ((turnActive: boolean) => Promise<void>) | undefined;
     const timeline = new TimelineController({
         state: { messages, store },
         protocol,
@@ -326,6 +331,9 @@ export async function runHeadlessLoop(
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
     });
     inbound = new InboundCommandRouter(endpoint, events, {
+        compactNow: async (turnActive) => {
+            await compactOnRequest?.(turnActive);
+        },
         hasPendingDeliveryTurn: () =>
             store.pendingDeliveries().length > 0
             || store.hasUnansweredDeliveryTurn(),
@@ -414,13 +422,21 @@ export async function runHeadlessLoop(
         });
     const contextWatch: ContextWatch = {};
     const compaction = options.compaction;
+    const compactionCapacity = contextWindowForModel(
+        options.readModelSettings?.().provider,
+        options.readModelSettings?.().model ?? model,
+    );
     const runCompaction = compaction === undefined
         ? undefined
         : async (
             measurement: ContextMeasurement,
             signal: AbortSignal,
+            force = false,
         ): Promise<void> => {
-            if (!shouldCompact(measurement)) {
+            // Forced only when a user asked. Compacting early is the whole
+            // point of asking, so the trigger fraction does not apply, but
+            // every other rule still does.
+            if (!force && !shouldCompact(measurement)) {
                 return;
             }
             events.emit({
@@ -451,6 +467,35 @@ export async function runHeadlessLoop(
                 contextWatch.measurement = undefined;
             }
         };
+    if (compaction !== undefined && runCompaction !== undefined) {
+        compactOnRequest = async (turnActive) => {
+            if (turnActive) {
+                events.emit({
+                    type: "compaction_finished",
+                    strategy: compaction.strategy.id,
+                    outcome: "busy",
+                });
+                return;
+            }
+            // A resumed session has not measured anything yet, and waiting for
+            // a turn to produce a number would mean the one command whose job
+            // is to run before the next turn cannot. Messages alone understate
+            // the request by its fixed overhead, which only makes the budget
+            // handed to the strategy tighter than it needs to be.
+            const measurement = contextWatch.measurement ?? {
+                tokens: measureMessages(store.modelContext()),
+                ...(compactionCapacity === undefined
+                    ? {}
+                    : { capacity: compactionCapacity }),
+                estimated: true,
+            };
+            await runCompaction(
+                measurement,
+                new AbortController().signal,
+                true,
+            );
+        };
+    }
     const state: RunTurnState = {
         messages,
         store,

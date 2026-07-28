@@ -209,7 +209,8 @@ export interface CompactionFinishedEvent {
         | "no_boundary"
         | "rejected"
         | "unavailable"
-        | "cancelled";
+        | "cancelled"
+        | "busy";
     readonly reason?: string;
     /** Estimated request size before and after, present only on success. */
     readonly before?: number;

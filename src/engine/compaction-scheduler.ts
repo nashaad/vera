@@ -44,6 +44,8 @@ export type CompactionOutcome =
     | { readonly outcome: "rejected"; readonly reason: string }
     | { readonly outcome: "unavailable"; readonly reason: string }
     | { readonly outcome: "cancelled" }
+    /** Asked for while a turn was running. Only a user can produce this. */
+    | { readonly outcome: "busy" }
     | {
         readonly outcome: "compacted";
         readonly before: number;

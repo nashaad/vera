@@ -150,6 +150,12 @@ export interface InboundCommandRouterOptions {
     ) => Promise<void>;
     /** Resolves false when the ID names no live grant. */
     readonly removePermissionGrant?: (id: string) => Promise<boolean>;
+    /**
+     * Absent when the session cannot compact, so an asked-for compaction on a
+     * session with no strategy bound does nothing rather than reporting a
+     * failure the user cannot act on.
+     */
+    readonly compactNow?: (turnActive: boolean) => Promise<void>;
     readonly handleTimelineCommand?: (
         ownerId: string,
         command: TimelineCommand,
@@ -489,6 +495,15 @@ export class InboundCommandRouter {
                         "direct-client",
                         command.requestId,
                         command.name,
+                    );
+                    continue;
+                }
+
+                if (command.type === "compact") {
+                    // Compaction runs between turns, never inside one: the
+                    // span it replaces has to be finished and durable.
+                    await this.options.compactNow?.(
+                        this.activeTurn !== undefined,
                     );
                     continue;
                 }

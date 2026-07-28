@@ -324,6 +324,20 @@ function applyCompaction(
                 + "the model now sees the summary instead.",
         );
     }
+    if (update.outcome === "busy") {
+        return appendTuiNotice(
+            state,
+            "Compaction runs between turns. Try again once this one finishes.",
+        );
+    }
+    if (update.outcome === "no_boundary") {
+        return appendTuiNotice(
+            state,
+            `Nothing to summarize yet${
+                update.reason === undefined ? "" : `: ${update.reason}`
+            }`,
+        );
+    }
     if (update.outcome === "rejected" || update.outcome === "unavailable") {
         return appendTuiNotice(
             state,
