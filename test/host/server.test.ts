@@ -17,6 +17,7 @@ import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownIfIdle,
 } from "../../src/host/protocol.ts";
+import { UserFacingError } from "../../src/user-facing-error.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -844,3 +845,40 @@ function temporaryHostDirectory(): string {
     temporaryDirectories.push(directory);
     return directory;
 }
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a startup failure written for a user keeps its words",
+    async () => {
+        // The generic line is right for internal failures and wrong for this
+        // one: a missing credential is something only the user can fix, and the
+        // message already says how.
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            createAgent: () =>
+                Promise.reject(
+                    new UserFacingError(
+                        "No credentials for provider openrouter. Connect it from the model pane (ctrl+e).",
+                    ),
+                ),
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({
+                type: "create_agent",
+                workspace: "/missing",
+            });
+            expect(await connection.receive()).toEqual({
+                type: "agent_start_failed",
+                operation: "create",
+                reason:
+                    "No credentials for provider openrouter. Connect it from the model pane (ctrl+e).",
+            });
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
