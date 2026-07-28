@@ -255,6 +255,9 @@ test("sibling subagents run concurrently and commit results in call order", asyn
         approvalMode: "full_access",
         enabledToolEffects: ["spawn_subagent"],
         async applyToolEffect(effect) {
+            if (effect.type !== "spawn_subagent") {
+                throw new Error(`Unexpected tool effect: ${effect.type}`);
+            }
             activeChildren += 1;
             maximumActiveChildren = Math.max(
                 maximumActiveChildren,

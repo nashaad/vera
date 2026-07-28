@@ -957,7 +957,7 @@ test("pending deliveries are idempotent and survive restart until injected", asy
     const delivery = {
         id: "delivery-1",
         sourceAgentId: "background-1",
-        content: "Background agent finished: tests pass.",
+        content: "Async subagent finished: tests pass.",
     };
     const store = await SessionStore.create(path, {
         sessionId: "parent-1",
@@ -1048,7 +1048,7 @@ test("rewind requeues only a delivery abandoned with its message", async () => {
     const delivery = {
         id: "delivery-1",
         sourceAgentId: "background-1",
-        content: "Background agent finished.",
+        content: "Async subagent finished.",
     };
     const store = await SessionStore.create(path, {
         sessionId: "parent-1",

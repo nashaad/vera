@@ -1027,19 +1027,30 @@ async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
 }
 
 function deliveryMessage(delivery: SessionDeliveryEntry): UserMessage {
+    const kind = delivery.kind ?? "completion";
+    const body = kind === "attention"
+        ? [
+            "<agent_message>",
+            `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,
+            `  <agent_id>${escapeXml(delivery.sourceAgentId)}</agent_id>`,
+            "  <status>attention</status>",
+            `  <message>${escapeXml(delivery.content)}</message>`,
+            "</agent_message>",
+        ]
+        : [
+            "<task_notification>",
+            `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,
+            `  <agent_id>${escapeXml(delivery.sourceAgentId)}</agent_id>`,
+            "  <status>completed</status>",
+            `  <summary>${escapeXml(delivery.content)}</summary>`,
+            "</task_notification>",
+        ];
     return {
         role: "user",
         internal: true,
         content: [{
             type: "text",
-            text: [
-                "<task_notification>",
-                `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,
-                `  <agent_id>${escapeXml(delivery.sourceAgentId)}</agent_id>`,
-                "  <status>completed</status>",
-                `  <summary>${escapeXml(delivery.content)}</summary>`,
-                "</task_notification>",
-            ].join("\n"),
+            text: body.join("\n"),
         }],
     };
 }

@@ -18,12 +18,27 @@ export interface SpawnSubagentEffect {
     readonly description: string;
 }
 
-export interface SpawnBackgroundAgentEffect {
-    readonly type: "spawn_background_agent";
+export interface SpawnAsyncSubagentEffect {
+    readonly type: "spawn_async_subagent";
     readonly description: string;
 }
 
-export type ToolEffect = SpawnSubagentEffect | SpawnBackgroundAgentEffect;
+export interface MessageSubagentEffect {
+    readonly type: "message_subagent";
+    readonly subagentId: string;
+    readonly message: string;
+}
+
+export interface NotifyParentEffect {
+    readonly type: "notify_parent";
+    readonly message: string;
+}
+
+export type ToolEffect =
+    | SpawnSubagentEffect
+    | SpawnAsyncSubagentEffect
+    | MessageSubagentEffect
+    | NotifyParentEffect;
 
 export interface AskUserChoice {
     readonly id: string;

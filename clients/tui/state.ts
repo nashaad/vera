@@ -222,7 +222,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "task_notification") {
         return appendEntry(state, {
             kind: "notification",
-            text: `Background agent ${update.sourceAgentId} completed:\n${update.content}`,
+            text: `Async subagent ${update.sourceAgentId}:\n${update.content}`,
         });
     }
     if (update.type === "history") {
@@ -457,7 +457,7 @@ const TOOL_HEADERS: Readonly<Record<string, string>> = {
     edit: "Edited",
     write: "Edited",
     subagent: "Delegated",
-    background_agent: "Delegated",
+    async_subagent: "Delegated",
     ask_user: "Asked",
 };
 
@@ -519,7 +519,7 @@ function toolRowText(
     if ((tool === "edit" || tool === "write") && path !== undefined) {
         return `${tool === "edit" ? "Edit" : "Write"} ${displayPath(path)}`;
     }
-    if (tool === "subagent" || tool === "background_agent") {
+    if (tool === "subagent" || tool === "async_subagent") {
         const description = stringArg(args, "description");
         if (description !== undefined) {
             return bounded(description.replaceAll(/\s+/g, " ").trim());

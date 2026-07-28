@@ -94,6 +94,8 @@ export interface TuiSettingsPickerOption {
     readonly current?: boolean;
     /** The session this one was forked from, when the host reported one. */
     readonly forkedFrom?: string;
+    /** Parent used to place a fork or async subagent under its source. */
+    readonly threadParent?: string;
     /** How deep under its parent a forked row sits. Absent at the top level. */
     readonly depth?: number;
     /**
@@ -623,8 +625,7 @@ export function startTuiSessionPicker(
     // re-attach with the screen left up, so its row costs nothing and answers
     // "which one am I in" without the user having to remember.
     const options = agents
-        .filter((agent) => agent.kind === "interactive"
-            && agent.status !== "closed"
+        .filter((agent) => agent.status !== "closed"
             && agent.status !== "failed"
             && agent.title !== undefined)
         .toSorted((left, right) =>
@@ -642,6 +643,9 @@ export function startTuiSessionPicker(
             ...(agent.forked_from === undefined
                 ? {}
                 : { forkedFrom: agent.forked_from }),
+            ...(agent.parent_id === undefined && agent.forked_from === undefined
+                ? {}
+                : { threadParent: agent.parent_id ?? agent.forked_from }),
         }));
     const threaded = threadSessionOptions(options);
     return {
@@ -773,7 +777,7 @@ function threadSessionOptions(
     const byParent = new Map<string, number[]>();
     const listed = new Set(options.map((option) => option.sessionId));
     options.forEach((option, index) => {
-        const parent = option.forkedFrom;
+        const parent = option.threadParent ?? option.forkedFrom;
         if (parent === undefined || !listed.has(parent)) {
             return;
         }
@@ -805,7 +809,7 @@ function threadSessionOptions(
         }
     };
     options.forEach((option, index) => {
-        const parent = option.forkedFrom;
+        const parent = option.threadParent ?? option.forkedFrom;
         if (parent === undefined || !listed.has(parent)) {
             place(index);
         }
@@ -850,6 +854,9 @@ function clipToCells(value: string, cells: number): string {
 function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
     if (agent.status === "working" || agent.status === "waiting") {
         return agent.status;
+    }
+    if (agent.kind === "background" && agent.status === "completed") {
+        return "completed";
     }
     // A live session with nothing running is one someone has open, which is
     // worth saying: the rest of the column is how long ago a row was last
@@ -1291,8 +1298,11 @@ function renderListPickerRows(
                     state,
                     row.option,
                     activityWidth,
-                    row.option.forkedFrom !== undefined
-                        && onScreen.has(row.option.forkedFrom),
+                    (row.option.threadParent ?? row.option.forkedFrom)
+                            !== undefined
+                        && onScreen.has(
+                            (row.option.threadParent ?? row.option.forkedFrom)!,
+                        ),
                 ),
                 ...(state.kind === "session"
                     ? { tint: (tinted = !tinted) }

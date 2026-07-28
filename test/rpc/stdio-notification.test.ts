@@ -10,6 +10,6 @@ test("stdio renders a task notification outside assistant text", () => {
         content: "The tests pass.",
         seq: 7,
     })).toBe(
-        "\nBackground agent child-1 completed:\nThe tests pass.\n",
+        "\nAsync subagent child-1:\nThe tests pass.\n",
     );
 });

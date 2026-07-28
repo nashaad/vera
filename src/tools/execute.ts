@@ -18,7 +18,9 @@ import type {
     ToolExecutionResult,
     ToolOutput,
 } from "./types.ts";
-import { backgroundAgentTool } from "./background-agent.ts";
+import { asyncSubagentTool } from "./async-subagent.ts";
+import { messageSubagentTool } from "./message-subagent.ts";
+import { notifyParentTool } from "./notify-parent.ts";
 import { webFetchTool } from "./web-fetch.ts";
 
 const ordinaryTools: readonly RegisteredTool[] = [
@@ -34,7 +36,9 @@ const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
     askUserTool,
     subagentTool,
-    backgroundAgentTool,
+    asyncSubagentTool,
+    messageSubagentTool,
+    notifyParentTool,
 ];
 for (const tool of registeredTools) {
     assertValidPermissionInputs(tool);

@@ -91,7 +91,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         1,
     )).toBe(
-        "1 background agent running · test · reasoning low · /workspace · ask",
+        "1 async subagent running · test · reasoning low · /workspace · ask",
     );
     expect(renderTuiStatusDetailsLine(
         { model: "test", reasoningEffort: "low" },
@@ -100,7 +100,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         2,
     )).toBe(
-        "2 background agents running · test · reasoning low · /workspace · ask",
+        "2 async subagents running · test · reasoning low · /workspace · ask",
     );
 });
 
