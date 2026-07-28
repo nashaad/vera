@@ -91,6 +91,12 @@ export async function startResidentHost(
     // One store for the host, so a sign-in from anywhere is the same fact to
     // every agent it is running.
     const authStorage = options.authStorage ?? createAuthStorage();
+    const extensions = await startExtensionRegistry({
+        extensions: options.config.extensions ?? [],
+        ...(options.onExtensionFailure === undefined
+            ? {}
+            : { onFailure: options.onExtensionFailure }),
+    });
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
@@ -134,6 +140,7 @@ export async function startResidentHost(
             ? {}
             : { permissionModes: options.config.permission_modes }),
         permissionPreferences,
+        extensionTools: extensions.tools(),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogDirectory === undefined
@@ -145,19 +152,12 @@ export async function startResidentHost(
     });
 
     let server: HostServer;
-    let extensions: ExtensionRegistry | undefined;
     try {
         await restoreStoredAgents(
             registry,
             sessionDirectory,
             options.onRestoreFailure ?? reportRestoreFailure,
         );
-        extensions = await startExtensionRegistry({
-            extensions: options.config.extensions ?? [],
-            ...(options.onExtensionFailure === undefined
-                ? {}
-                : { onFailure: options.onExtensionFailure }),
-        });
         server = await startHostServer({
             ...(options.socketPath === undefined
                 ? {}
@@ -177,13 +177,13 @@ export async function startResidentHost(
             trashSession: (targetId) => registry.trashSession(targetId),
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),
-            listExtensionCommands: () => extensions!.commands(),
+            listExtensionCommands: () => extensions.commands(),
             runExtensionCommand: (
                 name,
                 argumentsText,
                 workspace,
                 signal,
-            ) => extensions!.invokeCommand(
+            ) => extensions.invokeCommand(
                 name,
                 argumentsText,
                 workspace,
@@ -191,11 +191,11 @@ export async function startResidentHost(
             ),
             canShutdown: () => registry.idleForShutdown(),
             onShutdownAccepted: () =>
-                closeResidentHost(server, registry, extensions!),
+                closeResidentHost(server, registry, extensions),
         });
     } catch (error) {
         try {
-            await extensions?.close();
+            await extensions.close();
         } catch {
             // Preserve the host startup failure.
         }
