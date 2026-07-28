@@ -99,6 +99,10 @@ export interface CloneSessionTuiCommandAction {
     readonly type: "clone_session";
 }
 
+export interface CompactSessionTuiCommandAction {
+    readonly type: "compact_session";
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -131,6 +135,7 @@ export type TuiCommandAction =
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
     | CloneSessionTuiCommandAction
+    | CompactSessionTuiCommandAction
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
 
@@ -176,7 +181,8 @@ export interface TuiCommandDefinition {
         | OpenResumePickerTuiCommandAction
         | ReconnectTuiCommandAction
         | CreateSessionTuiCommandAction
-        | CloneSessionTuiCommandAction;
+        | CloneSessionTuiCommandAction
+        | CompactSessionTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
@@ -259,6 +265,12 @@ const CLONE_COMMAND = {
     usage: "/clone",
 } as const satisfies TuiCommandCatalogEntry;
 
+const COMPACT_COMMAND = {
+    name: "compact",
+    description: "Summarize earlier messages to free context",
+    usage: "/compact",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     FORK_COMMAND,
@@ -272,6 +284,7 @@ export const BUILTIN_COMMANDS = [
     CLEAR_COMMAND,
     RENAME_COMMAND,
     CLONE_COMMAND,
+    COMPACT_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -647,6 +660,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "clone",
             action: { type: "clone_session" },
+        },
+    });
+    registry.registerCommand({
+        ...COMPACT_COMMAND,
+        action: { type: "compact_session" },
+        palette: {
+            name: "compact",
+            label: "Summarize earlier messages",
+            description: "free context without losing the transcript",
+            group: "Session",
+            slashName: "compact",
+            action: { type: "compact_session" },
         },
     });
     // The palette does not list itself: you are already looking at it.

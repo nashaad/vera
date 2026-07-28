@@ -173,6 +173,16 @@ export interface UpdateSessionNameCommand {
     readonly name: string | null;
 }
 
+/**
+ * Compacts now, on the same strategy the session compacts itself with. The
+ * point of asking is to compact before the window is nearly full, so this one
+ * skips the trigger fraction; every other rule the engine applies still holds.
+ */
+export interface CompactCommand {
+    readonly type: "compact";
+    readonly requestId: string;
+}
+
 export interface ListTimelineCommand {
     readonly type: "list_timeline";
     readonly requestId: string;
@@ -210,6 +220,7 @@ export type ClientCommand =
     | RemovePermissionPreferenceCommand
     | RemovePermissionGrantCommand
     | UpdateSessionNameCommand
+    | CompactCommand
     | TimelineCommand;
 
 export interface HistoryUpdate {
@@ -245,7 +256,8 @@ export interface CompactionUpdate {
         | "no_boundary"
         | "rejected"
         | "unavailable"
-        | "cancelled";
+        | "cancelled"
+        | "busy";
     readonly reason?: string;
     readonly before?: number;
     readonly after?: number;
@@ -721,6 +733,9 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             requestId: command.requestId,
             name: command.name,
         };
+    }
+    if (command.type === "compact" && isRequestId(command.requestId)) {
+        return { type: "compact", requestId: command.requestId };
     }
     if (command.type === "list_timeline" && isRequestId(command.requestId)) {
         return {

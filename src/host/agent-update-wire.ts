@@ -629,7 +629,8 @@ function isCompactionOutcome(value: unknown): boolean {
         || value === "no_boundary"
         || value === "rejected"
         || value === "unavailable"
-        || value === "cancelled";
+        || value === "cancelled"
+        || value === "busy";
 }
 
 function isRiskLevel(value: unknown): boolean {
