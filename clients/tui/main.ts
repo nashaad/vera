@@ -200,7 +200,6 @@ import {
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
-    rememberAttachmentName,
     failTuiConnection,
     queueTuiPrompt,
     renderTuiEntry,
@@ -1792,11 +1791,17 @@ export async function startTui(
         // The chips carry the order the user sees, which reordering the text
         // can change; `pendingImages` only carries the order they arrived in.
         const chipOrder = composer.imageChipRequestIds();
-        const attachmentIds = chipOrder
-            .map((requestId) =>
-                pendingImages.find((image) => image.requestId === requestId)?.id
-            )
-            .filter((id): id is string => id !== undefined);
+        const attachments = chipOrder
+            .flatMap((requestId) => {
+                const image = pendingImages.find(
+                    (candidate) => candidate.requestId === requestId,
+                );
+                return image?.id === undefined ? [] : [{
+                    id: image.id,
+                    ...(image.name === undefined ? {} : { name: image.name }),
+                }];
+            });
+        const attachmentIds = attachments.map((attachment) => attachment.id);
         if (attachmentIds.length > 0) {
             const submittedRequestIds = new Set(
                 pendingImages.map((image) => image.requestId),
@@ -1819,10 +1824,10 @@ export async function startTui(
                 );
                 const optimisticText = [
                     prompt,
-                    ...attachmentIds.map(attachmentLabel),
+                    ...attachments.map(attachmentLabel),
                 ].filter((part) => part.length > 0).join("\n");
                 if (state.entries.at(-1)?.text !== optimisticText) {
-                    state = beginTuiTurn(state, prompt, attachmentIds);
+                    state = beginTuiTurn(state, prompt, attachments);
                 } else if (!state.working) {
                     state = { ...state, working: true };
                 }
@@ -1840,7 +1845,7 @@ export async function startTui(
         composer.clearComposer();
         state = state.working
             ? queueTuiPrompt(state, prompt)
-            : beginTuiTurn(state, prompt, attachmentIds);
+            : beginTuiTurn(state, prompt, attachments);
         if (workingSince === undefined) {
             workingSince = Date.now();
             phaseSince = workingSince;
@@ -1897,10 +1902,6 @@ export async function startTui(
                             id: update.attachment.id,
                             name: update.attachment.name,
                         };
-                        rememberAttachmentName(
-                            update.attachment.id,
-                            update.attachment.name,
-                        );
                         showStatusNotice(
                             `attached ${update.attachment.name} · ${pendingImages.length} pending`,
                         );

@@ -5,7 +5,10 @@ import {
     rewindConversationBefore,
     type ConversationRewindState,
 } from "./conversation-rewind.ts";
+import { sessionAttachmentName } from "../attachments/service.ts";
+import { attachmentRefs } from "./protocol.ts";
 import type {
+    AttachmentNameLookup,
     ClientCommand,
     ProtocolEncoder,
     TimelineActionRejectionReason,
@@ -80,6 +83,7 @@ export class TimelineController {
                 requestId: command.requestId,
                 boundaries: timelineBoundaries(
                     this.options.state.store.activeEntries(),
+                    sessionAttachmentName(this.options.state.store),
                 ),
             });
             return;
@@ -144,7 +148,11 @@ export class TimelineController {
         const plan: TimelineActionPlan = {
             planId,
             expectedHeadId,
-            boundary: toTimelineBoundary(boundaryEntry, boundaryIndex),
+            boundary: toTimelineBoundary(
+                boundaryEntry,
+                boundaryIndex,
+                sessionAttachmentName(this.options.state.store),
+            ),
             keptMessageCount: boundaryIndex,
             setAsideMessageCount: activeEntries.length - boundaryIndex,
         };
@@ -257,10 +265,11 @@ export class TimelineController {
 
 function timelineBoundaries(
     activeEntries: readonly SessionMessageEntry[],
+    attachmentName: AttachmentNameLookup,
 ): TimelineBoundary[] {
     return activeEntries.flatMap((entry, position) =>
         isExternalUserBoundary(entry, entry.id)
-            ? [toTimelineBoundary(entry, position)]
+            ? [toTimelineBoundary(entry, position, attachmentName)]
             : []
     );
 }
@@ -268,6 +277,7 @@ function timelineBoundaries(
 function toTimelineBoundary(
     entry: SessionMessageEntry,
     position: number,
+    attachmentName: AttachmentNameLookup,
 ): TimelineBoundary {
     if (entry.message.role !== "user") {
         throw new Error("Timeline boundary must be a user message");
@@ -279,20 +289,9 @@ function toTimelineBoundary(
             .filter((block) => block.type === "text")
             .map((block) => block.text)
             .join("\n"),
-        ...attachmentIds(entry.message.content),
+        ...attachmentRefs(entry.message.content, attachmentName),
         position,
     };
-}
-
-function attachmentIds(
-    content: readonly { readonly type: string; readonly attachmentId?: string }[],
-): { attachmentIds?: readonly string[] } {
-    const ids = content.flatMap((block) =>
-        block.type === "image_attachment" && block.attachmentId !== undefined
-            ? [block.attachmentId]
-            : []
-    );
-    return ids.length === 0 ? {} : { attachmentIds: ids };
 }
 
 function isExternalUserBoundary(

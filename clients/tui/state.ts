@@ -1,7 +1,7 @@
 import { fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
-import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
 import type { TranscriptEntry } from "../../src/engine/protocol.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
@@ -68,21 +68,10 @@ export function applyTuiTheme(theme: TuiTheme): void {
     TUI_ELEMENT = theme.element;
 }
 
-const attachmentNames = new Map<string, string>();
-
-/**
- * Record what an attachment is called so the transcript can name it.
- *
- * The name arrives with `image_attached`, which a restored session never
- * replays, so an attachment from an earlier run stays unnamed.
- */
-export function rememberAttachmentName(id: string, name: string): void {
-    attachmentNames.set(id, name);
-}
-
-export function attachmentLabel(id: string): string {
-    const name = attachmentNames.get(id);
-    return name === undefined ? "[Attached image]" : `[Image ${name}]`;
+export function attachmentLabel(attachment: AttachmentRef): string {
+    return attachment.name === undefined
+        ? "[Attached image]"
+        : `[Image ${attachment.name}]`;
 }
 
 export function createTuiState(): TuiState {
@@ -96,13 +85,13 @@ export function createTuiState(): TuiState {
 export function beginTuiTurn(
     state: TuiState,
     prompt: string,
-    attachmentIds?: readonly string[],
+    attachments?: readonly AttachmentRef[],
 ): TuiState {
     return {
         ...state,
         entries: [...state.entries, {
             kind: "user",
-            text: displayUserPrompt(prompt, attachmentIds),
+            text: displayUserPrompt(prompt, attachments),
         }],
         working: true,
     };
@@ -231,7 +220,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         };
     }
     if (update.type === "user_prompt") {
-        const text = displayUserPrompt(update.content, update.attachmentIds);
+        const text = displayUserPrompt(update.content, update.attachments);
         const last = state.entries.at(-1);
         if (last?.kind === "user" && last.text === text) {
             return state;
@@ -393,7 +382,7 @@ function toTuiTranscriptEntry(entry: TranscriptEntry): TuiTranscriptEntry {
         return presentationEntry(entry.presentation);
     }
     return entry.kind === "user"
-        ? { kind: "user", text: displayUserPrompt(entry.text, entry.attachmentIds) }
+        ? { kind: "user", text: displayUserPrompt(entry.text, entry.attachments) }
         : entry;
 }
 
@@ -417,9 +406,12 @@ function presentationEntry(
         : { kind: "notice", text: presentation.text };
 }
 
-function displayUserPrompt(text: string, attachmentIds?: readonly string[]): string {
-    if (attachmentIds === undefined || attachmentIds.length === 0) return text;
-    const labels = attachmentIds.map(attachmentLabel).join("\n");
+function displayUserPrompt(
+    text: string,
+    attachments?: readonly AttachmentRef[],
+): string {
+    if (attachments === undefined || attachments.length === 0) return text;
+    const labels = attachments.map(attachmentLabel).join("\n");
     return text.length === 0 ? labels : `${text}\n${labels}`;
 }
 

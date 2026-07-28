@@ -53,7 +53,10 @@ import {
 import { createSessionBranch } from "../store/session-branch.ts";
 import type { UserMessage } from "../model/types.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
-import { ImageAttachmentService } from "../attachments/service.ts";
+import {
+    ImageAttachmentService,
+    sessionAttachmentName,
+} from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
 import {
     type AgentAttachment,
@@ -614,7 +617,10 @@ export class AgentRegistry {
         if (storedFailure !== undefined) {
             agent.restoreFailure({
                 type: "history",
-                entries: projectTranscript(store.messages()),
+                entries: projectTranscript(
+                    store.messages(),
+                    sessionAttachmentName(store),
+                ),
                 seq: 0,
             }, storedFailure.id, storedFailure.detail);
             return agent;

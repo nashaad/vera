@@ -40,7 +40,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     }
     if (update.type === "user_prompt") {
         return typeof update.content === "string"
-                && isOptionalAttachmentIds(update.attachmentIds)
+                && isOptionalAttachments(update.attachments)
             ? value as AgentUpdate
             : undefined;
     }
@@ -492,7 +492,7 @@ function isTimelineBoundary(value: unknown): boolean {
         && boundary.userMessageId.length > 0
         && typeof boundary.timestamp === "string"
         && typeof boundary.prompt === "string"
-        && isOptionalAttachmentIds(boundary.attachmentIds)
+        && isOptionalAttachments(boundary.attachments)
         && isSequence(boundary.position);
 }
 
@@ -511,7 +511,7 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     const entry = asRecord(value);
     if (entry?.kind === "user") {
         return typeof entry.text === "string"
-            && isOptionalAttachmentIds(entry.attachmentIds);
+            && isOptionalAttachments(entry.attachments);
     }
     if (entry?.kind === "assistant") {
         return typeof entry.text === "string";
@@ -529,10 +529,16 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         && asRecord(entry.args) !== undefined;
 }
 
-function isOptionalAttachmentIds(value: unknown): boolean {
+function isOptionalAttachments(value: unknown): boolean {
     return value === undefined || (
         Array.isArray(value)
-        && value.every((id) => typeof id === "string" && id.length > 0)
+        && value.every((entry) => {
+            const attachment = asRecord(entry);
+            return typeof attachment?.id === "string"
+                && attachment.id.length > 0
+                && (attachment.name === undefined
+                    || typeof attachment.name === "string");
+        })
     );
 }
 

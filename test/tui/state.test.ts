@@ -9,7 +9,6 @@ import {
     createTuiState,
     failTuiConnection,
     queueTuiPrompt,
-    rememberAttachmentName,
     renderTuiEntry,
     renderTuiQueuedPrompt,
     tuiEntryMarginTop,
@@ -434,7 +433,7 @@ test("TUI history and live prompts show attached images", () => {
         entries: [{
             kind: "user",
             text: "compare",
-            attachmentIds: ["one.png", "two.png"],
+            attachments: [{ id: "one.png" }, { id: "two.png" }],
         }],
         seq: 1,
     });
@@ -446,7 +445,7 @@ test("TUI history and live prompts show attached images", () => {
     state = applyAgentUpdate(state, {
         type: "user_prompt",
         content: "new image",
-        attachmentIds: ["three.png"],
+        attachments: [{ id: "three.png" }],
         seq: 2,
     });
     expect(state.entries.at(-1)).toEqual({
@@ -455,12 +454,14 @@ test("TUI history and live prompts show attached images", () => {
     });
 });
 
-test("an attachment named this session is shown by its file name", () => {
-    rememberAttachmentName("named-id", "Screenshot at 11.08.54 AM.png");
+test("a named attachment is shown by its file name", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "user_prompt",
         content: "look",
-        attachmentIds: ["named-id", "unnamed-id"],
+        attachments: [
+            { id: "named-id", name: "Screenshot at 11.08.54 AM.png" },
+            { id: "unnamed-id" },
+        ],
         seq: 1,
     });
     expect(state.entries.at(-1)).toEqual({

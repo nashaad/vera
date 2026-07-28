@@ -500,7 +500,7 @@ function previewTransition(
     if (boundary === undefined) {
         return unchanged(state);
     }
-    if (boundary.attachmentIds !== undefined && boundary.attachmentIds.length > 0) {
+    if (boundary.attachments !== undefined && boundary.attachments.length > 0) {
         return {
             state: {
                 ...state,

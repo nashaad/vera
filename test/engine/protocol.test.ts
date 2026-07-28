@@ -123,7 +123,25 @@ test("attachment IDs remain ordered across commands and transcript projection", 
     }])).toEqual([{
         kind: "user",
         text: "compare",
-        attachmentIds: ["one.png", "two.png"],
+        attachments: [{ id: "one.png" }, { id: "two.png" }],
+    }]);
+});
+
+test("a projected attachment carries the name it was attached from", () => {
+    expect(projectTranscript([{
+        role: "user",
+        content: [
+            { type: "text", text: "look" },
+            { type: "image_attachment", attachmentId: "named" },
+            { type: "image_attachment", attachmentId: "forgotten" },
+        ],
+    }], (id) => id === "named" ? "Screenshot.png" : undefined)).toEqual([{
+        kind: "user",
+        text: "look",
+        attachments: [
+            { id: "named", name: "Screenshot.png" },
+            { id: "forgotten" },
+        ],
     }]);
 });
 

@@ -17,6 +17,7 @@ import type {
     ModelInputMessage,
     ModelMessage,
 } from "../model/types.ts";
+import type { AttachmentNameLookup } from "../engine/protocol.ts";
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -111,6 +112,15 @@ function resolveSelectedPath(path: string, workspace: string): string {
         : path.startsWith("~/") ? join(homedir(), path.slice(2))
         : path;
     return isAbsolute(expanded) ? expanded : resolve(workspace, expanded);
+}
+
+/** Names the session's attachments, for transcripts that show what was sent. */
+export function sessionAttachmentName(
+    session: SessionStore,
+): AttachmentNameLookup {
+    return (id) => session.attachmentRecords().find(
+        (record) => record.id === id,
+    )?.name;
 }
 
 export async function readSessionImageContent(
