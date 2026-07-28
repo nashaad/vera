@@ -337,9 +337,15 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Connection error: Host sent a non-contiguous agent update sequence",
             );
-            expect(pane).toContain("disconnected · /resume reconnect");
+            expect(pane).toContain("disconnected · /reconnect host");
             expect(pane).not.toContain("working…");
             expect(pane).not.toContain("stopping");
+
+            sendText(socket, session, "/reconnect");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Host reconnected.");
+            expect(pane).toContain("ready · ctrl+p commands");
+            expect(pane).not.toContain("disconnected · /reconnect host");
 
             sendText(socket, session, "/themes");
             sendKey(socket, session, "Enter");

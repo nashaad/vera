@@ -11,6 +11,7 @@ updates.push({ type: "status", state: "working", seq: 1 });
 updates.fail(new Error("Host sent a non-contiguous agent update sequence"));
 
 const client: TuiAgentClient = {
+    agentId: "agent-1",
     async send(): Promise<void> {},
     receive(signal): Promise<AgentUpdate> {
         return updates.receive(signal);
@@ -19,4 +20,24 @@ const client: TuiAgentClient = {
     close(): void {},
 };
 
-await startTui({ client });
+await startTui({
+    client,
+    reconnectSession: async () => {
+        const reconnectedUpdates = new AsyncQueue<AgentUpdate>();
+        reconnectedUpdates.push({
+            type: "history",
+            entries: [{ kind: "assistant", text: "Host reconnected." }],
+            seq: 0,
+        });
+        reconnectedUpdates.push({ type: "status", state: "idle", seq: 1 });
+        return {
+            agentId: "agent-1",
+            async send(): Promise<void> {},
+            receive(signal): Promise<AgentUpdate> {
+                return reconnectedUpdates.receive(signal);
+            },
+            async detach(): Promise<void> {},
+            close(): void {},
+        };
+    },
+});
