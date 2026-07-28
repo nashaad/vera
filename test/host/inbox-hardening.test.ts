@@ -3,7 +3,13 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Inbox, type InboxEntryInput } from "../../src/store/inbox.ts";
+import { Database } from "bun:sqlite";
+
+import {
+    Inbox,
+    INBOX_SCHEMA_VERSION,
+    type InboxEntryInput,
+} from "../../src/store/inbox.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import {
     InboxDeliveryCoordinator,
@@ -200,6 +206,31 @@ describe("inbox delivery hardening", () => {
 
         expect(() => consumers.hello({ label: "host:spawn" })).toThrow(/reserved/);
         inbox.close();
+    });
+
+    test("migration steps run from the stored user_version", () => {
+        const directory = scratch();
+        const path = join(directory, "inbox.db");
+        Inbox.open(path).close();
+
+        const raw = new Database(path);
+        expect(raw.query("PRAGMA user_version").get())
+            .toEqual({ user_version: INBOX_SCHEMA_VERSION });
+        // Rewind to the state a file stamped by the first step alone is in.
+        raw.exec("DROP TABLE watch_cursors");
+        raw.exec("PRAGMA user_version = 1");
+        raw.close();
+
+        const reopened = Inbox.open(path);
+        reopened.setWatchCursor("vera.arc/main", "v1:7");
+
+        expect(reopened.watchCursor("vera.arc/main")).toBe("v1:7");
+        reopened.close();
+
+        const after = new Database(path);
+        expect(after.query("PRAGMA user_version").get())
+            .toEqual({ user_version: INBOX_SCHEMA_VERSION });
+        after.close();
     });
 
     test("a corrupt inbox file is quarantined and replaced", () => {
