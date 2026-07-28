@@ -62,6 +62,12 @@ import {
     measureProjectedRequest,
     type ContextMeasurement,
 } from "./context-measurement.ts";
+import type { CompactionStrategyDefinition } from "./compaction.ts";
+import type { CompleteText } from "./completion-service.ts";
+import {
+    compactSession,
+    shouldCompact,
+} from "./compaction-scheduler.ts";
 import { availableModels, contextWindowForModel } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
@@ -97,6 +103,7 @@ import {
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionCompactionDiagnostics,
     type SessionDeliveryEntry,
     type SessionDeliveryInbox,
     type SessionMessageStore,
@@ -111,9 +118,29 @@ const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
+/**
+ * The last measurement taken, held so the next turn can decide whether to
+ * compact before it starts. Deliberately the previous turn's reading: a turn
+ * that has already been compacted must not be judged by the number that
+ * triggered the compaction, which is the stale-trigger loop.
+ */
+export interface ContextWatch {
+    measurement?: ContextMeasurement;
+}
+
 export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
+    /**
+     * What to send the model, which compaction replaces. Absent means the
+     * transcript itself, which is what a session without compaction sends.
+     */
+    readonly modelContext?: () => readonly ModelMessage[];
+    readonly contextWatch?: ContextWatch;
+    readonly compact?: (
+        measurement: ContextMeasurement,
+        signal: AbortSignal,
+    ) => Promise<void>;
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
     readonly inbound: InboundCommandRouter;
@@ -141,6 +168,12 @@ export interface RunTurnState {
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
 }
 
+export interface SessionCompactionOptions {
+    readonly strategy: CompactionStrategyDefinition;
+    readonly models: Readonly<Record<string, CompleteText>>;
+    readonly diagnostics?: SessionCompactionDiagnostics;
+}
+
 export interface RunHeadlessLoopOptions {
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
@@ -154,6 +187,12 @@ export interface RunHeadlessLoopOptions {
     readonly approvalMode?: ApprovalMode;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly modelFallback?: ModelFallbackPolicy;
+    /**
+     * Strategy and bound models. Absent means the session never compacts and
+     * always sends its whole transcript, which is what every session did
+     * before compaction existed.
+     */
+    readonly compaction?: SessionCompactionOptions;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
@@ -373,9 +412,51 @@ export async function runHeadlessLoop(
             }
             return activeReviewer.review(request, signal);
         });
+    const contextWatch: ContextWatch = {};
+    const compaction = options.compaction;
+    const runCompaction = compaction === undefined
+        ? undefined
+        : async (
+            measurement: ContextMeasurement,
+            signal: AbortSignal,
+        ): Promise<void> => {
+            if (!shouldCompact(measurement)) {
+                return;
+            }
+            events.emit({
+                type: "compaction_started",
+                strategy: compaction.strategy.id,
+            });
+            const result = await compactSession({
+                store,
+                strategy: compaction.strategy,
+                models: compaction.models,
+                ...(compaction.diagnostics === undefined
+                    ? {}
+                    : { diagnostics: compaction.diagnostics }),
+            }, measurement, signal);
+            events.emit({
+                type: "compaction_finished",
+                strategy: compaction.strategy.id,
+                outcome: result.outcome,
+                ...("reason" in result ? { reason: result.reason } : {}),
+                ...(result.outcome === "compacted"
+                    ? { before: result.before, after: result.after }
+                    : {}),
+            });
+            if (result.outcome === "compacted") {
+                // The measurement that triggered this described the request
+                // that no longer exists. Leaving it in place is the stale
+                // trigger that makes a session compact every turn.
+                contextWatch.measurement = undefined;
+            }
+        };
     const state: RunTurnState = {
         messages,
         store,
+        modelContext: () => store.modelContext(),
+        contextWatch,
+        ...(runCompaction === undefined ? {} : { compact: runCompaction }),
         deliveryInbox: store,
         toolRuntime: new ToolRuntime(store.header.cwd),
         inbound,
@@ -531,6 +612,14 @@ export async function runTurn(
             return assistantMessage;
         }
         await drainPendingDeliveries(state);
+        // Before the prompt is accepted, so a compaction that fails cannot
+        // strand a message the user has already sent, and after the deliveries
+        // are drained, so nothing pending disappears into a projection that
+        // was assembled without it.
+        const watched = state.contextWatch?.measurement;
+        if (state.compact !== undefined && watched !== undefined) {
+            await state.compact(watched, turn.signal);
+        }
         if (userMessage === undefined) {
             state.events.emit({ type: "delivery_turn_started" });
         } else {
@@ -572,7 +661,7 @@ export async function runTurn(
                 ...(turnReasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: turnReasoningEffort }),
-                messages: state.messages,
+                messages: state.modelContext?.() ?? state.messages,
                 tools,
                 workspace: state.toolRuntime.workspace,
                 date: requestDate,
@@ -613,6 +702,9 @@ export async function runTurn(
                 model: activeModel,
                 measurement,
             });
+            if (state.contextWatch !== undefined) {
+                state.contextWatch.measurement = measurement;
+            }
             let modelRequest;
             try {
                 modelRequest = {
@@ -666,14 +758,18 @@ export async function runTurn(
                         // The same request is sent again to a model with its
                         // own window, so the share of it that is filled moves
                         // even though nothing was added to the request.
+                        const remeasured = remeasuredAgainst(
+                            measurement,
+                            capacityForModel(activeModel),
+                        );
                         state.events.emit({
                             type: "context_measured",
                             model: activeModel,
-                            measurement: remeasuredAgainst(
-                                measurement,
-                                capacityForModel(activeModel),
-                            ),
+                            measurement: remeasured,
                         });
+                        if (state.contextWatch !== undefined) {
+                            state.contextWatch.measurement = remeasured;
+                        }
                     },
                     ...(state.modelFallback === undefined
                         || (state.modelFallback.provider !== undefined
