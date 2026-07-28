@@ -19,6 +19,7 @@ import type {
     ToolOutput,
 } from "./types.ts";
 import { backgroundAgentTool } from "./background-agent.ts";
+import { webFetchTool } from "./web-fetch.ts";
 
 const ordinaryTools: readonly RegisteredTool[] = [
     bashTool,
@@ -27,6 +28,7 @@ const ordinaryTools: readonly RegisteredTool[] = [
     editTool,
     grepTool,
     listTool,
+    webFetchTool,
 ];
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
