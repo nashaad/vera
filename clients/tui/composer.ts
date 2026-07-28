@@ -8,7 +8,7 @@ import {
     type RenderContext,
 } from "@opentui/core";
 import { TUI_ACCENT, TUI_PANEL, TUI_TEXT } from "./state.ts";
-import { pastedImagePath } from "./image-path.ts";
+import { pastedImagePaths } from "./image-path.ts";
 import {
     displayOffsetWidth,
     imageChipMarker,
@@ -214,9 +214,11 @@ export class TuiComposer extends TextareaRenderable {
         const text = normalizeLineEndings(
             stripAnsiSequences(decodePasteBytes(event.bytes)),
         );
-        const imagePath = pastedImagePath(text);
-        if (imagePath !== undefined && this.onImagePathPaste !== undefined) {
-            this.onImagePathPaste(imagePath);
+        const imagePaths = pastedImagePaths(text);
+        if (imagePaths.length > 0 && this.onImagePathPaste !== undefined) {
+            for (const path of imagePaths) {
+                this.onImagePathPaste(path);
+            }
             return;
         }
         if (!shouldCollapsePaste(text)) {
