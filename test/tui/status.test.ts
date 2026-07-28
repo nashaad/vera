@@ -77,12 +77,15 @@ test("TUI splits activity from persistent details across both footer lines", () 
     );
 });
 
-test("running background-agent count excludes terminal agents", () => {
+test("running background-agent count counts the live ones only", () => {
     expect(countRunningBackgroundAgents([
         backgroundAgent("working"),
         backgroundAgent("waiting"),
+        // Resident and idle, which is every background session the host
+        // restored at startup. Nothing is running in it.
         backgroundAgent("idle"),
-        backgroundAgent("completed"),
+        // Live because someone attached to read it, which is not running.
+        { ...backgroundAgent("completed"), live: true },
         backgroundAgent("closed"),
         backgroundAgent("failed"),
         {
@@ -90,7 +93,7 @@ test("running background-agent count excludes terminal agents", () => {
             id: "interactive",
             kind: "interactive",
         },
-    ])).toBe(3);
+    ])).toBe(2);
 });
 
 function backgroundAgent(
@@ -102,5 +105,6 @@ function backgroundAgent(
         session_path: `/sessions/${status}.jsonl`,
         kind: "background" as const,
         status,
+        live: status === "working" || status === "waiting",
     };
 }

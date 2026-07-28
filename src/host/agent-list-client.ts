@@ -48,6 +48,7 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
             || agent.status === "closed"
             || agent.status === "failed"
         )
+        && typeof agent.live === "boolean"
         && (agent.title === undefined || typeof agent.title === "string")
         && (
             agent.forked_from === undefined

@@ -268,7 +268,9 @@ export function renderAgentList(
 
     const rows = agents.map((agent) => [
         agent.kind,
-        agent.status,
+        // `idle` here would mean "the host is holding this session", which is
+        // true of every session ever started and tells the reader nothing.
+        agent.status === "idle" && !agent.live ? "stopped" : agent.status,
         agent.workspace,
         agent.id,
         agent.session_path,

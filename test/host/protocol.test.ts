@@ -135,13 +135,14 @@ test("host protocol parses identity requests and encodes responses", () => {
             session_path: "/sessions/agent-1.jsonl",
             kind: "background",
             status: "working",
+            live: true,
         }],
     })).toBe(
         '{"type":"agent_list","agents":[{"id":"agent-1",'
         + '"workspace":"/work/one",'
         + '"session_path":"/sessions/agent-1.jsonl",'
         + '"kind":"background",'
-        + '"status":"working"}]}\n',
+        + '"status":"working","live":true}]}\n',
     );
 });
 

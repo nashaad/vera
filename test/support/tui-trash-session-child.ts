@@ -31,6 +31,7 @@ await startTui({
                 session_path: "/sessions/saved.jsonl",
                 kind: "interactive" as const,
                 status: "idle" as const,
+                live: false,
                 title: "Continue the theme picker",
                 updated_at: "2026-07-20T20:00:00.000Z",
             }]

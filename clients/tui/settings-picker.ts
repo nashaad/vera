@@ -848,9 +848,13 @@ function clipToCells(value: string, cells: number): string {
 }
 
 function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
-    return agent.status === "working" || agent.status === "waiting"
-        ? agent.status
-        : relativeSessionTime(agent.updated_at, now);
+    if (agent.status === "working" || agent.status === "waiting") {
+        return agent.status;
+    }
+    // A live session with nothing running is one someone has open, which is
+    // worth saying: the rest of the column is how long ago a row was last
+    // touched, and "3h" under a conversation being read right now is wrong.
+    return agent.live ? "open" : relativeSessionTime(agent.updated_at, now);
 }
 
 function relativeSessionTime(value: string | undefined, now: Date): string {

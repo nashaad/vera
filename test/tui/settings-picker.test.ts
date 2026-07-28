@@ -56,6 +56,7 @@ test("session picker filters durable interactive conversations and selects an ag
             session_path: "/sessions/first.jsonl",
             kind: "interactive",
             status: "idle",
+            live: false,
             title: "Fix the deployment race",
             updated_at: "2026-07-20T20:00:00.000Z",
         },
@@ -65,6 +66,7 @@ test("session picker filters durable interactive conversations and selects an ag
             session_path: "/sessions/background.jsonl",
             kind: "background",
             status: "completed",
+            live: false,
         },
     ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
 
@@ -140,6 +142,30 @@ test("session picker hides empty chats and shows only meaningful live state", as
     expect(rendered).toContain("alpha");
 });
 
+test("an open session says so where a stopped one says how long ago", async () => {
+    const state = startTuiSessionPicker([
+        {
+            ...session("open", "idle"),
+            live: true,
+            title: "Being read right now",
+            updated_at: "2026-07-20T18:00:00.000Z",
+        },
+        {
+            ...session("stopped", "idle"),
+            title: "Left alone since yesterday",
+            updated_at: "2026-07-20T18:00:00.000Z",
+        },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    const rows = (await pickerFrame(state)).split("\n");
+    const rowFor = (title: string): string =>
+        rows.find((line) => line.includes(title)) ?? "";
+    // Same timestamp on both rows, so the difference on screen is liveness
+    // and nothing else.
+    expect(rowFor("Being read right now")).toContain("open");
+    expect(rowFor("Left alone since yesterday")).toContain("3h");
+});
+
 test("session rows stay on one line at 80 columns", async () => {
     const setup = await createTestRenderer({ width: 80, height: 24 });
     const view = createTuiSettingsPickerView(setup.renderer);
@@ -151,6 +177,7 @@ test("session rows stay on one line at 80 columns", async () => {
         session_path: "/sessions/long.jsonl",
         kind: "interactive",
         status: "idle",
+        live: false,
         title: "This is a deliberately long first prompt title that must fit",
         updated_at: "2026-07-20T20:00:00.000Z",
     }], undefined, false, new Date("2026-07-20T21:00:00.000Z")));
@@ -178,6 +205,7 @@ test("session titles reach the picker whole", () => {
         session_path: "/sessions/unicode.jsonl",
         kind: "interactive",
         status: "idle",
+        live: false,
         title: `${"a".repeat(28)}😀tail`,
         updated_at: "2026-07-20T20:00:00.000Z",
     }]);
@@ -198,6 +226,7 @@ test("session columns are bounded in cells, not characters", () => {
         session_path: "/sessions/wide.jsonl",
         kind: "interactive",
         status: "idle",
+        live: false,
         title: "x".repeat(400),
         updated_at: "2026-07-20T20:00:00.000Z",
     }]);
@@ -213,6 +242,7 @@ test("session forks hang under the session they came from", async () => {
         workspace: "/work/vera",
         kind: "interactive" as const,
         status: "idle" as const,
+        live: false,
     };
     const state = startTuiSessionPicker([
         {
@@ -264,6 +294,7 @@ test("a fork loses its thread when search hides the parent", async () => {
         workspace: "/work/vera",
         kind: "interactive" as const,
         status: "idle" as const,
+        live: false,
         updated_at: "2026-07-20T20:00:00.000Z",
     };
     let state = startTuiSessionPicker([
@@ -303,6 +334,7 @@ test("a cycle in reported parentage still lists every session", () => {
         workspace: "/work/vera",
         kind: "interactive" as const,
         status: "idle" as const,
+        live: false,
         updated_at: "2026-07-20T20:00:00.000Z",
     };
     const state = startTuiSessionPicker([
@@ -332,6 +364,7 @@ test("a long fork chain threads without exhausting the stack", () => {
             workspace: "/work/vera",
             kind: "interactive" as const,
             status: "idle" as const,
+            live: false,
             updated_at: "2026-07-20T20:00:00.000Z",
             id: `s${index}`,
             session_path: `/sessions/s${index}.jsonl`,
@@ -351,6 +384,7 @@ test("a duplicated session id keeps both rows on the list", () => {
         workspace: "/work/vera",
         kind: "interactive" as const,
         status: "idle" as const,
+        live: false,
         updated_at: "2026-07-20T20:00:00.000Z",
         title: "same id",
     };
@@ -386,6 +420,7 @@ function session(
         session_path: `/sessions/${id}.jsonl`,
         kind: "interactive" as const,
         status,
+        live: status === "working",
     };
 }
 

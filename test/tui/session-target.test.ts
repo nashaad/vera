@@ -11,6 +11,7 @@ test("resume selectors prefer exact interactive IDs and preserve paths", () => {
             session_path: "/sessions/session-1.jsonl",
             kind: "interactive",
             status: "idle",
+            live: false,
         },
         {
             id: "background-1",
@@ -18,6 +19,7 @@ test("resume selectors prefer exact interactive IDs and preserve paths", () => {
             session_path: "/sessions/background-1.jsonl",
             kind: "background",
             status: "working",
+            live: false,
         },
     ];
 

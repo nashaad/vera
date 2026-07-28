@@ -32,11 +32,12 @@ export function renderTuiStatusDetailsLine(
 export function countRunningBackgroundAgents(
     agents: readonly RegisteredAgentSummary[],
 ): number {
+    // Running, not merely present and not merely live: every background
+    // session the host restored at startup is present, and one being read
+    // through an attachment is live, but neither is doing anything.
     return agents.filter((agent) =>
         agent.kind === "background"
-        && agent.status !== "completed"
-        && agent.status !== "closed"
-        && agent.status !== "failed"
+        && (agent.status === "working" || agent.status === "waiting")
     ).length;
 }
 

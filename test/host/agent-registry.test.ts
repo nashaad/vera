@@ -87,6 +87,48 @@ test("resident agents resolve relative file paths from their fixed workspaces", 
     }
 });
 
+test("a listed session is live only while someone holds it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-live-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    const liveness = (id: string): boolean | undefined =>
+        registry.list().find((agent) => agent.id === id)?.live;
+
+    try {
+        await registry.create({
+            id: "held",
+            workspace: root,
+            sessionPath: join(root, "held.jsonl"),
+        });
+        const other = await registry.create({
+            id: "other",
+            workspace: root,
+            sessionPath: join(root, "other.jsonl"),
+        });
+
+        // Both sessions are resident and idle, which is the state every
+        // session restored at startup is in. Being in the registry is not
+        // being alive, so neither is live until one is attached.
+        expect(registry.list().map((agent) => agent.status))
+            .toEqual(["held", "other"].map(() => "idle"));
+        expect(liveness("held")).toBe(false);
+        expect(liveness("other")).toBe(false);
+
+        const attachment = other.attach();
+        expect(liveness("other")).toBe(true);
+        expect(liveness("held")).toBe(false);
+
+        attachment.detach();
+        expect(liveness("other")).toBe(false);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("session trash accepts only idle unattached non-current sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-trash-"));
     const moved: string[][] = [];
