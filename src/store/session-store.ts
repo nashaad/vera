@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ModelMessage } from "../model/types.ts";
+import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import type { ImageMediaType } from "../attachments/image.ts";
 import {
     isModelTurnSettings,
@@ -1721,7 +1722,7 @@ function validateCompaction(
     if (!request.projection.every(isModelMessage)) {
         throw new Error("Compaction projection contains an invalid message");
     }
-    unmatchedToolCall(request.projection);
+    assertToolCallsPaired(request.projection, "Compaction projection");
     const retained = request.firstRetainedMessageId;
     const successor = active[boundaryIndex + 1];
     if (retained !== (successor?.id ?? null)) {
@@ -1765,40 +1766,6 @@ function validateCompactionMeasurement(
         contextWindow: measured.contextWindow,
         estimated: measured.estimated,
     };
-}
-
-/**
- * Every call answered, every answer called for. A projection is assembled
- * rather than recorded, so a strategy can drop half of a tool round anywhere
- * inside it, not only at the seam, and a provider refuses the whole request
- * either way.
- */
-function unmatchedToolCall(projection: readonly ModelMessage[]): void {
-    const answered = new Set(
-        projection.flatMap((message) =>
-            message.role === "tool_result" ? [message.toolCallId] : []
-        ),
-    );
-    const called = new Set<string>();
-    for (const message of projection) {
-        if (message.role !== "assistant") continue;
-        for (const part of message.content) {
-            if (part.type !== "tool_call") continue;
-            called.add(part.id);
-            if (!answered.has(part.id)) {
-                throw new Error(
-                    `Compaction projection leaves tool call ${part.id} unanswered`,
-                );
-            }
-        }
-    }
-    for (const id of answered) {
-        if (!called.has(id)) {
-            throw new Error(
-                `Compaction projection answers absent tool call ${id}`,
-            );
-        }
-    }
 }
 
 /**
