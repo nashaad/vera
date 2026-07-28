@@ -27,6 +27,7 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
+import { tuiBindingId } from "./keymap.ts";
 
 export type TuiHelpTab = "general" | "slash_commands" | "extensions";
 
@@ -104,7 +105,7 @@ export function handleTuiHelpKey(
     if (key.name === "left") {
         return switchedTab(state, -1);
     }
-    if (key.name === "right" || key.name === "tab") {
+    if (tuiBindingId("help", key) === "next_help_tab") {
         return switchedTab(state, 1);
     }
     if (state.tab === "general") {

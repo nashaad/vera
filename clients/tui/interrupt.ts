@@ -1,3 +1,5 @@
+import { tuiBindingId } from "./keymap.ts";
+
 export type TuiInterruptAction = "pass" | "abort" | "consume" | "quit";
 
 export interface TuiInterruptKey {
@@ -18,20 +20,21 @@ export interface TuiRawPaletteEvent {
 export type TuiRawInputEvent = TuiRawInterruptEvent | TuiRawPaletteEvent;
 
 /**
- * The global chords, recognized in one place so no overlay has to match raw key
- * names itself. Every key handler consults this before its own bindings, which
- * is what keeps ctrl+c interruptible from inside a dialog.
+ * The global chords, read from the keymap ahead of any overlay's own bindings,
+ * which is what keeps ctrl+c interruptible from inside a dialog.
+ *
+ * A separate entry point rather than a plain `tuiBindingId("global", key)` call
+ * because these two fire before focus is consulted at all: an overlay never
+ * gets to decide whether ctrl+c reached it.
  */
 export function parseRawInputEvent(
     key: TuiInterruptKey,
 ): TuiRawInputEvent | undefined {
-    if (!key.ctrl) {
-        return undefined;
-    }
-    if (key.name === "c") {
+    const binding = tuiBindingId("global", key);
+    if (binding === "interrupt") {
         return { type: "interrupt" };
     }
-    return key.name === "p" ? { type: "open_palette" } : undefined;
+    return binding === "open_palette" ? { type: "open_palette" } : undefined;
 }
 
 export function tuiInterruptAction(

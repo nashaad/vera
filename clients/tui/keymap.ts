@@ -1,0 +1,307 @@
+/**
+ * Every named key action in the TUI, in one table.
+ *
+ * Bindings used to be written wherever they were handled: raw byte parsing for
+ * ctrl+c and ctrl+p, the global keypress handler, a `key.ctrl && key.name` test
+ * inside each overlay, and a separate registry that only extensions could write
+ * to. Nothing compared them, so a chord claimed twice was decided by whichever
+ * handler happened to run first, and the hint text that told the user about it
+ * was prose typed next to the handler rather than anything derived from it.
+ *
+ * What belongs here is a key with a name a user could look up: ctrl+p, delete,
+ * shift+tab. What does not is structural input, meaning cursor movement, text
+ * entry, and the enter/escape pair that every overlay reads as accept and
+ * cancel. Those are not bindings anyone rebinds or forgets; putting them in the
+ * table would triple it and describe the same thing in every row.
+ */
+
+/**
+ * Where a binding applies.
+ *
+ * `picker` is the shared behaviour of every settings pane, and the panes that
+ * name themselves carry it too, which is how ctrl+d reaches all of them while
+ * ctrl+s reaches only the model pane.
+ */
+export type TuiKeyScope =
+    | "global"
+    | "composer"
+    | "picker"
+    | "model_picker"
+    | "session_picker"
+    | "secret_prompt"
+    | "preferences_list"
+    | "help";
+
+/** The panes that inherit every `picker` binding on top of their own. */
+const PICKER_SCOPES: readonly TuiKeyScope[] = [
+    "picker",
+    "model_picker",
+    "session_picker",
+];
+
+export interface TuiBinding {
+    readonly id: string;
+    /** Chords in the `ctrl+shift+name` form that `tuiChord` produces. */
+    readonly keys: readonly string[];
+    readonly scope: TuiKeyScope;
+    /** What it does, in the words the help pane uses. */
+    readonly description: string;
+    /** How it is written on screen, when a surface shows it. */
+    readonly hint?: string;
+    /**
+     * Fires with any extra modifier attached, rather than only on the exact
+     * chord.
+     *
+     * Set on the escape hatches and nothing else. A terminal that delivers ESC
+     * immediately before ctrl+c reports the pair as meta+ctrl+c, and a quit key
+     * that depends on how quickly the two bytes arrived is not a quit key.
+     */
+    readonly anyModifiers?: true;
+    /**
+     * The extension that owns this chord, when one does.
+     *
+     * Two of Vera's own keys are implemented as bundled extensions, on purpose:
+     * they exercise the same public API a user's extension gets. Listing them
+     * here is what keeps the table a complete answer to "what is this key", and
+     * the id is what stops the conflict check from reporting them against
+     * themselves.
+     */
+    readonly extensionId?: string;
+}
+
+export const TUI_KEYMAP: readonly TuiBinding[] = [
+    {
+        id: "open_palette",
+        keys: ["ctrl+p"],
+        scope: "global",
+        description: "Open the command palette",
+        hint: "ctrl+p commands",
+        anyModifiers: true,
+    },
+    {
+        id: "interrupt",
+        keys: ["ctrl+c"],
+        scope: "global",
+        description: "Stop the current turn, or quit when idle",
+        hint: "ctrl+c stop",
+        anyModifiers: true,
+    },
+    {
+        id: "cycle-reasoning",
+        keys: ["ctrl+t"],
+        scope: "global",
+        description: "Cycle the current model's reasoning level",
+        hint: "ctrl+t",
+        extensionId: "cycle-reasoning",
+    },
+    {
+        id: "cycle-preset",
+        keys: ["shift+tab"],
+        scope: "global",
+        description: "Cycle model presets",
+        hint: "shift+tab",
+        extensionId: "cycle-preset",
+    },
+    {
+        id: "complete_command",
+        keys: ["tab"],
+        scope: "composer",
+        description: "Complete the slash command being typed",
+    },
+    {
+        id: "half_page_down",
+        keys: ["ctrl+d"],
+        scope: "picker",
+        description: "Move the cursor half a page down",
+    },
+    {
+        id: "half_page_up",
+        keys: ["ctrl+u"],
+        scope: "picker",
+        description: "Move the cursor half a page up",
+    },
+    {
+        id: "toggle_pinned",
+        keys: ["ctrl+s"],
+        scope: "model_picker",
+        description: "Pin or unpin the selected model",
+        hint: "^s pin",
+    },
+    {
+        id: "open_providers",
+        keys: ["ctrl+e"],
+        scope: "model_picker",
+        description: "Connect or disconnect a provider",
+        hint: "^e providers",
+    },
+    {
+        id: "switch_tab",
+        keys: ["tab"],
+        scope: "model_picker",
+        description: "Switch between pinned and all models",
+        hint: "tab switch",
+    },
+    {
+        id: "trash_session",
+        keys: ["delete"],
+        scope: "session_picker",
+        description: "Move the selected session to the trash",
+        hint: "del trash",
+    },
+    {
+        id: "clear_secret",
+        keys: ["ctrl+u"],
+        scope: "secret_prompt",
+        description: "Clear the entered key",
+        hint: "^u clear",
+    },
+    {
+        id: "revoke_permission",
+        keys: ["delete", "backspace"],
+        scope: "preferences_list",
+        description: "Revoke the selected grant or preference",
+        // Carries the surface's own bracket chrome: a hint is the literal text
+        // shown, so a surface that changes how it writes keys changes one row
+        // here rather than drifting from it.
+        hint: "[del] remove",
+    },
+    {
+        id: "next_help_tab",
+        keys: ["tab", "right"],
+        scope: "help",
+        description: "Move to the next help tab",
+        hint: "tab next",
+    },
+];
+
+/** The shape every key handler in the TUI already receives, in some form. */
+export interface TuiChordKey {
+    readonly name: string;
+    readonly ctrl?: boolean;
+    readonly shift?: boolean;
+    readonly meta?: boolean;
+    readonly option?: boolean;
+    readonly super?: boolean;
+    readonly hyper?: boolean;
+}
+
+/**
+ * The chord a key event names, or nothing when it carries a modifier the TUI
+ * does not bind.
+ *
+ * Meta, option, super and hyper are excluded rather than encoded: a terminal
+ * reports them inconsistently across platforms and emulators, so binding one
+ * would work for some users and silently not for others.
+ */
+export function tuiChord(key: TuiChordKey): string | undefined {
+    return key.meta || key.option || key.super || key.hyper
+        ? undefined
+        : coreChord(key);
+}
+
+/** The chord with the modifiers the TUI does not bind stripped rather than refused. */
+function coreChord(key: TuiChordKey): string {
+    return [
+        ...(key.ctrl ? ["ctrl"] : []),
+        ...(key.shift ? ["shift"] : []),
+        key.name,
+    ].join("+");
+}
+
+/**
+ * The binding id a key means in a scope, or nothing when it means nothing there.
+ *
+ * Asking the table rather than testing `key.ctrl && key.name` at the handler is
+ * the whole point: the handler stops being a place a chord can be claimed
+ * without anything else knowing.
+ */
+export function tuiBindingId(
+    scope: TuiKeyScope,
+    key: TuiChordKey,
+): string | undefined {
+    const exact = tuiChord(key);
+    const loose = coreChord(key);
+    return TUI_KEYMAP.find((binding) => {
+        if (!appliesIn(binding, scope)) {
+            return false;
+        }
+        const chord = binding.anyModifiers === true ? loose : exact;
+        return chord !== undefined && binding.keys.includes(chord);
+    })?.id;
+}
+
+/** How a binding is written on screen, empty when it is not shown anywhere. */
+export function tuiKeyHint(id: string): string {
+    return TUI_KEYMAP.find((binding) => binding.id === id)?.hint ?? "";
+}
+
+/** The chords a scope has already claimed, including the ones it inherits. */
+export function tuiClaimedChords(scope: TuiKeyScope): readonly string[] {
+    return TUI_KEYMAP.filter((binding) => appliesIn(binding, scope))
+        .flatMap((binding) => binding.keys);
+}
+
+/**
+ * The binding that already owns a chord in a scope, or nothing when it is free.
+ *
+ * Extensions register their own bindings at runtime, and this is what tells
+ * them a chord is taken. Losing that race used to be invisible: an extension
+ * claiming ctrl+p simply never fired, because the raw parser reads that chord
+ * before the registry is ever consulted.
+ */
+export function tuiChordOwner(
+    chord: string,
+    scope: TuiKeyScope = "global",
+): TuiBinding | undefined {
+    return TUI_KEYMAP.find((binding) =>
+        appliesIn(binding, scope) && binding.keys.includes(chord)
+    );
+}
+
+/**
+ * Two bindings claiming one chord where both can be reached.
+ *
+ * Held as a function over the table rather than checked once at load so a test
+ * can state the invariant, and so the same comparison serves an extension
+ * asking whether its chord is free.
+ */
+export function tuiKeymapConflicts(
+    bindings: readonly TuiBinding[] = TUI_KEYMAP,
+): readonly string[] {
+    const conflicts: string[] = [];
+    for (const [index, binding] of bindings.entries()) {
+        for (const other of bindings.slice(index + 1)) {
+            if (!overlaps(binding.scope, other.scope)) {
+                continue;
+            }
+            for (const chord of binding.keys) {
+                if (other.keys.includes(chord)) {
+                    conflicts.push(`${chord}: ${binding.id} and ${other.id}`);
+                }
+            }
+        }
+    }
+    return conflicts;
+}
+
+/** Whether a binding is reachable in a scope, by its own scope or by descent. */
+function appliesIn(binding: TuiBinding, scope: TuiKeyScope): boolean {
+    if (binding.scope === scope) {
+        return true;
+    }
+    // Global is reachable everywhere because the global handler runs first.
+    if (binding.scope === "global") {
+        return true;
+    }
+    return binding.scope === "picker" && PICKER_SCOPES.includes(scope);
+}
+
+/** Whether two scopes can be active at once, so a chord in both is ambiguous. */
+function overlaps(left: TuiKeyScope, right: TuiKeyScope): boolean {
+    if (left === right || left === "global" || right === "global") {
+        return true;
+    }
+    const pickerish = (scope: TuiKeyScope) => PICKER_SCOPES.includes(scope);
+    return left === "picker" ? pickerish(right) : right === "picker"
+        && pickerish(left);
+}

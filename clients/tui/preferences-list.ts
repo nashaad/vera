@@ -35,6 +35,7 @@ import type {
 } from "../../src/engine/permissions.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
+import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 
 /** Rows shown at once before the list windows around the cursor. */
 /**
@@ -143,7 +144,7 @@ export function handleTuiPreferencesListKey(
             handled: true,
         };
     }
-    if (key.name === "delete" || key.name === "backspace") {
+    if (tuiBindingId("preferences_list", key) === "revoke_permission") {
         const selected = state.entries[state.selectedIndex];
         // No confirmation step, unlike session trash. Removing either kind can
         // only make Vera ask more often: it restores a prompt the user had
@@ -187,7 +188,7 @@ export function createTuiPreferencesListView(
         flexDirection: "column",
     });
     const footer = new TextRenderable(renderer, {
-        content: "[↑↓] move · [del] remove · [esc] close",
+        content: `[↑↓] move · ${tuiKeyHint("revoke_permission")} · [esc] close`,
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
