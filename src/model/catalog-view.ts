@@ -3,9 +3,9 @@
  *
  * Two lists reach a client, and they answer different questions.
  * `availableModels` is what can run right now, in catalog order. The pin list is
- * what the user chose to keep, ordered by recency of use, and it keeps an
- * entry that cannot run right now rather than dropping it: the user put it
- * there deliberately, so only the user takes it out.
+ * what the user chose to keep, newest pin first, and it keeps an entry that
+ * cannot run right now rather than dropping it: the user put it there
+ * deliberately, so only the user takes it out.
  *
  * Both carry the model's reasoning levels, resolved through
  * `effectiveCatalog`, so a client can show the levels of a model the user is
