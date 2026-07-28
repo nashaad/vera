@@ -108,6 +108,55 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "a refused settings change is reported in the transcript",
+    async () => {
+        const socket = `vera-settings-reject-${process.pid}-${randomUUID()}`;
+        const session = "settings-reject";
+        const home = mkdtempSync(join(tmpdir(), "vera-settings-reject-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-settings-rejection-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/model openrouter/other");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Changing the model to openrouter/other is unavailable",
+            );
+            // The status line kept reporting the model that is still in force.
+            expect(pane).toContain("current-model · reasoning");
+
+            sendText(socket, session, "/permissions auto");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Could not change permissions to auto",
+            );
+            expect(pane).toContain("review");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "an open command palette gains late extension commands",
     async () => {
         const socket = `vera-help-late-${process.pid}-${randomUUID()}`;
@@ -178,10 +227,12 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/model openrouter/other");
             sendKey(socket, session, "Enter");
+            // The request itself is a transient toast, so the durable proof
+            // that it landed is the status line reporting the new model.
             await waitForVisiblePane(
                 socket,
                 session,
-                "model change requested",
+                "other · reasoning",
             );
             sendText(socket, session, "/preset");
             sendKey(socket, session, "Enter");
@@ -980,14 +1031,14 @@ test.skipIf(!tmuxAvailable)(
 
             // The selected row is now a background highlight rather than a "›"
             // caret, so it does not show up in tmux's text-only capture. The
-            // "reasoning change requested: max" wait below is the real guard:
-            // it only appears if Down moved the selection off High before Enter.
+            // "reasoning max" wait below is the real guard: the status line
+            // only reads that way if Down moved the selection off High.
             sendKey(socket, session, "Down");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(
                 socket,
                 session,
-                "reasoning change requested: max",
+                "reasoning max",
             );
 
             sendText(socket, session, "testing");

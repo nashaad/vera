@@ -23,6 +23,7 @@ import {
     type ClientCommand,
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
+import type { ModelSettingsPatch } from "../../src/engine/model-settings.ts";
 import type { UserMessage } from "../../src/model/types.ts";
 import type { ReasoningLevel } from "../../src/model/catalog-shape.ts";
 import {
@@ -452,6 +453,10 @@ export async function startTui(
     let connectionFailed = false;
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
+    // What each in-flight change asked for, so a rejection can name it. The
+    // status line reports the effective values once a change lands.
+    const requestedModelChanges = new Map<string, string>();
+    const requestedPermissionChanges = new Map<string, string>();
     let shuttingDown = false;
     let abortRequested = false;
     let pendingUiRequest: UiRequestUpdate | undefined;
@@ -1494,12 +1499,11 @@ export async function startTui(
         }
         if (commandAction?.type === "update_model") {
             composer.clearComposer();
-            sendCommand({
-                type: "update_model_settings",
-                requestId: randomUUID(),
-                patch: { model: commandAction.model },
-            });
-            state = appendTuiNotice(state, `model change requested: ${commandAction.model}`);
+            requestModelSettingsChange(
+                { model: commandAction.model },
+                `model → ${commandAction.model}`,
+                `the model to ${commandAction.model}`,
+            );
             renderState();
             return;
         }
@@ -1510,14 +1514,10 @@ export async function startTui(
         }
         if (commandAction?.type === "update_reasoning") {
             composer.clearComposer();
-            sendCommand({
-                type: "update_model_settings",
-                requestId: randomUUID(),
-                patch: { reasoningEffort: commandAction.reasoningEffort },
-            });
-            state = appendTuiNotice(
-                state,
-                `reasoning change requested: ${commandAction.reasoningEffort}`,
+            requestModelSettingsChange(
+                { reasoningEffort: commandAction.reasoningEffort },
+                `reasoning → ${commandAction.reasoningEffort}`,
+                `reasoning to ${commandAction.reasoningEffort}`,
             );
             renderState();
             return;
@@ -1986,6 +1986,19 @@ export async function startTui(
                                 reason: update.reason,
                             });
                     }
+                    const subject = requestedModelChanges.get(
+                        update.requestId,
+                    );
+                    requestedModelChanges.delete(update.requestId);
+                    if (
+                        subject !== undefined
+                        && update.type === "model_settings_rejected"
+                    ) {
+                        state = appendTuiNotice(
+                            state,
+                            rejectionNotice(subject, update.reason),
+                        );
+                    }
                 }
                 observeActivity(update);
                 state = applyAgentUpdate(state, update);
@@ -2023,13 +2036,30 @@ export async function startTui(
                         state.permissionInspection,
                     );
                 }
-                if (update.type === "permissions_rejected" && preferencesList !== undefined) {
-                    state = appendTuiNotice(
-                        state,
-                        update.reason === "unavailable"
-                            ? "Removing permissions is unavailable on this host"
-                            : "That permission could not be removed",
+                if (update.type === "permissions") {
+                    requestedPermissionChanges.delete(update.requestId);
+                }
+                if (update.type === "permissions_rejected") {
+                    // A mode change and a preferences-list removal share this
+                    // update, so the request decides which one is being
+                    // reported rather than whichever pane happens to be open.
+                    const subject = requestedPermissionChanges.get(
+                        update.requestId,
                     );
+                    requestedPermissionChanges.delete(update.requestId);
+                    if (subject !== undefined) {
+                        state = appendTuiNotice(
+                            state,
+                            rejectionNotice(subject, update.reason),
+                        );
+                    } else if (preferencesList !== undefined) {
+                        state = appendTuiNotice(
+                            state,
+                            update.reason === "unavailable"
+                                ? "Removing permissions is unavailable on this host"
+                                : "That permission could not be removed",
+                        );
+                    }
                 }
                 if (update.type === "history") {
                     composer.loadSubmittedTexts(
@@ -3078,22 +3108,19 @@ export async function startTui(
                     renderState();
                     return;
                 }
-                sendCommand({
-                    type: "update_model_settings",
-                    requestId: randomUUID(),
-                    patch: {
+                const chosen = selection.reasoningEffort === undefined
+                    ? `${selection.provider}/${selection.model}`
+                    : `${selection.provider}/${selection.model} (${selection.reasoningEffort})`;
+                requestModelSettingsChange(
+                    {
                         provider: selection.provider,
                         model: selection.model,
                         ...(selection.reasoningEffort === undefined
                             ? {}
                             : { reasoningEffort: selection.reasoningEffort }),
                     },
-                });
-                state = appendTuiNotice(
-                    state,
-                    selection.reasoningEffort === undefined
-                        ? `model change requested: ${selection.provider}/${selection.model}`
-                        : `model change requested: ${selection.provider}/${selection.model} (${selection.reasoningEffort})`,
+                    `model → ${chosen}`,
+                    `the model to ${chosen}`,
                 );
             } else if (selection.kind === "provider") {
                 connectProvider(
@@ -3104,12 +3131,11 @@ export async function startTui(
                 );
                 return;
             } else if (selection.kind === "reasoning") {
-                sendCommand({
-                    type: "update_model_settings",
-                    requestId: randomUUID(),
-                    patch: { reasoningEffort: selection.reasoningEffort },
-                });
-                state = appendTuiNotice(state, `reasoning change requested: ${selection.reasoningEffort}`);
+                requestModelSettingsChange(
+                    { reasoningEffort: selection.reasoningEffort },
+                    `reasoning → ${selection.reasoningEffort}`,
+                    `reasoning to ${selection.reasoningEffort}`,
+                );
             } else if (selection.kind === "permissions") {
                 if (selection.mode === "full_access") {
                     confirmingFullAccess = true;
@@ -3373,13 +3399,28 @@ export async function startTui(
         renderState();
     }
 
+    /**
+     * Send a model settings edit and toast what was asked for.
+     *
+     * `toast` is what the status line shows while the change is in flight;
+     * `subject` completes "Could not change …" if the engine rejects it.
+     */
+    function requestModelSettingsChange(
+        patch: ModelSettingsPatch,
+        toast: string,
+        subject: string,
+    ): void {
+        const requestId = randomUUID();
+        requestedModelChanges.set(requestId, subject);
+        sendCommand({ type: "update_model_settings", requestId, patch });
+        showStatusNotice(toast);
+    }
+
     function requestPermissionsChange(mode: string): void {
-        sendCommand({
-            type: "update_permissions",
-            requestId: randomUUID(),
-            mode,
-        });
-        state = appendTuiNotice(state, `permissions change requested: ${mode}`);
+        const requestId = randomUUID();
+        requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
+        sendCommand({ type: "update_permissions", requestId, mode });
+        showStatusNotice(`permissions → ${mode}`);
     }
 
     async function applySelectedTheme(
@@ -3658,4 +3699,13 @@ export async function startTui(
         return Math.floor(Date.now() / interval);
     }
 
+}
+
+function rejectionNotice(
+    subject: string,
+    reason: "invalid" | "unavailable",
+): string {
+    return reason === "unavailable"
+        ? `Changing ${subject} is unavailable on this host`
+        : `Could not change ${subject}`;
 }
