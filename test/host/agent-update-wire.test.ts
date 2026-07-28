@@ -166,6 +166,22 @@ test("host wire validates task notifications", () => {
         content: "The tests pass.",
         seq: 7,
     })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file?",
+        kind: "attention",
+        seq: 8,
+    })).toMatchObject({ kind: "attention" });
+    expect(parseAgentUpdate({
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file?",
+        kind: "other",
+        seq: 8,
+    })).toBeUndefined();
 });
 
 test("host wire validates model settings results", () => {

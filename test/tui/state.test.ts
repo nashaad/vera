@@ -242,6 +242,22 @@ test("TUI renders a background completion without starting a turn", () => {
     expect(working.working).toBe(true);
 });
 
+test("TUI identifies an async subagent attention request", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file should I inspect?",
+        kind: "attention",
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notification",
+        text: "Async subagent child-1 needs attention:\nWhich file should I inspect?",
+    }]);
+});
+
 test("TUI state keeps host-reported model settings", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "model_settings",

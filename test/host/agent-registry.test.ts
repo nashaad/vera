@@ -1087,6 +1087,7 @@ test("a resumed registry wakes the model for a pending delivery", async () => {
             deliveryId: "completion:child-1",
             sourceAgentId: "child-1",
             content: "The tests pass.",
+            kind: "completion",
             seq: 1,
         });
         expect(await attachment.receive()).toEqual({

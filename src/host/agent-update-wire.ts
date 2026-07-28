@@ -123,6 +123,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.sourceAgentId === "string"
                 && update.sourceAgentId.length > 0
                 && typeof update.content === "string"
+                && (update.kind === undefined
+                    || update.kind === "attention"
+                    || update.kind === "completion")
             ? value as AgentUpdate
             : undefined;
     }

@@ -344,6 +344,7 @@ export interface TaskNotificationUpdate {
     readonly deliveryId: string;
     readonly sourceAgentId: string;
     readonly content: string;
+    readonly kind?: "attention" | "completion";
     readonly seq: number;
 }
 
@@ -897,6 +898,7 @@ export function createProtocolEncoder(
                 deliveryId: event.deliveryId,
                 sourceAgentId: event.sourceAgentId,
                 content: event.content,
+                ...(event.kind === undefined ? {} : { kind: event.kind }),
                 seq,
             });
             return;

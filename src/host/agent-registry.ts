@@ -887,6 +887,7 @@ export class AgentRegistry {
                 deliveryId: delivery.id,
                 sourceAgentId: delivery.sourceAgentId,
                 content: delivery.content,
+                kind: delivery.kind ?? "completion",
             });
         }
         if (
@@ -1062,6 +1063,7 @@ export class AgentRegistry {
                     content: `Async subagent result could not be saved: ${
                         error instanceof Error ? error.message : String(error)
                     }`,
+                    kind: "completion",
                 });
             }
         });
