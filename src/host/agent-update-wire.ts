@@ -98,6 +98,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.error === undefined
                 || (typeof update.error === "string"
                     && update.error.trim().length > 0))
+            && (update.empty === undefined || update.empty === true)
             ? value as AgentUpdate
             : undefined;
     }
@@ -538,6 +539,9 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         return entry.detail === undefined
             || (typeof entry.detail === "string"
                 && entry.detail.trim().length > 0);
+    }
+    if (entry?.kind === "empty") {
+        return true;
     }
     if (entry?.kind === "presentation") {
         return isToolPresentation(entry.presentation);

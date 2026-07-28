@@ -94,9 +94,8 @@ test("the package bin runs help from outside the checkout", () => {
             { cwd: directory, stdout: "pipe", stderr: "pipe" },
         );
         expect(result.exitCode).toBe(0);
-        expect(result.stdout.toString()).toContain(
-            "vera send <agent-id> [--attach <path>]… <message>",
-        );
+        expect(result.stdout.toString()).toContain("vera attach <agent-id>");
+        expect(result.stdout.toString()).not.toContain("vera send");
         expect(result.stderr.toString()).toBe("");
 
         const version = Bun.spawnSync(
@@ -186,53 +185,6 @@ test("vera rpc starts the NDJSON bridge", async () => {
 
     expect(exitCode).toBe(0);
     expect(started).toBe(true);
-});
-
-test("vera send runs one prompt through a resident agent", async () => {
-    const sent: string[][] = [];
-    let output = "";
-
-    const exitCode = await runCli(
-        ["send", "agent-1", "check", "the", "tests"],
-        {
-            sendPrompt: async (agentId, content) => {
-                sent.push([agentId, content]);
-                return "The tests pass.";
-            },
-            stdout: { write: (text) => output += text },
-        },
-    );
-
-    expect(exitCode).toBe(0);
-    expect(sent).toEqual([["agent-1", "check the tests"]]);
-    expect(output).toBe("The tests pass.\n");
-});
-
-test("vera send preserves repeatable image attachments in argument order", async () => {
-    let received: unknown;
-    const exitCode = await runCli([
-        "send",
-        "agent-1",
-        "--attach",
-        "/tmp/first image.png",
-        "compare",
-        "these",
-        "--attach",
-        "/tmp/second.png",
-    ], {
-        sendPrompt: async (agentId, content, attachmentPaths) => {
-            received = { agentId, content, attachmentPaths };
-            return "done";
-        },
-        stdout: { write: () => {} },
-    });
-
-    expect(exitCode).toBe(0);
-    expect(received).toEqual({
-        agentId: "agent-1",
-        content: "compare these",
-        attachmentPaths: ["/tmp/first image.png", "/tmp/second.png"],
-    });
 });
 
 test("vera abort requests cancellation through a resident agent", async () => {

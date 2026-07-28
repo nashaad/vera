@@ -69,12 +69,21 @@ export interface ErrorTranscriptEntry {
     readonly detail?: string;
 }
 
+/**
+ * A turn that ended with nothing to show. Silence and a stalled client look the
+ * same in a transcript, so the absence is written down rather than left blank.
+ */
+export interface EmptyTranscriptEntry {
+    readonly kind: "empty";
+}
+
 export type TranscriptEntry =
     | UserTranscriptEntry
     | AssistantTranscriptEntry
     | ToolTranscriptEntry
     | PresentationTranscriptEntry
-    | ErrorTranscriptEntry;
+    | ErrorTranscriptEntry
+    | EmptyTranscriptEntry;
 
 export interface PromptCommand {
     readonly type: "prompt";
@@ -312,6 +321,8 @@ export interface TurnFinishedUpdate {
     readonly type: "turn_finished";
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
+    /** The turn ended with no text, no tool call, and no reasoning. */
+    readonly empty?: true;
     readonly seq: number;
 }
 
@@ -1085,6 +1096,9 @@ export function createProtocolEncoder(
                 type: "turn_finished",
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
+                ...(isEmptyAssistantMessage(event.message)
+                    ? { empty: true as const }
+                    : {}),
                 seq,
             });
         }
@@ -1152,6 +1166,21 @@ function reportedMeasurement(
     );
 }
 
+/**
+ * A turn that produced nothing: no tool call, no visible text, and no
+ * reasoning. A turn that reasoned and then said nothing is a failure instead,
+ * and carries `stopReason: "error"` by the time it reaches here.
+ */
+export function isEmptyAssistantMessage(message: ModelMessage): boolean {
+    return message.role === "assistant"
+        && message.stopReason === "stop"
+        && !message.content.some((content) =>
+            content.type === "tool_call"
+            || ((content.type === "text" || content.type === "thinking")
+                && content.text.length > 0)
+        );
+}
+
 export function projectTranscript(
     messages: readonly ModelMessage[],
     attachmentName?: AttachmentNameLookup,
@@ -1179,8 +1208,12 @@ export function projectTranscript(
             }
             continue;
         }
+        if (isEmptyAssistantMessage(message)) {
+            entries.push({ kind: "empty" });
+            continue;
+        }
         for (const content of message.content) {
-            if (content.type === "text") {
+            if (content.type === "text" && content.text.length > 0) {
                 entries.push({ kind: "assistant", text: content.text });
             }
             if (content.type === "tool_call") {

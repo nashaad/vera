@@ -2614,3 +2614,37 @@ async function receiveThroughTurnFinished(
         }
     }
 }
+
+test("a model that returns nothing at all ends the turn without an error", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "do nothing" });
+    const result = runTurn(new FauxAdapter([response]), "test", state);
+    await expectUserPrompt(channel, "do nothing", 1);
+    const finished = await channel.client.receive();
+    expect(finished).toMatchObject({ type: "turn_finished", empty: true });
+    expect(finished).not.toHaveProperty("error");
+
+    await expect(result).resolves.toMatchObject({ stopReason: "stop" });
+    expect(state.messages.at(-1)).toMatchObject({
+        role: "assistant",
+        stopReason: "stop",
+    });
+});

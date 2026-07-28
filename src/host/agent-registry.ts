@@ -49,6 +49,7 @@ import {
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
     ApplyToolEffect,
+    RegisteredTool,
     SpawnBackgroundAgentEffect,
     ToolOutput,
 } from "../tools/types.ts";
@@ -164,6 +165,7 @@ export interface AgentRegistryOptions {
     ) => void;
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
+    readonly extensionTools?: readonly RegisteredTool[];
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -731,6 +733,7 @@ export class AgentRegistry {
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
+            extensionTools: this.options.extensionTools,
             relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
                 this.relayChildToolApproval(
                     entry,
@@ -794,6 +797,7 @@ export class AgentRegistry {
                     ]
                     : [],
                 enableUserInteraction: kind === "interactive",
+                extensionTools: this.options.extensionTools,
                 onInboundReady: (inbound) => {
                     entry.inbound = inbound;
                 },

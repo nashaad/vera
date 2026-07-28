@@ -49,6 +49,7 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
     ApplyToolEffect,
+    RegisteredTool,
     ToolExecutionResult,
     ToolEffect,
     ToolEffectContext,
@@ -155,6 +156,7 @@ export interface RunTurnState {
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
+    readonly extensionTools?: readonly RegisteredTool[];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
@@ -201,6 +203,7 @@ export interface RunHeadlessLoopOptions {
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
+    readonly extensionTools?: readonly RegisteredTool[];
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
@@ -528,6 +531,7 @@ export async function runHeadlessLoop(
         applyToolEffect,
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
         enableUserInteraction: options.enableUserInteraction ?? true,
+        extensionTools: options.extensionTools ?? [],
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
@@ -632,6 +636,7 @@ export async function runTurn(
                 ? []
                 : state.enabledToolEffects ?? [],
             state.enableUserInteraction === true,
+            state.extensionTools,
         );
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
             ? undefined
@@ -893,7 +898,10 @@ export async function runTurn(
             let interrupt: string | undefined;
             while (toolIndex < preparedToolCalls.length) {
                 const first = preparedToolCalls[toolIndex]!;
-                if (!toolMayRunInParallel(first.toolCall.name)) {
+                if (!toolMayRunInParallel(
+                    first.toolCall.name,
+                    state.extensionTools,
+                )) {
                     interrupt = await finishToolCalls(state, [
                         executePreparedTool(
                             state,
@@ -923,6 +931,7 @@ export async function runTurn(
                     toolIndex < preparedToolCalls.length
                     && toolMayRunInParallel(
                         preparedToolCalls[toolIndex]!.toolCall.name,
+                        state.extensionTools,
                     )
                 ) {
                     parallelCalls.push(preparedToolCalls[toolIndex]!);
@@ -1187,6 +1196,7 @@ async function executePreparedTool(
         {
             permissionModes: state.permissionModes,
             permissionPreferences: state.readPermissionPreferences?.() ?? [],
+            extensionTools: state.extensionTools,
         },
     );
     if (permission.behavior === "deny") {
@@ -1294,6 +1304,7 @@ async function executePreparedTool(
         toolCall,
         state.toolRuntime,
         signal,
+        state.extensionTools,
     );
     const output = execution.kind === "interaction"
         ? await resolveToolInteraction(state, execution.interaction, signal)
@@ -1317,6 +1328,11 @@ async function executePreparedTool(
     return finishExecutedTool(state, toolCall, hookCall, result, durationMs);
 }
 
+/**
+ * A model that reasoned and then said nothing has failed the turn, and the
+ * reasoning is where a fake tool call hides. A model that produced nothing at
+ * all has answered a prompt that asked for nothing, so the turn ends quietly.
+ */
 function requireVisibleTerminalResponse(
     message: AssistantMessage,
 ): AssistantMessage {
@@ -1327,6 +1343,12 @@ function requireVisibleTerminalResponse(
             || (block.type === "text" && block.text.length > 0)
         )
     ) {
+        return message;
+    }
+    const reasoned = message.content.some((block) =>
+        block.type === "thinking" && block.text.length > 0
+    );
+    if (!reasoned) {
         return message;
     }
     return {
