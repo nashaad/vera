@@ -65,8 +65,13 @@ test("half a page is half of what is on screen, clamped at both ends", () => {
 });
 
 test("the wheel moves whole rows and ignores a sideways scroll", () => {
-    expect(wheelCursor(0, 100, { direction: "down", delta: 3 })).toBe(3);
-    expect(wheelCursor(0, 100, { direction: "up", delta: 3 })).toBe(0);
+    // Half a row per unit of delta: a fast gesture over a short pane otherwise
+    // throws the cursor most of the way through the list.
+    expect(wheelCursor(0, 100, { direction: "down", delta: 6 })).toBe(3);
+    expect(wheelCursor(0, 100, { direction: "up", delta: 6 })).toBe(0);
+    // One wheel click still moves one row. Halving is meant to damp the fast
+    // gestures, not to make a discrete wheel feel like it missed.
+    expect(wheelCursor(0, 100, { direction: "down", delta: 1 })).toBe(1);
     // A trackpad reports fractions of a row, and a scroll that moves nothing
     // reads as a dead pane.
     expect(wheelCursor(0, 100, { direction: "down", delta: 0.2 })).toBe(1);
@@ -80,7 +85,7 @@ test("the wheel moves more than the one surface it was built for", () => {
     // reaches every windowed list, rather than stopping at the model pane.
     const palette = startTuiCommandPalette(paletteCommands(3));
     expect(
-        handleTuiCommandPaletteScroll(palette, { direction: "down", delta: 2 })
+        handleTuiCommandPaletteScroll(palette, { direction: "down", delta: 4 })
             .state?.selectedIndex,
     ).toBe(2);
 
