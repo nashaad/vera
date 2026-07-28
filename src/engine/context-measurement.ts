@@ -58,6 +58,20 @@ export function measureProjectedRequest(
 }
 
 /**
+ * Messages alone, on the same scale as a full request. Used to size a
+ * candidate context against a target without a system prompt or tools to
+ * attribute, so a strategy is judged on the part it produced.
+ */
+export function measureMessages(messages: readonly ModelMessage[]): number {
+    let characters = 0;
+    for (const message of messages) {
+        characters += measureMessage(message);
+    }
+    return Math.ceil(characters / CHARACTERS_PER_TOKEN)
+        + messages.length * TOKENS_PER_MESSAGE;
+}
+
+/**
  * The provider's own count for the request it just answered, which supersedes
  * the estimate for that same request.
  */
