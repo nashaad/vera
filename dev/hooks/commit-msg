@@ -1,0 +1,49 @@
+#!/bin/sh
+#
+# Enforce the commit message rules in AGENTS.local.md.
+#
+# Enable once per clone:
+#   git config core.hooksPath dev/hooks
+
+message_file="$1"
+[ -n "$message_file" ] || exit 0
+
+# --cleanup=verbatim leaves comment lines in the file.
+message=$(grep -v '^#' "$message_file")
+subject=$(printf '%s\n' "$message" | sed -n '1p')
+rest=$(printf '%s\n' "$message" | sed '1d' | tr -d '[:space:]')
+
+fail() {
+    printf 'commit-msg: %s\n\n' "$1" >&2
+    printf '  %s\n\n' "$subject" >&2
+    printf 'AGENTS.local.md: keep commits small, one logical change each,\n' >&2
+    printf 'with a single-line Conventional Commit message.\n' >&2
+    exit 1
+}
+
+# Git-generated subjects.
+case "$subject" in
+    "Merge "*|"Revert "*|"fixup!"*|"squash!"*|"amend!"*) exit 0 ;;
+esac
+
+if [ -z "$subject" ]; then
+    fail "the message is empty"
+fi
+
+if [ -n "$rest" ]; then
+    fail "the message has more than one line"
+fi
+
+if printf '%s\n' "$subject" | grep -qE '(^|[^a-z])(refs?|closes?|fixes):? *[a-z]+-[0-9]+'; then
+    fail "the message carries a tracker reference"
+fi
+
+if ! printf '%s\n' "$subject" | grep -qE '^(feat|fix|refactor|test|chore|docs|perf|build|ci|style|revert)(\([a-z0-9./-]+\))?!?: .+'; then
+    fail "the subject is not a Conventional Commit"
+fi
+
+if [ "${#subject}" -gt 72 ]; then
+    fail "the subject is longer than 72 characters"
+fi
+
+exit 0
