@@ -2,12 +2,23 @@ import {
     BoxRenderable,
     decodePasteBytes,
     stripAnsiSequences,
+    SyntaxStyle,
     TextareaRenderable,
     type PasteEvent,
     type RenderContext,
 } from "@opentui/core";
 import { TUI_ACCENT, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import { pastedImagePath } from "./image-path.ts";
+import {
+    displayOffsetWidth,
+    imageChipMarker,
+    renumberImageChips,
+    stripImageChips,
+    type ImageChip,
+} from "./image-chips.ts";
+
+const IMAGE_CHIP_STYLE = "image-chip";
+const IMAGE_CHIP_TYPE = "image-chip";
 
 const PASTE_SUMMARY_LINE_THRESHOLD = 3;
 const PASTE_SUMMARY_CHAR_THRESHOLD = 240;
@@ -21,7 +32,57 @@ export class TuiComposer extends TextareaRenderable {
     private collapsedPastes: CollapsedPaste[] = [];
     private submittedTexts: string[] = [];
     private submittedTextIndex?: number;
+    private imageChips: ImageChip[] = [];
+    private imageChipExtmarks = new Map<string, number>();
+    private imageChipStyleId?: number;
+    private imageChipTypeId?: number;
     onImagePathPaste?: (path: string) => void;
+    /** A chip the user deleted, so its attachment can be dropped too. */
+    onImageChipRemoved?: (requestId: string) => void;
+
+    /**
+     * Show an attached image as an atomic `[Image N]` chip at the cursor.
+     *
+     * The chip is a virtual extmark, so the cursor steps over it and one
+     * backspace takes the whole marker rather than a character of it.
+     */
+    attachImageChip(requestId: string): void {
+        this.ensureImageChipStyle();
+        const marker = imageChipMarker(this.imageChips.length + 1);
+        const start = this.cursorOffset;
+        this.insertText(`${marker} `);
+        const id = this.extmarks.create({
+            start,
+            end: start + displayOffsetWidth(marker),
+            virtual: true,
+            styleId: this.imageChipStyleId,
+            typeId: this.imageChipTypeId,
+        });
+        this.imageChips.push({ requestId, marker });
+        this.imageChipExtmarks.set(requestId, id);
+        this.syncImageChips();
+    }
+
+    /** The attach requests still shown in the composer, in document order. */
+    imageChipRequestIds(): readonly string[] {
+        return this.imageChips.map((chip) => chip.requestId);
+    }
+
+    /** Drop a chip the engine refused, without reporting it as user removal. */
+    removeImageChip(requestId: string): void {
+        const id = this.imageChipExtmarks.get(requestId);
+        if (id === undefined) return;
+        this.extmarks.delete(id);
+        this.imageChipExtmarks.delete(requestId);
+        const chip = this.imageChips.find((each) => each.requestId === requestId);
+        this.imageChips = this.imageChips.filter(
+            (each) => each.requestId !== requestId,
+        );
+        if (chip !== undefined) {
+            this.setText(stripOneMarker(this.plainText, chip.marker));
+        }
+        this.renumberImageChipText();
+    }
 
     override handleKeyPress(key: Parameters<TextareaRenderable["handleKeyPress"]>[0]): boolean {
         if (
@@ -74,7 +135,79 @@ export class TuiComposer extends TextareaRenderable {
         ) {
             return this.submit();
         }
-        return super.handleKeyPress(key);
+        const handled = super.handleKeyPress(key);
+        this.syncImageChips();
+        return handled;
+    }
+
+    /**
+     * Reconcile the chips with the extmarks that survived the last edit.
+     *
+     * Deleting inside a virtual extmark removes the whole extmark, so an
+     * extmark that is gone is a chip the user deleted.
+     */
+    private syncImageChips(): void {
+        if (this.imageChips.length === 0) return;
+        const live = new Set(
+            this.extmarks.getAll().map((extmark) => extmark.id),
+        );
+        const removed = this.imageChips.filter((chip) => {
+            const id = this.imageChipExtmarks.get(chip.requestId);
+            return id === undefined || !live.has(id);
+        });
+        if (removed.length === 0) return;
+        for (const chip of removed) {
+            this.imageChipExtmarks.delete(chip.requestId);
+            this.imageChips = this.imageChips.filter(
+                (each) => each.requestId !== chip.requestId,
+            );
+        }
+        this.renumberImageChipText();
+        for (const chip of removed) {
+            this.onImageChipRemoved?.(chip.requestId);
+        }
+    }
+
+    /** Rewrite the surviving chips so they read 1, 2, 3 again. */
+    private renumberImageChipText(): void {
+        if (this.imageChips.length === 0) {
+            this.extmarks.clear();
+            this.imageChipExtmarks.clear();
+            return;
+        }
+        const cursor = this.cursorOffset;
+        const renumbered = renumberImageChips(this.plainText, this.imageChips);
+        this.extmarks.clear();
+        this.imageChipExtmarks.clear();
+        this.imageChips = renumbered.chips.map((chip) => ({
+            requestId: chip.requestId,
+            marker: chip.marker,
+        }));
+        this.setText(renumbered.text);
+        for (const chip of renumbered.chips) {
+            const id = this.extmarks.create({
+                start: chip.start,
+                end: chip.end,
+                virtual: true,
+                styleId: this.imageChipStyleId,
+                typeId: this.imageChipTypeId,
+            });
+            this.imageChipExtmarks.set(chip.requestId, id);
+        }
+        this.cursorOffset = Math.min(
+            cursor,
+            displayOffsetWidth(renumbered.text),
+        );
+    }
+
+    private ensureImageChipStyle(): void {
+        if (this.imageChipStyleId !== undefined) return;
+        const style = SyntaxStyle.fromStyles({
+            [IMAGE_CHIP_STYLE]: { fg: TUI_PANEL, bg: TUI_ACCENT },
+        });
+        this.syntaxStyle = style;
+        this.imageChipStyleId = style.getStyleId(IMAGE_CHIP_STYLE) ?? undefined;
+        this.imageChipTypeId = this.extmarks.registerType(IMAGE_CHIP_TYPE);
     }
 
     override handlePaste(event: PasteEvent): void {
@@ -96,8 +229,14 @@ export class TuiComposer extends TextareaRenderable {
         this.insertText(marker);
     }
 
+    /**
+     * The prompt to submit.
+     *
+     * Image chips are removed: the attachments travel as IDs alongside the
+     * prompt, so leaving `[Image 1]` in the text would only label them twice.
+     */
     expandedText(): string {
-        let expanded = this.plainText;
+        let expanded = stripImageChips(this.plainText, this.imageChips);
         let searchFrom = 0;
         for (const paste of this.collapsedPastes) {
             const markerIndex = expanded.indexOf(paste.marker, searchFrom);
@@ -131,6 +270,9 @@ export class TuiComposer extends TextareaRenderable {
     setComposerText(text: string): void {
         this.collapsedPastes = [];
         this.submittedTextIndex = undefined;
+        this.imageChips = [];
+        this.imageChipExtmarks.clear();
+        this.extmarks.clear();
         this.setText(text);
         // OpenTUI resets the editor cursor to offset 0 after setText(). Keep
         // completion and picker-driven text edits natural by placing it at
@@ -190,6 +332,14 @@ export function createTuiComposerPanel(
     });
     panel.add(composer);
     return panel;
+}
+
+function stripOneMarker(text: string, marker: string): string {
+    const markerIndex = text.indexOf(marker);
+    if (markerIndex === -1) return text;
+    const after = markerIndex + marker.length;
+    return text.slice(0, markerIndex)
+        + text.slice(text[after] === " " ? after + 1 : after);
 }
 
 function shouldCollapsePaste(text: string): boolean {
