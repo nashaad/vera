@@ -924,6 +924,187 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "session picker renames a conversation it is not attached to",
+    async () => {
+        const socket = `vera-rename-${process.pid}-${randomUUID()}`;
+        const session = "rename";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-rename-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-rename-session-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Continue the theme picker",
+            );
+            expect(pane).toContain("^r rename");
+            sendKey(socket, session, "C-r");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Rename conversation",
+            );
+            // The field opens empty: the row text is a fallback, not a name.
+            expect(pane).not.toContain("Rename conversation\nContinue");
+            sendText(socket, session, "release notes");
+            sendKey(socket, session, "Enter");
+            // The pane comes back rebuilt from the host rather than patched.
+            await waitForVisiblePane(socket, session, "release notes");
+            sendKey(socket, session, "Escape");
+            // The notice lands in the transcript, which the pane was covering.
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "session renamed: release notes",
+            );
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+            expect(readFileSync(
+                join(home, "rename-session-result.txt"),
+                "utf8",
+            )).toBe(
+                "saved-session release notes\ncurrent Fix the deployment race",
+            );
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "renaming the attached row goes through its own session",
+    async () => {
+        const socket = `vera-rename-current-${process.pid}-${randomUUID()}`;
+        const session = "rename-current";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-rename-current-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-rename-session-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "current ·");
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "C-r");
+            await waitForVisiblePane(socket, session, "Rename conversation");
+            sendText(socket, session, "the current one");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "the current one");
+            sendKey(socket, session, "Escape");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "session renamed: the current one",
+            );
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+            // The host was never asked: the attached session renames itself,
+            // and the host refuses an attached target anyway.
+            expect(readFileSync(
+                join(home, "rename-session-result.txt"),
+                "utf8",
+            )).toBe("\ncurrent the current one");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "a refused rename says so and leaves the pane open",
+    async () => {
+        const socket = `vera-rename-busy-${process.pid}-${randomUUID()}`;
+        const session = "rename-busy";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-rename-busy-"));
+        let pane = "";
+
+        try {
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "100",
+                "-y",
+                "30",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    "RENAME_BUSY=1"
+                } ${shellQuote(process.execPath)} run ${
+                    shellQuote("test/support/tui-rename-session-child.ts")
+                }`,
+            ]);
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "Continue the theme picker",
+            );
+            sendKey(socket, session, "C-r");
+            await waitForVisiblePane(socket, session, "Rename conversation");
+            sendText(socket, session, "release notes");
+            sendKey(socket, session, "Enter");
+            // The pane comes back with the row still under its old name.
+            pane = await waitForVisiblePane(socket, session, "^r rename");
+            expect(pane).toContain("Continue the theme picker");
+            sendKey(socket, session, "Escape");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "open in another client",
+            );
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "session trash rejection keeps the picker usable",
     async () => {
         const socket = `vera-trash-busy-${process.pid}-${randomUUID()}`;
