@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
-import { sendPromptThroughHost } from "../../src/host/agent-send-client.ts";
 import {
     attachAgent,
     type AttachedAgentClient,
@@ -96,13 +95,13 @@ const config = {
             expect(parentEvents.filter((type) => type === "task_notification"))
                 .toHaveLength(1);
 
-            expect(await sendPromptThroughHost(
+            expect(await promptAttachedAgent(
                 socketPath,
                 child.id,
                 "Run the focused tests",
             )).toBe("The focused tests pass too.");
 
-            const activeSend = sendPromptThroughHost(
+            const activeSend = promptAttachedAgent(
                 socketPath,
                 child.id,
                 "Keep working until I cancel",
@@ -169,6 +168,23 @@ async function finishTurn(client: AttachedAgentClient): Promise<string> {
         }
         if (update.type === "turn_finished") {
             return response;
+        }
+    }
+}
+
+async function promptAttachedAgent(
+    socketPath: string,
+    agentId: string,
+    content: string,
+): Promise<string> {
+    const client = await attachAgent({ socketPath, agentId });
+    try {
+        expect((await client.receive()).type).toBe("history");
+        await client.send({ type: "prompt", content });
+        return await finishTurn(client);
+    } finally {
+        if (!client.closed) {
+            await client.detach().catch(() => client.close());
         }
     }
 }

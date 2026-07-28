@@ -8,7 +8,6 @@ import { createInterface } from "node:readline/promises";
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
-import { sendPromptThroughHost } from "../../src/host/agent-send-client.ts";
 import {
     createHostLockfile,
     HostProtocolMismatchError,
@@ -29,11 +28,6 @@ interface CliOutput {
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
-    readonly sendPrompt?: (
-        agentId: string,
-        content: string,
-        attachmentPaths?: readonly string[],
-    ) => Promise<string>;
     readonly exportSession?: (
         sessionPath: string,
         format: SessionExportFormat,
@@ -134,20 +128,6 @@ export async function runCli(
         return 0;
     }
 
-    const sendRequest = parseSendRequest(args);
-    if (sendRequest !== undefined) {
-        const { agentId, content, attachmentPaths } = sendRequest;
-        if (content.length > 0) {
-            const response = await (dependencies.sendPrompt ?? sendLivePrompt)(
-                agentId,
-                content,
-                attachmentPaths,
-            );
-            output.write(`${response}\n`);
-            return 0;
-        }
-    }
-
     if (
         args.length === 2
         && args[0] === "abort"
@@ -197,30 +177,6 @@ export async function runCli(
 
     errorOutput.write(renderCliUsage());
     return 1;
-}
-
-function parseSendRequest(args: readonly string[]): {
-    readonly agentId: string;
-    readonly content: string;
-    readonly attachmentPaths: readonly string[];
-} | undefined {
-    if (args[0] !== "send" || !args[1]) return undefined;
-    const attachmentPaths: string[] = [];
-    const content: string[] = [];
-    for (let index = 2; index < args.length; index += 1) {
-        if (args[index] === "--attach") {
-            const path = args[index + 1];
-            if (path === undefined || path.length === 0) return undefined;
-            attachmentPaths.push(path);
-            index += 1;
-            continue;
-        }
-        content.push(args[index]!);
-    }
-    const joined = content.join(" ").trim();
-    return joined.length === 0
-        ? undefined
-        : { agentId: args[1], content: joined, attachmentPaths };
 }
 
 function parseExportRequest(
@@ -313,20 +269,6 @@ async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
     return host === undefined
         ? []
         : listAgentsThroughHost(host.socket_path);
-}
-
-async function sendLivePrompt(
-    agentId: string,
-    content: string,
-    attachmentPaths: readonly string[] = [],
-): Promise<string> {
-    const host = await createHostLockfile().read();
-    if (host === undefined) {
-        throw new Error("No live Vera host");
-    }
-    return sendPromptThroughHost(host.socket_path, agentId, content, {
-        attachmentPaths,
-    });
 }
 
 async function abortLiveAgent(agentId: string): Promise<void> {
