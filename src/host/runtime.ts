@@ -23,6 +23,7 @@ import {
 } from "../model/openrouter-catalog.ts";
 import {
     createAuthStorage,
+    credentialFingerprint,
     type AuthStorage,
 } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
@@ -48,6 +49,8 @@ export interface StartResidentHostOptions {
     /** Overrides `~/.vera/preferences.json`, so tests do not read the
      * developer's real preferences. */
     readonly permissionPreferencesPath?: string;
+    /** Overrides `~/.vera/auth.json`, so tests never read real credentials. */
+    readonly authStorage?: AuthStorage;
     readonly eventLogDirectory?: string;
     readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
     readonly onExtensionFailure?: (
@@ -85,12 +88,17 @@ export async function startResidentHost(
     const permissionPreferences = await PermissionPreferenceStore.open(
         options.permissionPreferencesPath,
     );
+    // One store for the host, so a sign-in from anywhere is the same fact to
+    // every agent it is running.
+    const authStorage = options.authStorage ?? createAuthStorage();
     const registry = new AgentRegistry({
+        credentialFingerprint: (provider) =>
+            credentialFingerprint(authStorage, provider),
         createAdapter: options.createAdapter
             ?? ((provider) => createConfiguredModelAdapter({
                 ...options.config,
                 provider: (provider ?? options.config.provider) as VeraConfig["provider"],
-            })),
+            }, { authStorage })),
         provider: options.config.provider,
         model: options.config.model,
         approvalMode: options.config.approval_mode,
@@ -316,7 +324,7 @@ export function discoveredCodexModels(
 function hasCodexCredential(authStorage?: AuthStorage): boolean {
     try {
         return (authStorage ?? createAuthStorage())
-            .getToken("openai-codex") !== undefined;
+            .getCredential("openai-codex") !== undefined;
     } catch {
         return false;
     }

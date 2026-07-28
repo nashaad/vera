@@ -7,18 +7,86 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-export const AUTH_STORAGE_SCHEMA_VERSION = 1;
+export const AUTH_STORAGE_SCHEMA_VERSION = 2;
+
+/**
+ * How a provider is connected, not just that it is.
+ *
+ * The distinction is user-facing, not bookkeeping: the same provider can often
+ * be reached either through a subscription the user already pays for or through
+ * an API key billed per token. A connect pane that only knows "connected" cannot
+ * say which of the two is about to be spent, cannot offer a disconnect that
+ * means the right thing, and cannot tell the user a subscription has expired
+ * rather than simply failing the next turn.
+ *
+ * An OAuth token stays an opaque string because its shape belongs to the
+ * provider that minted it: Codex keeps its own versioned record in there. The
+ * tag is what this file owns.
+ */
+export type StoredCredential =
+    | { readonly type: "oauth"; readonly token: string }
+    | { readonly type: "api_key"; readonly key: string };
 
 interface StoredAuth {
     readonly schema_version: typeof AUTH_STORAGE_SCHEMA_VERSION;
-    readonly tokens: Readonly<Record<string, string>>;
+    readonly credentials: Readonly<Record<string, StoredCredential>>;
 }
 
 export interface AuthStorage {
-    getToken(provider: string): string | undefined;
-    setToken(provider: string, token: string): void;
+    getCredential(provider: string): StoredCredential | undefined;
+    setCredential(provider: string, credential: StoredCredential): void;
+}
+
+/** The OAuth token for a provider, absent when it is connected another way. */
+export function oauthToken(
+    storage: Pick<AuthStorage, "getCredential">,
+    provider: string,
+): string | undefined {
+    const credential = storage.getCredential(provider);
+    return credential?.type === "oauth" ? credential.token : undefined;
+}
+
+/**
+ * A short stand-in for a provider's stored credential, safe to hold and compare.
+ *
+ * Hashed rather than kept whole so that a cache keyed on it never has the secret
+ * itself sitting in a map key. It changes whenever the credential does, which is
+ * the only property anything asks of it.
+ */
+export function credentialFingerprint(
+    storage: Pick<AuthStorage, "getCredential">,
+    provider: string,
+): string | undefined {
+    // Every provider lookup passes through here, including ones that need no
+    // credential at all, so an unreadable store must not take them down with it.
+    // The read that actually spends the credential still throws and says why.
+    let credential;
+    try {
+        credential = storage.getCredential(provider);
+    } catch {
+        return undefined;
+    }
+    if (credential === undefined) {
+        return undefined;
+    }
+    const secret = credential.type === "oauth"
+        ? credential.token
+        : credential.key;
+    return createHash("sha256")
+        .update(`${credential.type}:${secret}`)
+        .digest("hex")
+        .slice(0, 16);
+}
+
+/** The API key for a provider, absent when it is connected another way. */
+export function apiKey(
+    storage: Pick<AuthStorage, "getCredential">,
+    provider: string,
+): string | undefined {
+    const credential = storage.getCredential(provider);
+    return credential?.type === "api_key" ? credential.key : undefined;
 }
 
 export interface AuthStorageOptions {
@@ -35,20 +103,20 @@ export function createAuthStorage(
     const path = options.path ?? defaultAuthStoragePath();
 
     return {
-        getToken(provider: string): string | undefined {
-            const tokens = readStoredAuth(path).tokens;
-            return Object.hasOwn(tokens, provider)
-                ? tokens[provider]
+        getCredential(provider: string): StoredCredential | undefined {
+            const credentials = readStoredAuth(path).credentials;
+            return Object.hasOwn(credentials, provider)
+                ? credentials[provider]
                 : undefined;
         },
 
-        setToken(provider: string, token: string): void {
+        setCredential(provider: string, credential: StoredCredential): void {
             const auth = readStoredAuth(path);
             writeStoredAuth(path, {
                 schema_version: AUTH_STORAGE_SCHEMA_VERSION,
-                tokens: {
-                    ...auth.tokens,
-                    [provider]: token,
+                credentials: {
+                    ...auth.credentials,
+                    [provider]: credential,
                 },
             });
         },
@@ -70,13 +138,32 @@ function readStoredAuth(path: string): StoredAuth {
     if (isStoredAuth(value)) {
         return value;
     }
-    if (isLegacyAuth(value)) {
+    if (isUntaggedAuth(value)) {
         return {
             schema_version: AUTH_STORAGE_SCHEMA_VERSION,
-            tokens: Object.fromEntries(
+            credentials: Object.fromEntries(
+                Object.entries(value.tokens).map(([provider, token]) => [
+                    provider,
+                    retagToken(token),
+                ]),
+            ),
+        };
+    }
+    if (isLegacyAuth(value)) {
+        // The oldest shape was already tagged. Version 1 dropped the tag and
+        // flattened everything to a string, so this reads as a restoration
+        // rather than a new idea.
+        return {
+            schema_version: AUTH_STORAGE_SCHEMA_VERSION,
+            credentials: Object.fromEntries(
                 Object.entries(value).map(([provider, credentials]) => [
                     provider,
-                    JSON.stringify(credentials),
+                    credentials.type === "api_key"
+                        ? { type: "api_key" as const, key: credentials.key }
+                        : {
+                            type: "oauth" as const,
+                            token: JSON.stringify(credentials),
+                        },
                 ]),
             ),
         };
@@ -84,10 +171,30 @@ function readStoredAuth(path: string): StoredAuth {
     throw new Error(`Invalid Vera auth storage at ${path}`);
 }
 
+/**
+ * Recover the tag version 1 threw away.
+ *
+ * Every writer of that shape stored a JSON record of OAuth tokens, so anything
+ * that parses as an object is one. A bare string was never written by anything,
+ * but reading it as an API key is the safe reading: keys are opaque strings and
+ * OAuth records are not.
+ */
+function retagToken(token: string): StoredCredential {
+    try {
+        const value: unknown = JSON.parse(token);
+        if (typeof value === "object" && value !== null) {
+            return { type: "oauth", token };
+        }
+    } catch {
+        // Not JSON, so not one of the OAuth records described above.
+    }
+    return { type: "api_key", key: token };
+}
+
 function emptyStoredAuth(): StoredAuth {
     return {
         schema_version: AUTH_STORAGE_SCHEMA_VERSION,
-        tokens: {},
+        credentials: {},
     };
 }
 
@@ -99,16 +206,43 @@ function isStoredAuth(value: unknown): value is StoredAuth {
     const auth = value as Record<string, unknown>;
     if (
         auth.schema_version !== AUTH_STORAGE_SCHEMA_VERSION
+        || typeof auth.credentials !== "object"
+        || auth.credentials === null
+        || Array.isArray(auth.credentials)
+    ) {
+        return false;
+    }
+
+    return Object.values(auth.credentials).every(isStoredCredential);
+}
+
+function isStoredCredential(value: unknown): value is StoredCredential {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const credential = value as Record<string, unknown>;
+    return credential.type === "oauth"
+        ? typeof credential.token === "string"
+        : credential.type === "api_key" && typeof credential.key === "string";
+}
+
+/** The version 1 shape: a provider to opaque string map, with the tag dropped. */
+function isUntaggedAuth(
+    value: unknown,
+): value is { readonly tokens: Readonly<Record<string, string>> } {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const auth = value as Record<string, unknown>;
+    if (
+        auth.schema_version !== 1
         || typeof auth.tokens !== "object"
         || auth.tokens === null
         || Array.isArray(auth.tokens)
     ) {
         return false;
     }
-
-    return Object.values(auth.tokens).every((token) =>
-        typeof token === "string"
-    );
+    return Object.values(auth.tokens).every((token) => typeof token === "string");
 }
 
 function isLegacyAuth(

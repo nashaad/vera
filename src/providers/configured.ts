@@ -3,7 +3,8 @@ import { createOpenAICodexAdapter } from "./openai-codex.ts";
 import { createOpenRouterAdapter } from "./openrouter.ts";
 import { createOllamaAdapter } from "./ollama-openai.ts";
 import type { ModelAdapter } from "../model/types.ts";
-import type { AuthStorage } from "./auth-storage.ts";
+import { apiKey, type AuthStorage } from "./auth-storage.ts";
+import { findProvider } from "./registry.ts";
 
 export interface ConfiguredProviderOptions {
     readonly authStorage?: AuthStorage;
@@ -11,28 +12,72 @@ export interface ConfiguredProviderOptions {
     readonly fetch?: typeof globalThis.fetch;
 }
 
+/**
+ * The adapter for each provider the registry lists.
+ *
+ * Keyed rather than branched so that adding a provider is adding a row here and
+ * a row in the registry, and the two cannot drift into a state where one lists a
+ * provider the other cannot build.
+ */
+const ADAPTERS: Readonly<Record<
+    string,
+    (options: ConfiguredProviderOptions) => ModelAdapter
+>> = {
+    "openai-codex": (options) => createOpenAICodexAdapter({
+        ...(options.authStorage === undefined
+            ? {}
+            : { authStorage: options.authStorage }),
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    }),
+    ollama: (options) => createOllamaAdapter({
+        host: (options.env ?? process.env).OLLAMA_HOST,
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    }),
+    openrouter: (options) => createOpenRouterAdapter({
+        apiKey: requiredApiKey("openrouter", options),
+    }),
+};
+
 export function createConfiguredModelAdapter(
     config: VeraConfig,
     options: ConfiguredProviderOptions = {},
 ): ModelAdapter {
-    if (config.provider === "openai-codex") {
-        return createOpenAICodexAdapter({
-            ...(options.authStorage === undefined
-                ? {}
-                : { authStorage: options.authStorage }),
-            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-        });
+    const build = ADAPTERS[config.provider];
+    if (build === undefined) {
+        throw new Error(`Unknown provider ${config.provider}`);
     }
-    if (config.provider === "ollama") {
-        return createOllamaAdapter({
-            host: (options.env ?? process.env).OLLAMA_HOST,
-            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-        });
-    }
+    return build(options);
+}
 
-    const apiKey = (options.env ?? process.env).OPENROUTER_API_KEY;
-    if (!apiKey) {
-        throw new Error("OPENROUTER_API_KEY is required for provider openrouter");
+/**
+ * A stored key first, then the environment.
+ *
+ * Storing is what the connect pane writes, and it is the path a user who has
+ * never seen an env var takes. The environment stays as a fallback rather than a
+ * migration: a setup that exported the key years ago keeps working untouched,
+ * and the two can coexist because a key the user typed into Vera is the more
+ * deliberate of the two.
+ */
+function requiredApiKey(
+    providerId: string,
+    options: ConfiguredProviderOptions,
+): string {
+    const stored = options.authStorage === undefined
+        ? undefined
+        : apiKey(options.authStorage, providerId);
+    if (stored !== undefined && stored.length > 0) {
+        return stored;
     }
-    return createOpenRouterAdapter({ apiKey });
+    const envVar = findProvider(providerId)?.envVar;
+    const fromEnv = envVar === undefined
+        ? undefined
+        : (options.env ?? process.env)[envVar];
+    if (fromEnv !== undefined && fromEnv.length > 0) {
+        return fromEnv;
+    }
+    throw new Error(
+        `No credentials for provider ${providerId}. Connect it from the model pane (ctrl+e)${
+            envVar === undefined ? "" : ` or set ${envVar}`
+        }.`,
+    );
 }

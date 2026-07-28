@@ -111,12 +111,15 @@ describe("OpenAI Codex OAuth", () => {
 
     test("shares one rotating-token refresh between concurrent requests", async () => {
         const authStorage = createAuthStorage({ path: temporaryAuthPath() });
-        authStorage.setToken("openai-codex", JSON.stringify({
-            schema_version: 1,
-            access_token: "expired",
-            refresh_token: "refresh-1",
-            expires_at: 1,
-        }));
+        authStorage.setCredential("openai-codex", {
+            type: "oauth",
+            token: JSON.stringify({
+                schema_version: 1,
+                access_token: "expired",
+                refresh_token: "refresh-1",
+                expires_at: 1,
+            }),
+        });
         const refreshedAccess = fakeJwt({ exp: 3_000 });
         let refreshCount = 0;
         const fetchRequest = (async (

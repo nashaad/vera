@@ -459,13 +459,16 @@ describe("OpenAI Codex adapter", () => {
     test("classifies HTTP 408 as timeout rather than server overload", async () => {
         const adapter = createOpenAICodexAdapter({
             authStorage: {
-                getToken: () => JSON.stringify({
-                    schema_version: 1,
-                    access_token: "access-token",
-                    refresh_token: "refresh-token",
-                    expires_at: 60_000,
+                getCredential: () => ({
+                    type: "oauth" as const,
+                    token: JSON.stringify({
+                        schema_version: 1,
+                        access_token: "access-token",
+                        refresh_token: "refresh-token",
+                        expires_at: 60_000,
+                    }),
                 }),
-                setToken() {},
+                setCredential() {},
             },
             now: () => 0,
             fetch: (async () => new Response("request timed out", {
