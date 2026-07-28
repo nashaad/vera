@@ -1,5 +1,10 @@
 # vera-web-search
 
+> [!WARNING]
+> Use the DuckDuckGo path only for low-volume personal evaluation. Do not use
+> this example for automated, concurrent, or sustained traffic against
+> DuckDuckGo. Configure Brave or another supported search API for regular use.
+
 An experimental external web-search extension for Vera.
 
 It registers one model-visible tool:
@@ -11,10 +16,6 @@ web_search(query, max_results?)
 DuckDuckGo Lite is used by default and needs no account. It is an HTML
 integration rather than a supported search API, so DuckDuckGo may throttle it
 or change the page it parses.
-
-Use the DuckDuckGo path only for low-volume personal evaluation. Do not use
-this example for automated, concurrent, or sustained traffic against
-DuckDuckGo. Configure Brave or another supported search API for regular use.
 
 When `BRAVE_API_KEY` is present in the Vera host environment, the extension
 uses Brave's official Search API instead.
