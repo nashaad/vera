@@ -185,6 +185,7 @@ export class InboxDeliveryCoordinator {
     private readonly clock: () => number;
     private readonly setTimer: (run: () => void, ms: number) => unknown;
     private readonly clearTimer: (timer: unknown) => void;
+    private spawnScan: (() => Promise<void>) | null = null;
 
     constructor(consumers: ConsumerRegistry, options: InboxDeliveryOptions = {}) {
         this.consumers = consumers;
@@ -221,11 +222,19 @@ export class InboxDeliveryCoordinator {
         return session;
     }
 
+    /**
+     * The spawn scan, when the host installed one. It runs after the live
+     * sessions have pumped, so an entry a running session was going to take
+     * never looks like one nothing is attached to handle.
+     */
+    setSpawnScan(scan: (() => Promise<void>) | null): void {
+        this.spawnScan = scan;
+    }
+
     /** Every attached session pumps. This is what an appended entry calls. */
-    pumpAll(): Promise<void> {
-        return Promise.all(
-            [...this.sessions].map((session) => session.pump()),
-        ).then(() => undefined);
+    async pumpAll(): Promise<void> {
+        await Promise.all([...this.sessions].map((session) => session.pump()));
+        await this.spawnScan?.();
     }
 
     close(): void {
