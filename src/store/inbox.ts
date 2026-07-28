@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -87,12 +87,40 @@ export class Inbox {
         migrate(this.database);
     }
 
-    /** `path` may be `:memory:`. Parent directories are created. */
+    /**
+     * `path` may be `:memory:`. Parent directories are created.
+     *
+     * A file that cannot be opened or migrated is renamed aside and a fresh
+     * empty inbox takes its place. The inbox is a replayable log, not a record
+     * of truth, so losing it costs redelivery rather than data, and a corrupt
+     * one must never keep the host from starting.
+     */
     static open(path: string): Inbox {
         if (path !== ":memory:") {
             mkdirSync(dirname(path), { recursive: true });
         }
-        return new Inbox(new Database(path, { create: true }));
+        try {
+            return new Inbox(new Database(path, { create: true }));
+        } catch (error) {
+            if (path === ":memory:") {
+                throw error;
+            }
+            const quarantined = `${path}.bad-${Date.now()}`;
+            // The sidecars go with it: a leftover WAL would be replayed into
+            // the replacement file and carry the corruption forward.
+            for (const suffix of ["", "-wal", "-shm"]) {
+                try {
+                    renameSync(`${path}${suffix}`, `${quarantined}${suffix}`);
+                } catch {
+                    // Nothing to move aside for this suffix.
+                }
+            }
+            console.error(
+                `Vera quarantined an unreadable inbox at ${path} as ${quarantined}: `
+                + (error instanceof Error ? error.message : String(error)),
+            );
+            return new Inbox(new Database(path, { create: true }));
+        }
     }
 
     close(): void {

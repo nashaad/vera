@@ -36,7 +36,7 @@ describe("consumer handles", () => {
         inbox.close();
     });
 
-    test("a released label is reclaimed and resumes its offset", () => {
+    test("a released label is not handed to the next hello", () => {
         const { inbox, registry } = fixture();
         const first = registry.hello({ label: "reviewer" });
         inbox.appendAll([entry("a"), entry("b")]);
@@ -44,8 +44,8 @@ describe("consumer handles", () => {
         first.release();
 
         const returning = registry.hello({ label: "reviewer" });
-        expect(returning.id.label).toBe("reviewer");
-        expect(returning.offset()).toBe(2);
+        expect(returning.id.label).toBe("reviewer-2");
+        expect(inbox.offsetOf(first.id)).toBe(2);
         inbox.close();
     });
 
