@@ -54,7 +54,7 @@ import type { FailedRequestCapture } from "../providers/failed-request-capture.t
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
-import { openInboxIfEnabled } from "../store/inbox.ts";
+import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
 import {
@@ -353,8 +353,7 @@ export async function startResidentHost(
             consumers,
             spawnSession,
             consent: SpawnConsentStore.open(options.spawnConsentPath),
-            inheritedApprovalMode: (address) =>
-                registry.approvalModeOf(address),
+            subsystemEnabled: inboxEnabled(options.config),
             causedByKnownSession: (entry) =>
                 entry.session !== null
                 && registry.find(entry.session) !== undefined,
