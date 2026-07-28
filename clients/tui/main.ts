@@ -1,8 +1,10 @@
 import {
     BoxRenderable,
     CliRenderEvents,
+    decodePasteBytes,
     MarkdownRenderable,
     ScrollBoxRenderable,
+    stripAnsiSequences,
     SyntaxStyle,
     TextRenderable,
     createCliRenderer,
@@ -135,6 +137,7 @@ import {
 import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
+    handleTuiSecretPromptPaste,
     startTuiSecretPrompt,
     type TuiSecretPromptState,
 } from "./secret-prompt.ts";
@@ -887,6 +890,23 @@ export async function startTui(
         if (isTranscriptSelection(selection, copyableNodes)) {
             void copyTranscriptSelection(selection);
         }
+    });
+
+    // The composer takes pastes through its own renderable handler, but the
+    // secret prompt is a plain box drawn over whatever is behind it, so the
+    // paste has to be routed here. Ahead of the composer, which would otherwise
+    // end up with the key as visible text in the transcript.
+    renderer.keyInput.on("paste", (event) => {
+        if (secretPrompt === undefined) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        secretPrompt = handleTuiSecretPromptPaste(
+            secretPrompt,
+            stripAnsiSequences(decodePasteBytes(event.bytes)),
+        );
+        renderState();
     });
 
     renderer.keyInput.on("keypress", (key) => {
