@@ -207,6 +207,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(frame).toContain("Permission required");
         expect(frame).toContain("$ grep");
         expect(frame).toContain("1 Allow once");
+        expect(frame).toContain("─".repeat(80));
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
         expect(view.box.zIndex).toBe(20);
         expect(view.actions.screenY).toBeLessThan(18);
@@ -226,6 +227,8 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         // clipping an answer off the screen.
         expect(frame).toContain("3 Deny");
         expect(frame).toContain("4 Always");
+        expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
+            .toBe("─".repeat(42));
         expect(view.actions.screenY).toBeLessThan(12);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
 
