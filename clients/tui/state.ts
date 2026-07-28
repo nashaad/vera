@@ -330,6 +330,15 @@ function applyCompaction(
             "Compaction runs between turns. Try again once this one finishes.",
         );
     }
+    if (update.outcome === "not_needed") {
+        // Reached only when the model's context window is unknown, since a
+        // manual request otherwise skips the trigger check.
+        return appendTuiNotice(
+            state,
+            "Could not summarize: the model's context window is not known, "
+                + "so there is no size to summarize down to.",
+        );
+    }
     if (update.outcome === "no_boundary") {
         return appendTuiNotice(
             state,
