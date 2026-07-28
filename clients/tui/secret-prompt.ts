@@ -159,7 +159,11 @@ export function createTuiSecretPromptView(
     const entry = new TextRenderable(renderer, {
         content: "",
         width: "100%",
-        height: 1,
+        height: "auto",
+        // Per character, because a key is one unbroken token: word wrapping
+        // would leave it on one line and paint it out through the right edge of
+        // the dialog and over the transcript behind it.
+        wrapMode: "char",
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
@@ -202,29 +206,20 @@ export function createTuiSecretPromptView(
 }
 
 /**
- * What the entry line shows.
- *
- * Masked rather than echoed: a key pasted into a shared or recorded terminal
- * would otherwise sit on screen for as long as the overlay is open. The length
- * still shows, which is the one thing worth checking about a pasted key.
- */
-export function tuiMaskedSecret(value: string): string {
-    return "•".repeat([...value].length);
-}
-
-/**
  * The entry line, empty or not.
  *
+ * The value shows as it was typed. It was masked once, which read as a row of
+ * dots rather than as a field with a key in it and hid the one thing worth
+ * checking about a paste: that the whole key landed. The secret is on screen
+ * only while a dialog the user opened deliberately is open, and it is never
+ * written to the transcript or the event log.
+ *
  * An empty field says what goes in it, in muted text, the way every search box
- * in the TUI does. It used to show an accent ellipsis, which read as content
- * rather than as an empty field and named nothing.
+ * in the TUI does.
  */
 export function tuiSecretEntryLine(value: string): StyledText {
-    const masked = tuiMaskedSecret(value);
     return new StyledText([
-        masked.length === 0
-            ? fg(TUI_MUTED)("API key")
-            : fg(TUI_ACCENT)(masked),
+        value.length === 0 ? fg(TUI_MUTED)("API key") : fg(TUI_TEXT)(value),
         // The caret keeps the line reading as a live input once it empties out
         // again, which is the same reason the search boxes carry one.
         fg(TUI_ACCENT)("▏"),

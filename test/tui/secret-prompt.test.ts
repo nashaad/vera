@@ -6,7 +6,6 @@ import {
     tuiSecretEntryLine,
     handleTuiSecretPromptPaste,
     startTuiSecretPrompt,
-    tuiMaskedSecret,
 } from "../../clients/tui/secret-prompt.ts";
 
 const OPENROUTER = {
@@ -43,10 +42,11 @@ test("a pasted key arrives as one event rather than a key at a time", () => {
     expect(state.state?.value).toBe("sk-or-v1-pasted");
 });
 
-test("the entry line shows length, never the key", () => {
-    expect(tuiMaskedSecret("")).toBe("");
-    expect(tuiMaskedSecret("sk-abc")).toBe("••••••");
-    expect(tuiMaskedSecret("sk-abc")).not.toContain("s");
+test("the entry line shows the key as typed", () => {
+    // Masked once, which read as a row of dots rather than as a field with a
+    // key in it, and hid whether the whole key had landed.
+    expect(entryText(tuiSecretEntryLine("sk-abc"))).toContain("sk-abc");
+    expect(entryText(tuiSecretEntryLine("sk-abc"))).not.toContain("•");
 });
 
 test("an empty submit closes rather than storing nothing under the provider", () => {
@@ -59,7 +59,7 @@ test("an empty submit closes rather than storing nothing under the provider", ()
     expect(empty.state).toBeUndefined();
 });
 
-test("escape closes and ctrl+u clears, since a masked key cannot be proofread", () => {
+test("escape closes and ctrl+u clears, since a mistyped key is not worth backspacing", () => {
     expect(handleTuiSecretPromptKey(typed("sk-abc"), { name: "escape" }))
         .toEqual({ handled: true });
     expect(
@@ -78,7 +78,7 @@ test("surrounding whitespace is dropped from a pasted key", () => {
         .toBe("sk-padded");
 });
 
-test("a shifted character keeps its case, because a masked key cannot be reread", () => {
+test("a shifted character keeps its case", () => {
     // The parser reports a shifted letter as `name: "s", sequence: "S"`, so
     // reading the name would store a key that is silently lower case and fails
     // on the first turn with nothing on screen to explain it.
@@ -129,7 +129,6 @@ test("an empty field names what goes in it, rather than showing an ellipsis", ()
     // accent ellipsis read as content rather than as an empty field.
     expect(entryText(tuiSecretEntryLine(""))).toContain("API key");
     expect(entryText(tuiSecretEntryLine("sk-abc"))).not.toContain("API key");
-    expect(entryText(tuiSecretEntryLine("sk-abc"))).toContain("••••••");
 });
 
 function entryText(line: StyledText): string {
