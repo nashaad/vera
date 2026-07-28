@@ -229,6 +229,7 @@ import {
     saveTuiThemePreference,
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
+import { createTuiUserEntry } from "./user-entry.ts";
 import { createTuiMarkdownEntry } from "./markdown-entry.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
@@ -2797,7 +2798,14 @@ export async function startTui(
                     TUI_TEXT,
                     marginTop,
                 );
-            const node = entry.kind === "diff"
+            const node = entry.kind === "user"
+                ? createTuiUserEntry(
+                    renderer,
+                    `entry-${index}`,
+                    entry,
+                    marginTop,
+                )
+                : entry.kind === "diff"
                 ? createTuiDiff(
                     renderer,
                     `entry-${index}`,
