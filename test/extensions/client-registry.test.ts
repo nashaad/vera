@@ -926,3 +926,129 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     }
     throw new Error("condition was not reached");
 }
+
+test("preset cycling walks slots, not models, so a duplicate does not stick", async () => {
+    const extension = join(import.meta.dir, "../../extensions/model-presets");
+    const preferences = new Map<string, JsonValue>();
+    // Nash's real layout: slot 3 and slot 4 hold the same preset. Matching the
+    // current model against the slots answers slot 3 both times, which is what
+    // pinned the cycle there and stopped it ever reaching slot 1 again.
+    const slots = [
+        { provider: "openrouter", model: "z-ai/glm-5.2", reasoningEffort: "max" },
+        {
+            provider: "openrouter",
+            model: "deepseek/deepseek-v4-pro",
+            reasoningEffort: "max",
+        },
+        { provider: "openrouter", model: "moonshotai/kimi-k3", reasoningEffort: "low" },
+        { provider: "openrouter", model: "moonshotai/kimi-k3", reasoningEffort: "low" },
+    ];
+    preferences.set("vera.model-presets:slots", slots);
+    preferences.set("vera.model-presets:current-slot", 2);
+    let settings = { ...slots[2]! };
+    let pickerRequests = 0;
+
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        preferences: {
+            async get(namespace, key) {
+                return preferences.get(`${namespace}:${key}`);
+            },
+            async set(namespace, key, value) {
+                preferences.set(`${namespace}:${key}`, value);
+            },
+            async delete(namespace, key) {
+                preferences.delete(`${namespace}:${key}`);
+            },
+        },
+        modelSettings: {
+            current: () => settings,
+            async update(patch) {
+                settings = {
+                    provider: patch.provider!,
+                    model: patch.model!,
+                    reasoningEffort: patch.reasoningEffort!,
+                };
+                return { status: "accepted", settings };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                pickerRequests += 1;
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    const workspace = createDirectory();
+    const cycle = async () => {
+        await registry.invokeKeybinding("cycle-preset", workspace);
+        return `${settings.model} · ${settings.reasoningEffort}`;
+    };
+
+    // Four presses from slot 3 visit slot 4, wrap to slot 1, and come back.
+    expect(await cycle()).toBe("moonshotai/kimi-k3 · low");
+    expect(preferences.get("vera.model-presets:current-slot")).toBe(3);
+    expect(await cycle()).toBe("z-ai/glm-5.2 · max");
+    expect(await cycle()).toBe("deepseek/deepseek-v4-pro · max");
+    expect(await cycle()).toBe("moonshotai/kimi-k3 · low");
+    expect(preferences.get("vera.model-presets:current-slot")).toBe(2);
+
+    // The model picker changes the model without telling this extension, so the
+    // remembered slot stops matching and the value lookup takes over.
+    settings = { ...slots[0]! };
+    expect(await cycle()).toBe("deepseek/deepseek-v4-pro · max");
+
+    expect(pickerRequests).toBe(0);
+    await registry.close();
+});
+
+test("cycling with nothing to cycle to shows the slots instead of doing nothing", async () => {
+    const extension = join(import.meta.dir, "../../extensions/model-presets");
+    const preferences = new Map<string, JsonValue>();
+    const only = {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        reasoningEffort: "low",
+    };
+    preferences.set("vera.model-presets:slots", [only, null, null, null]);
+    let pickerRequests = 0;
+
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        preferences: {
+            async get(namespace, key) {
+                return preferences.get(`${namespace}:${key}`);
+            },
+            async set(namespace, key, value) {
+                preferences.set(`${namespace}:${key}`, value);
+            },
+            async delete(namespace, key) {
+                preferences.delete(`${namespace}:${key}`);
+            },
+        },
+        modelSettings: {
+            current: () => only,
+            async update() {
+                throw new Error("cycling had nowhere to go and applied a preset");
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                pickerRequests += 1;
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    const workspace = createDirectory();
+    // One filled slot that is already current, and then none at all. A
+    // keybinding cannot put a line on screen, so the slots are the answer.
+    await registry.invokeKeybinding("cycle-preset", workspace);
+    preferences.set("vera.model-presets:slots", [null, null, null, null]);
+    await registry.invokeKeybinding("cycle-preset", workspace);
+    expect(pickerRequests).toBe(2);
+    await registry.close();
+});
