@@ -65,9 +65,15 @@ export interface OpenAICodexTool {
     readonly parameters: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * The request body this backend takes.
+ *
+ * Narrower than the public Responses API: the ChatGPT backend rejects
+ * `max_output_tokens` outright with a 400 rather than ignoring it, so a request
+ * carrying an output cap never reaches a model. There is no field to put one in.
+ */
 export interface OpenAICodexRequest {
     readonly model: string;
-    readonly max_output_tokens?: number;
     readonly instructions: string;
     readonly input: readonly OpenAICodexInputItem[];
     readonly tools: readonly OpenAICodexTool[];
