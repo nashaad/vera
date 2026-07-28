@@ -3947,7 +3947,7 @@ export async function startTui(
         backgroundStatusText.content = renderTuiStatusDetailsLine(
             state.modelSettings,
             state.approvalMode,
-            state.contextInputTokens,
+            state.context,
             process.cwd(),
             runningBackgroundAgents,
         );

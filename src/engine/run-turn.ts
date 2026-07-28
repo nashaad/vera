@@ -58,6 +58,11 @@ import { loadProjectInstructions } from "./project-instructions.ts";
 import { promptContributionMetadata } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
+import {
+    measureProjectedRequest,
+    type ContextMeasurement,
+} from "./context-measurement.ts";
+import { availableModels, contextWindowForModel } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
@@ -533,6 +538,26 @@ export async function runTurn(
             state.events.emit({ type: "turn_started", message: userMessage });
         }
 
+        // Read once for the turn rather than per model round: the catalog is
+        // parsed from disk on every call, and a long tool loop would pay for
+        // it on each pass to answer a question whose only moving part is which
+        // model a fallback landed on.
+        const catalogModels = availableModels();
+        // The settings carry a window neither list always has: the configured
+        // model's was measured at discovery when it is served locally. The
+        // discovered list covers the models a fallback can land on, and the
+        // shipped catalog covers the rest.
+        const capacityForModel = (model: string): number | undefined =>
+            (model === modelSettings.model
+                ? modelSettings.contextWindow
+                : undefined)
+            ?? contextWindowForModel(
+                modelSettings.provider,
+                model,
+                modelSettings.availableModels,
+                catalogModels,
+            );
+
         while (true) {
             const projectInstructions = await loadProjectInstructions(
                 state.toolRuntime.workspace,
@@ -578,6 +603,15 @@ export async function runTurn(
                 messages: request.messages,
                 tools: request.tools,
                 promptContributions,
+            });
+            const measurement = measureProjectedRequest(
+                request,
+                capacityForModel(activeModel),
+            );
+            state.events.emit({
+                type: "context_measured",
+                model: activeModel,
+                measurement,
             });
             let modelRequest;
             try {
@@ -628,6 +662,17 @@ export async function runTurn(
                         state.events.emit({
                             type: "model_fallback_selected",
                             ...fallback,
+                        });
+                        // The same request is sent again to a model with its
+                        // own window, so the share of it that is filled moves
+                        // even though nothing was added to the request.
+                        state.events.emit({
+                            type: "context_measured",
+                            model: activeModel,
+                            measurement: remeasuredAgainst(
+                                measurement,
+                                capacityForModel(activeModel),
+                            ),
                         });
                     },
                     ...(state.modelFallback === undefined
@@ -1379,5 +1424,21 @@ function deniedToolResult(
         toolName: toolCall.name,
         content: [{ type: "text", text: reason }],
         isError: true,
+    };
+}
+
+/**
+ * The same measured request, against a different model's window. Dropping the
+ * capacity when the new model has none keeps a percentage from being drawn
+ * against the window of a model that is no longer running.
+ */
+function remeasuredAgainst(
+    measurement: ContextMeasurement,
+    capacity: number | undefined,
+): ContextMeasurement {
+    return {
+        tokens: measurement.tokens,
+        estimated: measurement.estimated,
+        ...(capacity === undefined ? {} : { capacity }),
     };
 }

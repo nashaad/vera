@@ -159,6 +159,44 @@ export function availableModels(): readonly SuggestedModel[] {
 }
 
 /**
+ * The window the model accepts, or undefined for one Vera has no entry for.
+ *
+ * Undefined is a real answer, not a failure: a model reached through discovery
+ * or run locally may have a window nobody has recorded, and a guessed
+ * denominator would render a confident percentage of nothing.
+ */
+export function contextWindowForModel(
+    provider: string | undefined,
+    model: string,
+    ...catalogs: readonly (readonly ModelWindowEntry[] | undefined)[]
+): number | undefined {
+    if (provider === undefined) {
+        return undefined;
+    }
+    const searched = catalogs.length === 0 ? [availableModels()] : catalogs;
+    for (const models of searched) {
+        const window = models?.find((candidate) =>
+            candidate.provider === provider && candidate.model === model
+        )?.contextWindow;
+        if (window !== undefined) {
+            return window;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Discovered models and shipped ones are searched through the same shape: a
+ * locally served model's window is measured at discovery and appears in no
+ * shipped list.
+ */
+interface ModelWindowEntry {
+    readonly provider: string;
+    readonly model: string;
+    readonly contextWindow?: number;
+}
+
+/**
  * `levels` is required, and an entry without it is rejected rather than read
  * as empty. Do not loosen this: empty already means "this model has no
  * reasoning control at all", so accepting absent and normalising it would make

@@ -9,9 +9,25 @@ test("TUI status line shows host-reported model and reasoning", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
-        contextWindow: 258_000,
-    }, "auto", 64_500, "/workspace")).toBe(
+    }, "auto", {
+        tokens: 64_500,
+        capacity: 258_000,
+        estimated: false,
+    }, "/workspace")).toBe(
         "gpt-5.6-sol · reasoning high · /workspace · auto · ctx 25%",
+    );
+});
+
+test("TUI status marks a character-counted measurement as approximate", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+    }, "auto", {
+        tokens: 64_500,
+        capacity: 258_000,
+        estimated: true,
+    }, "/workspace")).toBe(
+        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx ~25%",
     );
 });
 
@@ -24,13 +40,24 @@ test("TUI status line shows host-reported reasoning off", () => {
     );
 });
 
-test("TUI status starts known context windows at zero percent", () => {
+test("TUI status shows no context share before anything is measured", () => {
+    // Zero would be a number nobody measured: the system prompt and the tool
+    // definitions occupy the window before the first request is even built.
     expect(renderTuiStatusDetailsLine({
         model: "gemma4:26b",
         reasoningEffort: "low",
         contextWindow: 131_072,
     }, "auto", undefined, "/workspace")).toBe(
-        "gemma4:26b · reasoning low · /workspace · auto · ctx 0%",
+        "gemma4:26b · reasoning low · /workspace · auto",
+    );
+});
+
+test("TUI status shows no context share for a model with no known window", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "gemma4:26b",
+        reasoningEffort: "low",
+    }, "auto", { tokens: 40_000, estimated: true }, "/workspace")).toBe(
+        "gemma4:26b · reasoning low · /workspace · auto",
     );
 });
 

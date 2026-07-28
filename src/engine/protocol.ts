@@ -13,6 +13,11 @@ import type {
     ModelSettingsPatch,
     ModelTurnSettings,
 } from "./model-settings.ts";
+import { contextWindowForModel } from "./model-settings.ts";
+import {
+    measureReportedUsage,
+    type ContextMeasurement,
+} from "./context-measurement.ts";
 import {
     isApprovalMode,
     isPermissionPredicate,
@@ -211,7 +216,18 @@ export interface HistoryUpdate {
     readonly type: "history";
     readonly entries: readonly TranscriptEntry[];
     readonly seq: number;
-    readonly contextInputTokens?: number;
+    readonly context?: ContextMeasurement;
+}
+
+/**
+ * How full the context window is, as the engine measured it. Sent whenever the
+ * number moves: once per model round from the projected request, and again
+ * with the provider's own count when a response reports one.
+ */
+export interface ContextUpdate {
+    readonly type: "context";
+    readonly measurement: ContextMeasurement;
+    readonly seq: number;
 }
 
 export interface UserPromptUpdate {
@@ -263,7 +279,6 @@ export interface TurnFinishedUpdate {
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
     readonly seq: number;
-    readonly contextInputTokens?: number;
 }
 
 export interface AgentFailedUpdate {
@@ -460,6 +475,7 @@ export type AgentUpdate =
     | ToolPresentationUpdate
     | TurnFinishedUpdate
     | AgentFailedUpdate
+    | ContextUpdate
     | StatusUpdate
     | TaskNotificationUpdate
     | UiRequestUpdate
@@ -802,6 +818,8 @@ export function createProtocolEncoder(
     attachmentName?: AttachmentNameLookup,
 ): ProtocolEncoder {
     let seq = 0;
+    let measuredCapacity: number | undefined;
+    let measuredModel: string | undefined;
 
     const encode = (event: Parameters<EngineEventSubscriber>[0]): void => {
         if (event.type === "turn_started") {
@@ -971,7 +989,33 @@ export function createProtocolEncoder(
             return;
         }
 
+        if (event.type === "context_measured") {
+            measuredModel = event.model;
+            measuredCapacity = event.measurement.capacity;
+            seq += 1;
+            sender.send({
+                type: "context",
+                measurement: event.measurement,
+                seq,
+            });
+        }
+
         if (event.type === "turn_finished") {
+            // The provider counted the request the engine had only estimated,
+            // so the turn ends on the authoritative number rather than leaving
+            // the estimate standing as the last word. The window is the one
+            // that request was measured against; re-deriving it from the
+            // catalog would drop a locally discovered model's.
+            const reported = reportedMeasurement(
+                event.message,
+                event.message.source.model === measuredModel
+                    ? measuredCapacity
+                    : undefined,
+            );
+            if (reported !== undefined) {
+                seq += 1;
+                sender.send({ type: "context", measurement: reported, seq });
+            }
             seq += 1;
             const outcome = terminalOutcome(event.message);
             const error = terminalDetail(event.message);
@@ -979,7 +1023,6 @@ export function createProtocolEncoder(
                 type: "turn_finished",
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
-                ...contextInputTokens(event.message),
                 seq,
             });
         }
@@ -987,31 +1030,64 @@ export function createProtocolEncoder(
 
     return Object.assign(encode, {
         checkpoint(messages: readonly ModelMessage[]): void {
+            const context = latestMeasurement(
+                messages,
+                measuredModel,
+                measuredCapacity,
+            );
             sender.send({
                 type: "history",
                 entries: projectTranscript(messages, attachmentName),
-                ...latestContextInputTokens(messages),
+                ...(context === undefined ? {} : { context }),
                 seq,
             });
         },
     });
 }
 
-function latestContextInputTokens(
+/**
+ * A reconnecting client needs a number before the next turn produces one, and
+ * the last response's usage is the only measurement that survives a restart.
+ * A capacity measured this session is preferred over the catalog's, which has
+ * no entry for a locally served model.
+ */
+function latestMeasurement(
     messages: readonly ModelMessage[],
-): { readonly contextInputTokens?: number } {
-    const message = messages.findLast((candidate) => candidate.role === "assistant");
-    return message === undefined ? {} : contextInputTokens(message);
+    measuredModel?: string,
+    capacity?: number,
+): ContextMeasurement | undefined {
+    // The last assistant is not always the last one a provider counted: an
+    // aborted turn and a synthetic terminal message both end the transcript
+    // with a response carrying no usage, and stopping there would replay a
+    // session that had a measurement as one that never had one.
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message === undefined || message.role !== "assistant") {
+            continue;
+        }
+        const measurement = reportedMeasurement(
+            message,
+            message.source.model === measuredModel ? capacity : undefined,
+        );
+        if (measurement !== undefined) {
+            return measurement;
+        }
+    }
+    return undefined;
 }
 
-function contextInputTokens(
+function reportedMeasurement(
     message: ModelMessage,
-): { readonly contextInputTokens?: number } {
-    return message.role === "assistant"
-        && Number.isSafeInteger(message.usage.inputTokens)
-        && message.usage.inputTokens > 0
-        ? { contextInputTokens: message.usage.inputTokens }
-        : {};
+    capacity?: number,
+): ContextMeasurement | undefined {
+    if (message.role !== "assistant") {
+        return undefined;
+    }
+    return measureReportedUsage(
+        message.usage,
+        capacity
+            ?? contextWindowForModel(message.source.provider, message.source.model),
+    );
 }
 
 export function projectTranscript(

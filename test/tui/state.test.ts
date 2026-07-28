@@ -292,21 +292,33 @@ test("TUI state keeps host-reported permissions", () => {
     expect(state.entries).toEqual([]);
 });
 
-test("TUI state keeps context usage across completion and replay", () => {
+test("TUI state keeps context usage across measurement and replay", () => {
     let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
-        type: "turn_finished",
-        contextInputTokens: 64_500,
+        type: "context",
+        measurement: { tokens: 64_500, capacity: 258_000, estimated: true },
         seq: 1,
     });
-    expect(state.contextInputTokens).toBe(64_500);
+    expect(state.context).toEqual({
+        tokens: 64_500,
+        capacity: 258_000,
+        estimated: true,
+    });
+
+    // The provider's own count for the same request supersedes the estimate.
+    state = applyAgentUpdate(state, {
+        type: "context",
+        measurement: { tokens: 61_902, capacity: 258_000, estimated: false },
+        seq: 2,
+    });
+    expect(state.context?.estimated).toBe(false);
 
     state = applyAgentUpdate(state, {
         type: "history",
         entries: [],
-        contextInputTokens: 70_000,
+        context: { tokens: 70_000, capacity: 258_000, estimated: false },
         seq: 1,
     });
-    expect(state.contextInputTokens).toBe(70_000);
+    expect(state.context?.tokens).toBe(70_000);
 });
 
 test("TUI does not duplicate its optimistic user prompt", () => {

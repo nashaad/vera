@@ -9,6 +9,7 @@ import {
     isPermissionGrantProposal,
 } from "../engine/permissions.ts";
 import { isPermissionPredicate } from "../engine/permission-grants.ts";
+import { isContextMeasurement } from "../engine/context-measurement.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
@@ -34,7 +35,13 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (update.type === "history") {
         return Array.isArray(update.entries)
             && update.entries.every(isTranscriptEntry)
-            && isOptionalTokenCount(update.contextInputTokens)
+            && (update.context === undefined
+                || isContextMeasurement(update.context))
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "context") {
+        return isContextMeasurement(update.measurement)
             ? value as AgentUpdate
             : undefined;
     }
@@ -79,7 +86,6 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.error === undefined
                 || (typeof update.error === "string"
                     && update.error.trim().length > 0))
-            && isOptionalTokenCount(update.contextInputTokens)
             ? value as AgentUpdate
             : undefined;
     }
@@ -588,11 +594,6 @@ function isReasoningLevel(value: unknown): boolean {
         && typeof level.label === "string"
         && (level.description === undefined
             || typeof level.description === "string");
-}
-
-function isOptionalTokenCount(value: unknown): boolean {
-    return value === undefined
-        || (Number.isSafeInteger(value) && (value as number) >= 0);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

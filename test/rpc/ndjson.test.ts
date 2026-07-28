@@ -100,10 +100,14 @@ test("NDJSON frames stream and abort across a process boundary", async () => {
         content: "say hello",
         seq: 1,
     });
+    expect(await frames.next()).toMatchObject({
+        type: "context",
+        seq: 2,
+    });
     expect(await frames.next()).toEqual({
         type: "assistant_delta",
         text: "h",
-        seq: 2,
+        seq: 3,
     });
 
     const firstTurn: AgentUpdate[] = [];
@@ -116,17 +120,21 @@ test("NDJSON frames stream and abort across a process boundary", async () => {
     sendFrame(child.stdin, { type: "prompt", content: "start slowly" });
     expect(await frames.next()).toMatchObject({
         type: "history",
-        seq: 7,
+        seq: 8,
     });
     expect(await frames.next()).toEqual({
         type: "user_prompt",
         content: "start slowly",
-        seq: 8,
+        seq: 9,
+    });
+    expect(await frames.next()).toMatchObject({
+        type: "context",
+        seq: 10,
     });
     expect(await frames.next()).toEqual({
         type: "assistant_delta",
         text: "a",
-        seq: 9,
+        seq: 11,
     });
     sendFrame(child.stdin, { type: "prompt", content: "keep this prompt" });
     sendFrame(child.stdin, { type: "abort" });
@@ -210,17 +218,21 @@ test("a killed process resumes with its full durable context", async () => {
         sendFrame(first.stdin, { type: "prompt", content: "hang now" });
         expect(await firstFrames.next()).toMatchObject({
             type: "history",
-            seq: 14,
+            seq: 15,
         });
         expect(await firstFrames.next()).toEqual({
             type: "user_prompt",
             content: "hang now",
-            seq: 15,
+            seq: 16,
+        });
+        expect(await firstFrames.next()).toMatchObject({
+            type: "context",
+            seq: 17,
         });
         expect(await firstFrames.next()).toEqual({
             type: "assistant_delta",
             text: "a",
-            seq: 16,
+            seq: 18,
         });
         first.kill();
         await first.exited;

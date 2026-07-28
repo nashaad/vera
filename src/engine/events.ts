@@ -9,6 +9,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { ContextMeasurement } from "./context-measurement.ts";
 import type {
     AssistantMessage,
     ModelMessage,
@@ -174,6 +175,20 @@ export interface ModelRequestEvent {
     readonly promptContributions: readonly PromptContributionMetadata[];
 }
 
+/**
+ * Emitted beside every `model_request`, carrying the size of that exact
+ * request. The engine measures because only the engine holds the projection;
+ * a client counting what it can see on screen would miss the system prompt,
+ * the tool definitions and every internal message, and two clients watching
+ * one session would disagree.
+ */
+export interface ContextMeasuredEvent {
+    readonly type: "context_measured";
+    /** The model the request was measured against, which a fallback changes. */
+    readonly model: string;
+    readonly measurement: ContextMeasurement;
+}
+
 export interface PromptPrefixDriftEvent {
     readonly type: "prompt_prefix_drift";
     readonly cause: PromptPrefixDrift["cause"];
@@ -296,6 +311,7 @@ export type EngineEvent =
     | PermissionsChangedEvent
     | PermissionsRejectedEvent
     | ModelRequestEvent
+    | ContextMeasuredEvent
     | PromptPrefixDriftEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent
