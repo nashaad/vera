@@ -948,6 +948,38 @@ export function handleTuiSettingsPickerKey(
     return unchanged(state, false);
 }
 
+/**
+ * The wheel over an open pane.
+ *
+ * It moves the cursor rather than sliding the window under it, which is the
+ * same rule ctrl+d and ctrl+u follow: the pane windows itself around
+ * `selectedIndex`, so a window that moved on its own would leave ⏎ pointing at
+ * a row that is no longer on screen.
+ */
+export function handleTuiSettingsPickerScroll(
+    state: TuiAnySettingsPickerState,
+    scroll: { readonly direction: "up" | "down" | "left" | "right"; readonly delta: number },
+): TuiSettingsPickerTransition | TuiExtensionPickerTransition {
+    const vertical = scroll.direction === "up" || scroll.direction === "down";
+    // A wheel reports whole rows, but a trackpad reports fractions of one, and
+    // a scroll that moves nothing reads as a dead pane.
+    const rows = Math.max(1, Math.round(Math.abs(scroll.delta) || 1));
+    const selectedIndex = clampedIndex(
+        state.selectedIndex + (scroll.direction === "down" ? rows : -rows),
+        state.options.length,
+    );
+    if (state.kind === "extension") {
+        return vertical
+            ? { state: { ...state, selectedIndex }, handled: true }
+            : unchanged(state, false);
+    }
+    if (!vertical) {
+        return unchanged(state, false);
+    }
+    const next = { ...state, selectedIndex };
+    return { state: next, handled: true, ...themePreview(next) };
+}
+
 export function createTuiSettingsPickerView(
     renderer: RenderContext,
 ): TuiSettingsPickerView {
@@ -1185,7 +1217,7 @@ function modelTabStripNode(
 
 function pickerFooter(state: TuiAnySettingsPickerState): string {
     if (state.kind === "session") {
-        return "↑↓ move · ⏎ select · del trash · esc close";
+        return "↑↓ ^d^u move · ⏎ select · del trash · esc close";
     }
     if (state.kind === "extension") {
         const actions = (state.extensionActions ?? []).map((action) =>
@@ -1218,7 +1250,10 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
                 ? "^s unpin"
                 : "^s pin";
         return [
-            "↑↓ move",
+            // The movement entry carries the half-page keys rather than taking a
+            // separate slot: they are the same movement, and this footer is
+            // already the longest one in the pane.
+            "↑↓ ^d^u move",
             "⏎ select",
             ...(pinned === undefined ? [] : [pinned]),
             "^e providers",

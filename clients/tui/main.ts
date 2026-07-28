@@ -111,6 +111,7 @@ import {
 } from "./status.ts";
 import {
     createTuiSettingsPickerView,
+    handleTuiSettingsPickerScroll,
     handleTuiSettingsPickerKey,
     tuiPickerViewportRows,
     startTuiSettingsMenu,
@@ -773,6 +774,17 @@ export async function startTui(
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
+    // The pane windows itself around the cursor, so the wheel moves the cursor
+    // and lets the window follow, the same way ctrl+d and ctrl+u do.
+    settingsPickerView.box.onMouseScroll = (event) => {
+        const scroll = event.scroll;
+        if (settingsPicker === undefined || scroll === undefined) return;
+        const transition = handleTuiSettingsPickerScroll(settingsPicker, scroll);
+        if (!transition.handled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        applySettingsPickerTransition(transition);
+    };
     app.add(settingsPickerView.box);
     app.add(secretPromptView.box);
     app.add(preferencesListView.box);

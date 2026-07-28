@@ -3,6 +3,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     handleTuiSettingsPickerKey,
+    handleTuiSettingsPickerScroll,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
     startTuiProviderPicker,
@@ -988,4 +989,55 @@ test("escape from the connect pane returns to the model pane it was opened over"
 
     expect(handleTuiSettingsPickerKey(providers, { name: "escape" }).state)
         .toBe(model);
+});
+
+test("the wheel moves the cursor, so enter still means the row on screen", () => {
+    // The pane windows itself around selectedIndex. A wheel that slid the
+    // window on its own would leave the highlight off screen, pointing at
+    // something the user can no longer see.
+    const state = modelPickerWithPins();
+    const down = handleTuiSettingsPickerScroll(state, {
+        direction: "down",
+        delta: 3,
+    });
+
+    expect(down.handled).toBe(true);
+    expect(down.state?.selectedIndex).toBe(
+        Math.min(3, state.options.length - 1),
+    );
+    expect(handleTuiSettingsPickerScroll(down.state!, {
+        direction: "up",
+        delta: 3,
+    }).state?.selectedIndex).toBe(state.selectedIndex);
+});
+
+test("the wheel stops at both ends and ignores a sideways scroll", () => {
+    const state = modelPickerWithPins();
+
+    expect(handleTuiSettingsPickerScroll(state, {
+        direction: "up",
+        delta: 40,
+    }).state?.selectedIndex).toBe(0);
+    expect(handleTuiSettingsPickerScroll(state, {
+        direction: "down",
+        delta: 400,
+    }).state?.selectedIndex).toBe(state.options.length - 1);
+    expect(handleTuiSettingsPickerScroll(state, {
+        direction: "left",
+        delta: 3,
+    }).handled).toBe(false);
+});
+
+test("a trackpad delta below one row still moves a row", () => {
+    // A scroll that moves nothing reads as a dead pane.
+    expect(handleTuiSettingsPickerScroll(modelPickerWithPins(), {
+        direction: "down",
+        delta: 0.2,
+    }).state?.selectedIndex).toBe(1);
+});
+
+test("the pane names the half-page keys where it names the others", async () => {
+    // ctrl+d and ctrl+u are unfindable otherwise: nothing on screen says a
+    // pane responds to them.
+    expect(await pickerFrame(modelPickerWithPins())).toContain("^d^u move");
 });
