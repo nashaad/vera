@@ -50,6 +50,13 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         )
         && (agent.title === undefined || typeof agent.title === "string")
         && (
+            agent.forked_from === undefined
+            || (
+                typeof agent.forked_from === "string"
+                && agent.forked_from.length > 0
+            )
+        )
+        && (
             agent.updated_at === undefined
             || (
                 typeof agent.updated_at === "string"

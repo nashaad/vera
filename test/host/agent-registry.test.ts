@@ -330,6 +330,15 @@ test("the resident registry creates forked and cloned agents", async () => {
             sourceId: "missing",
             position: "at",
         })).toBeUndefined();
+
+        // Both branch positions name the session they came from, so a client
+        // can show a fork under its parent instead of beside it.
+        const listed = new Map(
+            registry.list().map((agent) => [agent.id, agent.forked_from]),
+        );
+        expect(listed.get("fork")).toBe("source");
+        expect(listed.get("clone")).toBe("source");
+        expect(listed.get("source")).toBeUndefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

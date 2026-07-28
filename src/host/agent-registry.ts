@@ -92,6 +92,13 @@ export interface RegisteredAgentSummary {
     readonly status: RegisteredAgentStatus;
     readonly title?: string;
     readonly updated_at?: string;
+    /**
+     * The session this one was branched from, absent on a session that was
+     * started rather than forked. The id alone rather than the whole header
+     * `origin`: a client threads rows by parentage, and where in the parent the
+     * branch was taken is a fact about the transcript, not about the list.
+     */
+    readonly forked_from?: string;
 }
 
 export interface AgentRegistryOptions {
@@ -583,6 +590,9 @@ export class AgentRegistry {
                     ...(title === undefined || title.length === 0
                         ? {}
                         : { title: title.slice(0, 80) }),
+                    ...(entry.store.header.origin === undefined
+                        ? {}
+                        : { forked_from: entry.store.header.origin.sessionId }),
                     updated_at: entry.store.agentFailure()?.timestamp
                         ?? activeEntries.at(-1)?.timestamp
                         ?? entry.store.header.timestamp,

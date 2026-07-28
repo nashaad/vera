@@ -23,10 +23,20 @@ import { startHostServer } from "../../src/host/server.ts";
                 status: "working",
                 title: "Background audit",
                 updated_at: "2026-07-20T20:00:00.000Z",
+            }, {
+                id: "agent-2",
+                workspace: "/work/one",
+                session_path: "/sessions/agent-2.jsonl",
+                kind: "interactive",
+                status: "idle",
+                title: "Forked audit",
+                updated_at: "2026-07-20T20:05:00.000Z",
+                forked_from: "agent-1",
             }],
         });
         try {
-            expect(await listAgentsThroughHost(socketPath)).toEqual([{
+            const agents = await listAgentsThroughHost(socketPath);
+            expect(agents[0]).toEqual({
                 id: "agent-1",
                 workspace: "/work/one",
                 session_path: "/sessions/agent-1.jsonl",
@@ -34,7 +44,38 @@ import { startHostServer } from "../../src/host/server.ts";
                 status: "working",
                 title: "Background audit",
                 updated_at: "2026-07-20T20:00:00.000Z",
-            }]);
+            });
+            expect(agents[1]?.forked_from).toBe("agent-1");
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "agent list client rejects an unusable parent id",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-list-parent-"));
+        const socketPath = join(root, "host.sock");
+        const host = await startHostServer({
+            socketPath,
+            lockPath: join(root, "host.json"),
+            listAgents: () => [{
+                id: "agent-1",
+                workspace: "/work/one",
+                session_path: "/sessions/agent-1.jsonl",
+                kind: "interactive",
+                status: "idle",
+                // An empty parent threads a row under nothing, so it is a
+                // malformed summary rather than a row without a parent.
+                forked_from: "",
+            } as never],
+        });
+        try {
+            await expect(listAgentsThroughHost(socketPath)).rejects.toThrow(
+                "Host returned an invalid agent list",
+            );
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });
