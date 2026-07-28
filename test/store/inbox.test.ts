@@ -1,9 +1,15 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Inbox, type ConsumerId, type InboxEntryInput } from "../../src/store/inbox.ts";
+import {
+    Inbox,
+    inboxEnabled,
+    openInboxIfEnabled,
+    type ConsumerId,
+    type InboxEntryInput,
+} from "../../src/store/inbox.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -73,6 +79,7 @@ test("reads honour the caller limit and stay in seq order", () => {
 
 test("offsets never move backwards", () => {
     const inbox = Inbox.open(":memory:");
+    inbox.registerConsumer(watcher);
     inbox.appendAll([entry({ kind: "a" }), entry({ kind: "b" }), entry({ kind: "c" })]);
 
     inbox.advance(watcher, 3);
@@ -83,6 +90,7 @@ test("offsets never move backwards", () => {
 test("offsets are durable per node and label across restarts", () => {
     const path = join(temporaryDirectory(), "inbox", "inbox.db");
     const first = Inbox.open(path);
+    first.registerConsumer(watcher);
     first.appendAll([entry({ kind: "a" }), entry({ kind: "b" })]);
     first.advance(watcher, 1);
     first.close();
@@ -113,6 +121,7 @@ test("a returning consumer resumes its old offset instead of the tail", () => {
 test("the same label on a different node is a different consumer", () => {
     const inbox = Inbox.open(":memory:");
     const elsewhere: ConsumerId = { nodeId: "node-b", label: watcher.label };
+    inbox.registerConsumer(watcher);
     inbox.append(entry({ kind: "a" }));
     inbox.advance(watcher, 1);
 
@@ -179,6 +188,35 @@ test("payloads round-trip as inert text", () => {
     const stored = inbox.append(entry({ kind: "odd", payload: '{"text":"${nope} \\u0000ok"}' }));
     expect(inbox.readAfter(0, { limit: 10 })[0]!.payload).toBe(stored.payload);
     inbox.close();
+});
+
+test("an unregistered consumer cannot read or advance", () => {
+    const inbox = Inbox.open(":memory:");
+    inbox.append(entry({ kind: "a" }));
+
+    expect(() => inbox.read(watcher, { limit: 10 })).toThrow(
+        "unknown inbox consumer node-a/reviewer",
+    );
+    expect(() => inbox.advance(watcher, 1)).toThrow(
+        "unknown inbox consumer node-a/reviewer",
+    );
+    expect(inbox.listConsumers()).toEqual([]);
+    inbox.close();
+});
+
+test("the experimental flag gates the whole subsystem", () => {
+    const path = join(temporaryDirectory(), "inbox.db");
+
+    expect(inboxEnabled({})).toBe(false);
+    expect(openInboxIfEnabled({}, path)).toBeNull();
+    expect(openInboxIfEnabled({ experimental: {} }, path)).toBeNull();
+    expect(openInboxIfEnabled({ experimental: { inbox: false } }, path)).toBeNull();
+    expect(existsSync(path)).toBe(false);
+
+    const inbox = openInboxIfEnabled({ experimental: { inbox: true } }, path);
+    expect(inbox).not.toBeNull();
+    expect(existsSync(path)).toBe(true);
+    inbox?.close();
 });
 
 function entry(overrides: Partial<InboxEntryInput> = {}): InboxEntryInput {
