@@ -20,7 +20,17 @@ function profile(
     } as ResolvedCompactionProfile;
 }
 
-test("no configured profile means no compaction, not a default one", () => {
+test("an unconfigured session compacts on the model it is already running", () => {
+    // A session that fills its window has to compact whether or not anyone
+    // configured it to. A catalog route is the better answer, not a required
+    // one.
+    const bound = bindCompaction(undefined, adapter, { model: "test-model" });
+
+    expect(bound?.strategy.id).toBe(FULL_SUMMARY_STRATEGY_ID);
+    expect(Object.keys(bound?.models ?? {})).toEqual(["summarizer"]);
+});
+
+test("a session with no model of its own binds nothing", () => {
     expect(bindCompaction(undefined, adapter)).toBeUndefined();
 });
 

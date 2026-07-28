@@ -1,7 +1,10 @@
 import type { ModelAdapter } from "../model/types.ts";
 import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
-import { fullSummaryStrategy } from "./compaction-full-summary.ts";
+import {
+    FULL_SUMMARY_STRATEGY_ID,
+    fullSummaryStrategy,
+} from "./compaction-full-summary.ts";
 import {
     createRoutedCompletionService,
     type CompleteText,
@@ -15,6 +18,20 @@ import type { SessionCompactionOptions } from "./run-turn.ts";
 export const BUNDLED_COMPACTION_STRATEGIES:
     readonly CompactionStrategyDefinition[] = [fullSummaryStrategy];
 
+/** What an unconfigured session compacts with. */
+export const DEFAULT_COMPACTION_STRATEGY_ID = FULL_SUMMARY_STRATEGY_ID;
+
+/**
+ * The model a session summarizes itself on when config says nothing: the one
+ * it is already running. A catalog route is the better answer once there is a
+ * cheaper model to name, but a session that fills its window has to compact
+ * whether or not anyone configured it to.
+ */
+export interface SessionModel {
+    readonly provider?: string;
+    readonly model: string;
+}
+
 /**
  * Binds a configured profile to the adapter the agent is running on.
  *
@@ -26,11 +43,14 @@ export const BUNDLED_COMPACTION_STRATEGIES:
 export function bindCompaction(
     profile: ResolvedCompactionProfile | undefined,
     adapter: ModelAdapter,
+    sessionModel?: SessionModel,
     strategies: readonly CompactionStrategyDefinition[] =
         BUNDLED_COMPACTION_STRATEGIES,
 ): SessionCompactionOptions | undefined {
     if (profile === undefined) {
-        return undefined;
+        return sessionModel === undefined
+            ? undefined
+            : bindDefault(adapter, sessionModel, strategies);
     }
     const strategy = strategies.find(
         (candidate) => candidate.id === profile.strategy,
@@ -70,5 +90,35 @@ export function bindCompaction(
             ...(route === undefined ? {} : { route }),
             ...(entry === undefined ? {} : { catalogEntry: entry }),
         },
+    };
+}
+
+function bindDefault(
+    adapter: ModelAdapter,
+    sessionModel: SessionModel,
+    strategies: readonly CompactionStrategyDefinition[],
+): SessionCompactionOptions | undefined {
+    const strategy = strategies.find(
+        (candidate) => candidate.id === DEFAULT_COMPACTION_STRATEGY_ID,
+    );
+    if (strategy === undefined) {
+        return undefined;
+    }
+    const complete = createRoutedCompletionService(adapter, {
+        models: [{
+            ...(sessionModel.provider === undefined
+                ? {}
+                : { provider: sessionModel.provider }),
+            model: sessionModel.model,
+        }],
+    });
+    const models: Record<string, CompleteText> = {};
+    for (const slot of strategy.models) {
+        models[slot] = complete;
+    }
+    return {
+        strategy,
+        models,
+        diagnostics: { strategy: strategy.id },
     };
 }
