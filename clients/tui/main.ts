@@ -196,9 +196,11 @@ import {
     appendTuiNotice,
     appendTuiThought,
     applyAgentUpdate,
+    attachmentLabel,
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
+    rememberAttachmentName,
     failTuiConnection,
     queueTuiPrompt,
     renderTuiEntry,
@@ -1817,7 +1819,7 @@ export async function startTui(
                 );
                 const optimisticText = [
                     prompt,
-                    ...attachmentIds.map(() => "[Attached image]"),
+                    ...attachmentIds.map(attachmentLabel),
                 ].filter((part) => part.length > 0).join("\n");
                 if (state.entries.at(-1)?.text !== optimisticText) {
                     state = beginTuiTurn(state, prompt, attachmentIds);
@@ -1895,6 +1897,10 @@ export async function startTui(
                             id: update.attachment.id,
                             name: update.attachment.name,
                         };
+                        rememberAttachmentName(
+                            update.attachment.id,
+                            update.attachment.name,
+                        );
                         showStatusNotice(
                             `attached ${update.attachment.name} · ${pendingImages.length} pending`,
                         );
