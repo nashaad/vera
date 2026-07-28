@@ -18,6 +18,12 @@
  */
 
 import {
+    dialogBoxHeight,
+    listWindowRows,
+    listWindowSlice,
+    wheelCursor,
+} from "./list-window.ts";
+import {
     BoxRenderable,
     TextRenderable,
     type RenderContext,
@@ -31,7 +37,14 @@ import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import { dialogHeaderNode, dialogOptionRow } from "./dialog-chrome.ts";
 
 /** Rows shown at once before the list windows around the cursor. */
-const MAX_ROWS = 10;
+/**
+ * Everything in the card that is not a permission row: the heading, the footer
+ * and its margin, and the padding above and below.
+ */
+const PREFERENCES_CHROME = 6;
+
+// Where the card's top edge sits, matching `box.top` below.
+const PREFERENCES_TOP_OFFSET = 2;
 
 /**
  * Which store a row came from, which the client needs because the two tiers take
@@ -223,7 +236,7 @@ export function createTuiPreferencesListView(
                 return;
             }
             let group: TuiPermissionEntryKind | undefined;
-            for (const { index, entry } of visibleRows(state)) {
+            for (const { index, entry } of visibleRows(renderer, state)) {
                 if (entry.kind !== group) {
                     group = entry.kind;
                     // A header, not a row: `visibleRows` windows over entries
@@ -293,20 +306,44 @@ function groupLabel(kind: TuiPermissionEntryKind): string {
  * position no longer matches position in `state.entries`.
  */
 function visibleRows(
+    renderer: RenderContext,
     state: TuiPreferencesListState,
 ): readonly NumberedEntry[] {
     const entries = state.entries.map((entry, index) => ({ index, entry }));
-    if (entries.length <= MAX_ROWS) {
-        return entries;
-    }
-    const start = Math.max(
-        0,
-        Math.min(
-            state.selectedIndex - Math.floor(MAX_ROWS / 2),
-            entries.length - MAX_ROWS,
+    return listWindowSlice(
+        entries,
+        state.selectedIndex,
+        listWindowRows(
+            // The card is capped at 90% of the terminal, so a tall one is
+            // bounded by the cap and a short one by the composer below it.
+            Math.min(
+                dialogBoxHeight(renderer, PREFERENCES_TOP_OFFSET),
+                renderer.height * 0.9,
+            ),
+            PREFERENCES_CHROME,
         ),
     );
-    return entries.slice(start, start + MAX_ROWS);
+}
+
+/**
+ * The wheel over the granted-permissions list. The cursor moves and the window
+ * follows, which is what every other windowed list here does.
+ */
+export function handleTuiPreferencesListScroll(
+    state: TuiPreferencesListState,
+    scroll: {
+        readonly direction: "up" | "down" | "left" | "right";
+        readonly delta: number;
+    },
+): { readonly state: TuiPreferencesListState; readonly handled: boolean } {
+    const selectedIndex = wheelCursor(
+        state.selectedIndex,
+        state.entries.length,
+        scroll,
+    );
+    return selectedIndex === undefined
+        ? { state, handled: false }
+        : { state: { ...state, selectedIndex }, handled: true };
 }
 
 /**

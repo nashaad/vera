@@ -73,6 +73,7 @@ import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
     handleTuiCommandPaletteKey,
+    handleTuiCommandPaletteScroll,
     startTuiCommandPalette,
     updateTuiCommandPaletteCommands,
     type TuiCommandPaletteState,
@@ -80,6 +81,7 @@ import {
 import {
     createTuiHelpView,
     handleTuiHelpKey,
+    handleTuiHelpScroll,
     startTuiHelp,
     updateTuiHelpCommands,
     type TuiHelpState,
@@ -150,6 +152,7 @@ import { renderPermissionInspection } from "./permission-inspection.ts";
 import {
     createTuiPreferencesListView,
     handleTuiPreferencesListKey,
+    handleTuiPreferencesListScroll,
     startTuiPreferencesList,
     syncTuiPreferencesList,
     type TuiPreferencesListState,
@@ -787,6 +790,42 @@ export async function startTui(
     };
     app.add(settingsPickerView.box);
     app.add(secretPromptView.box);
+    // Every windowed overlay takes the wheel, not just the one it was built for
+    // first. The handlers are the same three lines because the movement itself
+    // lives in list-window.ts.
+    preferencesListView.box.onMouseScroll = (event) => {
+        if (preferencesList === undefined || event.scroll === undefined) return;
+        const transition = handleTuiPreferencesListScroll(
+            preferencesList,
+            event.scroll,
+        );
+        if (!transition.handled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        preferencesList = transition.state;
+        renderState();
+    };
+    commandPaletteView.box.onMouseScroll = (event) => {
+        if (commandPalette === undefined || event.scroll === undefined) return;
+        const transition = handleTuiCommandPaletteScroll(
+            commandPalette,
+            event.scroll,
+        );
+        if (!transition.handled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        commandPalette = transition.state;
+        renderState();
+    };
+    helpView.box.onMouseScroll = (event) => {
+        if (help === undefined || event.scroll === undefined) return;
+        const transition = handleTuiHelpScroll(help, event.scroll);
+        if (!transition.handled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        help = transition.state;
+        renderState();
+    };
     app.add(preferencesListView.box);
     app.add(commandPaletteView.box);
     app.add(helpView.box);

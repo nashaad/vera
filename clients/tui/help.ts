@@ -1,4 +1,9 @@
 import {
+    listWindowRows,
+    listWindowSlice,
+    wheelCursor,
+} from "./list-window.ts";
+import {
     bg,
     BoxRenderable,
     fg,
@@ -191,7 +196,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                 const search = dialogSearchNode(renderer, state.query);
                 box.add(search);
                 nodes.push(search);
-                const commands = windowedCommands(state);
+                const commands = windowedCommands(renderer, state);
                 if (commands.length === 0) {
                     const empty = new TextRenderable(renderer, {
                         content: state.tab === "extensions"
@@ -260,20 +265,52 @@ function filteredCommands(
     );
 }
 
-const HELP_ROWS = 14;
+/**
+ * Everything in the card that is not a command row: the tab strip, the search
+ * line, the footer, and the padding above.
+ */
+const HELP_CHROME = 8;
 
-function windowedCommands(state: TuiHelpState): readonly {
+function windowedCommands(
+    renderer: RenderContext,
+    state: TuiHelpState,
+): readonly {
     readonly command: TuiCommandCatalogEntry | ExtensionCommandDescriptor;
     readonly index: number;
 }[] {
-    const commands = filteredCommands(state);
-    const start = Math.min(
-        Math.max(0, state.selectedIndex - Math.floor(HELP_ROWS / 2)),
-        Math.max(0, commands.length - HELP_ROWS),
+    const commands = filteredCommands(state)
+        .map((command, index) => ({ command, index }));
+    return listWindowSlice(
+        commands,
+        state.selectedIndex,
+        // The card is a fixed share of the terminal rather than growing to fit,
+        // so its budget comes off that share and not off the whole screen.
+        listWindowRows(renderer.height * 0.9, HELP_CHROME),
     );
-    return commands
-        .slice(start, start + HELP_ROWS)
-        .map((command, offset) => ({ command, index: start + offset }));
+}
+
+/**
+ * The wheel over the help list. The cursor moves and the window follows, the
+ * same as every other windowed list here.
+ */
+export function handleTuiHelpScroll(
+    state: TuiHelpState,
+    scroll: {
+        readonly direction: "up" | "down" | "left" | "right";
+        readonly delta: number;
+    },
+): TuiHelpTransition {
+    if (state.tab === "general") {
+        return { state, handled: false };
+    }
+    const selectedIndex = wheelCursor(
+        state.selectedIndex,
+        filteredCommands(state).length,
+        scroll,
+    );
+    return selectedIndex === undefined
+        ? { state, handled: false }
+        : { state: { ...state, selectedIndex }, handled: true };
 }
 
 function helpTabs(active: TuiHelpTab): StyledText {

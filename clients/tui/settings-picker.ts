@@ -26,9 +26,15 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import {
+    dialogBoxHeight,
+    halfPageCursor,
+    listWindowRows,
+    listWindowSlice,
+    wheelCursor,
+} from "./list-window.ts";
+import {
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER_WIDTH,
-    dialogBottomOffset,
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
@@ -873,12 +879,13 @@ export function handleTuiSettingsPickerKey(
         && (key.name === "d" || key.name === "u")
         && !key.meta && !key.super && !key.hyper
     ) {
-        const jump = Math.max(1, Math.floor((viewportRows ?? FALLBACK_JUMP * 2) / 2));
         const next = {
             ...state,
-            selectedIndex: clampedIndex(
-                state.selectedIndex + (key.name === "d" ? jump : -jump),
+            selectedIndex: halfPageCursor(
+                state.selectedIndex,
                 state.options.length,
+                viewportRows ?? FALLBACK_JUMP * 2,
+                key.name === "d" ? "down" : "up",
             ),
         };
         return { state: next, handled: true, ...themePreview(next) };
@@ -960,20 +967,17 @@ export function handleTuiSettingsPickerScroll(
     state: TuiAnySettingsPickerState,
     scroll: { readonly direction: "up" | "down" | "left" | "right"; readonly delta: number },
 ): TuiSettingsPickerTransition | TuiExtensionPickerTransition {
-    const vertical = scroll.direction === "up" || scroll.direction === "down";
-    // A wheel reports whole rows, but a trackpad reports fractions of one, and
-    // a scroll that moves nothing reads as a dead pane.
-    const rows = Math.max(1, Math.round(Math.abs(scroll.delta) || 1));
-    const selectedIndex = clampedIndex(
-        state.selectedIndex + (scroll.direction === "down" ? rows : -rows),
+    const selectedIndex = wheelCursor(
+        state.selectedIndex,
         state.options.length,
+        scroll,
     );
     if (state.kind === "extension") {
-        return vertical
-            ? { state: { ...state, selectedIndex }, handled: true }
-            : unchanged(state, false);
+        return selectedIndex === undefined
+            ? unchanged(state, false)
+            : { state: { ...state, selectedIndex }, handled: true };
     }
-    if (!vertical) {
+    if (selectedIndex === undefined) {
         return unchanged(state, false);
     }
     const next = { ...state, selectedIndex };
@@ -1032,22 +1036,8 @@ export function createTuiSettingsPickerView(
  */
 const FALLBACK_JUMP = 5;
 
-function clampedIndex(index: number, length: number): number {
-    return Math.max(0, Math.min(length - 1, index));
-}
-
 /**
- * Even a cramped terminal shows this many rows, at the cost of the card running
- * past where it would rather stop. A list windowed down to one or two rows is
- * not a list, it is a spinner you have to operate.
- */
-const PICKER_MIN_ROWS = 4;
-
-/**
- * How many rows the card can show without running off the bottom. Derived from
- * the terminal rather than fixed: the old constant 12 left most of a tall
- * terminal empty and pushed the top of a long provider group off the window,
- * where it was easy to miss entirely.
+ * How many rows the card can show without running off the bottom.
  *
  * Group headers cost more than one line, so this is a row budget rather than a
  * line budget and a heavily grouped list can still overrun by a line or two.
@@ -1055,12 +1045,10 @@ const PICKER_MIN_ROWS = 4;
  * which is worse to use than an occasional tight fit.
  */
 function pickerMaxRows(renderer: RenderContext, extraChrome: number): number {
-    const available = renderer.height
-        - PICKER_TOP_OFFSET
-        - dialogBottomOffset(renderer)
-        - DIALOG_CHROME_HEIGHT
-        - extraChrome;
-    return Math.max(PICKER_MIN_ROWS, available);
+    return listWindowRows(
+        dialogBoxHeight(renderer, PICKER_TOP_OFFSET),
+        DIALOG_CHROME_HEIGHT + extraChrome,
+    );
 }
 
 // Where the card's top edge sits, matching `box.top` below.
@@ -1333,18 +1321,14 @@ function windowedDisplayRows(
     selectedIndex: number,
     maxRows: number,
 ): readonly PickerDisplayRow[] {
-    if (rows.length <= maxRows) {
-        return rows;
-    }
     const cursor = rows.findIndex((row) =>
         row.kind === "option" && row.index === selectedIndex
     );
-    const centered = Math.max(0, cursor) - Math.floor(maxRows / 2);
-    const start = Math.min(
-        Math.max(0, centered),
-        rows.length - maxRows,
-    );
-    const window = rows.slice(start, start + maxRows);
+    const window = listWindowSlice(rows, cursor, maxRows);
+    if (window.length === rows.length) {
+        return rows;
+    }
+    const start = rows.indexOf(window[0]!);
     // A window that opens partway down a group would show provider rows with no
     // provider above them, which is the one thing the grouping exists to say.
     // Reprinting the heading costs the window's first row and is what makes the

@@ -6,6 +6,12 @@ import {
 } from "@opentui/core";
 
 import {
+    dialogBoxHeight,
+    listWindowRows,
+    listWindowSlice,
+    wheelCursor,
+} from "./list-window.ts";
+import {
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER_WIDTH,
     dialogFooterNode,
@@ -161,7 +167,7 @@ export function createTuiCommandPaletteView(
             box.add(search);
             nodes.push(header, search);
 
-            const rows = windowedRows(displayRows(state), state.selectedIndex);
+            const rows = windowedRows(renderer, displayRows(state), state.selectedIndex);
             let lines = 0;
             if (rows.length === 0) {
                 const empty = new TextRenderable(renderer, {
@@ -211,7 +217,6 @@ export function createTuiCommandPaletteView(
     };
 }
 
-const MAX_PALETTE_ROWS = 12;
 
 function searched(
     state: TuiCommandPaletteState,
@@ -271,19 +276,44 @@ function displayRows(
 }
 
 function windowedRows(
+    renderer: RenderContext,
     rows: readonly PaletteDisplayRow[],
     selectedIndex: number,
 ): readonly PaletteDisplayRow[] {
-    if (rows.length <= MAX_PALETTE_ROWS) {
-        return rows;
-    }
     const cursor = rows.findIndex((row) =>
         row.kind === "command" && row.index === selectedIndex
     );
-    const centered = Math.max(0, cursor) - Math.floor(MAX_PALETTE_ROWS / 2);
-    const start = Math.min(
-        Math.max(0, centered),
-        rows.length - MAX_PALETTE_ROWS,
+    return listWindowSlice(rows, cursor, paletteMaxRows(renderer));
+}
+
+/**
+ * The palette sits a quarter of the way down, near the composer it was typed
+ * into, so its budget starts lower than a pane anchored at the top.
+ */
+function paletteMaxRows(renderer: RenderContext): number {
+    return listWindowRows(
+        dialogBoxHeight(renderer, renderer.height / 4),
+        DIALOG_CHROME_HEIGHT,
     );
-    return rows.slice(start, start + MAX_PALETTE_ROWS);
+}
+
+/**
+ * The wheel over the palette. The list windows itself around the cursor, so
+ * scrolling moves the cursor and lets the window follow.
+ */
+export function handleTuiCommandPaletteScroll(
+    state: TuiCommandPaletteState,
+    scroll: {
+        readonly direction: "up" | "down" | "left" | "right";
+        readonly delta: number;
+    },
+): TuiCommandPaletteTransition {
+    const selectedIndex = wheelCursor(
+        state.selectedIndex,
+        state.commands.length,
+        scroll,
+    );
+    return selectedIndex === undefined
+        ? { state, handled: false }
+        : { state: { ...state, selectedIndex }, handled: true };
 }
