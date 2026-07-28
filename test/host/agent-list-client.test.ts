@@ -21,6 +21,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 session_path: "/sessions/agent-1.jsonl",
                 kind: "background",
                 status: "working",
+                live: true,
                 title: "Background audit",
                 updated_at: "2026-07-20T20:00:00.000Z",
             }, {
@@ -29,6 +30,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 session_path: "/sessions/agent-2.jsonl",
                 kind: "interactive",
                 status: "idle",
+                live: false,
                 title: "Forked audit",
                 updated_at: "2026-07-20T20:05:00.000Z",
                 forked_from: "agent-1",
@@ -42,6 +44,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 session_path: "/sessions/agent-1.jsonl",
                 kind: "background",
                 status: "working",
+                live: true,
                 title: "Background audit",
                 updated_at: "2026-07-20T20:00:00.000Z",
             });
@@ -67,6 +70,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 session_path: "/sessions/agent-1.jsonl",
                 kind: "interactive",
                 status: "idle",
+                live: false,
                 // An empty parent threads a row under nothing, so it is a
                 // malformed summary rather than a row without a parent.
                 forked_from: "",

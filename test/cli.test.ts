@@ -127,6 +127,7 @@ test("vera ls renders resident agents from the host", async () => {
             session_path: "/sessions/agent-a.jsonl",
             kind: "interactive",
             status: "working",
+            live: true,
         },
         {
             id: "agent-b",
@@ -134,6 +135,7 @@ test("vera ls renders resident agents from the host", async () => {
             session_path: "/sessions/agent-b.jsonl",
             kind: "background",
             status: "completed",
+            live: false,
         },
     ];
     let output = "";
@@ -151,6 +153,26 @@ test("vera ls renders resident agents from the host", async () => {
     expect(output).toContain("/work/alpha");
     expect(output).toContain("/sessions/agent-a.jsonl");
     expect(output).toContain("completed  /work/beta");
+});
+
+test("vera ls calls a resident but unheld session stopped, not idle", async () => {
+    let output = "";
+
+    const exitCode = await runCli(["ls"], {
+        listAgents: async () => [{
+            id: "agent-c",
+            workspace: "/work/gamma",
+            session_path: "/sessions/agent-c.jsonl",
+            kind: "interactive" as const,
+            status: "idle" as const,
+            live: false,
+        }],
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toContain("stopped");
+    expect(output).not.toContain("idle");
 });
 
 test("vera rpc starts the NDJSON bridge", async () => {

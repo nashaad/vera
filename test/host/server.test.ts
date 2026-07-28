@@ -308,6 +308,7 @@ afterEach(() => {
                 session_path: "/sessions/agent-1.jsonl",
                 kind: "background",
                 status: "waiting",
+                live: true,
             }],
         });
         const connection = await connectHost({ socketPath });
@@ -321,6 +322,7 @@ afterEach(() => {
                     session_path: "/sessions/agent-1.jsonl",
                     kind: "background",
                     status: "waiting",
+                    live: true,
                 }],
             });
         } finally {

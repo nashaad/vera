@@ -90,6 +90,17 @@ export interface RegisteredAgentSummary {
     readonly session_path: string;
     readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
+    /**
+     * Whether anything is actually happening in this session right now.
+     *
+     * Separate from `status` because the two answer different questions. The
+     * host holds every session on disk, so `idle` means the session exists,
+     * not that it is running, and a list that showed only `status` would
+     * describe a conversation from last month exactly as it describes the one
+     * being typed into. Derived from what the host already knows about itself
+     * and recomputed on every listing, so nothing durable records it.
+     */
+    readonly live: boolean;
     readonly title?: string;
     readonly updated_at?: string;
     /**
@@ -587,6 +598,25 @@ export class AgentRegistry {
                             : entry.completed && entry.agent.status === "idle"
                                 ? "completed" as const
                                 : entry.agent.status,
+                    // A session someone has open counts as live even between
+                    // turns: it is on screen and one keystroke from running.
+                    // A background child with no client of its own counts only
+                    // while it is working, which is the whole of its life.
+                    //
+                    // Both terms settle on their own, which is what makes this
+                    // safe to show: an attachment ends when its client goes,
+                    // and every turn resolves to idle. State that only clears
+                    // when a particular update arrives was deliberately left
+                    // out, because a turn ending without that update would
+                    // strand a row reading as live with nothing running in it.
+                    live: !entry.agent.closed
+                        && !entry.agent.failed
+                        && entry.failure === undefined
+                        && (
+                            entry.agent.attached
+                            || entry.agent.status === "working"
+                            || entry.agent.status === "waiting"
+                        ),
                     ...(title === undefined || title.length === 0
                         ? {}
                         : { title: title.slice(0, 80) }),
