@@ -2676,6 +2676,10 @@ export async function startTui(
             === "tool_approval";
         questionView.box.visible = pendingUiRequest?.request.type
             === "user_question";
+        const interactiveCardVisible = approvalView.box.visible
+            || questionView.box.visible;
+        statusText.visible = !interactiveCardVisible;
+        backgroundStatusText.visible = !interactiveCardVisible;
         timelinePickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
@@ -3836,6 +3840,7 @@ export async function startTui(
         approvalView.box.backgroundColor = theme.panel;
         approvalView.repaint();
         questionView.box.backgroundColor = theme.panel;
+        questionView.bar.backgroundColor = theme.accent;
         questionView.detailsText.fg = theme.text;
         questionView.choiceAction.fg = theme.muted;
         questionView.cancelAction.fg = theme.muted;

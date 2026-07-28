@@ -1439,6 +1439,8 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("Permission required");
             expect(pane).toContain("$ grep");
+            expect(pane).not.toContain("approval required ·");
+            expect(pane).not.toContain("gpt-5.6-sol");
 
             for (let index = 0; index < 20; index += 1) {
                 sendKey(socket, session, "Down");
@@ -1546,6 +1548,8 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Which release channel");
             expect(pane).toContain("2  Preview");
             expect(pane).toContain("3  Nightly");
+            expect(pane).not.toContain("question waiting");
+            expect(pane).not.toContain("gpt-5.6-sol");
             // The reproduction for the status-line collision: above the short
             // terminal threshold the overlay clears the status line's row, so
             // its final line of key hints survives instead of being drawn over.

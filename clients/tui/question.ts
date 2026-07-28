@@ -13,12 +13,13 @@ import type {
 } from "../../src/engine/protocol.ts";
 import { isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
+    TUI_ACCENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
 import {
-    dialogBottomOffset,
+    DIALOG_SHORT_TERMINAL_HEIGHT,
     dialogHeaderNode,
     dialogOptionRow,
     dialogRowPointer,
@@ -46,6 +47,7 @@ export interface TuiQuestionView {
     // have sent rather than a second decision path.
     pointer?: DialogRowPointer;
     readonly box: BoxRenderable;
+    readonly bar: BoxRenderable;
     readonly details: ScrollBoxRenderable;
     readonly detailsText: TextRenderable;
     readonly actions: BoxRenderable;
@@ -130,28 +132,47 @@ export function createTuiQuestionView(
     actions.add(choiceAction);
     actions.add(cancelAction);
     const header = dialogHeaderNode(renderer, "Question");
+    header.paddingLeft = 0;
+    const bar = new BoxRenderable(renderer, {
+        id: "question-bar",
+        width: 1,
+        backgroundColor: TUI_ACCENT,
+        flexShrink: 0,
+        visible: questionChromeVisible(renderer),
+    });
+    const panel = new BoxRenderable(renderer, {
+        id: "question-panel",
+        width: "100%",
+        height: "auto",
+        flexGrow: 1,
+        flexDirection: "column",
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: questionBottomPadding(renderer),
+        paddingBottom: questionBottomPadding(renderer),
+    });
+    panel.add(header);
+    panel.add(details);
+    panel.add(actions);
     const box = new BoxRenderable(renderer, {
         id: "question-box",
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        bottom: dialogBottomOffset(renderer),
-        left: 0,
-        width: "100%",
+        bottom: 1,
+        left: questionSideInset(renderer),
+        right: 1,
         height: "auto",
         // Short terminals need the final row that the normal overlay margin
         // would consume. Larger terminals retain the calmer 90% cap.
         maxHeight: renderer.height <= 10 ? "100%" : "90%",
         zIndex: 20,
-        flexDirection: "column",
+        flexDirection: "row",
         gap: 0,
-        paddingLeft: 2,
-        paddingRight: 2,
         visible: false,
     });
-    box.add(header);
-    box.add(details);
-    box.add(actions);
+    box.add(bar);
+    box.add(panel);
 
     function renderChoices(update: UserQuestionUiRequestUpdate): void {
         for (const row of choiceRows) {
@@ -185,6 +206,7 @@ export function createTuiQuestionView(
 
     const view: TuiQuestionView = {
         box,
+        bar,
         details,
         detailsText,
         actions,
@@ -195,7 +217,10 @@ export function createTuiQuestionView(
         },
         update(update): void {
             box.maxHeight = renderer.height <= 10 ? "100%" : "90%";
-            box.bottom = dialogBottomOffset(renderer);
+            box.left = questionSideInset(renderer);
+            bar.visible = questionChromeVisible(renderer);
+            panel.paddingTop = questionBottomPadding(renderer);
+            panel.paddingBottom = questionBottomPadding(renderer);
             if (currentRequestId === update.requestId) {
                 return;
             }
@@ -356,6 +381,18 @@ function customResponse(
 
 function questionChoiceHint(update: UserQuestionUiRequestUpdate): string {
     return `↑↓ move · 1-${update.request.choices.length} or ⏎ choose · other available `;
+}
+
+function questionBottomPadding(renderer: RenderContext): number {
+    return questionChromeVisible(renderer) ? 1 : 0;
+}
+
+function questionChromeVisible(renderer: RenderContext): boolean {
+    return renderer.height > DIALOG_SHORT_TERMINAL_HEIGHT;
+}
+
+function questionSideInset(renderer: RenderContext): number {
+    return questionChromeVisible(renderer) ? 2 : 0;
 }
 
 function hasModifier(key: TuiQuestionKey): boolean {

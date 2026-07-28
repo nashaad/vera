@@ -170,6 +170,12 @@ test("arrow selection moves only across available buttons", async () => {
         });
         expect(view.handleKey(request, { name: "a" }))
             .toEqual({ handled: false });
+
+        // Up/down remain available to the focused details scroller.
+        expect(view.handleKey(request, { name: "down" }))
+            .toEqual({ handled: false });
+        expect(view.handleKey(request, { name: "up" }))
+            .toEqual({ handled: false });
     } finally {
         setup.renderer.destroy();
     }
@@ -206,20 +212,34 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         let frame = setup.captureCharFrame();
         expect(frame).toContain("Permission required");
         expect(frame).toContain("$ grep");
+        const lines = frame.split("\n");
+        const headerLine = lines.find((line) =>
+            line.includes("Permission required")
+        );
+        const commandLine = lines.find((line) => line.includes("$ grep"));
+        expect(headerLine?.indexOf("Permission"))
+            .toBe(commandLine?.indexOf("$"));
         expect(frame).toContain("1 Allow once");
-        expect(frame).toContain("─".repeat(80));
+        expect(frame).toContain("left/right select");
+        expect(view.box.bottom).toBe(1);
+        expect(view.box.width).toBe(77);
+        expect(view.box.left).toBe(2);
+        expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
+            .toBe(" ".repeat(80));
+        expect(view.bar.screenY).toBe(view.box.screenY);
+        expect(view.bar.height).toBe(view.box.height);
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
         expect(view.box.zIndex).toBe(20);
         expect(view.actions.screenY).toBeLessThan(18);
 
         setup.resize(42, 12);
-        // Geometry is re-read on update, so the resize goes through one. At
-        // this height the overlay gives the status line's row back and sits
-        // flush again: the command being approved outranks its key hints.
+        // Geometry is re-read on update, so the resize goes through one.
         view.update(longRequest());
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(view.box.bottom).toBe(2);
+        expect(view.box.bottom).toBe(1);
+        expect(view.box.width).toBe(39);
+        expect(view.box.left).toBe(2);
         expect(frame).toContain("Permission required");
         expect(frame).toContain("$ grep");
         expect(frame).toContain("1 Allow once");
@@ -228,7 +248,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(frame).toContain("3 Deny");
         expect(frame).toContain("4 Always");
         expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
-            .toBe("─".repeat(42));
+            .toBe(" ".repeat(42));
         expect(view.actions.screenY).toBeLessThan(12);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
 
@@ -238,6 +258,27 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(view.details.scrollTop).toBeGreaterThan(0);
         expect(view.actions.screenY).toBe(actionsY);
         expect(setup.captureCharFrame()).toContain("1 Allow once");
+
+        setup.resize(30, 8);
+        view.update(requestWithCommand("pwd", "short-terminal"));
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(view.box.left).toBe(0);
+        expect(frame).toContain("1 Allow once");
+        expect(frame).toContain("2 Session curl");
+        expect(frame).toContain("3 Deny");
+        expect(frame).toContain("4 Always");
+        expect(view.bar.visible).toBe(false);
+
+        setup.resize(24, 6);
+        view.update(requestWithCommand("pwd", "very-short-terminal"));
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).not.toContain("Permission required");
+        expect(frame).toContain("1 Allow once");
+        expect(frame).toContain("2 Session curl");
+        expect(frame).toContain("3 Deny");
+        expect(frame).toContain("4 Always");
     } finally {
         setup.renderer.destroy();
     }
@@ -257,8 +298,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         view.update(requestWithCommand("pwd", "short-request"));
         await setup.flush();
         const shortHeight = view.box.height;
-        // 16, not 17: the bottom row belongs to the status line now.
-        expect(view.box.screenY + shortHeight).toBe(16);
+        expect(view.box.screenY + shortHeight).toBe(17);
         expect(view.details.scrollHeight).toBe(view.details.height);
 
         view.update(requestWithCommand(
@@ -277,7 +317,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
         expect(view.box.height).toBeLessThanOrEqual(16);
-        expect(view.box.screenY + view.box.height).toBe(16);
+        expect(view.box.screenY + view.box.height).toBe(17);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
         expect(setup.captureCharFrame()).toContain("1 Allow once");
     } finally {
