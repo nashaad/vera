@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -15,12 +15,15 @@ import type { Inbox, InboxEntry } from "../store/inbox.ts";
  * the user gives once. A config file cannot set it, so a machine that only
  * copies configuration around never gains the ability to start sessions.
  *
- * Outgoing risk stays with the permission posture. A spawn inherits the
- * posture of the label's prior session when there is one, and otherwise gets
- * the most restrictive posture the host supports and asks for everything.
+ * Outgoing risk stays with the permission posture. A cold spawn always gets the
+ * most restrictive posture the host supports and asks for everything. Nothing
+ * an entry carries can widen it: the address is producer-supplied, so keying a
+ * posture off it would let an entry author choose how permissive the session it
+ * started is. Inheritance returns only once the host itself maps an address to
+ * a live session it owns.
  */
 
-/** The strictest built-in posture. A spawn with nothing to inherit gets this. */
+/** The strictest built-in posture. Every spawn gets it. */
 export const COLD_SPAWN_APPROVAL_MODE = "ask";
 
 /**
@@ -32,6 +35,9 @@ export const DEFAULT_MIN_SPAWN_INTERVAL_MS = 60_000;
 
 /** How many entries one spawn scan reads. */
 export const DEFAULT_MAX_ENTRIES_PER_SCAN = 100;
+
+/** How many held entries are remembered before the oldest are forgotten. */
+export const MAX_HELD_ENTRIES = 1_000;
 
 /** The consumer label the controller reads the log under. */
 export const SPAWN_CONSUMER_LABEL = "host:spawn";
@@ -89,10 +95,8 @@ export interface InboxSpawnOptions {
     readonly consumers: ConsumerRegistry;
     readonly spawnSession: SpawnSessionFn;
     readonly consent: SpawnConsent;
-    /** False when the inbox subsystem flag is off. */
-    readonly subsystemEnabled?: boolean;
-    /** The posture a label's prior session ran under, when one existed. */
-    readonly inheritedApprovalMode?: (address: string) => string | undefined;
+    /** `experimental.inbox`. Required, because a default would fail open. */
+    readonly subsystemEnabled: boolean;
     /** True when the entry was caused by a session this host knows. */
     readonly causedByKnownSession?: (entry: InboxEntry) => boolean;
     readonly minSpawnIntervalMs?: number;
@@ -103,6 +107,13 @@ export interface InboxSpawnOptions {
 /** The confirmation, as a value the controller reads on every scan. */
 export interface SpawnConsent {
     readonly confirmed: boolean;
+}
+
+interface ScannedEntry {
+    readonly entry: InboxEntry;
+    /** The address whose spawn outcome decides this entry, `null` when settled. */
+    readonly address: string | null;
+    readonly final: boolean;
 }
 
 interface AddressState {
@@ -119,6 +130,7 @@ export class InboxSpawnController {
     private readonly clock: () => number;
     private readonly addresses = new Map<string, AddressState>();
     private readonly heldEntries: HeldEntry[] = [];
+    private heldDropped = 0;
     private queue: Promise<void> = Promise.resolve();
     private released = false;
 
@@ -142,7 +154,7 @@ export class InboxSpawnController {
 
     get enabled(): boolean {
         return spawnOnEventEnabled({
-            subsystemEnabled: this.options.subsystemEnabled ?? true,
+            subsystemEnabled: this.options.subsystemEnabled,
             userConfirmed: this.options.consent.confirmed,
         });
     }
@@ -150,6 +162,11 @@ export class InboxSpawnController {
     /** Everything a scan declined to spawn for, oldest first. */
     held(): readonly HeldEntry[] {
         return [...this.heldEntries];
+    }
+
+    /** Held entries forgotten to the cap, so the loss is countable. */
+    heldDroppedCount(): number {
+        return this.heldDropped;
     }
 
     /** Serialized so two overlapping scans cannot spawn twice for one entry. */
@@ -169,6 +186,15 @@ export class InboxSpawnController {
         this.released = true;
     }
 
+    /**
+     * One pass over the unread tail.
+     *
+     * The offset moves only over a prefix of entries whose outcome is final:
+     * spawned, or held for a reason no later retry can change. An entry held
+     * because consent is off or because the address is rate limited leaves the
+     * offset where it is, so turning consent on, or waiting out the interval,
+     * still reaches it. The rescan costs one bounded read.
+     */
     private async run(): Promise<void> {
         const id = {
             nodeId: this.consumers.nodeId,
@@ -177,36 +203,51 @@ export class InboxSpawnController {
         const entries = this.options.inbox.read(id, {
             limit: this.maxEntriesPerScan,
         });
-        for (const entry of entries) {
-            this.classify(entry);
+        if (entries.length === 0) {
+            return;
         }
-        if (entries.length > 0) {
+        // Unadvanced entries are read again next scan, so coalescing restarts
+        // here rather than accumulating a count across scans.
+        for (const state of this.addresses.values()) {
+            state.pending = null;
+            state.coalesced = 0;
+        }
+        const scanned = entries.map((entry) => this.classify(entry));
+        const outcomes = await this.drainPending();
+        let advanceTo = 0;
+        for (const item of scanned) {
+            const final = item.address === null
+                ? item.final
+                : item.final || (outcomes.get(item.address) ?? false);
+            if (!final) {
+                break;
+            }
+            advanceTo = item.entry.seq;
+        }
+        if (advanceTo > 0) {
             // The controller's own offset. Every real consumer keeps its own,
             // so moving this one never consumes an entry a dormant session
             // still has coming to it.
-            this.options.inbox.advance(id, entries[entries.length - 1]!.seq);
+            this.options.inbox.advance(id, advanceTo);
         }
-        await this.drainPending();
     }
 
-    private classify(entry: InboxEntry): void {
+    private classify(entry: InboxEntry): ScannedEntry {
         const address = entry.address;
         if (address === null || this.consumers.get(address) !== undefined) {
-            return;
+            return { entry, address: null, final: true };
         }
         if (this.isSelfCaused(entry, address)) {
             this.hold(address, entry, "self-caused");
-            return;
+            return { entry, address: null, final: true };
         }
         if (!this.enabled) {
             this.hold(
                 address,
                 entry,
-                this.options.subsystemEnabled === false
-                    ? "subsystem-off"
-                    : "not-confirmed",
+                this.options.subsystemEnabled ? "not-confirmed" : "subsystem-off",
             );
-            return;
+            return { entry, address: null, final: false };
         }
         const state = this.stateFor(address);
         if (state.pending === null) {
@@ -217,10 +258,13 @@ export class InboxSpawnController {
             // on the one pending spawn and the session sees them all at once.
             state.coalesced += 1;
         }
+        return { entry, address, final: false };
     }
 
-    private async drainPending(): Promise<void> {
+    /** Per address: true when this scan finished with it, false when it holds. */
+    private async drainPending(): Promise<Map<string, boolean>> {
         const now = this.clock();
+        const outcomes = new Map<string, boolean>();
         for (const [address, state] of this.addresses) {
             const entry = state.pending;
             if (entry === null) {
@@ -228,19 +272,27 @@ export class InboxSpawnController {
             }
             if (!this.maySpawn(state, now)) {
                 this.hold(address, entry, "rate-limited");
+                outcomes.set(address, false);
                 continue;
             }
             const request = this.requestFor(address, entry, state.coalesced);
             const session = await this.options.spawnSession(request);
             if (session === null) {
+                // The host has no target for this address and will not grow one
+                // by being asked again with the same entry.
                 this.hold(address, entry, "no-target");
+                outcomes.set(address, true);
+                state.pending = null;
+                state.coalesced = 0;
                 continue;
             }
             state.pending = null;
             state.coalesced = 0;
             state.lastSpawnMs = now;
+            outcomes.set(address, true);
             await session.recordProvenance(request.provenance);
         }
+        return outcomes;
     }
 
     private requestFor(
@@ -248,13 +300,11 @@ export class InboxSpawnController {
         entry: InboxEntry,
         coalesced: number,
     ): SpawnRequest {
-        const approvalMode = this.options.inheritedApprovalMode?.(address)
-            ?? COLD_SPAWN_APPROVAL_MODE;
         return {
             address,
             entry,
             coalesced,
-            approvalMode,
+            approvalMode: COLD_SPAWN_APPROVAL_MODE,
             provenance: renderProvenance(address, entry, coalesced),
         };
     }
@@ -267,15 +317,28 @@ export class InboxSpawnController {
     }
 
     /**
-     * An entry a session caused can never start a session to react to it. The
-     * label check covers the session's own address; the host predicate covers
-     * an entry one of its agents caused under a different address.
+     * An entry a session caused can never start a session to react to it.
+     *
+     * The host predicate is the load-bearing half: it asks the host whether it
+     * owns the session named on the entry. The address comparison is only
+     * trusted when the entry also carries the complete (actor, session) pair of
+     * a live consumer, because both fields come from whatever produced the
+     * entry and a bare match would let a producer suppress any address it can
+     * name.
      */
     private isSelfCaused(entry: InboxEntry, address: string): boolean {
-        if (entry.session !== null && entry.session === address) {
+        if (this.options.causedByKnownSession?.(entry) ?? false) {
             return true;
         }
-        return this.options.causedByKnownSession?.(entry) ?? false;
+        if (entry.session === null || entry.session !== address) {
+            return false;
+        }
+        return this.consumers.liveHandles().some((handle) =>
+            handle.selfEcho.actor !== null
+            && handle.selfEcho.session !== null
+            && handle.selfEcho.actor === entry.actor
+            && handle.selfEcho.session === entry.session
+        );
     }
 
     private stateFor(address: string): AddressState {
@@ -305,6 +368,10 @@ export class InboxSpawnController {
             return;
         }
         this.heldEntries.push({ address, seq: entry.seq, reason });
+        while (this.heldEntries.length > MAX_HELD_ENTRIES) {
+            this.heldEntries.shift();
+            this.heldDropped += 1;
+        }
     }
 }
 
@@ -332,37 +399,77 @@ function renderProvenance(
 export class SpawnConsentStore implements SpawnConsent {
     private readonly path: string;
     private confirmedAt: string | null;
+    private stamp: string | null;
 
-    private constructor(path: string, confirmedAt: string | null) {
+    private constructor(path: string) {
         this.path = path;
-        this.confirmedAt = confirmedAt;
+        this.confirmedAt = null;
+        this.stamp = null;
+        this.refresh();
     }
 
     static open(path: string = defaultSpawnConsentPath()): SpawnConsentStore {
-        return new SpawnConsentStore(path, readConfirmedAt(path));
+        return new SpawnConsentStore(path);
     }
 
+    /**
+     * Read through to the file rather than cached at open. Deleting the file is
+     * how consent is withdrawn, and a withdrawal that only takes effect at the
+     * next host start is not a withdrawal.
+     */
     get confirmed(): boolean {
+        this.refresh();
         return this.confirmedAt !== null;
+    }
+
+    /** The timestamp the user confirmed at, or `null` when consent is absent. */
+    get confirmedAtIso(): string | null {
+        this.refresh();
+        return this.confirmedAt;
     }
 
     /** Call only from a surface where the user answered, not from config load. */
     confirm(at: string = new Date().toISOString()): void {
-        this.confirmedAt = at;
-        this.write();
+        this.write(at);
+        this.refresh(true);
     }
 
     revoke(): void {
-        this.confirmedAt = null;
-        this.write();
+        this.write(null);
+        this.refresh(true);
     }
 
-    private write(): void {
+    private refresh(force = false): void {
+        const stamp = fileStamp(this.path);
+        if (!force && stamp === this.stamp) {
+            return;
+        }
+        this.stamp = stamp;
+        this.confirmedAt = stamp === null ? null : readConfirmedAt(this.path);
+    }
+
+    private write(at: string | null): void {
         mkdirSync(dirname(this.path), { recursive: true });
-        writeFileSync(
-            this.path,
-            `${JSON.stringify({ spawn_on_event: this.confirmedAt }, null, 2)}\n`,
-        );
+        const body = `${JSON.stringify(
+            at === null ? {} : { spawn_on_event: { confirmed_at: at } },
+            null,
+            2,
+        )}\n`;
+        // Written whole or not at all: a torn file would read as no consent on
+        // one host start and as consent on the next.
+        const temporary = `${this.path}.tmp-${process.pid}`;
+        writeFileSync(temporary, body);
+        renameSync(temporary, this.path);
+    }
+}
+
+/** Size and mtime, so a scan can skip the parse when nothing changed. */
+function fileStamp(path: string): string | null {
+    try {
+        const stats = statSync(path);
+        return `${stats.size}:${stats.mtimeMs}`;
+    } catch {
+        return null;
     }
 }
 
@@ -370,6 +477,11 @@ export function defaultSpawnConsentPath(): string {
     return join(homedir(), ".vera", "spawn-consent.json");
 }
 
+/**
+ * Consent is exactly `{"spawn_on_event": {"confirmed_at": "<ISO timestamp>"}}`.
+ * The shape is strict because anything looser makes stray text a yes: a file
+ * that happens to hold a non-empty string would have granted it.
+ */
 function readConfirmedAt(path: string): string | null {
     let text: string;
     try {
@@ -379,11 +491,18 @@ function readConfirmedAt(path: string): string | null {
     }
     try {
         const parsed: unknown = JSON.parse(text);
-        if (typeof parsed !== "object" || parsed === null) {
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
             return null;
         }
         const value = (parsed as { spawn_on_event?: unknown }).spawn_on_event;
-        return typeof value === "string" && value.length > 0 ? value : null;
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return null;
+        }
+        const at = (value as { confirmed_at?: unknown }).confirmed_at;
+        if (typeof at !== "string" || Number.isNaN(Date.parse(at))) {
+            return null;
+        }
+        return at;
     } catch {
         // An unreadable consent file is no consent, never an assumed yes.
         return null;
