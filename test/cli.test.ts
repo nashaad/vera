@@ -311,10 +311,11 @@ test("vera reports host upgrades without a runtime stack trace", async () => {
     expect(errorOutput).not.toContain("HostProtocolMismatchError:");
 });
 
-test("vera host stop invokes the explicit resident-host shutdown", async () => {
+test("vera host stop confirms the explicit resident-host shutdown", async () => {
     let output = "";
     let stopped = false;
     const exitCode = await runCli(["host", "stop"], {
+        confirmHostStop: () => true,
         stopHost: async () => {
             stopped = true;
             return 51639;
@@ -325,4 +326,43 @@ test("vera host stop invokes the explicit resident-host shutdown", async () => {
     expect(exitCode).toBe(0);
     expect(stopped).toBe(true);
     expect(output).toBe("Stopped resident Vera host PID 51639.\n");
+});
+
+test("vera host stop leaves the host running when confirmation is declined", async () => {
+    let output = "";
+    let stopped = false;
+
+    const exitCode = await runCli(["host", "stop"], {
+        confirmHostStop: () => false,
+        stopHost: async () => {
+            stopped = true;
+            return 51639;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stopped).toBe(false);
+    expect(output).toBe("Resident Vera host was not stopped.\n");
+});
+
+test("vera host stop --yes skips confirmation", async () => {
+    let confirmed = false;
+    let stopped = false;
+
+    const exitCode = await runCli(["host", "stop", "--yes"], {
+        confirmHostStop: () => {
+            confirmed = true;
+            return false;
+        },
+        stopHost: async () => {
+            stopped = true;
+            return 51639;
+        },
+        stdout: { write: () => undefined },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(confirmed).toBe(false);
+    expect(stopped).toBe(true);
 });

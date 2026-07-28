@@ -267,6 +267,7 @@ export interface TuiDependencies {
         boundaryId: string,
     ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
     readonly resumeSession?: (sessionPath: string) => Promise<TuiAgentClient>;
+    readonly reconnectSession?: (agentId: string) => Promise<TuiAgentClient>;
     readonly initialDraft?: TuiDraft;
     readonly sessionSwitchTimeoutMs?: number;
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
@@ -356,7 +357,7 @@ export async function startConfiguredTui(
     // here are the client's own extension lists. Requiring the file made
     // `vera attach` against an already-running host fail on a fresh machine.
     const config = loadOptionalVeraConfig();
-    const host = await findOrStartResidentHost({
+    let host = await findOrStartResidentHost({
         ...(options.confirmBusyUpgrade === undefined
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
@@ -420,6 +421,14 @@ export async function startConfiguredTui(
                 attach(
                     (await resumeAgentThroughHost(host.socket_path, sessionPath)).id,
                 ),
+            reconnectSession: async (currentAgentId) => {
+                host = await findOrStartResidentHost({
+                    ...(options.confirmBusyUpgrade === undefined
+                        ? {}
+                        : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
+                });
+                return attach(currentAgentId);
+            },
             trashSession: (sessionId) =>
                 trashSessionThroughHost(host.socket_path, sessionId),
             renameSession: (sessionId, name) =>
@@ -1607,6 +1616,7 @@ export async function startTui(
             && commandAction?.type !== "open_resume_picker"
             && commandAction?.type !== "open_theme_picker"
             && commandAction?.type !== "create_session"
+            && commandAction?.type !== "reconnect"
         ) {
             renderStatus();
             return;
@@ -1728,6 +1738,45 @@ export async function startTui(
                     focusActiveSurface();
                     renderState();
                 }
+            });
+            return;
+        }
+        if (commandAction?.type === "reconnect") {
+            composer.clearComposer();
+            const currentAgentId = client.agentId;
+            if (
+                !connectionFailed
+                || dependencies.reconnectSession === undefined
+                || currentAgentId === undefined
+            ) {
+                state = appendTuiNotice(
+                    state,
+                    connectionFailed
+                        ? "Reconnecting this session is unavailable"
+                        : "The host connection is already active",
+                );
+                renderState();
+                return;
+            }
+            sessionSwitchPending = true;
+            sessionSwitchActivity = "restarting host…";
+            renderState();
+            void dependencies.reconnectSession(currentAgentId).then((next) => {
+                if (shuttingDown) {
+                    void next.detach().catch(() => next.close());
+                    return;
+                }
+                switchToClient(next);
+            }).catch((error) => {
+                if (shuttingDown) return;
+                sessionSwitchPending = false;
+                state = appendTuiNotice(
+                    state,
+                    `Could not reconnect: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+                renderState();
             });
             return;
         }
@@ -3852,7 +3901,7 @@ export async function startTui(
 
         let lifecycleHint = READY_HINT;
         if (connectionFailed) {
-            lifecycleHint = "disconnected · /resume reconnect · ctrl+c quit";
+            lifecycleHint = "disconnected · /reconnect host · ctrl+c quit";
         } else if (abortRequested) {
             lifecycleHint = `${STOPPING_HINT} · ${elapsedWorkingTime()}`;
         } else if (

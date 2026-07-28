@@ -82,6 +82,10 @@ export interface OpenResumePickerTuiCommandAction {
     readonly type: "open_resume_picker";
 }
 
+export interface ReconnectTuiCommandAction {
+    readonly type: "reconnect";
+}
+
 export interface CreateSessionTuiCommandAction {
     readonly type: "create_session";
 }
@@ -123,6 +127,7 @@ export type TuiCommandAction =
     | PrefillComposerTuiCommandAction
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
+    | ReconnectTuiCommandAction
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
     | CloneSessionTuiCommandAction
@@ -169,6 +174,7 @@ export interface TuiCommandDefinition {
         | OpenCommandPaletteTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
+        | ReconnectTuiCommandAction
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
@@ -229,6 +235,12 @@ const RESUME_COMMAND = {
     usage: "/resume",
 } as const satisfies TuiCommandCatalogEntry;
 
+const RECONNECT_COMMAND = {
+    name: "reconnect",
+    description: "Restart the host and reconnect this conversation",
+    usage: "/reconnect",
+} as const satisfies TuiCommandCatalogEntry;
+
 const CLEAR_COMMAND = {
     name: "clear",
     description: "Start a new conversation",
@@ -256,6 +268,7 @@ export const BUILTIN_COMMANDS = [
     SETTINGS_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
+    RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
     CLONE_COMMAND,
@@ -581,6 +594,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "resume",
             action: { type: "open_resume_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...RECONNECT_COMMAND,
+        action: { type: "reconnect" },
+        palette: {
+            name: "reconnect",
+            label: "Reconnect host",
+            description: "restart the host after a connection failure",
+            group: "Session",
+            slashName: "reconnect",
+            action: { type: "reconnect" },
         },
     });
     registry.registerCommand({

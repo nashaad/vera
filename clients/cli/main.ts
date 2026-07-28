@@ -46,6 +46,7 @@ export interface CliDependencies {
         target: TuiStartTarget,
         options?: TuiStartOptions,
     ) => Promise<void>;
+    readonly confirmHostStop?: () => boolean | Promise<boolean>;
     readonly stopHost?: () => Promise<number | undefined>;
     readonly version?: string;
 }
@@ -163,7 +164,26 @@ export async function runCli(
         return 0;
     }
 
-    if (args.length === 2 && args[0] === "host" && args[1] === "stop") {
+    const hostStopAssumeYes = assumeYes
+        || (
+            args.length === 3
+            && args[0] === "host"
+            && args[1] === "stop"
+            && (args[2] === "--yes" || args[2] === "-y")
+        );
+    if (
+        (args.length === 2 || hostStopAssumeYes)
+        && args[0] === "host"
+        && args[1] === "stop"
+    ) {
+        const confirmed = hostStopAssumeYes
+            || await (
+                dependencies.confirmHostStop ?? confirmResidentHostStop
+            )();
+        if (!confirmed) {
+            output.write("Resident Vera host was not stopped.\n");
+            return 0;
+        }
         const pid = await (dependencies.stopHost ?? stopResidentHost)();
         output.write(pid === undefined
             ? "No resident Vera host is running.\n"
@@ -348,6 +368,20 @@ async function confirmBusyHostUpgrade(): Promise<boolean> {
     try {
         const answer = await prompt.question(
             "An older Vera host is busy. Restart it and disconnect attached clients? [y/N] ",
+        );
+        return answer.trim().toLowerCase() === "y"
+            || answer.trim().toLowerCase() === "yes";
+    } finally {
+        prompt.close();
+    }
+}
+
+async function confirmResidentHostStop(): Promise<boolean> {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = await prompt.question(
+            "Stop the resident Vera host and disconnect attached clients? [y/N] ",
         );
         return answer.trim().toLowerCase() === "y"
             || answer.trim().toLowerCase() === "yes";
