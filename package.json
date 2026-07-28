@@ -25,10 +25,12 @@
     "@openrouter/sdk": "^0.13.55",
     "@opentui/core": "^0.2.6",
     "diff": "^9.0.0",
+    "htmlparser2": "^12.0.0",
     "marked": "^17.0.1",
     "sharp": "^0.35.3",
     "trash": "10.1.1",
     "tree-sitter-bash": "0.25.1",
+    "undici": "6.21.3",
     "web-tree-sitter": "0.25.10"
   }
 }

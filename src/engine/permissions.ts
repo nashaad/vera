@@ -387,6 +387,7 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "git.pull",
     "git.push",
     "git.remote_update",
+    "web.fetch",
 ]);
 
 const GIT_OPTIONS_WITH_VALUE = new Set([
