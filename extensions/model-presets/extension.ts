@@ -8,6 +8,9 @@ type Preset = {
 
 type Slot = Preset | null;
 
+/** Where the slot you are on is remembered, since the model cannot say. */
+const CURRENT_SLOT_KEY = "current-slot";
+
 // Bundled by Vera, but intentionally limited to the same public API as user extensions.
 export function activateClient(vera: any): void {
     vera.commands.register({
@@ -31,20 +34,22 @@ export function activateClient(vera: any): void {
         keys: ["shift+tab"],
         async run() {
             const slots = await loadSlots();
-            const current = currentPreset();
-            const filled = slots
-                .map((slot, index) => ({ slot, index }))
-                .filter((entry) => entry.slot !== null);
-            if (filled.length === 0) return;
-            const currentIndex = filled.findIndex(
-                (entry) => samePreset(entry.slot!, current),
+            const filled = slots.flatMap((slot, index) =>
+                slot === null ? [] : [{ slot, index }]
             );
-            const next = filled.length === 1 && currentIndex === 0
-                ? undefined
-                : filled[(currentIndex + 1) % filled.length]?.slot;
-            if (next !== null && next !== undefined) {
-                await vera.modelSettings.update(next);
+            // Nothing to cycle between, and a keybinding has no way to say so.
+            // Showing the slots answers both "you have not saved one yet" and
+            // "the only one you have is the one you are already on".
+            if (filled.length < 2) {
+                await openPicker();
+                return;
             }
+            const at = await currentSlotIndex(slots);
+            const position = filled.findIndex((entry) => entry.index === at);
+            // A model that came from somewhere else leaves position at -1,
+            // which starts the cycle at the first filled slot.
+            const next = filled[(position + 1) % filled.length]!;
+            await applySlot(next.index, next.slot);
         },
     });
 
@@ -52,10 +57,7 @@ export function activateClient(vera: any): void {
         let selectedId: string | undefined;
         while (true) {
             const slots = await loadSlots();
-            const current = currentPreset();
-            const currentIndex = slots.findIndex((slot) =>
-                slot !== null && samePreset(slot, current)
-            );
+            const currentIndex = await currentSlotIndex(slots);
             const result = await vera.ui.requestPicker({
                 title: "Model presets",
                 rows: slots.map((slot, index) => ({
@@ -91,7 +93,7 @@ export function activateClient(vera: any): void {
                 ? "save"
                 : result.actionId;
             if (intent === "choose") {
-                await vera.modelSettings.update(slots[index]);
+                await applySlot(index, slots[index]!);
                 return;
             }
             if (intent === "save") {
@@ -99,6 +101,10 @@ export function activateClient(vera: any): void {
                 if (preset !== undefined) {
                     slots[index] = preset;
                     await vera.preferences.set("slots", slots);
+                    // Saving the model you are on into a slot puts you on that
+                    // slot, so the cycle continues from there rather than from
+                    // whichever other slot happens to hold the same preset.
+                    await vera.preferences.set(CURRENT_SLOT_KEY, index);
                 }
                 continue;
             }
@@ -107,6 +113,41 @@ export function activateClient(vera: any): void {
                 await vera.preferences.set("slots", slots);
             }
         }
+    }
+
+    /**
+     * Put a slot's preset on, and remember that it is the one you are on.
+     *
+     * The remembering is the point. Two slots may hold the same preset, so
+     * "which slot am I on" is not recoverable from the model afterwards.
+     */
+    async function applySlot(index: number, preset: Preset): Promise<void> {
+        await vera.modelSettings.update(preset);
+        await vera.preferences.set(CURRENT_SLOT_KEY, index);
+    }
+
+    /**
+     * The slot the current model came from, or -1 when it came from elsewhere.
+     *
+     * The remembered index is only trusted while the model still matches what
+     * that slot holds: the model picker, a preset overwritten in another
+     * session, and a cleared slot all change the answer without going through
+     * here. Matching by value is the fallback rather than the answer, because
+     * with two slots holding one preset it can only name the first of them,
+     * which is what made cycling stick.
+     */
+    async function currentSlotIndex(slots: readonly Slot[]): Promise<number> {
+        const current = currentPreset();
+        const remembered = await vera.preferences.get(CURRENT_SLOT_KEY);
+        if (Number.isInteger(remembered)) {
+            const slot = slots[remembered as number];
+            if (slot !== null && slot !== undefined && samePreset(slot, current)) {
+                return remembered as number;
+            }
+        }
+        return slots.findIndex((slot) =>
+            slot !== null && samePreset(slot, current)
+        );
     }
 
     function currentPreset(): Preset | undefined {
