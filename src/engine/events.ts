@@ -189,6 +189,33 @@ export interface ContextMeasuredEvent {
     readonly measurement: ContextMeasurement;
 }
 
+export interface CompactionStartedEvent {
+    readonly type: "compaction_started";
+    readonly strategy: string;
+}
+
+/**
+ * Compaction is its own accepted operation with a visible end, so every way it
+ * can finish is reported, not only the one that worked. `outcome` carries the
+ * failure kinds because a session that quietly declined to compact and a
+ * session whose summarizer was unreachable look identical otherwise.
+ */
+export interface CompactionFinishedEvent {
+    readonly type: "compaction_finished";
+    readonly strategy: string;
+    readonly outcome:
+        | "compacted"
+        | "not_needed"
+        | "no_boundary"
+        | "rejected"
+        | "unavailable"
+        | "cancelled";
+    readonly reason?: string;
+    /** Estimated request size before and after, present only on success. */
+    readonly before?: number;
+    readonly after?: number;
+}
+
 export interface PromptPrefixDriftEvent {
     readonly type: "prompt_prefix_drift";
     readonly cause: PromptPrefixDrift["cause"];
@@ -312,6 +339,8 @@ export type EngineEvent =
     | PermissionsRejectedEvent
     | ModelRequestEvent
     | ContextMeasuredEvent
+    | CompactionStartedEvent
+    | CompactionFinishedEvent
     | PromptPrefixDriftEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent

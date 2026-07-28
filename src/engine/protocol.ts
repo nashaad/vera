@@ -230,6 +230,28 @@ export interface ContextUpdate {
     readonly seq: number;
 }
 
+/**
+ * Compaction starting and ending. The transcript is unchanged either way, so
+ * without this a client would see the context number drop between turns with
+ * nothing to attribute it to, and a failed compaction would be silent.
+ */
+export interface CompactionUpdate {
+    readonly type: "compaction";
+    readonly phase: "started" | "finished";
+    readonly strategy: string;
+    readonly outcome?:
+        | "compacted"
+        | "not_needed"
+        | "no_boundary"
+        | "rejected"
+        | "unavailable"
+        | "cancelled";
+    readonly reason?: string;
+    readonly before?: number;
+    readonly after?: number;
+    readonly seq: number;
+}
+
 export interface UserPromptUpdate {
     readonly type: "user_prompt";
     readonly content: string;
@@ -476,6 +498,7 @@ export type AgentUpdate =
     | TurnFinishedUpdate
     | AgentFailedUpdate
     | ContextUpdate
+    | CompactionUpdate
     | StatusUpdate
     | TaskNotificationUpdate
     | UiRequestUpdate
@@ -996,6 +1019,30 @@ export function createProtocolEncoder(
             sender.send({
                 type: "context",
                 measurement: event.measurement,
+                seq,
+            });
+        }
+
+        if (event.type === "compaction_started") {
+            seq += 1;
+            sender.send({
+                type: "compaction",
+                phase: "started",
+                strategy: event.strategy,
+                seq,
+            });
+        }
+
+        if (event.type === "compaction_finished") {
+            seq += 1;
+            sender.send({
+                type: "compaction",
+                phase: "finished",
+                strategy: event.strategy,
+                outcome: event.outcome,
+                ...(event.reason === undefined ? {} : { reason: event.reason }),
+                ...(event.before === undefined ? {} : { before: event.before }),
+                ...(event.after === undefined ? {} : { after: event.after }),
                 seq,
             });
         }
