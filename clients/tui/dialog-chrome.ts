@@ -12,6 +12,7 @@ import {
 import {
     TUI_ACCENT,
     TUI_BACKGROUND,
+    TUI_ELEMENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
@@ -143,6 +144,9 @@ export interface DialogRowContent {
     readonly meta?: string;
     readonly active: boolean;
     readonly current?: boolean;
+    // Alternating band, for lists long enough that blank separators would cost
+    // more rows than they earn. Ignored while the row is active.
+    readonly tint?: boolean;
     // Wrapping rows grow to fit their label; the highlight bar covers every
     // wrapped line. Non-wrapping rows stay one line and clip.
     readonly wrap?: boolean;
@@ -321,7 +325,11 @@ export function dialogOptionRow(
     renderer: RenderContext,
     content: DialogRowContent,
 ): BoxRenderable {
-    const background = content.active ? TUI_ACCENT : TUI_PANEL;
+    const background = content.active
+        ? TUI_ACCENT
+        : content.tint === true
+            ? TUI_ELEMENT
+            : TUI_PANEL;
     const label = content.active
         ? TUI_BACKGROUND
         : content.current

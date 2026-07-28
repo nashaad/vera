@@ -70,7 +70,8 @@ test("session picker filters durable interactive conversations and selects an ag
 
     const frame = await pickerFrame(state);
     expect(frame).toContain("Fix the deployment race");
-    expect(frame).toContain("1h ago · alpha");
+    expect(frame).toContain("1h ago");
+    expect(frame).toContain("alpha");
     expect(frame).not.toContain("22222222");
     expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
         .toEqual({
@@ -135,7 +136,8 @@ test("session picker hides empty chats and shows only meaningful live state", as
     const rendered = await pickerFrame(state);
     expect(rendered).not.toContain("empty");
     expect(rendered).toContain("Investigate the host");
-    expect(rendered).toContain("working · alpha");
+    expect(rendered).toContain("working");
+    expect(rendered).toContain("alpha");
 });
 
 test("session rows stay on one line at 80 columns", async () => {
@@ -158,13 +160,18 @@ test("session rows stay on one line at 80 columns", async () => {
         const row = setup.captureCharFrame().split("\n").find(
             (line) => line.includes("This is a deliberately long"),
         );
-        expect(row).toContain("1h ago · a-very-long-w…");
+        // The title runs from the time column to the workspace column rather
+        // than stopping at a fixed measure well short of the terminal edge.
+        expect(row).toContain("1h ago");
+        expect(row).toContain("a-very-long-w…");
+        expect(row).toContain("deliberately long first prompt title");
+        expect(row?.length).toBe(80);
     } finally {
         setup.renderer.destroy();
     }
 });
 
-test("session title truncation keeps Unicode characters intact", () => {
+test("session titles reach the picker whole", () => {
     const state = startTuiSessionPicker([{
         id: "unicode",
         workspace: "/work/vera",
@@ -175,8 +182,30 @@ test("session title truncation keeps Unicode characters intact", () => {
         updated_at: "2026-07-20T20:00:00.000Z",
     }]);
 
-    expect(state.options[0]?.label).toBe(`${"a".repeat(28)}😀…`);
+    // Titles are no longer cut to a fixed measure: the row clips at whatever
+    // the terminal actually has, so the option keeps the whole title.
+    expect(state.options[0]?.label).toBe(`${"a".repeat(28)}😀tail`);
     expect(state.options[0]?.label).not.toContain("�");
+});
+
+test("session columns are bounded in cells, not characters", () => {
+    const state = startTuiSessionPicker([{
+        id: "wide",
+        // Fourteen characters, twenty-eight terminal cells. The workspace
+        // column does not shrink, so measuring it in characters would push the
+        // row past the terminal edge.
+        workspace: `/work/${"界".repeat(14)}`,
+        session_path: "/sessions/wide.jsonl",
+        kind: "interactive",
+        status: "idle",
+        title: "x".repeat(400),
+        updated_at: "2026-07-20T20:00:00.000Z",
+    }]);
+
+    const option = state.options[0]!;
+    expect(Bun.stringWidth(option.workspace ?? "")).toBeLessThanOrEqual(14);
+    expect([...option.label]).toHaveLength(200);
+    expect(option.label.endsWith("…")).toBe(true);
 });
 
 function session(

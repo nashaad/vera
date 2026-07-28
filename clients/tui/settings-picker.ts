@@ -84,6 +84,15 @@ export interface TuiSettingsPickerOption {
     readonly model?: string;
     readonly sessionId?: string;
     /**
+     * Session rows carry their own columns rather than folding activity and
+     * workspace into the description: a session is recognised by its title, so
+     * the title gets every column the other two do not need.
+     */
+    readonly activity?: string;
+    readonly workspace?: string;
+    /** True on the session the user is attached to right now. */
+    readonly current?: boolean;
+    /**
      * Position in the user's pin list, absent on an unpinned row. A rank
      * rather than a flag because the pin list is ordered by when each model was
      * pinned and the provider list is ordered by provider: the Pinned tab has to
@@ -619,12 +628,13 @@ export function startTuiSessionPicker(
         )
         .map((agent) => ({
             value: agent.session_path,
-            label: truncateSessionTitle(agent.title!),
-            description: agent.id === currentAgentId
-                ? `current · ${sessionDescription(agent, now)}`
-                : sessionDescription(agent, now),
+            label: sessionTitle(agent.title!),
+            description: "",
             searchText: `${agent.id} ${agent.workspace}`,
             sessionId: agent.id,
+            activity: sessionActivity(agent, now),
+            workspace: sessionWorkspace(agent),
+            ...(agent.id === currentAgentId ? { current: true } : {}),
         }));
     return {
         kind: "session",
@@ -726,27 +736,53 @@ function extensionPickerActionKey(
     return undefined;
 }
 
-function truncateSessionTitle(title: string): string {
+// The workspace column does not shrink, so its budget is in terminal cells
+// rather than characters: a name of wide glyphs would otherwise take twice the
+// columns it was measured for and push the row past the terminal edge.
+const SESSION_WORKSPACE_CELLS = 14;
+
+/**
+ * The longest title the picker will hold. Titles are shown whole at any width a
+ * terminal has, so this is not a display measure: it is a bound on what one
+ * malformed row can make the renderer pad and lay out on every visible row.
+ */
+const SESSION_TITLE_LIMIT = 200;
+
+function sessionTitle(title: string): string {
     const normalized = title.replaceAll(/\s+/g, " ").trim();
     const characters = [...normalized];
-    return characters.length <= 30
+    return characters.length <= SESSION_TITLE_LIMIT
         ? normalized
-        : `${characters.slice(0, 29).join("")}…`;
+        : `${characters.slice(0, SESSION_TITLE_LIMIT - 1).join("")}…`;
 }
 
-function sessionDescription(
-    agent: RegisteredAgentSummary,
-    now: Date,
-): string {
+function sessionWorkspace(agent: RegisteredAgentSummary): string {
     const workspaceName = agent.workspace.split("/").filter(Boolean).at(-1)
         ?? agent.workspace;
-    const workspace = workspaceName.length <= 14
-        ? workspaceName
-        : `${workspaceName.slice(0, 13)}…`;
-    const activity = agent.status === "working" || agent.status === "waiting"
+    return clipToCells(workspaceName, SESSION_WORKSPACE_CELLS);
+}
+
+function clipToCells(value: string, cells: number): string {
+    if (Bun.stringWidth(value) <= cells) {
+        return value;
+    }
+    let clipped = "";
+    let width = 0;
+    for (const character of value) {
+        const next = width + Bun.stringWidth(character);
+        if (next > cells - 1) {
+            break;
+        }
+        clipped += character;
+        width = next;
+    }
+    return `${clipped}…`;
+}
+
+function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
+    return agent.status === "working" || agent.status === "waiting"
         ? agent.status
         : relativeSessionTime(agent.updated_at, now);
-    return `${activity} · ${workspace}`;
 }
 
 function relativeSessionTime(value: string | undefined, now: Date): string {
@@ -1041,8 +1077,11 @@ export function createTuiSettingsPickerView(
                 renderThemePickerRows(renderer, box, state, nodes, view.pointer);
                 return;
             }
-            box.left = "10%";
-            box.width = "80%";
+            // A session is recognised by its title, and titles are the one row
+            // value with no natural length, so this list gets the whole
+            // terminal rather than the inset card the settings panes use.
+            box.left = state.kind === "session" ? 0 : "10%";
+            box.width = state.kind === "session" ? "100%" : "80%";
             renderListPickerRows(renderer, box, state, nodes, view.pointer);
         },
     };
@@ -1092,11 +1131,18 @@ export function tuiPickerViewportRows(
 
 /**
  * The columns a row has for its label, description and meta together. Derived
- * from the same numbers the card is built from below: 80% of the terminal, less
- * the card's own left and right padding, the row's, and the leading gutter.
+ * from the same numbers the card is built from below: the card's share of the
+ * terminal, less its own left and right padding, the row's, and the leading
+ * gutter.
  */
-function pickerContentWidth(renderer: RenderContext): number {
-    return Math.max(0, Math.floor(renderer.width * 0.8) - 8);
+function pickerContentWidth(
+    renderer: RenderContext,
+    state: TuiAnySettingsPickerState,
+): number {
+    const cardWidth = state.kind === "session"
+        ? renderer.width
+        : Math.floor(renderer.width * 0.8);
+    return Math.max(0, cardWidth - 8);
 }
 
 type PickerDisplayRow =
@@ -1154,16 +1200,25 @@ function renderListPickerRows(
         nodes.push(empty);
         lines = 1;
     }
+    // The activity column is padded to the widest value on screen, so the
+    // titles beside it start on one column even though "just now" and "3d ago"
+    // do not measure the same.
+    const activityWidth = Math.max(0, ...rows.map((row) =>
+        row.kind === "option" ? row.option.activity?.length ?? 0 : 0));
+    let tinted = false;
     const optionNodes = dialogOptionRows(renderer, rows.flatMap((row) =>
         row.kind === "option"
             ? [{
                 label: row.option.label,
-                leading: optionLeading(state, row.option),
-                // Model rows carry no description. A model's marketing line is
-                // not what anyone picks on, and at these widths it only ever
-                // arrived clipped to a few characters, so the row reads as the
-                // name and the provider heading above it.
-                ...(state.kind === "model"
+                leading: optionLeading(state, row.option, activityWidth),
+                ...(state.kind === "session"
+                    ? { tint: (tinted = !tinted) }
+                    : {}),
+                // Model and session rows carry no description. A model's
+                // marketing line is not what anyone picks on, and at these
+                // widths it only ever arrived clipped to a few characters; a
+                // session's facts are its own columns.
+                ...(state.kind === "model" || state.kind === "session"
                     ? {}
                     : { description: row.option.description }),
                 meta: optionMeta(state, row.option),
@@ -1172,7 +1227,7 @@ function renderListPickerRows(
                 ...dialogRowPointer(pointer, row.index),
             }]
             : []
-    ), pickerContentWidth(renderer));
+    ), pickerContentWidth(renderer, state));
     let optionNodeIndex = 0;
     rows.forEach((row, position) => {
         const node = row.kind === "group"
@@ -1404,6 +1459,9 @@ function isCurrentOption(
     if (state.kind === "provider") {
         return option.connected === true;
     }
+    if (state.kind === "session") {
+        return option.current === true;
+    }
     return state.kind === "model" && option.value === state.initialModel;
 }
 
@@ -1415,17 +1473,27 @@ function isCurrentOption(
 function optionLeading(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
+    activityWidth = 0,
 ): string {
     if (state.kind === "provider") {
         return option.connected === true ? "✓ " : "  ";
     }
-    return isCurrentOption(state, option) ? "● " : "  ";
+    const marker = isCurrentOption(state, option) ? "● " : "  ";
+    // The session list turns the marker column into a marker and a time
+    // column, so the fact a row is worth reading for sits left of the title
+    // rather than after it.
+    return state.kind === "session"
+        ? `${marker}${(option.activity ?? "").padEnd(activityWidth)}  `
+        : marker;
 }
 
 function optionMeta(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
 ): string | undefined {
+    if (state.kind === "session") {
+        return option.workspace;
+    }
     if (state.kind !== "model") {
         return undefined;
     }

@@ -808,8 +808,8 @@ test.skipIf(!tmuxAvailable)(
             // The session already on screen is listed and says so, and Enter on
             // its row is a way out of the picker rather than a re-attach.
             expect(pane).toContain("The one already open");
-            expect(pane).toContain("current ·");
-            expect(pane).toContain("1h ago · vera");
+            expect(pane).toContain("● just now");
+            expect(pane).toContain("1h ago");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePaneWhere(
                 socket,
@@ -901,8 +901,11 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "No conversations found",
             );
-            expect(pane).toContain("moved to");
             sendKey(socket, session, "Escape");
+            // The picker covers the transcript while it is open, so the notice
+            // is read once the card is gone rather than from the margin beside
+            // it.
+            pane = await waitForVisiblePane(socket, session, "moved to");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(
@@ -1006,7 +1009,7 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/resume");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "current ·");
+            await waitForVisiblePane(socket, session, "Fix the deployment race");
             sendKey(socket, session, "Down");
             sendKey(socket, session, "C-r");
             await waitForVisiblePane(socket, session, "Rename conversation");
@@ -1153,8 +1156,8 @@ test.skipIf(!tmuxAvailable)(
                 "restored session picker after trash rejection",
             );
             expect(pane).toContain("Continue the theme picker");
-            expect(pane).toContain("That con");
             sendKey(socket, session, "Escape");
+            pane = await waitForVisiblePane(socket, session, "That con");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
         } catch (error) {
