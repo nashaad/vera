@@ -49,6 +49,25 @@ test("asking during a turn reports the turn, it does not compact under it", asyn
     expect(asked).toBe(true);
 });
 
+test("a queued prompt counts as a turn already underway", async () => {
+    // The prompt can be claimed while the compaction is still running, and a
+    // compaction under a turn is exactly what the check exists to prevent.
+    const channel = createInProcessChannel();
+    let asked: boolean | undefined;
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+        { compactNow: async (turnActive) => void (asked = turnActive) },
+    );
+    void router;
+
+    channel.client.send({ type: "prompt", content: "queued" });
+    channel.client.send({ type: "compact", requestId: "ask-4" });
+    await settle();
+
+    expect(asked).toBe(true);
+});
+
 test("a session with no strategy bound ignores the request", async () => {
     const channel = createInProcessChannel();
     const router = new InboundCommandRouter(

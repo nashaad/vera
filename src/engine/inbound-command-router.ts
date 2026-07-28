@@ -501,9 +501,14 @@ export class InboundCommandRouter {
 
                 if (command.type === "compact") {
                     // Compaction runs between turns, never inside one: the
-                    // span it replaces has to be finished and durable.
+                    // span it replaces has to be finished and durable. A
+                    // queued prompt counts as a turn already underway, since
+                    // it can be claimed while the compaction is still running.
+                    // Prompts only enter the queue through this loop, so the
+                    // await below also keeps new ones out until it settles.
                     await this.options.compactNow?.(
-                        this.activeTurn !== undefined,
+                        this.activeTurn !== undefined
+                            || this.pendingPromptCount > 0,
                     );
                     continue;
                 }
