@@ -5,11 +5,14 @@ import {
     handleTuiSettingsPickerKey,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
+    startTuiProviderPicker,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
     syncTuiModelPicker,
+    tuiPickerMenuAncestor,
+    withTuiPickerParent,
     type TuiAnySettingsPickerState,
 } from "../../clients/tui/settings-picker.ts";
 
@@ -229,11 +232,11 @@ test("model picker filters its choices as the user types", async () => {
     expect(second.state?.options.map((option) => option.model)).toEqual([
         "z-ai/glm-5.2",
     ]);
-    // While searching, the flat result list carries its provider in the row's
-    // right-hand column instead of a group heading.
+    // A search result is still in provider order, so it keeps the headings
+    // rather than repeating the provider on each row.
     const frame = await pickerFrame(second.state ?? state);
     expect(frame).toContain("⌕  gl");
-    expect(frame).toMatch(/GLM-5\.2\s+fast fallback model\s+openrouter/);
+    expect(frame).toMatch(/openrouter\s+GLM-5\.2/);
 });
 
 test("model picker distinguishes the same model id across providers", async () => {
@@ -466,19 +469,54 @@ test("the settings menu routes into permissions and its two entries", () => {
         .toEqual({ kind: "menu", target: "granted_permissions" });
 });
 
-test("escape inside a settings submenu steps back to its parent", () => {
-    // A wrong turn costs one key rather than a reopen of /settings.
-    const back = handleTuiSettingsPickerKey(
+test("escape steps back to the pane a pane was opened from", () => {
+    // A wrong turn costs one key rather than a reopen of /settings, and it
+    // lands on the menu the user actually left, cursor and all, rather than a
+    // fresh one built to look like it.
+    const menu = handleTuiSettingsPickerKey(
+        startTuiSettingsMenu("settings"),
+        { name: "down" },
+    ).state!;
+    const submenu = withTuiPickerParent(
         startTuiSettingsMenu("permission_settings"),
-        { name: "escape" },
+        menu,
     );
 
+    const back = handleTuiSettingsPickerKey(submenu, { name: "escape" });
+
     expect(back.handled).toBe(true);
-    expect(back.state?.kind).toBe("settings");
-    expect(handleTuiSettingsPickerKey(
-        back.state ?? startTuiSettingsMenu("settings"),
-        { name: "escape" },
-    )).toEqual({ handled: true });
+    expect(back.state).toBe(menu);
+    // The menu itself was opened by a slash command, so there is nothing under
+    // it and escape closes.
+    expect(handleTuiSettingsPickerKey(menu, { name: "escape" }))
+        .toEqual({ handled: true });
+});
+
+test("a finished choice returns to the menu, not to the pane it just answered", () => {
+    const menu = startTuiSettingsMenu("settings");
+    const theme = withTuiPickerParent(
+        startTuiSettingsPicker("theme", undefined, undefined, undefined),
+        menu,
+    );
+    const chained = startTuiReasoningPicker(
+        [{ id: "high", label: "High" }],
+        undefined,
+        undefined,
+        {
+            provider: "openai-codex",
+            model: "gpt-5.2-codex",
+            modelPaneState: withTuiPickerParent(
+                startTuiSettingsPicker("model", undefined, undefined, undefined),
+                menu,
+            ),
+        },
+    );
+
+    expect(tuiPickerMenuAncestor(theme)).toBe(menu);
+    // Two levels down: the level pane folds into the model pane, and neither is
+    // still a question once a model has been chosen.
+    expect(tuiPickerMenuAncestor(chained)).toBe(menu);
+    expect(tuiPickerMenuAncestor(menu)).toBeUndefined();
 });
 
 test("extension picker renders its title, stable rows, and semantic action footer", async () => {
@@ -664,15 +702,17 @@ test("the model pane opens on Pinned, in the order the user's own use produced",
     const frame = await pickerFrame(state);
 
     expect(state.tab).toBe("pinned");
-    // Pin order, not provider order: the pin list is ordered by recency of use,
-    // and sorting it by provider would throw that away.
+    // Pin order, not provider order: the pin list is ordered by when each model
+    // was pinned, and sorting it by provider would throw that away.
     expect(state.options.map((option) => option.model)).toEqual([
         "gpt-5.6-sol",
         "z-ai/glm-5.2",
     ]);
     // An entry that cannot run right now stays in the list: the user put it
-    // there, so only the user takes it out.
-    expect(frame).toContain("not available right now");
+    // there, so only the user takes it out. It says so in the column that would
+    // otherwise carry its provider, since that is the one fact about the row a
+    // heading could never carry.
+    expect(frame).toContain("unavailable");
     expect(frame).toContain("All models");
     expect(frame).toContain("Pinned");
 });
@@ -714,7 +754,7 @@ test("no model appears twice, because a pin is a mark on its own row", () => {
     expect(glm?.pinnedRank).toBe(1);
 });
 
-test("a description stops short of the provider column instead of shearing into it", async () => {
+test("a model row is the name alone, with no description beside it", async () => {
     const long = startTuiSettingsPicker(
         "model",
         "moonshotai/kimi-k3",
@@ -731,12 +771,15 @@ test("a description stops short of the provider column instead of shearing into 
         "default",
         "openrouter",
     );
-    // The provider column only shows during a search, which is where the two
-    // used to meet with no gap and read as one mangled word.
+    // A model's blurb is not what anyone picks on, and at card widths it only
+    // ever arrived clipped to a few characters, so the row is the name and the
+    // provider heading above it.
     const searched = handleTuiSettingsPickerKey(long, { name: "k" }).state!;
     const frame = await pickerFrame(searched);
 
-    expect(frame).toContain("…  openrouter");
+    expect(frame).toContain("Kimi K3");
+    expect(frame).not.toContain("a description long enough");
+    expect(frame).not.toContain("…");
 });
 
 test("a search reaches models on the other tab", () => {
@@ -843,4 +886,106 @@ test("a snapshot leaves the user on the tab they moved to", () => {
         "z-ai/glm-5.2",
         "moonshotai/kimi-k3",
     ]);
+});
+
+test("a snapshot keeps the pane the pane was opened from", () => {
+    // Pinning a model round-trips through the host and rebuilds this pane. If
+    // the rebuild dropped the parent, pinning would quietly turn escape from
+    // "back to /settings" into "close everything".
+    const menu = startTuiSettingsMenu("settings");
+    const state = withTuiPickerParent(modelPickerWithPins([]), menu);
+    const synced = syncTuiModelPicker(state, {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        availableModels,
+        pinned: pinnedModels,
+    });
+
+    expect(handleTuiSettingsPickerKey(synced, { name: "escape" }).state)
+        .toBe(menu);
+    expect(tuiPickerMenuAncestor(synced)).toBe(menu);
+});
+
+const PROVIDER_ROWS = [
+    {
+        id: "openai-codex",
+        label: "OpenAI Codex",
+        group: "Popular",
+        hint: "ChatGPT Plus/Pro subscription",
+        connected: true,
+    },
+    {
+        id: "openrouter",
+        label: "OpenRouter",
+        group: "Popular",
+        hint: "API key, pay per token",
+        connected: false,
+    },
+    {
+        id: "ollama",
+        label: "Ollama",
+        group: "Providers",
+        hint: "local, no account",
+        connected: true,
+    },
+] as const;
+
+test("the connect pane groups providers, marks the connected ones, and says what each wants", async () => {
+    const frame = await pickerFrame(startTuiProviderPicker(PROVIDER_ROWS));
+
+    expect(frame).toContain("Connect a provider");
+    expect(frame).toContain("Popular");
+    expect(frame).toContain("Providers");
+    // The mark is a check rather than the dot the other panes use: several
+    // providers can be connected at once, so it is not a "currently in effect".
+    expect(frame).toMatch(/✓\s+OpenAI Codex/);
+    expect(frame).toMatch(/✓\s+Ollama/);
+    expect(frame).not.toMatch(/✓\s+OpenRouter/);
+    // The credential is on the row, so choosing one is not a surprise about
+    // what it is going to ask for.
+    expect(frame).toContain("ChatGPT Plus/Pro subscription");
+    expect(frame).toContain("API key, pay per token");
+});
+
+test("the connect pane opens on the first provider still to be connected", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+
+    expect(pane.options[pane.selectedIndex]?.value).toBe("openrouter");
+    expect(handleTuiSettingsPickerKey(pane, { name: "enter" }).selection)
+        .toEqual({ kind: "provider", providerId: "openrouter" });
+});
+
+test("ctrl+e asks for the connect pane instead of building it", () => {
+    // Which providers are connected is a fact about the disk, so the pane
+    // reports the request and the client that can read it answers.
+    const model = startTuiSettingsPicker(
+        "model",
+        "z-ai/glm-5.2",
+        undefined,
+        undefined,
+        availableModels,
+        undefined,
+        "openrouter",
+    );
+
+    const transition = handleTuiSettingsPickerKey(model, {
+        name: "e",
+        ctrl: true,
+    });
+
+    expect(transition.handled).toBe(true);
+    expect(transition.openProviders).toBe(true);
+    expect(transition.state).toBe(model);
+    expect(transition.selection).toBeUndefined();
+});
+
+test("escape from the connect pane returns to the model pane it was opened over", () => {
+    const model = startTuiSettingsPicker("model", undefined, undefined, undefined);
+    const providers = withTuiPickerParent(
+        startTuiProviderPicker(PROVIDER_ROWS),
+        model,
+    );
+
+    expect(handleTuiSettingsPickerKey(providers, { name: "escape" }).state)
+        .toBe(model);
 });
