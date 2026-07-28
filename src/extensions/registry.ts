@@ -20,6 +20,11 @@ import {
     type ExtensionCommandResult,
 } from "./commands.ts";
 import {
+    createHostContributionSet,
+    type HostContributionSet,
+} from "./contribution-set.ts";
+import {
+    hasContributions,
     loadExtensionManifest,
     type LoadedExtensionManifest,
 } from "./manifest.ts";
@@ -44,6 +49,7 @@ export interface ExtensionRegistryFailure {
 
 export interface ExtensionRegistry {
     commands(): readonly ExtensionCommandDescriptor[];
+    contributions(): HostContributionSet;
     invokeCommand(
         name: string,
         argumentsText: string,
@@ -89,6 +95,7 @@ export async function startExtensionRegistry(
     const loaded: LoadedRegistryExtension[] = [];
     const owners = new Map<string, LoadedRegistryExtension>();
     const commands = new Map<string, RegisteredCommandOwner>();
+    const contributions = createHostContributionSet();
     let closing: Promise<void> | undefined;
 
     for (const configured of options.extensions) {
@@ -98,11 +105,13 @@ export async function startExtensionRegistry(
 
         let extension: LoadedRegistryExtension | undefined;
         let extensionId: string | undefined;
+        let admitted = false;
         try {
             const manifest = loadExtensionManifest(configured.path);
-            if (!manifest.manifest.capabilities.some((capability) =>
-                !capability.startsWith("client.")
-            )) {
+            const servesHost = manifest.manifest.capabilities.some(
+                (capability) => !capability.startsWith("client."),
+            ) || hasContributions(manifest.manifest);
+            if (!servesHost) {
                 continue;
             }
             extensionId = manifest.manifest.id;
@@ -111,6 +120,13 @@ export async function startExtensionRegistry(
                     `Duplicate extension ID: ${manifest.manifest.id}`,
                 );
             }
+            // Contributions are admitted before the entrypoint is imported, so a
+            // rejected contribution runs no extension code.
+            contributions.admit(
+                manifest.manifest.id,
+                manifest.manifest.contributes,
+            );
+            admitted = true;
             extension = await activateExtension(
                 manifest,
                 configured.config,
@@ -128,6 +144,9 @@ export async function startExtensionRegistry(
             }
         } catch (error) {
             let message = errorMessage(error);
+            if (admitted && extensionId !== undefined) {
+                contributions.withdraw(extensionId);
+            }
             if (extension !== undefined) {
                 try {
                     await disposeExtension(extension, disposeTimeoutMs);
@@ -145,7 +164,12 @@ export async function startExtensionRegistry(
         }
     }
 
+    contributions.freeze();
+
     return {
+        contributions(): HostContributionSet {
+            return contributions;
+        },
         commands(): readonly ExtensionCommandDescriptor[] {
             return [...commands.values()].map(
                 (entry) => entry.command.descriptor,
@@ -230,6 +254,7 @@ export async function startExtensionRegistry(
         commands.clear();
         const failures: string[] = [];
         for (const extension of loaded.toReversed()) {
+            contributions.withdraw(extension.id);
             try {
                 await disposeExtension(extension, disposeTimeoutMs);
             } catch (error) {

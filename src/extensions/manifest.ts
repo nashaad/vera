@@ -12,6 +12,11 @@ import {
     sep,
 } from "node:path";
 
+import {
+    parseExtensionContributions,
+    type ExtensionContributions,
+} from "./contributions.ts";
+
 export const EXTENSION_MANIFEST_FILENAME = "vera.extension.json";
 export const VERA_EXTENSION_SDK_VERSION = "1";
 
@@ -21,6 +26,7 @@ export interface ExtensionManifest {
     readonly sdk: typeof VERA_EXTENSION_SDK_VERSION;
     readonly entrypoint: string;
     readonly capabilities: readonly string[];
+    readonly contributes: ExtensionContributions;
 }
 
 export interface LoadedExtensionManifest {
@@ -84,7 +90,12 @@ export function parseExtensionManifest(
         sdk: VERA_EXTENSION_SDK_VERSION,
         entrypoint: value.entrypoint,
         capabilities,
+        contributes: parseExtensionContributions(value.contributes, value.id),
     };
+}
+
+export function hasContributions(manifest: ExtensionManifest): boolean {
+    return manifest.contributes.watches.length > 0;
 }
 
 function realDirectory(configuredDirectory: string): string {
