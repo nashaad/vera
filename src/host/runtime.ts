@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     configuredReviewer,
+    configuredCompaction,
     configuredReviewers,
     updateVeraConfigDefaults,
     type VeraConfig,
@@ -76,6 +77,7 @@ export async function startResidentHost(
     const modelFallback = configuredModelFallback(options.config);
     const reviewer = configuredReviewer(options.config);
     const reviewers = configuredReviewers(options.config);
+    const compaction = configuredCompaction(options.config);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
     const eventLogDirectory = options.eventLogDirectory;
@@ -130,6 +132,7 @@ export async function startResidentHost(
         ...(modelFallback === undefined ? {} : { modelFallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(Object.keys(reviewers).length === 0 ? {} : { reviewers }),
+        ...(compaction === undefined ? {} : { compaction }),
         ...(options.config.permission_modes === undefined
             ? {}
             : { permissionModes: options.config.permission_modes }),

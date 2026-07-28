@@ -45,6 +45,18 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "compaction") {
+        return (update.phase === "started" || update.phase === "finished")
+                && typeof update.strategy === "string"
+                && (update.outcome === undefined
+                    || isCompactionOutcome(update.outcome))
+                && (update.reason === undefined
+                    || typeof update.reason === "string")
+                && isOptionalCount(update.before)
+                && isOptionalCount(update.after)
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "user_prompt") {
         return typeof update.content === "string"
                 && isOptionalAttachments(update.attachments)
@@ -604,6 +616,20 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function isSequence(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isOptionalCount(value: unknown): boolean {
+    return value === undefined
+        || (Number.isSafeInteger(value) && (value as number) >= 0);
+}
+
+function isCompactionOutcome(value: unknown): boolean {
+    return value === "compacted"
+        || value === "not_needed"
+        || value === "no_boundary"
+        || value === "rejected"
+        || value === "unavailable"
+        || value === "cancelled";
 }
 
 function isRiskLevel(value: unknown): boolean {

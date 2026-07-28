@@ -2,7 +2,10 @@ import { bg, fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
-import type { TranscriptEntry } from "../../src/engine/protocol.ts";
+import type {
+    CompactionUpdate,
+    TranscriptEntry,
+} from "../../src/engine/protocol.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
@@ -295,7 +298,41 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     ) {
         return state;
     }
+    if (update.type === "compaction") {
+        return applyCompaction(state, update);
+    }
     return assertNever(update);
+}
+
+/**
+ * The transcript above the horizon still reads in full, but the model can no
+ * longer see it, and only this line says so. A failure is shown for the same
+ * reason: the session keeps working, so nothing else would reveal that the
+ * context did not get any smaller.
+ */
+function applyCompaction(
+    state: TuiState,
+    update: CompactionUpdate,
+): TuiState {
+    if (update.phase === "started") {
+        return state;
+    }
+    if (update.outcome === "compacted") {
+        return appendTuiNotice(
+            state,
+            "Earlier messages were summarized. They are still shown here, but "
+                + "the model now sees the summary instead.",
+        );
+    }
+    if (update.outcome === "rejected" || update.outcome === "unavailable") {
+        return appendTuiNotice(
+            state,
+            `Could not summarize the earlier messages${
+                update.reason === undefined ? "" : `: ${update.reason}`
+            }`,
+        );
+    }
+    return state;
 }
 
 export function appendTuiNotice(state: TuiState, message: string): TuiState {

@@ -20,6 +20,8 @@ import {
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
+import { bindCompaction } from "../engine/compaction-binding.ts";
+import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
 import { createSubagentEffectApplier } from "../engine/subagent.ts";
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
@@ -130,6 +132,8 @@ export interface AgentRegistryOptions {
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    /** Resolved once at startup, bound per agent to that agent's adapter. */
+    readonly compaction?: ResolvedCompactionProfile;
     /**
      * Durable preferences, deliberately one store shared by every agent:
      * the file is per-user, not per-session, so an allow the user persists
@@ -736,6 +740,7 @@ export class AgentRegistry {
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
         });
+        const compaction = bindCompaction(this.options.compaction, adapter);
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) =>
             effect.type === "spawn_background_agent"
                 ? this.spawnBackgroundAgent(
@@ -764,6 +769,7 @@ export class AgentRegistry {
                 ...(this.options.permissionModes === undefined
                     ? {}
                     : { permissionModes: this.options.permissionModes }),
+                ...(compaction === undefined ? {} : { compaction }),
                 applyToolEffect,
                 enabledToolEffects: (kind === "interactive" ? 0 : 1)
                         < MAX_AGENT_DEPTH
