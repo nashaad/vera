@@ -400,17 +400,25 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "starting new session",
             );
+            // The new session lands in the same TUI: the activity clears and
+            // the failure notice goes with the transcript that held it, while
+            // the process the pane belongs to is still the one that started.
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) =>
+                    !visible.includes("starting new session")
+                    && !visible.includes("host refused creation"),
+                "the new session on screen",
+            );
+            expect(pane).toContain("Start a conversation");
             sendKey(socket, session, "C-c");
-            sendText(socket, session, "/clear");
-            sendKey(socket, session, "Enter");
-            pane = captureVisiblePane(socket, session);
-            expect(pane).toContain("starting new session");
             await waitForSessionExit(socket, session);
             expect(readFileSync(
                 join(home, "new-session-result.txt"),
                 "utf8",
             )).toBe(
-                "new-session-id\ndetached\nnext attached\nattempts 2",
+                "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera",
             );
         } catch (error) {
             pane = captureVisiblePane(socket, session);
@@ -551,7 +559,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "clone prepares a replacement session before detaching",
+    "clone switches to the replacement without restarting the TUI",
     async () => {
         const socket = `vera-clone-${process.pid}-${randomUUID()}`;
         const session = "clone";
@@ -569,16 +577,25 @@ test.skipIf(!tmuxAvailable)(
             sendText(socket, session, "/clone");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "cloning session");
-            sendKey(socket, session, "C-c");
+            // A second /clone while the first is still in flight is dropped,
+            // which the attempt count below is what proves.
             sendText(socket, session, "/clone");
             sendKey(socket, session, "Enter");
             expect(captureVisiblePane(socket, session))
                 .toContain("cloning session");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => !visible.includes("cloning session"),
+                "the clone on screen",
+            );
+            expect(pane).toContain("Start a conversation");
+            sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(
                 join(home, "clone-session-result.txt"),
                 "utf8",
-            )).toBe("cloned-session\ndetached\nattempts 1");
+            )).toBe("cloned-session\ndetached\nattempts 1\nsource-session");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
@@ -615,6 +632,11 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("edit this prompt");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "forking session");
+            // The fork lands in the same TUI: the prompt it was taken before
+            // comes back to the composer without the screen being rebuilt.
+            pane = await waitForVisiblePane(socket, session, "1 image attached");
+            expect(pane).toContain("edit this prompt");
+            expect(pane).not.toContain("forking session");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(JSON.parse(readFileSync(
@@ -622,12 +644,9 @@ test.skipIf(!tmuxAvailable)(
                 "utf8",
             ))).toEqual({
                 agentId: "forked-session",
-                draft: {
-                    text: "edit this prompt",
-                    attachmentIds: ["image-1"],
-                },
                 detached: true,
                 forkBoundary: "prompt-1",
+                forkedFrom: "source-session",
             });
         } catch (error) {
             pane = captureVisiblePane(socket, session);
@@ -697,7 +716,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "resume picker selects another durable conversation",
+    "resume picker switches conversation without restarting the TUI",
     async () => {
         const socket = `vera-resume-${process.pid}-${randomUUID()}`;
         const session = "resume";
@@ -719,7 +738,24 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Continue the theme picker",
             );
+            // The session already on screen is listed and says so, and Enter on
+            // its row is a way out of the picker rather than a re-attach.
+            expect(pane).toContain("The one already open");
+            expect(pane).toContain("current ·");
             expect(pane).toContain("1h ago · vera");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => !visible.includes("Continue the theme picker"),
+                "the picker to close on the current session",
+            );
+            expect(pane).not.toContain("RESUMED HISTORY LOADED");
+
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Continue the theme picker");
+            sendKey(socket, session, "Down");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
                 socket,
@@ -727,10 +763,15 @@ test.skipIf(!tmuxAvailable)(
                 "RESUMED HISTORY LOADED",
             );
             expect(pane).not.toContain("Continue the theme picker");
+            // The pane belongs to the process that started: the transcript was
+            // replaced under a TUI that never went away.
+            expect(pane).toContain("Message Vera");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
-                .toBe("/sessions/target.jsonl");
+                .toBe(
+                    "/sessions/target.jsonl\ndetached\ntarget-session-id",
+                );
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);

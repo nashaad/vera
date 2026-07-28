@@ -73,7 +73,13 @@ test("session picker filters durable interactive conversations and selects an ag
     expect(frame).toContain("1h ago · alpha");
     expect(frame).not.toContain("22222222");
     expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
-        .toEqual({ kind: "session", sessionPath: "/sessions/first.jsonl" });
+        .toEqual({
+            kind: "session",
+            sessionPath: "/sessions/first.jsonl",
+            // The id rides along so the caller can recognise the row for the
+            // session already on screen and close instead of re-attaching.
+            sessionId: "11111111-first-session",
+        });
     expect(handleTuiSettingsPickerKey(
         state,
         { name: "delete" },

@@ -13,6 +13,7 @@ const updates: AgentUpdate[] = [];
 let wake: (() => void) | undefined;
 let detached = false;
 let forkBoundary = "";
+let forkedFrom = "none";
 
 const client: TuiAgentClient = {
     agentId: "source-session",
@@ -47,7 +48,8 @@ const client: TuiAgentClient = {
 
 const exit = await startTui({
     client,
-    forkSession: async (boundaryId) => {
+    forkSession: async (agentId, boundaryId) => {
+        forkedFrom = agentId;
         forkBoundary = boundaryId;
         if (process.env.FORK_TIMEOUT === "1") {
             return new Promise(() => {});
@@ -80,9 +82,9 @@ const exit = await startTui({
 await Bun.write(
     join(process.env.HOME ?? ".", "fork-session-result.txt"),
     JSON.stringify({
-        agentId: exit.nextClient?.agentId,
-        draft: exit.nextDraft,
+        agentId: exit.agentId,
         detached,
         forkBoundary,
+        forkedFrom,
     }),
 );
