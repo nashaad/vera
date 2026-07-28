@@ -268,7 +268,6 @@ describe("OpenAI Codex adapter", () => {
         ]);
         expect(requests[0]).toMatchObject({
             model: "gpt-5.6-sol",
-            max_output_tokens: 64_000,
             instructions: "Be concise.",
             // gpt-5.6-sol has no known level list in this slice (the
             // catalog loader is a later slice), so "off" resolves to no
@@ -286,6 +285,10 @@ describe("OpenAI Codex adapter", () => {
             }],
         });
         expect(requests[0]?.reasoning).toEqual({ summary: "auto" });
+        // The turn asked for a 64k output cap and it is dropped rather than
+        // sent: this backend answers max_output_tokens with a 400, so a
+        // request carrying one never reaches a model at all.
+        expect(requests[0]).not.toHaveProperty("max_output_tokens");
         expect(requests[1]?.input).toEqual([
             {
                 type: "message",
