@@ -192,6 +192,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 ? {}
                 : { contextInputTokens: update.contextInputTokens }),
         };
+        if (update.empty === true) {
+            return appendEntry(finished, emptyTurnEntry());
+        }
         const error = update.error
             ?? (update.outcome === "error" ? "Model request failed"
                 : update.outcome === "aborted" ? "Turn aborted"
@@ -540,9 +543,20 @@ function toSingleTuiTranscriptEntry(
     if (entry.kind === "presentation") {
         return presentationEntry(entry.presentation);
     }
+    if (entry.kind === "empty") {
+        return emptyTurnEntry();
+    }
     return entry.kind === "user"
         ? userEntry(entry.text, entry.attachments)
         : entry;
+}
+
+/**
+ * The one place the wording lives, so the live turn and the same turn rebuilt
+ * from history cannot drift apart.
+ */
+function emptyTurnEntry(): TuiTranscriptEntry {
+    return { kind: "notice", text: "No response" };
 }
 
 function appendPresentation(
