@@ -20,7 +20,10 @@ import {
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
-import { bindCompaction } from "../engine/compaction-binding.ts";
+import {
+    BUNDLED_COMPACTION_STRATEGIES,
+    bindCompaction,
+} from "../engine/compaction-binding.ts";
 import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
 import { createSubagentEffectApplier } from "../engine/subagent.ts";
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
@@ -740,12 +743,19 @@ export class AgentRegistry {
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
         });
-        const compaction = bindCompaction(this.options.compaction, adapter, {
-            ...(entry.modelSettings.provider === undefined
-                ? {}
-                : { provider: entry.modelSettings.provider }),
-            model: entry.modelSettings.model,
-        });
+        const compaction = bindCompaction(
+            this.options.compaction,
+            adapter,
+            {
+                ...(entry.modelSettings.provider === undefined
+                    ? {}
+                    : { provider: entry.modelSettings.provider }),
+                model: entry.modelSettings.model,
+            },
+            // The registry the host assembled. Extension-registered strategies
+            // join this list when activation lands; binding stays agnostic.
+            BUNDLED_COMPACTION_STRATEGIES,
+        );
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) =>
             effect.type === "spawn_background_agent"
                 ? this.spawnBackgroundAgent(

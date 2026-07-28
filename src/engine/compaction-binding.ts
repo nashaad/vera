@@ -12,8 +12,9 @@ import {
 import type { SessionCompactionOptions } from "./run-turn.ts";
 
 /**
- * Strategies Vera ships. An extension-supplied strategy registers into the
- * same shape, so nothing downstream of here knows which kind it got.
+ * Strategies Vera ships. The host passes these into `bindCompaction` the same
+ * way it will pass extension-registered ones: binding takes whatever registry
+ * the host assembled, and holds no list of its own.
  */
 export const BUNDLED_COMPACTION_STRATEGIES:
     readonly CompactionStrategyDefinition[] = [fullSummaryStrategy];
@@ -43,9 +44,8 @@ export interface SessionModel {
 export function bindCompaction(
     profile: ResolvedCompactionProfile | undefined,
     adapter: ModelAdapter,
-    sessionModel?: SessionModel,
-    strategies: readonly CompactionStrategyDefinition[] =
-        BUNDLED_COMPACTION_STRATEGIES,
+    sessionModel: SessionModel | undefined,
+    strategies: readonly CompactionStrategyDefinition[],
 ): SessionCompactionOptions | undefined {
     if (profile === undefined) {
         return sessionModel === undefined
