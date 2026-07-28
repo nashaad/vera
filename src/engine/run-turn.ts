@@ -49,6 +49,7 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
     ApplyToolEffect,
+    RegisteredTool,
     ToolExecutionResult,
     ToolEffect,
     ToolEffectContext,
@@ -118,6 +119,7 @@ export interface RunTurnState {
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
+    readonly extensionTools?: readonly RegisteredTool[];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
@@ -152,6 +154,7 @@ export interface RunHeadlessLoopOptions {
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
+    readonly extensionTools?: readonly RegisteredTool[];
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
@@ -380,6 +383,7 @@ export async function runHeadlessLoop(
         applyToolEffect,
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
         enableUserInteraction: options.enableUserInteraction ?? true,
+        extensionTools: options.extensionTools ?? [],
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
@@ -484,6 +488,7 @@ export async function runTurn(
                 ? []
                 : state.enabledToolEffects ?? [],
             state.enableUserInteraction === true,
+            state.extensionTools,
         );
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
             ? undefined
@@ -688,7 +693,10 @@ export async function runTurn(
             let interrupt: string | undefined;
             while (toolIndex < preparedToolCalls.length) {
                 const first = preparedToolCalls[toolIndex]!;
-                if (!toolMayRunInParallel(first.toolCall.name)) {
+                if (!toolMayRunInParallel(
+                    first.toolCall.name,
+                    state.extensionTools,
+                )) {
                     interrupt = await finishToolCalls(state, [
                         executePreparedTool(
                             state,
@@ -718,6 +726,7 @@ export async function runTurn(
                     toolIndex < preparedToolCalls.length
                     && toolMayRunInParallel(
                         preparedToolCalls[toolIndex]!.toolCall.name,
+                        state.extensionTools,
                     )
                 ) {
                     parallelCalls.push(preparedToolCalls[toolIndex]!);
@@ -982,6 +991,7 @@ async function executePreparedTool(
         {
             permissionModes: state.permissionModes,
             permissionPreferences: state.readPermissionPreferences?.() ?? [],
+            extensionTools: state.extensionTools,
         },
     );
     if (permission.behavior === "deny") {
@@ -1089,6 +1099,7 @@ async function executePreparedTool(
         toolCall,
         state.toolRuntime,
         signal,
+        state.extensionTools,
     );
     const output = execution.kind === "interaction"
         ? await resolveToolInteraction(state, execution.interaction, signal)

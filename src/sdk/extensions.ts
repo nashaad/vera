@@ -1,10 +1,12 @@
 import type { JsonValue } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
+import type { PermissionInputSpec } from "../tools/types.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
     readonly commands: VeraExtensionCommands;
+    readonly tools: VeraExtensionTools;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 
@@ -17,6 +19,35 @@ export interface VeraExtensionModule {
 export interface VeraExtensionCommands {
     register(spec: VeraExtensionCommandSpec): void;
 }
+
+export interface VeraExtensionTools {
+    register(spec: VeraExtensionToolSpec): void;
+}
+
+export interface VeraExtensionToolSpec {
+    readonly name: string;
+    readonly description: string;
+    readonly inputSchema: Readonly<Record<string, unknown>>;
+    readonly parallel?: boolean;
+    readonly permissionOperation?: string;
+    readonly permissionInputs?: readonly PermissionInputSpec[];
+    readonly run: VeraExtensionToolHandler;
+}
+
+export interface VeraExtensionToolRequest {
+    readonly input: Readonly<Record<string, unknown>>;
+    readonly workspace: string;
+    readonly signal: AbortSignal;
+}
+
+export interface VeraExtensionToolResult {
+    readonly output: string;
+    readonly isError?: boolean;
+}
+
+export type VeraExtensionToolHandler = (
+    request: VeraExtensionToolRequest,
+) => VeraExtensionToolResult | Promise<VeraExtensionToolResult>;
 
 export interface VeraExtensionCommandSpec {
     readonly name: string;

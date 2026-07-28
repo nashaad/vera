@@ -7,7 +7,11 @@ import type {
     VeraExtensionCommandSpec,
     VeraExtensionDisposer,
     VeraExtensionModule,
+    VeraExtensionToolHandler,
+    VeraExtensionToolSpec,
 } from "../sdk/extensions.ts";
+import type { RegisteredTool } from "../tools/types.ts";
+import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
 import {
     EXTENSION_COMMAND_RESULT_VERSION,
@@ -44,6 +48,7 @@ export interface ExtensionRegistryFailure {
 
 export interface ExtensionRegistry {
     commands(): readonly ExtensionCommandDescriptor[];
+    tools(): readonly RegisteredTool[];
     invokeCommand(
         name: string,
         argumentsText: string,
@@ -58,10 +63,16 @@ interface RegisteredExtensionCommand {
     readonly run: VeraExtensionCommandHandler;
 }
 
+interface RegisteredExtensionTool {
+    readonly tool: RegisteredTool;
+    readonly run: VeraExtensionToolHandler;
+}
+
 interface LoadedRegistryExtension {
     readonly id: string;
     readonly path: string;
     readonly commands: readonly RegisteredExtensionCommand[];
+    readonly tools: readonly RegisteredExtensionTool[];
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveExtensionInvocation>;
     disposing: boolean;
@@ -89,6 +100,7 @@ export async function startExtensionRegistry(
     const loaded: LoadedRegistryExtension[] = [];
     const owners = new Map<string, LoadedRegistryExtension>();
     const commands = new Map<string, RegisteredCommandOwner>();
+    const tools = new Map<string, LoadedRegistryExtension>();
     let closing: Promise<void> | undefined;
 
     for (const configured of options.extensions) {
@@ -115,9 +127,11 @@ export async function startExtensionRegistry(
                 manifest,
                 configured.config,
                 activationTimeoutMs,
+                handlerTimeoutMs,
                 disposeTimeoutMs,
             );
             validateCommandOwnership(extension, commands);
+            validateToolOwnership(extension, tools);
             loaded.push(extension);
             owners.set(extension.id, extension);
             for (const command of extension.commands) {
@@ -125,6 +139,9 @@ export async function startExtensionRegistry(
                     extension,
                     command,
                 });
+            }
+            for (const registered of extension.tools) {
+                tools.set(registered.tool.definition.name, extension);
             }
         } catch (error) {
             let message = errorMessage(error);
@@ -149,6 +166,11 @@ export async function startExtensionRegistry(
         commands(): readonly ExtensionCommandDescriptor[] {
             return [...commands.values()].map(
                 (entry) => entry.command.descriptor,
+            );
+        },
+        tools(): readonly RegisteredTool[] {
+            return loaded.flatMap((extension) =>
+                extension.tools.map((registered) => registered.tool)
             );
         },
         async invokeCommand(
@@ -228,6 +250,7 @@ export async function startExtensionRegistry(
 
     async function close(): Promise<void> {
         commands.clear();
+        tools.clear();
         const failures: string[] = [];
         for (const extension of loaded.toReversed()) {
             try {
@@ -250,11 +273,15 @@ async function activateExtension(
     loaded: LoadedExtensionManifest,
     config: VeraExtensionConfig["config"],
     activationTimeoutMs: number,
+    handlerTimeoutMs: number,
     disposeTimeoutMs: number,
 ): Promise<LoadedRegistryExtension> {
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
+    const tools: RegisteredExtensionTool[] = [];
+    const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
+    const activeInvocations = new Set<ActiveExtensionInvocation>();
     let phase: "activating" | "active" | "failed" = "activating";
     let activationCompletion: Promise<unknown> | undefined;
     let activationSettled = false;
@@ -272,6 +299,23 @@ async function activateExtension(
                     spec,
                     commands,
                     commandNames,
+                );
+            },
+        }),
+        tools: Object.freeze({
+            register(spec: VeraExtensionToolSpec): void {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension tools must be registered during activation",
+                    );
+                }
+                registerTool(
+                    loaded,
+                    spec,
+                    tools,
+                    toolNames,
+                    handlerTimeoutMs,
+                    activeInvocations,
                 );
             },
         }),
@@ -322,8 +366,9 @@ async function activateExtension(
             id: loaded.manifest.id,
             path: loaded.directory,
             commands,
+            tools,
             disposers,
-            activeInvocations: new Set(),
+            activeInvocations,
             disposing: false,
         };
     } catch (error) {
@@ -343,6 +388,169 @@ async function activateExtension(
             `Extension ${loaded.manifest.id} failed to load: ${errorMessage(error)}${suffix}`,
         );
     }
+}
+
+function registerTool(
+    loaded: LoadedExtensionManifest,
+    spec: VeraExtensionToolSpec,
+    tools: RegisteredExtensionTool[],
+    toolNames: Set<string>,
+    handlerTimeoutMs: number,
+    activeInvocations: Set<ActiveExtensionInvocation>,
+): void {
+    if (!loaded.manifest.capabilities.includes("tools.register")) {
+        throw new Error("Extension did not declare tools.register");
+    }
+    if (typeof spec !== "object" || spec === null) {
+        throw new Error("Invalid extension tool registration");
+    }
+    const {
+        name,
+        description,
+        inputSchema,
+        parallel,
+        permissionOperation,
+        permissionInputs,
+        run,
+    } = spec;
+    if (
+        typeof name !== "string"
+        || !/^[a-z][a-z0-9_]*$/.test(name)
+        || typeof description !== "string"
+        || description.trim().length === 0
+        || !isPlainObject(inputSchema)
+        || inputSchema.type !== "object"
+        || (parallel !== undefined && typeof parallel !== "boolean")
+        || (permissionOperation !== undefined
+            && (
+                typeof permissionOperation !== "string"
+                || permissionOperation.trim().length === 0
+            ))
+        || !validPermissionInputs(permissionInputs)
+        || typeof run !== "function"
+    ) {
+        throw new Error("Invalid extension tool registration");
+    }
+    if (toolNames.has(name)) {
+        throw new Error(`Duplicate extension tool: ${name}`);
+    }
+    if (isBuiltInToolName(name)) {
+        throw new Error(`Extension tool ${name} collides with a built-in tool`);
+    }
+    const properties = isPlainObject(inputSchema.properties)
+        ? inputSchema.properties
+        : undefined;
+    for (const permissionInput of permissionInputs ?? []) {
+        const property = properties?.[permissionInput.field];
+        if (!isPlainObject(property) || property.type !== "string") {
+            throw new Error(
+                `Extension tool ${name} declares permission input `
+                    + `"${permissionInput.field}" that is not a string field`,
+            );
+        }
+    }
+    const handler = run;
+    const tool: RegisteredTool = {
+        definition: {
+            name,
+            description: description.trim(),
+            inputSchema: structuredClone(inputSchema),
+        },
+        ...(parallel === undefined ? {} : { parallel }),
+        ...(permissionOperation === undefined
+            ? {}
+            : { permissionOperation: permissionOperation.trim() }),
+        ...(permissionInputs === undefined
+            ? {}
+            : { permissionInputs: structuredClone(permissionInputs) }),
+        async execute(input, context, signal) {
+            const controller = new AbortController();
+            const abort = (): void => controller.abort();
+            signal.addEventListener("abort", abort, { once: true });
+            if (signal.aborted) {
+                abort();
+            }
+            let active: ActiveExtensionInvocation | undefined;
+            let result: unknown;
+            try {
+                result = await runExtensionOperation(
+                    (operationSignal) => handler({
+                        input: structuredClone(input),
+                        workspace: context.workspace,
+                        signal: operationSignal,
+                    }),
+                    {
+                        timeoutMs: handlerTimeoutMs,
+                        timeoutMessage:
+                            `Extension ${loaded.manifest.id}/${name} timed out after ${handlerTimeoutMs}ms`,
+                        abortMessage:
+                            `Extension ${loaded.manifest.id}/${name} was cancelled`,
+                        signal: controller.signal,
+                        onExecutionStart(execution) {
+                            active = {
+                                controller,
+                                completion: execution.then(
+                                    () => undefined,
+                                    () => undefined,
+                                ),
+                            };
+                            activeInvocations.add(active);
+                        },
+                    },
+                );
+            } finally {
+                if (active !== undefined) {
+                    void active.completion.finally(() => {
+                        activeInvocations.delete(active!);
+                    });
+                }
+                signal.removeEventListener("abort", abort);
+            }
+            if (
+                !isPlainObject(result)
+                || typeof result.output !== "string"
+                || (result.isError !== undefined
+                    && typeof result.isError !== "boolean")
+            ) {
+                throw new Error(
+                    `Extension ${loaded.manifest.id}/${name} returned an invalid result`,
+                );
+            }
+            return {
+                kind: "output",
+                output: result.output,
+                isError: result.isError ?? false,
+            };
+        },
+    };
+    toolNames.add(name);
+    tools.push({ tool, run });
+}
+
+function validPermissionInputs(value: unknown): boolean {
+    return value === undefined
+        || (
+            Array.isArray(value)
+            && value.every((entry) =>
+                isPlainObject(entry)
+                && typeof entry.field === "string"
+                && entry.field.length > 0
+                && (entry.kind === "path" || entry.kind === "url")
+                && (
+                    entry.verb === "read"
+                    || entry.verb === "write"
+                    || entry.verb === "delete"
+                )
+            )
+        );
+}
+
+function isPlainObject(
+    value: unknown,
+): value is Record<string, unknown> {
+    return typeof value === "object"
+        && value !== null
+        && !Array.isArray(value);
 }
 
 function registerCommand(
@@ -408,6 +616,21 @@ function validateCommandOwnership(
         if (existing !== undefined) {
             throw new Error(
                 `Extension command /${name} from ${extension.id} collides with ${existing.extension.id}`,
+            );
+        }
+    }
+}
+
+function validateToolOwnership(
+    extension: LoadedRegistryExtension,
+    tools: ReadonlyMap<string, LoadedRegistryExtension>,
+): void {
+    for (const registered of extension.tools) {
+        const name = registered.tool.definition.name;
+        const existing = tools.get(name);
+        if (existing !== undefined) {
+            throw new Error(
+                `Extension tool ${name} from ${extension.id} collides with ${existing.id}`,
             );
         }
     }

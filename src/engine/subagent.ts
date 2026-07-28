@@ -27,7 +27,7 @@ import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
-import type { ApplyToolEffect } from "../tools/types.ts";
+import type { ApplyToolEffect, RegisteredTool } from "../tools/types.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
@@ -40,6 +40,7 @@ export interface CreateSubagentEffectApplierOptions {
     readonly sessionPathForId?: (sessionId: string) => string;
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly maxConcurrentChildren?: number;
+    readonly extensionTools?: readonly RegisteredTool[];
 }
 
 export interface RunSubagentOptions {
@@ -55,6 +56,7 @@ export interface RunSubagentOptions {
     readonly sessionPath?: string;
     readonly signal?: AbortSignal;
     readonly relayToolApproval?: ChildToolApprovalRelay;
+    readonly extensionTools?: readonly RegisteredTool[];
 }
 
 export type ChildToolApprovalRelay = (
@@ -102,6 +104,7 @@ export function createSubagentEffectApplier(
                 description: effect.description,
                 workspace: options.workspace,
                 approvalMode: context.approvalMode,
+                extensionTools: options.extensionTools,
                 signal,
                 sessionId,
                 ...(options.relayToolApproval === undefined
@@ -160,6 +163,7 @@ export async function runSubagent(
             events,
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
+            extensionTools: options.extensionTools,
             promptPrefixTracker: new PromptPrefixTracker(),
             ...(options.modelFallback === undefined
                 ? {}
