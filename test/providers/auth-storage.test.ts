@@ -13,6 +13,7 @@ import {
     apiKey,
     createAuthStorage,
     oauthToken,
+    unreadableAuthStoragePath,
 } from "../../src/providers/auth-storage.ts";
 
 const temporaryDirectories: string[] = [];
@@ -121,4 +122,58 @@ test("auth storage upgrades the Vera 1 credential map on its next write", () => 
             next: { type: "api_key", key: "next-key" },
         },
     });
+});
+
+test.each([
+    ["malformed JSON", "{ not json"],
+    ["a shape nothing here writes", '{"schema_version":99,"credentials":[]}'],
+])("a store holding %s is moved aside so a provider can be connected", (
+    _name,
+    contents,
+) => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+    writeFileSync(path, contents);
+    const quarantined: string[] = [];
+
+    createAuthStorage({
+        path,
+        onQuarantine: (quarantinePath) => quarantined.push(quarantinePath),
+    }).setCredential("openrouter", { type: "api_key", key: "fresh" });
+
+    expect(createAuthStorage({ path }).getCredential("openrouter")).toEqual({
+        type: "api_key",
+        key: "fresh",
+    });
+    // Renamed, never deleted: the old file may hold a credential the user can
+    // still recover by hand.
+    expect(quarantined).toHaveLength(1);
+    expect(readFileSync(quarantined[0]!, "utf8")).toBe(contents);
+    expect(quarantined[0]!.startsWith(`${path}.corrupt-`)).toBe(true);
+});
+
+test("a store that was never written quarantines nothing", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-"));
+    temporaryDirectories.push(root);
+    const path = join(root, ".vera", "auth.json");
+    const quarantined: string[] = [];
+
+    createAuthStorage({
+        path,
+        onQuarantine: (quarantinePath) => quarantined.push(quarantinePath),
+    }).setCredential("openrouter", { type: "api_key", key: "first" });
+
+    expect(quarantined).toEqual([]);
+    expect(readdirSync(join(root, ".vera"))).toEqual(["auth.json"]);
+});
+
+test("an unreadable store is reported by path, and a missing one is not", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+
+    expect(unreadableAuthStoragePath({ path })).toBeUndefined();
+    writeFileSync(path, "{ not json");
+    expect(unreadableAuthStoragePath({ path })).toBe(path);
 });

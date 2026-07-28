@@ -91,6 +91,13 @@ export function apiKey(
 
 export interface AuthStorageOptions {
     readonly path?: string;
+    /**
+     * Called with the new path when an unreadable store was moved aside.
+     *
+     * A callback rather than a log line, because the only place worth saying it
+     * is wherever the user is looking when it happens.
+     */
+    readonly onQuarantine?: (quarantinePath: string) => void;
 }
 
 export function defaultAuthStoragePath(): string {
@@ -111,7 +118,7 @@ export function createAuthStorage(
         },
 
         setCredential(provider: string, credential: StoredCredential): void {
-            const auth = readStoredAuth(path);
+            const auth = readForWrite(path, options.onQuarantine);
             writeStoredAuth(path, {
                 schema_version: AUTH_STORAGE_SCHEMA_VERSION,
                 credentials: {
@@ -121,6 +128,51 @@ export function createAuthStorage(
             });
         },
     };
+}
+
+/**
+ * The path of the store when it cannot be read, absent when it can.
+ *
+ * A missing file is readable: it means nothing is connected yet, which is where
+ * everyone starts.
+ */
+export function unreadableAuthStoragePath(
+    options: AuthStorageOptions = {},
+): string | undefined {
+    const path = options.path ?? defaultAuthStoragePath();
+    try {
+        readStoredAuth(path);
+        return undefined;
+    } catch {
+        return path;
+    }
+}
+
+/**
+ * The credentials to merge into, with an unreadable file moved aside first.
+ *
+ * Reads already fail soft, so a broken store shows every provider as
+ * unconnected. Letting the write fail too would leave the user staring at a pane
+ * that says nothing is connected and refuses to connect anything, with no way
+ * out but editing JSON by hand. Connecting a provider is the fix instead.
+ *
+ * Renamed rather than deleted: the file may hold a recoverable credential, and
+ * it is not ours to throw away.
+ */
+function readForWrite(
+    path: string,
+    onQuarantine?: (quarantinePath: string) => void,
+): StoredAuth {
+    try {
+        return readStoredAuth(path);
+    } catch {
+        const quarantinePath = `${path}.corrupt-${
+            new Date().toISOString().replaceAll(":", "-")
+        }`;
+        renameSync(path, quarantinePath);
+        onQuarantine?.(quarantinePath);
+        return emptyStoredAuth();
+    }
 }
 
 function readStoredAuth(path: string): StoredAuth {
