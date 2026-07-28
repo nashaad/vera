@@ -1,5 +1,7 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+
+import { resetDialogPointerTracking } from "../../clients/tui/dialog-chrome.ts";
 
 import {
     createTuiCommandPaletteView,
@@ -27,6 +29,9 @@ const commands = [{
     slashName: "model",
     action: { type: "open_model_picker" },
 }] as const satisfies readonly TuiPaletteEntry[];
+
+// One pointer per process, so its last position outlives a test.
+beforeEach(resetDialogPointerTracking);
 
 /** The screen row a label was drawn on, so a click can aim at it. */
 function rowOf(frame: string, label: string): number {
@@ -70,6 +75,40 @@ test("hovering a dialog row reports that row's index", async () => {
 
         const y = rowOf(setup.captureCharFrame(), "Switch model");
         await setup.mockMouse.moveTo(20, y);
+        await setup.flush();
+
+        expect(hovered).toEqual([1]);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("rows sliding under a still pointer do not report a hover", async () => {
+    // The runaway: these lists window around the cursor, so a hover that moves
+    // the cursor re-centres the window and puts a different row under a pointer
+    // that never moved. Without this, that row reports its own hover and the
+    // highlight climbs the list on its own.
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    try {
+        const hovered: number[] = [];
+        const view = createTuiCommandPaletteView(setup.renderer);
+        view.pointer = { hover: (index) => hovered.push(index) };
+        setup.renderer.root.add(view.box);
+        view.box.visible = true;
+        view.update(startTuiCommandPalette(commands));
+        await setup.flush();
+
+        const y = rowOf(setup.captureCharFrame(), "Switch model");
+        await setup.mockMouse.moveTo(20, y);
+        await setup.flush();
+        expect(hovered).toEqual([1]);
+
+        // Rebuild the rows with a different row at that position, which is what
+        // a re-centred window does, and leave the pointer where it was.
+        view.update({
+            ...startTuiCommandPalette(commands),
+            selectedIndex: 1,
+        });
         await setup.flush();
 
         expect(hovered).toEqual([1]);
