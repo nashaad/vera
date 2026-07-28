@@ -1444,7 +1444,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "not available for this command",
+                "Session and always are unavailable.",
             );
             expect(pane).toContain("Allow once");
             expect(pane).not.toContain("$ grep");
@@ -1494,8 +1494,8 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Task: Write the child approval marker");
             expect(pane).toContain("1 Allow once");
             expect(pane).toContain("3 Deny");
-            expect(pane).not.toContain("Allow session");
-            expect(pane).not.toContain("Allow always");
+            expect(pane).not.toContain("2 Session");
+            expect(pane).not.toContain("4 Always");
             expect(pane).not.toContain("session prefix");
             expect(pane).not.toContain("ask.default");
 

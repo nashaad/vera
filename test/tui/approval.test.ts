@@ -38,17 +38,16 @@ const request: ToolApprovalUiRequestUpdate = {
 
 test("TUI approval shows the exact command and honest warning", () => {
     expect(renderTuiApproval(request)).toBe([
-        "Permission required",
-        "← This command may access the network.",
+        "Permission required · bash",
+        "This command may access the network.",
         "",
         "$ curl https://example.com",
         "",
         "This command runs with your full user permissions.",
         "",
-        "Allow session / always",
-        "- future curl commands",
-        "",
-        "1 Allow once  ·  2 Allow session  ·  3 Deny  ·  4 Allow always",
+        // The predicate rides on the row that offers it rather than repeating
+        // itself as a block above the answers.
+        "1 Allow once  ·  2 Session curl  ·  3 Deny  ·  4 Always",
     ].join("\n"));
 });
 
@@ -67,12 +66,12 @@ test("child approvals identify their agent and task", () => {
     expect(renderTuiApproval(childRequest)).toContain(
         "Requested by agent 12345678\nTask: Run the focused tests",
     );
-    expect(renderTuiApproval(childRequest)).toContain(
-        "Vera needs your approval before running this command.",
-    );
+    // A reason that only restates the header is dropped, the mode expression
+    // with it.
+    expect(renderTuiApproval(childRequest)).not.toContain("Permission mode");
     expect(renderTuiApproval(childRequest)).not.toContain("ask.default");
-    expect(renderTuiApproval(childRequest)).not.toContain("Allow session");
-    expect(renderTuiApproval(childRequest)).not.toContain("Allow always");
+    expect(renderTuiApproval(childRequest)).not.toContain("Session");
+    expect(renderTuiApproval(childRequest)).not.toContain("Always");
     expect(tuiApprovalHint(childRequest)).toBe(
         "approval required · 1 once · 3/esc deny · ctrl+c stop",
     );
@@ -119,9 +118,9 @@ test("both remembering rows are unavailable without a derived predicate", () => 
     expect(tuiApprovalDecision({ name: "2" }, false)).toBeUndefined();
     expect(tuiApprovalDecision({ name: "4" }, false)).toBeUndefined();
     const rendered = renderTuiApproval(noGrants);
-    expect(rendered).toContain("2 Allow session");
-    expect(rendered).toContain("4 Allow always");
-    expect(rendered).toContain("not available for this command");
+    expect(rendered).toContain("2 Session");
+    expect(rendered).toContain("4 Always");
+    expect(rendered).toContain("Session and always are unavailable.");
     expect(selectableApprovalKeys(noGrants)).toEqual(["1", "3"]);
     expect(createTuiApprovalResponse(noGrants, { name: "4" }))
         .toBeUndefined();
@@ -226,7 +225,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         // 42 columns cannot hold the button row, so it wraps rather than
         // clipping an answer off the screen.
         expect(frame).toContain("3 Deny");
-        expect(frame).toContain("4 Allow always");
+        expect(frame).toContain("4 Always");
         expect(view.actions.screenY).toBeLessThan(12);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
 
