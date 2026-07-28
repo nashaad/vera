@@ -13,7 +13,7 @@ import type {
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 16;
+export const HOST_PROTOCOL_VERSION = 17;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -56,6 +56,12 @@ export interface BranchAgentRequest {
 export interface TrashSessionRequest {
     readonly type: "trash_session";
     readonly target_agent_id: string;
+}
+
+export interface RenameSessionRequest {
+    readonly type: "rename_session";
+    readonly target_agent_id: string;
+    readonly name: string | null;
 }
 
 export interface HostIdentityResponse {
@@ -187,6 +193,18 @@ export interface SessionTrashRejectedResponse {
     readonly reason: "busy" | "not_found" | "failed";
 }
 
+export interface SessionRenamedResponse {
+    readonly type: "session_renamed";
+    readonly agent_id: string;
+    readonly name: string | null;
+}
+
+export interface SessionRenameRejectedResponse {
+    readonly type: "session_rename_rejected";
+    readonly agent_id: string;
+    readonly reason: "invalid" | "busy" | "not_found" | "failed";
+}
+
 export interface ShutdownIfIdleAcceptedResponse {
     readonly type: "shutdown_if_idle_accepted";
     readonly pid: number;
@@ -215,6 +233,7 @@ export type HostRequest =
     | ResumeAgentRequest
     | BranchAgentRequest
     | TrashSessionRequest
+    | RenameSessionRequest
     | AttachRequest;
 export type AttachedClientMessage =
     | ClientCommand
@@ -230,6 +249,8 @@ export type HostResponse =
     | AgentBranchFailedResponse
     | SessionTrashedResponse
     | SessionTrashRejectedResponse
+    | SessionRenamedResponse
+    | SessionRenameRejectedResponse
     | ShutdownIfIdleResponse
     | AttachedResponse
     | AttachFailedResponse
@@ -310,6 +331,19 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         return {
             type: "trash_session",
             target_agent_id: value.target_agent_id,
+        };
+    }
+    if (
+        value?.type === "rename_session"
+        && typeof value.target_agent_id === "string"
+        && value.target_agent_id.length > 0
+        && (value.name === null
+            || (typeof value.name === "string" && value.name.length > 0))
+    ) {
+        return {
+            type: "rename_session",
+            target_agent_id: value.target_agent_id,
+            name: value.name as string | null,
         };
     }
     if (

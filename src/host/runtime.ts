@@ -175,6 +175,8 @@ export async function startResidentHost(
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
             branchAgent: (options) => registry.branch(options),
             trashSession: (targetId) => registry.trashSession(targetId),
+            renameSession: (targetId, name) =>
+                registry.renameSession(targetId, name),
             listExtensionCommands: () => extensions!.commands(),
             runExtensionCommand: (
                 name,

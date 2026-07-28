@@ -434,6 +434,10 @@ export class ResidentAgent {
         return this.currentStatus;
     }
 
+    get attached(): boolean {
+        return this.attachments.size > 0;
+    }
+
     idleForShutdown(): boolean {
         return this.isClosed || this.terminalFailure !== undefined || (
             this.currentStatus === "idle"

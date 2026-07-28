@@ -140,6 +140,45 @@ test("session trash accepts only idle unattached non-current sessions", async ()
     }
 });
 
+test("session rename reaches a session nobody is attached to", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-rename-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.create({
+            id: "target",
+            workspace: root,
+            sessionPath: join(root, "target.jsonl"),
+        });
+
+        expect(await registry.renameSession("target", "release notes"))
+            .toEqual({ status: "renamed", name: "release notes" });
+        expect(registry.list()).toMatchObject([
+            { id: "target", title: "release notes" },
+        ]);
+        expect(await registry.renameSession("target", null))
+            .toEqual({ status: "renamed", name: null });
+        expect(await registry.renameSession("missing", "release notes"))
+            .toEqual({ status: "not_found" });
+        expect(await registry.renameSession("target", "   "))
+            .toEqual({ status: "invalid" });
+        expect(await registry.renameSession("target", "a".repeat(201)))
+            .toEqual({ status: "invalid" });
+
+        const attachment = registry.find("target")!.attach();
+        expect(await registry.renameSession("target", "release notes"))
+            .toEqual({ status: "busy" });
+        attachment.detach();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("failed session trash restores an available resident agent", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-trash-failure-"));
     const registry = new AgentRegistry({

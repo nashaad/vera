@@ -20,6 +20,7 @@ import type {
     BranchedRegisteredAgent,
     BranchRegisteredAgentOptions,
     RegisteredAgentSummary,
+    RenameSessionOutcome,
 } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import { acquireHostStartupClaim } from "./startup-claim.ts";
@@ -52,6 +53,10 @@ export interface StartHostServerOptions {
     readonly trashSession?: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
+    readonly renameSession?: (
+        targetAgentId: string,
+        name: string | null,
+    ) => Promise<RenameSessionOutcome>;
     readonly listExtensionCommands?: () =>
         readonly ExtensionCommandDescriptor[];
     readonly runExtensionCommand?: (
@@ -162,6 +167,8 @@ export async function startHostServer(
             )),
             options.branchAgent ?? (() => Promise.resolve(undefined)),
             options.trashSession ?? (() => Promise.resolve("not_found")),
+            options.renameSession
+                ?? (() => Promise.resolve({ status: "not_found" })),
             options.listExtensionCommands ?? (() => []),
             options.runExtensionCommand ?? (() => Promise.reject(
                 new Error("Extension commands are unavailable"),
@@ -222,6 +229,10 @@ function receiveConnection(
     trashSession: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
+    renameSession: (
+        targetAgentId: string,
+        name: string | null,
+    ) => Promise<RenameSessionOutcome>,
     listExtensionCommands: () => readonly ExtensionCommandDescriptor[],
     runExtensionCommand: (
         name: string,
@@ -591,6 +602,32 @@ function receiveConnection(
                     }),
                 () => send({
                     type: "session_trash_rejected",
+                    agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "rename_session") {
+            clearTimeout(deadline);
+            finished = true;
+            void renameSession(
+                request.target_agent_id,
+                request.name,
+            ).then(
+                (result) => result.status === "renamed"
+                    ? send({
+                        type: "session_renamed",
+                        agent_id: request.target_agent_id,
+                        name: result.name,
+                    })
+                    : send({
+                        type: "session_rename_rejected",
+                        agent_id: request.target_agent_id,
+                        reason: result.status,
+                    }),
+                () => send({
+                    type: "session_rename_rejected",
                     agent_id: request.target_agent_id,
                     reason: "failed",
                 }),
