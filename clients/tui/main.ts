@@ -777,6 +777,11 @@ export async function startTui(
     // Clicking a row is the pointer's version of ⏎ on it, and hovering is the
     // pointer's version of ↑↓. Each surface only says where its cursor lives;
     // `rowPointer` supplies the behaviour, so the two input paths cannot drift.
+    //
+    // The wheel is a third path and a separate one: it is bound per overlay
+    // below, and it moves the cursor without activating anything. All three end
+    // up at the same cursor, so a change to what a row means has to be made in
+    // the surface's key handler, which is the only place all three meet.
     timelinePickerView.pointer = rowPointer((index) => {
         if (timelinePicker === undefined) return;
         // The rewind flow reuses one overlay for two lists. On the action
