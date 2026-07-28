@@ -143,6 +143,7 @@ import {
 } from "./secret-prompt.ts";
 import {
     createAuthStorage,
+    unreadableAuthStoragePath,
     type AuthStorage,
 } from "../../src/providers/auth-storage.ts";
 import {
@@ -2601,7 +2602,27 @@ export async function startTui(
      * turn with nothing to notify.
      */
     const authStorage: AuthStorage = dependencies.authStorage
-        ?? createAuthStorage();
+        ?? createAuthStorage({
+            onQuarantine(quarantinePath) {
+                state = appendTuiNotice(
+                    state,
+                    `The old credential file could not be read and was moved to ${quarantinePath}`,
+                );
+                renderState();
+            },
+        });
+    if (dependencies.authStorage === undefined) {
+        // Said once, at the point where the pane would otherwise just look
+        // empty for no stated reason. The store is left alone until something
+        // is actually written to it.
+        const unreadable = unreadableAuthStoragePath();
+        if (unreadable !== undefined) {
+            state = appendTuiNotice(
+                state,
+                `${unreadable} could not be read, so no provider shows as connected. Connecting one rewrites it.`,
+            );
+        }
+    }
     /** Providers with a browser sign-in already running, so Enter cannot start a second. */
     const connectingProviders = new Set<string>();
 
