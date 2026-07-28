@@ -67,6 +67,25 @@ export function startTuiSecretPrompt(
     };
 }
 
+/**
+ * A pasted key.
+ *
+ * The terminal delivers a bracketed paste as its own event rather than as
+ * keystrokes, so this field has to take it explicitly: an API key is 70-odd
+ * characters nobody types by hand, which makes paste the only real way in.
+ * Everything unprintable is dropped, including the newline a copied line
+ * usually carries, so a paste ending in Enter does not submit half a key.
+ */
+export function handleTuiSecretPromptPaste(
+    state: TuiSecretPromptState,
+    text: string,
+): TuiSecretPromptState {
+    const pasted = text.replaceAll(/[\u0000-\u001f\u007f]/g, "").trim();
+    return pasted.length === 0
+        ? state
+        : { ...state, value: state.value + pasted };
+}
+
 export function handleTuiSecretPromptKey(
     state: TuiSecretPromptState,
     key: TuiSecretPromptKey,

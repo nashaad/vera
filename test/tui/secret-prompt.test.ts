@@ -3,6 +3,7 @@ import { parseKeypress } from "@opentui/core";
 
 import {
     handleTuiSecretPromptKey,
+    handleTuiSecretPromptPaste,
     startTuiSecretPrompt,
     tuiMaskedSecret,
 } from "../../clients/tui/secret-prompt.ts";
@@ -100,4 +101,24 @@ test("an escape sequence is a key, not text to collect", () => {
 
     expect(arrowUp.handled).toBe(false);
     expect(arrowUp.state?.value).toBe("sk-abc");
+});
+
+test("a bracketed paste reaches the field, since nobody types a 70-character key", () => {
+    // The terminal delivers a paste as its own event, not as keystrokes, so the
+    // field has to take it separately or the only realistic way to enter a key
+    // does nothing at all.
+    const state = handleTuiSecretPromptPaste(
+        startTuiSecretPrompt(OPENROUTER),
+        "sk-or-v1-pasted\n",
+    );
+
+    // The trailing newline a copied line carries must not survive: it would
+    // otherwise be stored inside the key and sent as a header.
+    expect(state.value).toBe("sk-or-v1-pasted");
+});
+
+test("a paste of nothing but whitespace leaves the field alone", () => {
+    const state = startTuiSecretPrompt(OPENROUTER);
+
+    expect(handleTuiSecretPromptPaste(state, "  \n ")).toBe(state);
 });
