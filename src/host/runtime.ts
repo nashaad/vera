@@ -57,6 +57,12 @@ import { ToolHooks } from "../engine/hooks.ts";
 import { openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
+import {
+    startWatchRuntimeIfEnabled,
+    type WatchRuntime,
+} from "../watch/runtime.ts";
+import type { WatchSecretResolver } from "../watch/arc-connector.ts";
+import type { WatchConnector } from "../watch/source.ts";
 import { AgentRegistry } from "./agent-registry.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
 import { createReminderHook } from "./reminder-rules.ts";
@@ -86,6 +92,10 @@ export interface StartResidentHostOptions {
     readonly eventLogDirectory?: string;
     /** Overrides `~/.vera/inbox.db`. Unused while the inbox flag is off. */
     readonly inboxPath?: string;
+    /** Replaces the built-in connector set, so tests never reach a real arc. */
+    readonly watchConnectors?: readonly WatchConnector[];
+    /** Supplies a watch its bearer token. Definitions never carry one. */
+    readonly watchSecret?: WatchSecretResolver;
     readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
     readonly onExtensionFailure?: (
         failure: ExtensionRegistryFailure,
@@ -166,7 +176,12 @@ export async function startResidentHost(
     const inboxDelivery = consumers === null
         ? undefined
         : new InboxDeliveryCoordinator(consumers);
-    const closeInbox = (): void => {
+    // Watches are started after the extension registry, because their
+    // definitions are extension contributions. The runtime holds the reference
+    // so shutdown stops the connector tasks before the log they write to closes.
+    let watches: WatchRuntime | null = null;
+    const closeInbox = async (): Promise<void> => {
+        await watches?.close();
         inboxDelivery?.close();
         inbox?.close();
     };
@@ -317,6 +332,18 @@ export async function startResidentHost(
             sessionDirectory,
             options.onRestoreFailure ?? reportRestoreFailure,
         );
+        watches = startWatchRuntimeIfEnabled(inbox, {
+            watches: extensions.contributions().watches(),
+            ...(options.watchConnectors === undefined
+                ? {}
+                : { connectors: options.watchConnectors }),
+            ...(options.watchSecret === undefined
+                ? {}
+                : { secret: options.watchSecret }),
+            onAppended: () => {
+                void inboxDelivery?.pumpAll();
+            },
+        });
         server = await startHostServer({
             ...(options.socketPath === undefined
                 ? {}
@@ -363,7 +390,7 @@ export async function startResidentHost(
             // Preserve the host startup failure.
         }
         await registry.close();
-        closeInbox();
+        await closeInbox();
         throw error;
     }
 
@@ -885,7 +912,7 @@ async function closeResidentHost(
     server: HostServer,
     registry: AgentRegistry,
     extensions: ExtensionRegistry,
-    closeInbox: () => void = () => {},
+    closeInbox: () => void | Promise<void> = () => {},
 ): Promise<void> {
     try {
         await server.close();
@@ -896,7 +923,7 @@ async function closeResidentHost(
             try {
                 await registry.close();
             } finally {
-                closeInbox();
+                await closeInbox();
             }
         }
     }
