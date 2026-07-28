@@ -393,7 +393,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Model error: Model returned no visible response or structured tool call.",
             );
-            expect(pane).toContain("∗ read package.json");
+            expect(pane).toContain("└ Read package.json");
 
             sendText(socket, session, "try again");
             sendKey(socket, session, "Enter");
@@ -1395,7 +1395,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane.replace(/\s+/g, " ")).toContain(
                 "Routine command requested by the user.",
             );
-            expect(pane).toContain("∗ bash env AUTO_REVIEW=ran");
+            expect(pane).toContain("└ env AUTO_REVIEW=ran");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Permission required");
             expect(pane).not.toContain("Allow once");
