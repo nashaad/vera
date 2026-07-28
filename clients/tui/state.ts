@@ -68,6 +68,23 @@ export function applyTuiTheme(theme: TuiTheme): void {
     TUI_ELEMENT = theme.element;
 }
 
+const attachmentNames = new Map<string, string>();
+
+/**
+ * Record what an attachment is called so the transcript can name it.
+ *
+ * The name arrives with `image_attached`, which a restored session never
+ * replays, so an attachment from an earlier run stays unnamed.
+ */
+export function rememberAttachmentName(id: string, name: string): void {
+    attachmentNames.set(id, name);
+}
+
+export function attachmentLabel(id: string): string {
+    const name = attachmentNames.get(id);
+    return name === undefined ? "[Attached image]" : `[Image ${name}]`;
+}
+
 export function createTuiState(): TuiState {
     return {
         entries: [],
@@ -402,7 +419,7 @@ function presentationEntry(
 
 function displayUserPrompt(text: string, attachmentIds?: readonly string[]): string {
     if (attachmentIds === undefined || attachmentIds.length === 0) return text;
-    const labels = attachmentIds.map(() => "[Attached image]").join("\n");
+    const labels = attachmentIds.map(attachmentLabel).join("\n");
     return text.length === 0 ? labels : `${text}\n${labels}`;
 }
 

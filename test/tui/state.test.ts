@@ -9,6 +9,7 @@ import {
     createTuiState,
     failTuiConnection,
     queueTuiPrompt,
+    rememberAttachmentName,
     renderTuiEntry,
     renderTuiQueuedPrompt,
     tuiEntryMarginTop,
@@ -451,6 +452,20 @@ test("TUI history and live prompts show attached images", () => {
     expect(state.entries.at(-1)).toEqual({
         kind: "user",
         text: "new image\n[Attached image]",
+    });
+});
+
+test("an attachment named this session is shown by its file name", () => {
+    rememberAttachmentName("named-id", "Screenshot at 11.08.54 AM.png");
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "user_prompt",
+        content: "look",
+        attachmentIds: ["named-id", "unnamed-id"],
+        seq: 1,
+    });
+    expect(state.entries.at(-1)).toEqual({
+        kind: "user",
+        text: "look\n[Image Screenshot at 11.08.54 AM.png]\n[Attached image]",
     });
 });
 
