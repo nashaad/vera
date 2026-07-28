@@ -19,23 +19,44 @@ export function createTuiUserEntry(
         width: "100%",
         flexDirection: "column",
         backgroundColor: TUI_ELEMENT,
+        // The band carries a row of tint above and below the text: without it
+        // the message reads as a highlighted line rather than as its own block.
+        paddingTop: 1,
+        paddingBottom: 1,
         paddingLeft: 1,
         paddingRight: 1,
         marginTop,
     });
-    band.add(new TextRenderable(renderer, {
+    const line = new BoxRenderable(renderer, {
+        id: `${id}-line`,
+        width: "100%",
+        flexDirection: "row",
+        backgroundColor: TUI_ELEMENT,
+    });
+    // The caret sits in its own column so a message that wraps stays aligned
+    // under itself rather than under the caret.
+    line.add(new TextRenderable(renderer, {
+        id: `${id}-caret`,
+        content: "› ",
+        fg: TUI_MUTED,
+        bg: TUI_ELEMENT,
+        flexShrink: 0,
+    }));
+    line.add(new TextRenderable(renderer, {
         id: `${id}-text`,
         content: entry.text,
         fg: TUI_TEXT,
         bg: TUI_ELEMENT,
-        width: "100%",
+        flexGrow: 1,
         wrapMode: "word",
         selectable: true,
     }));
+    band.add(line);
     const attachments = entry.kind === "diff" ? [] : entry.attachments ?? [];
     attachments.forEach((name, index) => {
         const chip = new BoxRenderable(renderer, {
             id: `${id}-chip-${index}`,
+            marginLeft: 2,
             flexDirection: "row",
             backgroundColor: TUI_ELEMENT,
         });

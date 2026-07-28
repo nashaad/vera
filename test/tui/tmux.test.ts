@@ -1887,8 +1887,12 @@ async function exerciseConversationRewind(
     pane = await waitForPaneWhere(
         socket,
         session,
+        // The transcript behind the overlay also carries "second request", so
+        // the timeline has only loaded once its own footer is on screen.
         (current) => current.includes("Rewind: select a point")
-            && current.includes("second request"),
+            && current.includes(
+                "Workspace files and external effects will not change",
+            ),
         "loaded rewind timeline",
     );
     expect(pane).toContain("Rewind: select a point");
