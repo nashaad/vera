@@ -127,6 +127,13 @@ const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
  */
 export interface ContextWatch {
     measurement?: ContextMeasurement;
+    /**
+     * The messages' own share of `measurement.tokens`, kept so the fixed
+     * overhead (system prompt, tools, instructions) can be read back out as
+     * the difference. The transcript grows between requests; the overhead is
+     * the part of the reading that stays true.
+     */
+    messageTokens?: number;
 }
 
 export interface RunTurnState {
@@ -138,10 +145,7 @@ export interface RunTurnState {
      */
     readonly modelContext?: () => readonly ModelMessage[];
     readonly contextWatch?: ContextWatch;
-    readonly compact?: (
-        measurement: ContextMeasurement,
-        signal: AbortSignal,
-    ) => Promise<void>;
+    readonly compact?: (signal: AbortSignal) => Promise<void>;
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
     readonly inbound: InboundCommandRouter;
@@ -422,17 +426,45 @@ export async function runHeadlessLoop(
         });
     const contextWatch: ContextWatch = {};
     const compaction = options.compaction;
-    const compactionCapacity = contextWindowForModel(
-        options.readModelSettings?.().provider,
-        options.readModelSettings?.().model ?? model,
-    );
+    // Read at each compaction rather than once: the user can switch models
+    // between turns, and the window that matters is the one the next request
+    // will be sent into. The settings carry a window the catalog may not
+    // have: a locally served model's was measured at discovery.
+    const compactionCapacity = (): number | undefined => {
+        const settings = options.readModelSettings?.();
+        return settings?.contextWindow
+            ?? contextWindowForModel(
+                settings?.provider,
+                settings?.model ?? model,
+            );
+    };
+    // A fresh reading over the context as it stands now. The last request's
+    // measurement is already short by the response it produced; only its
+    // fixed overhead (system prompt, tools, instructions) is still true, so
+    // that part is carried over and the messages are counted again.
+    const measureContextNow = (): ContextMeasurement => {
+        const watched = contextWatch.measurement;
+        const overhead = watched === undefined
+            ? 0
+            : Math.max(
+                0,
+                watched.tokens
+                    - (contextWatch.messageTokens ?? watched.tokens),
+            );
+        const capacity = compactionCapacity();
+        return {
+            tokens: measureMessages(store.modelContext()) + overhead,
+            ...(capacity === undefined ? {} : { capacity }),
+            estimated: true,
+        };
+    };
     const runCompaction = compaction === undefined
         ? undefined
         : async (
-            measurement: ContextMeasurement,
             signal: AbortSignal,
             force = false,
         ): Promise<void> => {
+            const measurement = measureContextNow();
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
@@ -465,6 +497,7 @@ export async function runHeadlessLoop(
                 // that no longer exists. Leaving it in place is the stale
                 // trigger that makes a session compact every turn.
                 contextWatch.measurement = undefined;
+                contextWatch.messageTokens = undefined;
             }
         };
     if (compaction !== undefined && runCompaction !== undefined) {
@@ -477,23 +510,7 @@ export async function runHeadlessLoop(
                 });
                 return;
             }
-            // A resumed session has not measured anything yet, and waiting for
-            // a turn to produce a number would mean the one command whose job
-            // is to run before the next turn cannot. Messages alone understate
-            // the request by its fixed overhead, which only makes the budget
-            // handed to the strategy tighter than it needs to be.
-            const measurement = contextWatch.measurement ?? {
-                tokens: measureMessages(store.modelContext()),
-                ...(compactionCapacity === undefined
-                    ? {}
-                    : { capacity: compactionCapacity }),
-                estimated: true,
-            };
-            await runCompaction(
-                measurement,
-                new AbortController().signal,
-                true,
-            );
+            await runCompaction(new AbortController().signal, true);
         };
     }
     const state: RunTurnState = {
@@ -661,9 +678,8 @@ export async function runTurn(
         // strand a message the user has already sent, and after the deliveries
         // are drained, so nothing pending disappears into a projection that
         // was assembled without it.
-        const watched = state.contextWatch?.measurement;
-        if (state.compact !== undefined && watched !== undefined) {
-            await state.compact(watched, turn.signal);
+        if (state.compact !== undefined) {
+            await state.compact(turn.signal);
         }
         if (userMessage === undefined) {
             state.events.emit({ type: "delivery_turn_started" });
@@ -749,6 +765,9 @@ export async function runTurn(
             });
             if (state.contextWatch !== undefined) {
                 state.contextWatch.measurement = measurement;
+                state.contextWatch.messageTokens = measureMessages(
+                    request.messages,
+                );
             }
             let modelRequest;
             try {
