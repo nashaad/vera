@@ -1,5 +1,7 @@
 import {
     BoxRenderable,
+    fg,
+    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
@@ -156,7 +158,6 @@ export function createTuiSecretPromptView(
     });
     const entry = new TextRenderable(renderer, {
         content: "",
-        fg: TUI_ACCENT,
         width: "100%",
         height: 1,
         marginTop: 1,
@@ -195,7 +196,7 @@ export function createTuiSecretPromptView(
         update(state): void {
             title.content = `${state.label} API key`;
             hint.content = state.hint ?? "";
-            entry.content = tuiMaskedSecret(state.value);
+            entry.content = tuiSecretEntryLine(state.value);
         },
     };
 }
@@ -208,5 +209,24 @@ export function createTuiSecretPromptView(
  * still shows, which is the one thing worth checking about a pasted key.
  */
 export function tuiMaskedSecret(value: string): string {
-    return value.length === 0 ? "…" : "•".repeat([...value].length);
+    return "•".repeat([...value].length);
+}
+
+/**
+ * The entry line, empty or not.
+ *
+ * An empty field says what goes in it, in muted text, the way every search box
+ * in the TUI does. It used to show an accent ellipsis, which read as content
+ * rather than as an empty field and named nothing.
+ */
+export function tuiSecretEntryLine(value: string): StyledText {
+    const masked = tuiMaskedSecret(value);
+    return new StyledText([
+        masked.length === 0
+            ? fg(TUI_MUTED)("API key")
+            : fg(TUI_ACCENT)(masked),
+        // The caret keeps the line reading as a live input once it empties out
+        // again, which is the same reason the search boxes carry one.
+        fg(TUI_ACCENT)("▏"),
+    ]);
 }

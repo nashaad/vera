@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { parseKeypress } from "@opentui/core";
+import { parseKeypress, type StyledText } from "@opentui/core";
 
 import {
     handleTuiSecretPromptKey,
+    tuiSecretEntryLine,
     handleTuiSecretPromptPaste,
     startTuiSecretPrompt,
     tuiMaskedSecret,
@@ -43,7 +44,7 @@ test("a pasted key arrives as one event rather than a key at a time", () => {
 });
 
 test("the entry line shows length, never the key", () => {
-    expect(tuiMaskedSecret("")).toBe("…");
+    expect(tuiMaskedSecret("")).toBe("");
     expect(tuiMaskedSecret("sk-abc")).toBe("••••••");
     expect(tuiMaskedSecret("sk-abc")).not.toContain("s");
 });
@@ -122,3 +123,15 @@ test("a paste of nothing but whitespace leaves the field alone", () => {
 
     expect(handleTuiSecretPromptPaste(state, "  \n ")).toBe(state);
 });
+
+test("an empty field names what goes in it, rather than showing an ellipsis", () => {
+    // The muted placeholder is what every search box in the TUI does, and an
+    // accent ellipsis read as content rather than as an empty field.
+    expect(entryText(tuiSecretEntryLine(""))).toContain("API key");
+    expect(entryText(tuiSecretEntryLine("sk-abc"))).not.toContain("API key");
+    expect(entryText(tuiSecretEntryLine("sk-abc"))).toContain("••••••");
+});
+
+function entryText(line: StyledText): string {
+    return line.chunks.map((chunk) => chunk.text).join("");
+}
