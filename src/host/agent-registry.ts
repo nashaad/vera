@@ -166,6 +166,25 @@ export interface BranchedRegisteredAgent {
     readonly prompt?: UserMessage;
 }
 
+export type RenameSessionOutcome =
+    | { readonly status: "renamed"; readonly name: string | null }
+    | { readonly status: "invalid" | "busy" | "not_found" | "failed" };
+
+/** Returns undefined for a name the attached path would also refuse. */
+function normalizeSessionName(
+    name: string | null,
+): string | null | undefined {
+    if (name === null) {
+        return null;
+    }
+    const trimmed = name.trim();
+    return trimmed.length === 0
+            || trimmed.includes("\0")
+            || Buffer.byteLength(trimmed, "utf8") > 200
+        ? undefined
+        : trimmed;
+}
+
 interface InheritedAgentSettings {
     readonly approvalMode: ApprovalMode;
     readonly modelSettings?: ModelTurnSettings;
@@ -483,6 +502,39 @@ export class AgentRegistry {
         this.defaultApprovalMode = mode;
         entry.approvalMode = mode;
         return entry.approvalMode;
+    }
+
+    /**
+     * Rename a session by id rather than through an attachment.
+     *
+     * An attached session is refused: its client holds the name it is
+     * displaying and learns of a change only by replying to its own
+     * `update_session_name`, so writing the store from here would leave that
+     * client showing a name the session no longer has.
+     */
+    async renameSession(
+        targetId: string,
+        name: string | null,
+    ): Promise<RenameSessionOutcome> {
+        const requested = normalizeSessionName(name);
+        if (requested === undefined) {
+            return { status: "invalid" };
+        }
+        const entry = this.agents.get(targetId);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return { status: "not_found" };
+        }
+        if (entry.agent.attached) {
+            return { status: "busy" };
+        }
+        try {
+            const result = await this.updateSessionName(targetId, requested);
+            return result === undefined
+                ? { status: "not_found" }
+                : { status: "renamed", name: result };
+        } catch {
+            return { status: "failed" };
+        }
     }
 
     async updateSessionName(
