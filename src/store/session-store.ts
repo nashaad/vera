@@ -850,6 +850,18 @@ export class SessionStore {
     private async commitCompaction(
         request: AppendCompactionRequest,
     ): Promise<SessionCompactionEntry> {
+        for (const message of request.projection) {
+            for (const attachmentId of messageAttachmentIds(message)) {
+                if (!this.attachmentEntries.some(
+                    (entry) => entry.attachment.id === attachmentId,
+                )) {
+                    throw new Error(
+                        `Compaction projection references image attachment `
+                            + `${attachmentId}, which is not in this session`,
+                    );
+                }
+            }
+        }
         const entry: SessionCompactionEntry = {
             type: "compaction",
             id: this.createId(),
@@ -2002,12 +2014,14 @@ function isModelUsage(value: unknown): boolean {
     if (!isRecord(value)) {
         return false;
     }
-    return typeof value.inputTokens === "number"
-        && typeof value.outputTokens === "number"
-        && typeof value.cachedInputTokens === "number"
-        && typeof value.reasoningTokens === "number"
-        && typeof value.totalTokens === "number"
-        && (value.cost === undefined || typeof value.cost === "number");
+    // Finite is part of the shape: NaN and Infinity survive as numbers in
+    // memory but serialize to null, which the loader then rejects.
+    return Number.isFinite(value.inputTokens)
+        && Number.isFinite(value.outputTokens)
+        && Number.isFinite(value.cachedInputTokens)
+        && Number.isFinite(value.reasoningTokens)
+        && Number.isFinite(value.totalTokens)
+        && (value.cost === undefined || Number.isFinite(value.cost));
 }
 
 function isModelStopReason(value: unknown): boolean {
