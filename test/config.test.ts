@@ -130,6 +130,36 @@ test("Vera config loads explicit extension paths and JSON settings", () => {
     ]);
 });
 
+test("Vera config reads the experimental inbox flag and defaults it off", () => {
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(loadVeraConfig({ path: bare }).experimental).toBeUndefined();
+
+    const enabled = temporaryConfigPath();
+    writeFileSync(enabled, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        experimental: { inbox: true },
+    }));
+    expect(loadVeraConfig({ path: enabled }).experimental).toEqual({
+        inbox: true,
+    });
+});
+
+test("Vera config rejects a non-boolean experimental inbox flag", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        experimental: { inbox: "yes" },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow();
+});
+
 test("Vera config rejects malformed extension entries", () => {
     for (const extensions of [
         {},

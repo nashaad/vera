@@ -73,6 +73,15 @@ export interface VeraConfig {
     >;
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly disabled_builtin_extensions?: readonly string[];
+    readonly experimental?: VeraExperimentalConfig;
+}
+
+/**
+ * Opt-in switches for subsystems that are not finished. Absent means off, and
+ * an off subsystem must not run or create state of any kind.
+ */
+export interface VeraExperimentalConfig {
+    readonly inbox?: boolean;
 }
 
 export interface LoadVeraConfigOptions {
@@ -277,6 +286,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const disabledBuiltinExtensions = parseStringList(
         config.disabled_builtin_extensions,
     );
+    const experimental = parseExperimental(config.experimental);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -291,6 +301,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || permissionModes === undefined
         || extensions === undefined
         || disabledBuiltinExtensions === undefined
+        || experimental === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
@@ -334,7 +345,24 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : {
                 disabled_builtin_extensions: disabledBuiltinExtensions,
             }),
+        ...(config.experimental === undefined ? {} : { experimental }),
     };
+}
+
+function parseExperimental(
+    value: unknown,
+): VeraExperimentalConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    if (raw.inbox !== undefined && typeof raw.inbox !== "boolean") {
+        return undefined;
+    }
+    return raw.inbox === undefined ? {} : { inbox: raw.inbox };
 }
 
 function parseStringList(value: unknown): readonly string[] | undefined {
