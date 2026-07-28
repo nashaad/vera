@@ -2587,7 +2587,7 @@ test("a model that returns nothing at all ends the turn without an error", async
     const result = runTurn(new FauxAdapter([response]), "test", state);
     await expectUserPrompt(channel, "do nothing", 1);
     const finished = await channel.client.receive();
-    expect(finished).toMatchObject({ type: "turn_finished" });
+    expect(finished).toMatchObject({ type: "turn_finished", empty: true });
     expect(finished).not.toHaveProperty("error");
 
     await expect(result).resolves.toMatchObject({ stopReason: "stop" });

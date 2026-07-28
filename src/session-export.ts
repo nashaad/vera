@@ -61,6 +61,8 @@ export function renderSessionMarkdown(exported: SessionExport): string {
             lines.push(indentJson(entry.args));
         } else if (entry.kind === "error") {
             lines.push(quoteMarkdown(entry.detail ?? "Model request failed"));
+        } else if (entry.kind === "empty") {
+            lines.push(quoteMarkdown("No response"));
         } else if (entry.kind === "presentation") {
             if (entry.presentation.kind === "unified_diff") {
                 const fence = markdownFence(entry.presentation.patch);
@@ -119,7 +121,9 @@ function transcriptHeading(entry: TranscriptEntry): string {
                 ? "## Model error"
                 : entry.kind === "presentation"
                     ? "## Tool result"
-                    : `## Tool · ${escapeHeading(entry.tool)}`;
+                    : entry.kind === "empty"
+                        ? "## Vera"
+                        : `## Tool · ${escapeHeading(entry.tool)}`;
 }
 
 function quoteMarkdown(text: string): string {

@@ -795,3 +795,37 @@ test("a repeated call counts the same live and from history", () => {
 
     expect(state.entries.map(entryLine)).toEqual(["go", "Ran", "  └ pwd ×2"]);
 });
+
+test("a turn that produced nothing says so", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "user_prompt",
+        content: "do nothing",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "turn_finished",
+        empty: true,
+        seq: 2,
+    });
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "No response",
+    });
+});
+
+test("an empty turn reads the same live and from history", () => {
+    let live = createTuiState();
+    live = applyAgentUpdate(live, {
+        type: "turn_finished",
+        empty: true,
+        seq: 1,
+    });
+    let rebuilt = createTuiState();
+    rebuilt = applyAgentUpdate(rebuilt, {
+        type: "history",
+        entries: [{ kind: "empty" }],
+        seq: 1,
+    });
+    expect(rebuilt.entries).toEqual(live.entries);
+});
