@@ -338,8 +338,37 @@ export interface InboxFeatureConfig {
     readonly experimental?: { readonly inbox?: boolean };
 }
 
+/**
+ * Steps run only when the stored `user_version` is behind them, and the version
+ * is stamped per step. Re-running every statement on every open worked only
+ * because each one was idempotent; the first step that is not would have run
+ * against an already-migrated file.
+ */
 function migrate(database: Database): void {
-    database.exec(`
+    let version = storedVersion(database);
+    for (const [index, step] of MIGRATIONS.entries()) {
+        const target = index + 1;
+        if (version >= target) {
+            continue;
+        }
+        step(database);
+        database.exec(`PRAGMA user_version = ${target}`);
+        version = target;
+    }
+}
+
+function storedVersion(database: Database): number {
+    const row = database
+        .query<{ user_version: number }, []>("PRAGMA user_version")
+        .get();
+    return row?.user_version ?? 0;
+}
+
+type Migration = (database: Database) => void;
+
+const MIGRATIONS: readonly Migration[] = [
+    (database) => {
+        database.exec(`
         CREATE TABLE IF NOT EXISTS entries (
             seq INTEGER PRIMARY KEY AUTOINCREMENT,
             source TEXT NOT NULL,
@@ -367,5 +396,14 @@ function migrate(database: Database): void {
             PRIMARY KEY (node_id, label)
         );
     `);
-    database.exec(`PRAGMA user_version = ${INBOX_SCHEMA_VERSION}`);
-}
+    },
+    (database) => {
+        database.exec(`
+        CREATE TABLE IF NOT EXISTS watch_cursors (
+            watch_id TEXT PRIMARY KEY,
+            cursor TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+    `);
+    },
+];
