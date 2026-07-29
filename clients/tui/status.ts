@@ -50,6 +50,21 @@ export function countRunningBackgroundAgents(
     ).length;
 }
 
+export function renderBackgroundAgentNames(
+    agents: readonly RegisteredAgentSummary[],
+    parentId: string | undefined,
+): string {
+    if (parentId === undefined) return "";
+    return agents
+        .filter((agent) =>
+            agent.kind === "background"
+            && agent.parent_id === parentId
+            && (agent.status === "working" || agent.status === "waiting")
+        )
+        .map((agent) => `* ${agent.title ?? agent.id}`)
+        .join("\n");
+}
+
 function compactWorkspace(workspace: string): string {
     const home = homedir();
     return workspace === home

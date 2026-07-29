@@ -949,8 +949,8 @@ export class AgentRegistry {
                 && entry.parentId === parentStore.header.id
                 && entry.failure === undefined
                 && !entry.agent.failed
-                && !entry.completed
-                && !entry.agent.closed,
+                && !entry.agent.closed
+                && entry.pendingAsyncTurns > 0,
         ).length
             + (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0);
         if (running >= this.maxConcurrentBackgroundAgents) {

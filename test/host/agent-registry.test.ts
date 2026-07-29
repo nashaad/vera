@@ -1783,6 +1783,70 @@ test("async subagent concurrency has an explicit cap", async () => {
     }
 });
 
+test("restored idle subagents do not consume async concurrency slots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-restored-background-limit-"));
+    const parentPath = join(root, "parent.jsonl");
+    const childPath = join(root, "old-child.jsonl");
+    await SessionStore.create(parentPath, {
+        sessionId: "parent",
+        cwd: root,
+    });
+    await SessionStore.create(childPath, {
+        sessionId: "old-child",
+        cwd: root,
+        parentId: "parent",
+    });
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter: () => {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "new-background",
+                            name: "async_subagent",
+                            input: { description: "new task" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Launch handled."),
+                    textResponse("Background result received."),
+                ]);
+            }
+            return adapterNumber === 2
+                ? new FauxAdapter([])
+                : new FauxAdapter([textResponse("new child done")]);
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        maxConcurrentBackgroundAgents: 1,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    try {
+        const parent = await registry.resume({ sessionPath: parentPath });
+        await registry.resume({ sessionPath: childPath });
+        await runPrompt(parent.attach(), "Start another task", false);
+        const results = (await SessionStore.open(parentPath)).messages()
+            .filter((message) => message.role === "tool_result");
+        expect(results).toHaveLength(1);
+        expect(results[0]).toMatchObject({ isError: false });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a registry reserves IDs while agents start and stays closed", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-lifecycle-"));
     const firstWorkspace = join(root, "first");

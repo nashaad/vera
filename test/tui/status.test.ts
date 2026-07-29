@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     countRunningBackgroundAgents,
+    renderBackgroundAgentNames,
     renderTuiStatusDetailsLine,
 } from "../../clients/tui/status.ts";
 
@@ -143,6 +144,15 @@ test("running background-agent count counts the live ones only", () => {
             kind: "interactive",
         },
     ])).toBe(2);
+});
+
+test("background-agent names stack active children and omit finished ones", () => {
+    expect(renderBackgroundAgentNames([
+        { ...backgroundAgent("working"), parent_id: "main", title: "research" },
+        { ...backgroundAgent("waiting"), parent_id: "main", title: "review" },
+        { ...backgroundAgent("completed"), parent_id: "main", title: "done" },
+        { ...backgroundAgent("working"), parent_id: "other", title: "else" },
+    ], "main")).toBe("* research\n* review");
 });
 
 function backgroundAgent(

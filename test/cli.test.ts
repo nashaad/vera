@@ -203,17 +203,19 @@ test("vera abort requests cancellation through a resident agent", async () => {
     expect(output).toBe("Abort requested for agent-1.\n");
 });
 
-test("vera interactive commands select create, attach, and resume targets", async () => {
+test("vera interactive commands select create, continue, attach, and resume targets", async () => {
     const targets: unknown[] = [];
     const runTui = async (target: unknown): Promise<void> => {
         targets.push(target);
     };
 
     expect(await runCli([], { runTui })).toBe(0);
+    expect(await runCli(["-c"], { runTui })).toBe(0);
     expect(await runCli(["attach", "agent-1"], { runTui })).toBe(0);
     expect(await runCli(["resume", "/sessions/one.jsonl"], { runTui })).toBe(0);
     expect(targets).toEqual([
         { type: "create", workspace: process.cwd() },
+        { type: "continue" },
         { type: "attach", agentId: "agent-1" },
         { type: "resume", sessionPath: "/sessions/one.jsonl" },
     ]);
