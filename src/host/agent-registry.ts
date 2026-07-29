@@ -712,12 +712,6 @@ export class AgentRegistry {
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
             attachImage: (path, signal) =>
                 imageAttachments.attachFile(path, signal),
-            ...(kind === "background"
-                ? {
-                    onPromptQueued: () =>
-                        this.trackAsyncSubagentTurn(store.header.id),
-                }
-                : {}),
         });
         const events = new EngineEventBus();
         const storedSettings = store.modelSettings();
@@ -1000,12 +994,17 @@ export class AgentRegistry {
             child.close();
             throw new Error(`Async subagent ${child.id} was not registered`);
         }
+        // Tracked here rather than on every queued prompt: a completion
+        // belongs to the parent only for work the parent asked for. A client
+        // attaching to the child and prompting it is a conversation the user
+        // is already reading, not an assignment to report back on.
         try {
             child.sendPrompt(effect.description);
         } catch (error) {
             child.close();
             throw error;
         }
+        this.trackAsyncSubagentTurn(child.id);
         return {
             kind: "output",
             output: `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`,
@@ -1038,6 +1037,7 @@ export class AgentRegistry {
         }
 
         child.agent.sendPrompt(effect.message);
+        this.trackAsyncSubagentTurn(effect.subagentId);
         return {
             kind: "output",
             output: `Message queued for async subagent ${effect.subagentId}.`,

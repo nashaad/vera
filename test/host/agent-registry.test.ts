@@ -1296,14 +1296,23 @@ test("an async subagent returns immediately and delivers its final summary", asy
             },
             textResponse("All integration tests pass."),
         ]);
+        // A prompt sent straight to the child is the user's own conversation:
+        // the child runs it, and the parent hears nothing about it.
         await runPrompt(
             registry.find(child!.id)!.attach(),
             "Run the focused tests",
         );
-        expect(await waitForTaskNotification(parentAttachment)).toMatchObject({
-            deliveryId: `completion:${child!.id}:2`,
-            content: "The focused tests pass too.",
-        });
+        expect((await SessionStore.open(parentSession)).pendingDeliveries())
+            .toEqual([]);
+        const eventsAfterDirectPrompt = (await readFile(
+            join(root, "parent-events.jsonl"),
+            "utf8",
+        )).trim().split("\n").map(
+            (line) => JSON.parse(line) as { type: string },
+        );
+        expect(eventsAfterDirectPrompt.filter(
+            (event) => event.type === "task_notification",
+        )).toHaveLength(1);
         expect(registry.list().find((agent) => agent.id === child!.id))
             .toMatchObject({ kind: "background", status: "completed" });
     } finally {
@@ -1378,7 +1387,6 @@ test("a parent and async subagent exchange durable messages", async () => {
                     },
                     textResponse("I reused the child."),
                     textResponse("I received the second audit."),
-                    textResponse("I received the human-directed audit."),
                 ]);
             }
             return new FauxAdapter([
@@ -1455,20 +1463,16 @@ test("a parent and async subagent exchange durable messages", async () => {
         const childAgent = registry.find(child!.id);
         expect(childAgent).toBeDefined();
         const childAttachment = childAgent!.attach();
+        // Directly prompting the child is not an assignment from the parent,
+        // so no completion follows it.
         await runPrompt(
             childAttachment,
             "Run one pass requested directly from the TUI",
             false,
         );
         childAttachment.detach();
-        expect(await waitForTaskNotification(attachment)).toMatchObject({
-            deliveryId: `completion:${child!.id}:3`,
-            sourceAgentId: child!.id,
-            content: "Human-directed parser pass complete.",
-        });
-        expect(await finishTurnText(attachment)).toBe(
-            "I received the human-directed audit.",
-        );
+        expect((await SessionStore.open(parentSession)).pendingDeliveries())
+            .toEqual([]);
 
         const childStore = await SessionStore.open(child!.session_path);
         expect(childStore.messages().filter((message) => message.role === "user"))

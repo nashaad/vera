@@ -42,7 +42,6 @@ export class AgentCommandQueueFullError extends Error {
 export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
     readonly createAttachmentId?: () => string;
-    readonly onPromptQueued?: () => void;
     readonly attachImage?: (
         path: string,
         signal: AbortSignal,
@@ -182,9 +181,6 @@ export class ResidentAgent {
                             : clone(command),
                         countsTowardLimit: true,
                     });
-                    if (command.type === "prompt") {
-                        this.options.onPromptQueued?.();
-                    }
                 } catch (error) {
                     this.pendingCommandCount -= 1;
                     throw error;
@@ -252,7 +248,6 @@ export class ResidentAgent {
                 command: { type: "prompt", content },
                 countsTowardLimit: true,
             });
-            this.options.onPromptQueued?.();
         } catch (error) {
             this.pendingCommandCount -= 1;
             throw error;
