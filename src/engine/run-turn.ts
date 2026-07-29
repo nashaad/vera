@@ -1254,6 +1254,9 @@ async function executePreparedTool(
             permissionModes: state.permissionModes,
             permissionPreferences: state.readPermissionPreferences?.() ?? [],
             extensionTools: state.extensionTools,
+            ...(state.scratchDir === undefined
+                ? {}
+                : { scratchDir: state.scratchDir }),
         },
     );
     if (permission.behavior === "deny") {

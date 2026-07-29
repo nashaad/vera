@@ -757,3 +757,46 @@ function bash(command: string): HookToolCall {
 function toolCall(name: string, input: JsonObject): HookToolCall {
     return { id: "call_1", name, input };
 }
+
+test("scratch directory writes are routine when the scratch dir is known", () => {
+    const scratchDir = "/tmp/vera/session-1";
+    const calls = [
+        toolCall("write", {
+            path: `${scratchDir}/todo.md`,
+            content: "next steps",
+        }),
+        bash(`echo hi > ${scratchDir}/notes.txt`),
+    ];
+    for (const mode of ["ask", "auto"] as const) {
+        for (const call of calls) {
+            expect(decideToolPermission(
+                mode,
+                call,
+                workspace,
+                [],
+                { homeDirectory, scratchDir },
+            ).behavior).toBe("allow");
+            expect(decideToolPermission(
+                mode,
+                call,
+                workspace,
+                [],
+                { homeDirectory },
+            ).behavior).not.toBe("allow");
+        }
+    }
+});
+
+test("a path escaping the scratch directory keeps its outside scope", () => {
+    const decision = decideToolPermission(
+        "ask",
+        toolCall("write", {
+            path: "/tmp/vera/session-1/../other-session/todo.md",
+            content: "x",
+        }),
+        workspace,
+        [],
+        { homeDirectory, scratchDir: "/tmp/vera/session-1" },
+    );
+    expect(decision.behavior).not.toBe("allow");
+});
