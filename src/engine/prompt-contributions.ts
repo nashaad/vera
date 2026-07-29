@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ModelTool } from "../model/types.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
+import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
 export type PromptContributionTarget = "stable" | "contextual";
 
@@ -27,6 +28,7 @@ export interface PromptContributionInput {
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
 }
 
@@ -40,6 +42,7 @@ export interface StablePromptContributionInput {
 export interface ContextualPromptContributionInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
 }
 
@@ -119,6 +122,27 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             title: "Date",
             content: `Current date: ${formatLocalDate(input.date)}`,
         }),
+    },
+    {
+        id: "core.scratchpad-state",
+        owner: "core",
+        target: "contextual",
+        contribute: (input) => {
+            const state = input.scratchState;
+            if (state === undefined) {
+                return null;
+            }
+            const listed = state.truncatedFiles > 0
+                ? `${state.files.join(", ")} (+${state.truncatedFiles} more)`
+                : state.files.join(", ");
+            return {
+                title: "Scratch directory state",
+                content: `Files: ${listed}`
+                    + (state.todo === undefined
+                        ? ""
+                        : `\ntodo.md:\n${state.todo}`),
+            };
+        },
     },
     {
         id: "core.project-instructions",

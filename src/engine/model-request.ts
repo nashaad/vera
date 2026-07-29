@@ -11,6 +11,7 @@ import {
     type ProjectInstructionSnapshot,
 } from "./project-instructions.ts";
 import type { PromptContribution } from "./prompt-contributions.ts";
+import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
 export interface ModelRequestSnapshot {
     readonly provider?: string;
@@ -23,6 +24,7 @@ export interface ModelRequestSnapshot {
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledPromptContributions?: readonly string[];
     readonly signal: AbortSignal;
 }
@@ -70,6 +72,9 @@ export function projectModelRequest(
             : { scratchDir: snapshot.scratchDir }),
         date: snapshot.date,
         projectInstructions: snapshot.projectInstructions,
+        ...(snapshot.scratchState === undefined
+            ? {}
+            : { scratchState: snapshot.scratchState }),
         ...(snapshot.disabledPromptContributions === undefined
             ? {}
             : {

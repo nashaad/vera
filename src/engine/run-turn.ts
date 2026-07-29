@@ -62,6 +62,7 @@ import { loadProjectInstructions } from "./project-instructions.ts";
 import { promptContributionMetadata } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
+import { loadScratchState } from "./scratch-state.ts";
 import {
     measureMessages,
     measureProjectedRequest,
@@ -766,6 +767,9 @@ export async function runTurn(
             const projectInstructions = await loadProjectInstructions(
                 state.toolRuntime.workspace,
             );
+            const scratchState = state.scratchDir === undefined
+                ? undefined
+                : await loadScratchState(state.scratchDir);
             const requestDate = new Date();
             const projection = projectModelRequest({
                 ...(modelSettings.provider === undefined
@@ -784,6 +788,7 @@ export async function runTurn(
                     : { scratchDir: state.scratchDir }),
                 date: requestDate,
                 projectInstructions,
+                ...(scratchState === undefined ? {} : { scratchState }),
                 ...(state.disabledPromptContributions === undefined ? {} : {
                     disabledPromptContributions:
                         state.disabledPromptContributions,
