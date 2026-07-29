@@ -101,8 +101,8 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             input.scratchDir === undefined ? null : {
                 title: "Scratch directory",
                 content: `Disposable per-session scratch directory: ${input.scratchDir}\n`
-                    + "Use it instead of /tmp for temporary files and working "
-                    + "notes.\n"
+                    + "Use it freely (writes here need no approval) instead "
+                    + "of /tmp for temporary files and working notes.\n"
                     + "For tasks with more than a couple of steps, keep your "
                     + "todo list as todo.md here (the file is the list, chat "
                     + "is optional): create it when you start, check items "
