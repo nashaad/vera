@@ -45,7 +45,7 @@ export interface ChatProviderProfile {
 const OPENROUTER_PROFILE: ChatProviderProfile = {
     provider: "openrouter",
     api: "openrouter-chat",
-    supportsImageInput: false,
+    supportsImageInput: true,
 };
 
 export class OpenRouterAdapter implements ModelAdapter {
