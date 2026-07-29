@@ -134,7 +134,7 @@ test("ask_user rejects unknown choice fields", async () => {
 
     expect(result).toEqual({
         kind: "output",
-        output: "ask_user choice 1 must contain only id and label",
+        output: "ask_user choice 1 must contain only id, label, and preview",
         isError: true,
     });
 });
@@ -186,3 +186,41 @@ function toolCall(
         input,
     };
 }
+
+test("ask_user keeps a choice preview verbatim", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", preview: "  \u250c\u2500\u2500\u2510\n  \u2514\u2500\u2500\u2518\n" },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "interaction",
+        interaction: {
+            type: "ask_user",
+            question: "Which layout?",
+            choices: [
+                { id: "wide", label: "Wide", preview: "  \u250c\u2500\u2500\u2510\n  \u2514\u2500\u2500\u2518\n" },
+                { id: "narrow", label: "Narrow" },
+            ],
+        },
+    });
+});
+
+test("ask_user rejects an empty choice preview", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", preview: "   " },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "output",
+        output: "ask_user requires a non-empty choice 1 preview",
+        isError: true,
+    });
+});

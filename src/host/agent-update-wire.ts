@@ -409,11 +409,13 @@ function isUserQuestionRequest(request: Record<string, unknown>): boolean {
         const choice = asRecord(value);
         if (
             choice === undefined
-            || !hasExactKeys(choice, ["id", "label"])
+            || !hasKeys(choice, ["id", "label"], ["preview"])
             || typeof choice.id !== "string"
             || choice.id.trim().length === 0
             || typeof choice.label !== "string"
             || choice.label.trim().length === 0
+            || (Object.hasOwn(choice, "preview")
+                && typeof choice.preview !== "string")
             || ids.has(choice.id)
         ) {
             return false;
@@ -430,6 +432,18 @@ function hasExactKeys(
     const keys = Object.keys(value);
     return keys.length === expected.length
         && expected.every((key) => Object.hasOwn(value, key));
+}
+
+/** Every required key present, and nothing beyond the optional ones. */
+function hasKeys(
+    value: Record<string, unknown>,
+    required: readonly string[],
+    optional: readonly string[],
+): boolean {
+    return required.every((key) => Object.hasOwn(value, key))
+        && Object.keys(value).every((key) =>
+            required.includes(key) || optional.includes(key)
+        );
 }
 
 function parseTimelineReply(

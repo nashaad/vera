@@ -47,6 +47,12 @@ export type ToolEffect =
 export interface AskUserChoice {
     readonly id: string;
     readonly label: string;
+    /**
+     * A concrete rendering of what this choice means: a mockup, a diff, a
+     * snippet. Shown verbatim in a monospace box beside the choices, so it
+     * carries no markup and the client owes it no styling.
+     */
+    readonly preview?: string;
 }
 
 export interface AskUserInteraction {

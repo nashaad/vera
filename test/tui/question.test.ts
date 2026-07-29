@@ -350,3 +350,131 @@ function questionWithLabel(
         },
     };
 }
+
+const previewRequest: UserQuestionUiRequestUpdate = {
+    ...request,
+    requestId: "question-preview",
+    request: {
+        ...request.request,
+        choices: [
+            {
+                id: "stable-channel",
+                label: "Stable",
+                preview: "┌────────┐\n│ stable │\n└────────┘",
+            },
+            {
+                id: "preview-channel",
+                label: "Preview",
+                preview: "┌─────────┐\n│ preview │\n└─────────┘",
+            },
+        ],
+    },
+};
+
+test("TUI question shows the highlighted choice's preview beside it", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(previewRequest);
+
+    try {
+        await setup.flush();
+        let frame = setup.captureCharFrame();
+        expect(frame).toContain("│ stable │");
+        expect(frame).not.toContain("│ preview │");
+        // Side by side: the preview shares a row with the choice it explains.
+        const stableLine = frame.split("\n")
+            .find((line) => line.includes("1  Stable"));
+        expect(stableLine).toContain("│");
+
+        view.handleKey(previewRequest, { name: "down" });
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("│ preview │");
+        expect(frame).not.toContain("│ stable │");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a narrow terminal puts the preview under the choices", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(previewRequest);
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("│ stable │");
+        const stableLine = frame.split("\n")
+            .find((line) => line.includes("1  Stable"));
+        expect(stableLine).not.toContain("│ stable │");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("notes typed alongside a choice travel with the answer", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(previewRequest);
+
+    try {
+        expect(view.handleKey(previewRequest, { name: "tab" }))
+            .toEqual({ handled: true });
+        for (const character of "but pin it") {
+            view.handleKey(previewRequest, {
+                name: character,
+                sequence: character,
+            });
+        }
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Notes: but pin it");
+        expect(view.handleKey(previewRequest, { name: "enter" })).toEqual({
+            handled: true,
+            response: {
+                type: "ui_response",
+                requestId: "question-preview",
+                response: {
+                    type: "user_question",
+                    outcome: "selected",
+                    choiceId: "stable-channel",
+                    notes: "but pin it",
+                },
+            },
+        });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("escape leaves the notes field without cancelling the question", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(previewRequest);
+    try {
+        view.handleKey(previewRequest, { name: "tab" });
+        expect(view.handleKey(previewRequest, { name: "escape" }))
+            .toEqual({ handled: true });
+        expect(view.handleKey(previewRequest, { name: "1", sequence: "1" }))
+            .toEqual({
+                handled: true,
+                response: {
+                    type: "ui_response",
+                    requestId: "question-preview",
+                    response: {
+                        type: "user_question",
+                        outcome: "selected",
+                        choiceId: "stable-channel",
+                    },
+                },
+            });
+    } finally {
+        setup.renderer.destroy();
+    }
+});

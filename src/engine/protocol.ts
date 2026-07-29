@@ -632,6 +632,10 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                     type: "user_question",
                     outcome: "selected",
                     choiceId: response.choiceId,
+                    ...(typeof response.notes === "string"
+                            && response.notes.trim().length > 0
+                        ? { notes: response.notes.trim() }
+                        : {}),
                 },
             };
         }
