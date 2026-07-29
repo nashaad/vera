@@ -1862,8 +1862,15 @@ function modelOptions(
     // bundles an effort, so the same model can be a pick and an All row with
     // different meanings. They keep the catalog's own order, which is the
     // curation, and sort after the runnable list so nothing above shifts.
+    // The effort is part of the row's identity: the same model can be
+    // suggested twice at different settings, and those are different picks.
     const picks = topPicks.map((pick) => ({
-        value: JSON.stringify([pick.provider, pick.model, "top"]),
+        value: JSON.stringify([
+            pick.provider,
+            pick.model,
+            "top",
+            pick.reasoningEffort ?? "",
+        ]),
         label: pick.label,
         description: pick.description,
         searchText: `${pick.provider} ${pick.model}`,
