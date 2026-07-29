@@ -1,4 +1,5 @@
 import type {
+    ChatContentItems,
     ChatMessages,
     ChatFunctionTool,
     ChatStreamChunk,
@@ -8,6 +9,7 @@ import type {
 
 import type {
     ModelInputMessage,
+    ModelInputUserMessage,
     ModelStopReason,
     ModelTool,
     ModelUsage,
@@ -40,10 +42,10 @@ export function encodeOpenRouterMessages(
 
     for (const message of messages) {
         if (message.role === "user") {
-            if (message.content.some((block) => block.type !== "text")) {
-                throw new Error("OpenRouter image input is not supported yet");
-            }
-            encoded.push({ role: "user", content: joinText(message.content) });
+            encoded.push({
+                role: "user",
+                content: encodeUserContent(message.content),
+            });
             continue;
         }
         if (message.role === "tool_result") {
@@ -167,6 +169,31 @@ export function parseOpenRouterToolInput(
     }
 
     return parsed as Record<string, unknown>;
+}
+
+function encodeUserContent(
+    content: ModelInputUserMessage["content"],
+): string | ChatContentItems[] {
+    if (content.every((block) => block.type === "text")) {
+        return joinText(content);
+    }
+
+    return content.map((block) => {
+        if (block.type === "text") {
+            return { type: "text" as const, text: block.text };
+        }
+        if (block.type === "image_attachment") {
+            throw new Error("Image attachment was not hydrated");
+        }
+        return {
+            type: "image_url" as const,
+            imageUrl: {
+                url: `data:${block.mediaType};base64,${
+                    Buffer.from(block.data).toString("base64")
+                }`,
+            },
+        };
+    });
 }
 
 function joinText(content: readonly { readonly type: string; readonly text?: string }[]): string {

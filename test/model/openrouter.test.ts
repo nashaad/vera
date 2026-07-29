@@ -22,6 +22,67 @@ describe("OpenRouter adapter", () => {
         expect(normalizeOpenRouterToolCallId(id)).toBe(`call_${"a".repeat(80)}`);
     });
 
+    test("encodes ordered provider-neutral image content", async () => {
+        const imageData = Uint8Array.from([1, 2, 3]);
+        let encoded: unknown;
+        const sendChat: SendOpenRouterChat = async (request) => {
+            encoded = request.messages;
+            return chunks([
+                chatChunk({ delta: { content: "ok" }, finishReason: "stop" }),
+            ]);
+        };
+        const adapter = new OpenRouterAdapter(sendChat);
+
+        await adapter.stream({
+            model: "test/model",
+            messages: [{
+                role: "user",
+                content: [
+                    { type: "text", text: "What is shown?" },
+                    { type: "image", mediaType: "image/png", data: imageData },
+                ],
+            }],
+        }).result();
+
+        expect(encoded).toEqual([{
+            role: "user",
+            content: [
+                { type: "text", text: "What is shown?" },
+                {
+                    type: "image_url",
+                    imageUrl: { url: "data:image/png;base64,AQID" },
+                },
+            ],
+        }]);
+    });
+
+    test("keeps text-only user messages as a plain string", async () => {
+        let encoded: unknown;
+        const sendChat: SendOpenRouterChat = async (request) => {
+            encoded = request.messages;
+            return chunks([
+                chatChunk({ delta: { content: "ok" }, finishReason: "stop" }),
+            ]);
+        };
+        const adapter = new OpenRouterAdapter(sendChat);
+
+        await adapter.stream({
+            model: "test/model",
+            messages: [{
+                role: "user",
+                content: [{ type: "text", text: "hello" }],
+            }],
+        }).result();
+
+        expect(encoded).toEqual([{ role: "user", content: "hello" }]);
+    });
+
+    test("reports image input as supported", () => {
+        const adapter = new OpenRouterAdapter(async () => chunks([]));
+
+        expect(adapter.supportsImageInput).toBe(true);
+    });
+
     test("uses supplied verification mappings instead of the installed catalog", async () => {
         const sendChat: SendOpenRouterChat = async (request) => {
             expect(request.reasoning).toEqual({ effort: "candidate-effort" });
