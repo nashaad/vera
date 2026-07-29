@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
     emptyUsage,
@@ -176,6 +179,8 @@ export interface RunTurnState {
     ) => ReturnType<ReviewToolCall>;
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
+    readonly scratchDir?: string;
+    readonly disabledPromptContributions?: readonly string[];
 }
 
 export interface SessionCompactionOptions {
@@ -242,6 +247,7 @@ export interface RunHeadlessLoopOptions {
         reply: SessionNameReplyUpdate,
     ) => void;
     readonly reviewToolCall?: ReviewToolCall;
+    readonly disabledPromptContributions?: readonly string[];
 }
 
 export async function runHeadlessLoop(
@@ -281,6 +287,10 @@ export async function runHeadlessLoop(
             : await SessionStore.open(options.resumeSessionPath)
     );
     const sessionId = store.header.id;
+    // Synchronous so session startup keeps its event order: an extra await
+    // here lets a client's first prompt race the initial history checkpoint.
+    const scratchDir = join(tmpdir(), "vera", sessionId);
+    mkdirSync(scratchDir, { recursive: true });
     if (
         (options.readApprovalMode === undefined)
         !== (options.updateApprovalMode === undefined)
@@ -383,6 +393,11 @@ export async function runHeadlessLoop(
         ?? createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
+            scratchDir,
+            ...(options.disabledPromptContributions === undefined ? {} : {
+                disabledPromptContributions:
+                    options.disabledPromptContributions,
+            }),
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),
@@ -570,6 +585,10 @@ export async function runHeadlessLoop(
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
+        scratchDir,
+        ...(options.disabledPromptContributions === undefined ? {} : {
+            disabledPromptContributions: options.disabledPromptContributions,
+        }),
     };
     protocol.checkpoint(state.messages);
 
@@ -750,8 +769,15 @@ export async function runTurn(
                 messages: state.modelContext?.() ?? state.messages,
                 tools,
                 workspace: state.toolRuntime.workspace,
+                ...(state.scratchDir === undefined
+                    ? {}
+                    : { scratchDir: state.scratchDir }),
                 date: requestDate,
                 projectInstructions,
+                ...(state.disabledPromptContributions === undefined ? {} : {
+                    disabledPromptContributions:
+                        state.disabledPromptContributions,
+                }),
                 signal: turn.signal,
             });
             const request = projection.request;

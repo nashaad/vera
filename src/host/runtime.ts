@@ -144,6 +144,12 @@ export async function startResidentHost(
             : { permissionModes: options.config.permission_modes }),
         permissionPreferences,
         extensionTools: extensions.tools(),
+        ...(options.config.disabled_prompt_contributions === undefined
+            ? {}
+            : {
+                disabledPromptContributions:
+                    options.config.disabled_prompt_contributions,
+            }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogDirectory === undefined

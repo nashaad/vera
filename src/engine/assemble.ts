@@ -15,18 +15,23 @@ import {
 export interface AssembleSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface AssembleStableSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface AssembleContextualSystemPromptInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface SystemPromptProjection {

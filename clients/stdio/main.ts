@@ -68,6 +68,12 @@ try {
             ...(configuredReviewer(config) === undefined
                 ? {}
                 : { reviewer: configuredReviewer(config)! }),
+            ...(config.disabled_prompt_contributions === undefined
+                ? {}
+                : {
+                    disabledPromptContributions:
+                        config.disabled_prompt_contributions,
+                }),
         },
     );
     lines.prompt();

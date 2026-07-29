@@ -629,3 +629,36 @@ test("preserving unmodelled keys still allows a default to be cleared", () => {
 function temporaryConfigPath(): string {
     return join(mkdtempSync(join(tmpdir(), "vera-config-")), "config.json");
 }
+
+test("Vera config loads disabled prompt contribution ids", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        disabled_prompt_contributions: [" core.scratchpad "],
+    }));
+
+    expect(loadVeraConfig({ path }).disabled_prompt_contributions).toEqual([
+        "core.scratchpad",
+    ]);
+});
+
+test("Vera config rejects malformed disabled prompt contribution lists", () => {
+    for (const disabled_prompt_contributions of [
+        "core.scratchpad",
+        [""],
+        [42],
+        ["core.scratchpad", "core.scratchpad"],
+    ]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            disabled_prompt_contributions,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow(
+            "Invalid Vera config",
+        );
+    }
+});

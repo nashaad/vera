@@ -24,18 +24,23 @@ export interface PromptContributionMetadata {
 export interface PromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface StablePromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface ContextualPromptContributionInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 interface StablePromptContributor {
@@ -87,6 +92,22 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             title: "Workspace",
             content: `Working directory: ${input.workspace}`,
         }),
+    },
+    {
+        id: "core.scratchpad",
+        owner: "core",
+        target: "stable",
+        contribute: (input) =>
+            input.scratchDir === undefined ? null : {
+                title: "Scratch directory",
+                content: `Disposable per-session scratch directory: ${input.scratchDir}\n`
+                    + "Use it instead of /tmp for temporary files: intermediate "
+                    + "results, generated scripts, and working notes. For "
+                    + "multi-step tasks, keep a todo.md there and re-read it "
+                    + "after context compaction. The directory is deleted by "
+                    + "the operating system; never store anything you need to "
+                    + "keep.",
+            },
     },
     {
         id: "core.date",
@@ -157,6 +178,7 @@ export function collectStablePromptContributions(
 ): readonly PromptContribution[] {
     return BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
         contributor.target === "stable"
+            && !isDisabled(contributor.id, input.disabledContributions)
             ? collectContribution(contributor, contributor.contribute(input))
             : []
     );
@@ -167,9 +189,17 @@ export function collectContextualPromptContributions(
 ): readonly PromptContribution[] {
     return BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
         contributor.target === "contextual"
+            && !isDisabled(contributor.id, input.disabledContributions)
             ? collectContribution(contributor, contributor.contribute(input))
             : []
     );
+}
+
+function isDisabled(
+    id: string,
+    disabled: readonly string[] | undefined,
+): boolean {
+    return disabled !== undefined && disabled.includes(id);
 }
 
 function collectContribution(

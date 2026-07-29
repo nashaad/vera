@@ -36,6 +36,9 @@ import {
 export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly workspace: string;
+    /** Shared with children: one session, one scratch space. */
+    readonly scratchDir?: string;
+    readonly disabledPromptContributions?: readonly string[];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (sessionId: string) => string;
     readonly relayToolApproval?: ChildToolApprovalRelay;
@@ -49,6 +52,8 @@ export interface RunSubagentOptions {
     readonly model: string;
     readonly description: string;
     readonly workspace: string;
+    readonly scratchDir?: string;
+    readonly disabledPromptContributions?: readonly string[];
     readonly approvalMode: ApprovalMode;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly modelFallback?: ModelFallbackPolicy;
@@ -103,6 +108,13 @@ export function createSubagentEffectApplier(
                 model: context.model,
                 description: effect.description,
                 workspace: options.workspace,
+                ...(options.scratchDir === undefined
+                    ? {}
+                    : { scratchDir: options.scratchDir }),
+                ...(options.disabledPromptContributions === undefined ? {} : {
+                    disabledPromptContributions:
+                        options.disabledPromptContributions,
+                }),
                 approvalMode: context.approvalMode,
                 extensionTools: options.extensionTools,
                 signal,
@@ -165,6 +177,13 @@ export async function runSubagent(
             approvalMode: options.approvalMode,
             extensionTools: options.extensionTools,
             promptPrefixTracker: new PromptPrefixTracker(),
+            ...(options.scratchDir === undefined
+                ? {}
+                : { scratchDir: options.scratchDir }),
+            ...(options.disabledPromptContributions === undefined ? {} : {
+                disabledPromptContributions:
+                    options.disabledPromptContributions,
+            }),
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),
