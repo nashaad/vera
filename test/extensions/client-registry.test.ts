@@ -73,6 +73,7 @@ test("client registry exposes client-owned services without TUI objects", async 
                 async run({ workspace, signal }) {
                     const picked = await vera.ui.requestPicker({
                         title: "Models",
+                        subtitle: "Choose one",
                         rows: [
                             { id: "fast", label: "Fast" },
                             { id: "deep", label: "Deep", current: true },
@@ -155,6 +156,7 @@ test("client registry exposes client-owned services without TUI objects", async 
         extensionId: "client.presets",
         request: {
             title: "Models",
+            subtitle: "Choose one",
             rows: [
                 { id: "fast", label: "Fast" },
                 { id: "deep", label: "Deep", current: true },
@@ -194,6 +196,42 @@ test("client registry exposes client-owned services without TUI objects", async 
     await registry.close();
     expect(harness.listenerCount()).toBe(0);
     expect(readFileSync(cleanupPath, "utf8")).toBe("disposed\n");
+});
+
+test("client picker rejects a non-string subtitle", async () => {
+    const extension = createExtension(
+        "client.invalid-subtitle",
+        ["client.commands.register", "client.ui.picker"],
+        `
+            export function activateClient(vera) {
+                vera.commands.register({
+                    name: "pick",
+                    description: "Pick",
+                    usage: "/pick",
+                    async run() {
+                        await vera.ui.requestPicker({
+                            title: "Models",
+                            subtitle: 42,
+                            rows: [{ id: "one", label: "One" }],
+                            actions: [{ id: "apply", label: "Apply", keys: ["enter"] }],
+                        });
+                        return { kind: "text", text: "unreachable" };
+                    },
+                });
+            }
+        `,
+    );
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+    });
+
+    await expect(registry.invokeCommand(
+        "pick",
+        "",
+        createDirectory(),
+    )).rejects.toThrow("Invalid client extension picker request");
+    await registry.close();
 });
 
 test("client registry keeps command and keybinding ownership atomic", async () => {

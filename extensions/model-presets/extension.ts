@@ -60,6 +60,7 @@ export function activateClient(vera: any): void {
             const currentIndex = await currentSlotIndex(slots);
             const result = await vera.ui.requestPicker({
                 title: "Model presets",
+                subtitle: "Switching models may reset the KV cache. The next turn will be slower.",
                 rows: slots.map((slot, index) => ({
                     id: `slot-${index + 1}`,
                     label: `Slot ${index + 1}`,

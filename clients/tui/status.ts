@@ -4,6 +4,7 @@ import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import { findProvider } from "../../src/providers/registry.ts";
 
 export function renderTuiStatusDetailsLine(
     settings: ModelTurnSettings | undefined,
@@ -12,7 +13,14 @@ export function renderTuiStatusDetailsLine(
     workspace: string,
     runningBackgroundAgents = 0,
 ): string {
-    const model = settings?.model ?? "loading";
+    const providerLabel = settings?.provider === undefined
+        ? undefined
+        : findProvider(settings.provider)?.shortLabel;
+    const model = settings?.model === undefined
+        ? "loading"
+        : providerLabel === undefined
+            ? settings.model
+            : `${providerLabel}/${settings.model}`;
     const thinking = settings === undefined
         ? "loading"
         : settings.reasoningEffort ?? "default";

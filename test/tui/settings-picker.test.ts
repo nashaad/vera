@@ -818,6 +818,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
             { id: "clear-delete", key: "delete", label: "clear" },
             { id: "clear-backspace", key: "backspace", label: "clear" },
         ],
+        "Switching models may make the next turn slower.",
     );
 
     expect(state.kind).toBe("extension");
@@ -831,6 +832,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
 
     const frame = await pickerFrame(state);
     expect(frame).toContain("Model presets");
+    expect(frame).toContain("Switching models may make the next turn slower.");
     expect(frame).toContain("Fast");
     expect(frame).toContain("Deep");
     expect(frame).toContain("⏎ apply");

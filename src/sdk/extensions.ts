@@ -228,6 +228,7 @@ export interface VeraClientPickerAction {
 
 export interface VeraClientPickerRequest {
     readonly title: string;
+    readonly subtitle?: string;
     readonly rows: readonly VeraClientPickerRow[];
     readonly selectedId?: string;
     readonly actions: readonly VeraClientPickerAction[];

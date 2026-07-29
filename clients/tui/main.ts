@@ -2413,6 +2413,7 @@ export async function startTui(
             request.rows,
             request.selectedId,
             actions,
+            request.subtitle,
         );
         composer.blur();
         renderState();
