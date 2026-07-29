@@ -106,6 +106,33 @@ test("TUI shows the same edit diff live and from history", () => {
     }]);
 });
 
+test("TUI shows multiline tool notices live and from history", () => {
+    const presentation = {
+        kind: "tool_notice" as const,
+        text: "┌──────┐\n│ Vera │\n└──────┘",
+    };
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "tool_presentation",
+        tool: "render_d2",
+        presentation,
+        seq: 1,
+    });
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "presentation", presentation }],
+        seq: 1,
+    });
+
+    expect(live.entries).toEqual(replayed.entries);
+    expect(live.entries).toEqual([{
+        kind: "notice",
+        text: presentation.text,
+    }]);
+    expect(plainText(renderTuiEntry(live.entries[0]!))).toBe(
+        presentation.text,
+    );
+});
+
 test("TUI shows model failures when a turn finishes", () => {
     const state = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "testing"),

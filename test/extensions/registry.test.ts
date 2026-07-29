@@ -120,6 +120,10 @@ test("registry exposes extension tools through the ordinary tool and permission 
                 run({ input, workspace }) {
                     return {
                         output: workspace + ":" + input.query,
+                        presentation: {
+                            kind: "tool_notice",
+                            text: "Rendered result",
+                        },
                     };
                 },
             });
@@ -155,6 +159,10 @@ test("registry exposes extension tools through the ordinary tool and permission 
         kind: "output",
         output: `${workspace}:dag`,
         isError: false,
+        presentation: {
+            kind: "tool_notice",
+            text: "Rendered result",
+        },
     });
 
     await registry.close();
@@ -181,6 +189,49 @@ test("registry rejects extension tools that collide with built-ins", async () =>
     expect(failures[0]?.message).toContain(
         "Extension tool read collides with a built-in tool",
     );
+    await registry.close();
+});
+
+test("extension tool presentations reject client-owned fields", async () => {
+    const extension = createExtension("presentation.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "present",
+                description: "Present text",
+                inputSchema: { type: "object", properties: {} },
+                run() {
+                    return {
+                        output: "model output",
+                        presentation: {
+                            kind: "tool_notice",
+                            text: "client output",
+                            color: "red",
+                            focus: true,
+                        },
+                    };
+                },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+
+    await expect(executeToolHandler(
+        {
+            type: "tool_call",
+            id: "present-1",
+            name: "present",
+            input: {},
+        },
+        new ToolRuntime(createDirectory()),
+        new AbortController().signal,
+        registry.tools(),
+    )).resolves.toMatchObject({
+        kind: "output",
+        isError: true,
+        output: expect.stringContaining("returned an invalid result"),
+    });
     await registry.close();
 });
 

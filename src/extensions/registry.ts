@@ -2,6 +2,9 @@ import { pathToFileURL } from "node:url";
 
 import type { VeraExtensionConfig } from "../config.ts";
 import type {
+    ToolPresentation,
+} from "../model/types.ts";
+import type {
     VeraExtensionApi,
     VeraExtensionCommandHandler,
     VeraExtensionCommandSpec,
@@ -31,6 +34,8 @@ import {
 const DEFAULT_ACTIVATION_TIMEOUT_MS = 5_000;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000;
+const MAX_EXTENSION_PRESENTATION_BYTES = 64 * 1024;
+const MAX_EXTENSION_DIFF_LINES = 400;
 
 export interface StartExtensionRegistryOptions {
     readonly extensions: readonly VeraExtensionConfig[];
@@ -516,15 +521,69 @@ function registerTool(
                     `Extension ${loaded.manifest.id}/${name} returned an invalid result`,
                 );
             }
+            const presentation = result.presentation === undefined
+                ? undefined
+                : parseToolPresentation(result.presentation);
+            if (
+                result.presentation !== undefined
+                && presentation === undefined
+            ) {
+                throw new Error(
+                    `Extension ${loaded.manifest.id}/${name} returned an invalid result`,
+                );
+            }
             return {
                 kind: "output",
                 output: result.output,
                 isError: result.isError ?? false,
+                ...(presentation === undefined
+                    ? {}
+                    : { presentation }),
             };
         },
     };
     toolNames.add(name);
     tools.push({ tool, run });
+}
+
+function parseToolPresentation(value: unknown): ToolPresentation | undefined {
+    if (!isPlainObject(value)) return undefined;
+    if (
+        value.kind === "unified_diff"
+        && hasExactKeys(value, ["kind", "path", "patch"])
+        && typeof value.path === "string"
+        && value.path.length > 0
+        && typeof value.patch === "string"
+        && value.patch.length > 0
+        && Buffer.byteLength(value.patch) <= MAX_EXTENSION_PRESENTATION_BYTES
+        && value.patch.split("\n").length <= MAX_EXTENSION_DIFF_LINES
+    ) {
+        return {
+            kind: "unified_diff",
+            path: value.path,
+            patch: value.patch,
+        };
+    }
+    if (
+        value.kind === "tool_notice"
+        && hasExactKeys(value, ["kind", "text"])
+        && typeof value.text === "string"
+        && value.text.trim().length > 0
+        && Buffer.byteLength(value.text) <= MAX_EXTENSION_PRESENTATION_BYTES
+    ) {
+        return { kind: "tool_notice", text: value.text };
+    }
+    return undefined;
+}
+
+function hasExactKeys(
+    value: Readonly<Record<string, unknown>>,
+    keys: readonly string[],
+): boolean {
+    const actual = Object.keys(value).sort();
+    const expected = [...keys].sort();
+    return actual.length === expected.length
+        && actual.every((key, index) => key === expected[index]);
 }
 
 function validPermissionInputs(value: unknown): boolean {
