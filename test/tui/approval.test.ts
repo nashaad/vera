@@ -265,7 +265,9 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         frame = setup.captureCharFrame();
         expect(view.box.left).toBe(0);
         expect(frame).toContain("1 Allow once");
-        expect(frame).toContain("2 Session curl");
+        // Too narrow to carry the predicate, which the body states instead.
+        expect(frame).toContain("2 Session ");
+        expect(frame).not.toContain("2 Session curl");
         expect(frame).toContain("3 Deny");
         expect(frame).toContain("4 Always");
         expect(view.bar.visible).toBe(false);
@@ -276,8 +278,53 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         frame = setup.captureCharFrame();
         expect(frame).not.toContain("Permission required");
         expect(frame).toContain("1 Allow once");
-        expect(frame).toContain("2 Session curl");
+        // Too narrow to carry the predicate, which the body states instead.
+        expect(frame).toContain("2 Session ");
+        expect(frame).not.toContain("2 Session curl");
         expect(frame).toContain("3 Deny");
+        expect(frame).toContain("4 Always");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a predicate too long for its row is stated in the body", async () => {
+    const path = "/private/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera/";
+    const longScope: ToolApprovalUiRequestUpdate = {
+        ...request,
+        requestId: "long-scope",
+        request: {
+            ...request.request,
+            toolCall: {
+                id: "call-2",
+                name: "write",
+                input: { path: `${path}todo.md`, content: "# Internal todo\n" },
+            },
+            permissionGrants: [{
+                kind: "path",
+                when: { verb: "write", path },
+                scope: "session",
+                lifetime: "session",
+            }],
+        },
+    };
+    const setup = await createTestRenderer({
+        width: 100,
+        height: 20,
+        kittyKeyboard: true,
+    });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        view.update(longScope);
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        // The answers stay a strip: the path is written once, above them.
+        expect(frame).not.toContain(`2 Session write ${path}`);
+        expect(frame).toContain("Session and always remember:");
+        expect(frame).toContain(path);
         expect(frame).toContain("4 Always");
     } finally {
         setup.renderer.destroy();
