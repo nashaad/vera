@@ -134,3 +134,24 @@ test("disabled contribution ids are omitted from both targets", () => {
         "core.workspace",
     ]);
 });
+
+test("scratch state renders as a contextual contribution", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 29),
+        projectInstructions: { files: [], warnings: [] },
+        scratchState: {
+            files: ["notes.txt", "todo.md"],
+            truncatedFiles: 0,
+            todo: "- [x] done\n- [ ] next\n",
+        },
+    });
+
+    const state = contributions.find(
+        (contribution) => contribution.id === "core.scratchpad-state",
+    );
+    expect(state?.target).toBe("contextual");
+    expect(state?.content).toContain("notes.txt, todo.md");
+    expect(state?.content).toContain("- [ ] next");
+});
