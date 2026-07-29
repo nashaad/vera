@@ -25,6 +25,13 @@ import {
     dialogRowPointer,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
+import { tuiBindingId } from "./keymap.ts";
+
+/**
+ * Below this the panel is too narrow to seat a choice list and a preview box
+ * side by side, so the preview goes under the choices instead.
+ */
+const QUESTION_TWO_COLUMN_WIDTH = 80;
 
 export interface TuiQuestionKey {
     readonly name: string;
@@ -70,6 +77,8 @@ export function createTuiQuestionView(
     let selectedIndex = 0;
     let enteringCustom = false;
     let customText = "";
+    let enteringNotes = false;
+    let notesText = "";
     let choiceRows: Renderable[] = [];
 
     const detailsText = new TextRenderable(renderer, {
@@ -101,8 +110,57 @@ export function createTuiQuestionView(
             flexDirection: "column",
         },
     });
+    const previewText = new TextRenderable(renderer, {
+        id: "question-preview-text",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: "auto",
+        wrapMode: "none",
+        selectable: true,
+    });
+    // The preview is the asker's own rendering of a choice, so it gets a box
+    // and a monospace grid and no styling of its own.
+    const preview = new BoxRenderable(renderer, {
+        id: "question-preview",
+        height: "auto",
+        flexGrow: 1,
+        flexShrink: 1,
+        marginLeft: 2,
+        paddingLeft: 1,
+        paddingRight: 1,
+        border: true,
+        borderColor: TUI_MUTED,
+        visible: false,
+    });
+    preview.add(previewText);
+    // Choices and their preview sit side by side while the panel is wide
+    // enough for both, and stack when it is not.
+    const choicesRow = new BoxRenderable(renderer, {
+        id: "question-choices-row",
+        width: "100%",
+        height: "auto",
+        flexShrink: 0,
+        flexDirection: "row",
+    });
+    choicesRow.add(choicesColumn);
+    choicesRow.add(preview);
+
+    const notes = new TextRenderable(renderer, {
+        id: "question-notes",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: "auto",
+        marginTop: 1,
+        flexShrink: 0,
+        wrapMode: "word",
+        visible: false,
+    });
+
     details.add(detailsText);
-    details.add(choicesColumn);
+    details.add(choicesRow);
+    details.add(notes);
 
     const choiceAction = new TextRenderable(renderer, {
         id: "question-choice-action",
@@ -202,6 +260,36 @@ export function createTuiQuestionView(
         });
         choicesColumn.add(other);
         choiceRows.push(other);
+        renderPreview(update);
+        renderNotes();
+    }
+
+    /** The highlighted choice's own rendering, when it brought one. */
+    function renderPreview(update: UserQuestionUiRequestUpdate): void {
+        const content = update.request.choices[selectedIndex]?.preview;
+        preview.visible = content !== undefined;
+        previewText.content = content ?? "";
+    }
+
+    function renderNotes(): void {
+        notes.visible = enteringNotes || notesText.length > 0;
+        notes.content = enteringNotes
+            ? `Notes: ${notesText}▌`
+            : `Notes: ${notesText}`;
+    }
+
+    /**
+     * Two columns need room for both. Below that the preview keeps its box but
+     * takes the full width under the choices, which is the same fallback the
+     * approval panel makes for a predicate its row cannot hold: content that
+     * does not fit moves, it is not clipped away.
+     */
+    function applyLayout(): void {
+        const stacked = renderer.width < QUESTION_TWO_COLUMN_WIDTH;
+        choicesRow.flexDirection = stacked ? "column" : "row";
+        choicesColumn.width = stacked ? "100%" : "50%";
+        preview.marginLeft = stacked ? 0 : 2;
+        preview.marginTop = stacked ? 1 : 0;
     }
 
     const view: TuiQuestionView = {
@@ -221,6 +309,7 @@ export function createTuiQuestionView(
             bar.visible = questionChromeVisible(renderer);
             panel.paddingTop = questionBottomPadding(renderer);
             panel.paddingBottom = questionBottomPadding(renderer);
+            applyLayout();
             if (currentRequestId === update.requestId) {
                 return;
             }
@@ -228,6 +317,8 @@ export function createTuiQuestionView(
             selectedIndex = 0;
             enteringCustom = false;
             customText = "";
+            enteringNotes = false;
+            notesText = "";
             detailsText.content = update.request.question;
             choiceAction.content = questionChoiceHint(update);
             renderChoices(update);
@@ -238,6 +329,47 @@ export function createTuiQuestionView(
                 return { handled: false };
             }
             const count = update.request.choices.length + 1;
+            // Notes ride alongside a choice rather than replacing it, so the
+            // highlight stays where it is and ⏎ still answers.
+            if (enteringNotes) {
+                if (key.name === "escape" || notesBinding(key)) {
+                    enteringNotes = false;
+                    choiceAction.content = questionChoiceHint(update);
+                    renderNotes();
+                    return { handled: true };
+                }
+                if (key.name === "backspace") {
+                    notesText = [...notesText].slice(0, -1).join("");
+                    renderNotes();
+                    return { handled: true };
+                }
+                if (key.name === "return" || key.name === "enter") {
+                    const choice = update.request.choices[selectedIndex];
+                    return choice === undefined
+                        ? { handled: true }
+                        : {
+                            handled: true,
+                            response: selectedResponse(
+                                update,
+                                choice.id,
+                                notesText.trim(),
+                            ),
+                        };
+                }
+                const typed = key.sequence ?? key.name;
+                if (typed.length === 1) {
+                    notesText += typed;
+                    renderNotes();
+                    return { handled: true };
+                }
+                return { handled: false };
+            }
+            if (notesBinding(key) && !enteringCustom) {
+                enteringNotes = true;
+                choiceAction.content = "type notes · ⏎ answer · esc back ";
+                renderNotes();
+                return { handled: true };
+            }
             if (enteringCustom) {
                 if (key.name === "escape") {
                     enteringCustom = false;
@@ -356,6 +488,7 @@ export function applyTuiQuestionUpdate(
 function selectedResponse(
     update: UserQuestionUiRequestUpdate,
     choiceId: string,
+    notes?: string,
 ): UiResponseCommand {
     return {
         type: "ui_response",
@@ -364,6 +497,7 @@ function selectedResponse(
             type: "user_question",
             outcome: "selected",
             choiceId,
+            ...(notes === undefined || notes.length === 0 ? {} : { notes }),
         },
     };
 }
@@ -380,7 +514,12 @@ function customResponse(
 }
 
 function questionChoiceHint(update: UserQuestionUiRequestUpdate): string {
-    return `↑↓ move · 1-${update.request.choices.length} or ⏎ choose · other available `;
+    return `↑↓ move · 1-${update.request.choices.length} or ⏎ choose · tab notes `;
+}
+
+/** Tab is claimed through the table, so nothing else can quietly take it. */
+function notesBinding(key: TuiQuestionKey): boolean {
+    return tuiBindingId("question", key) === "write_notes";
 }
 
 function questionBottomPadding(renderer: RenderContext): number {

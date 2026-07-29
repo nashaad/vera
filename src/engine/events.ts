@@ -87,6 +87,8 @@ export interface ToolApprovalUiResponse {
 export interface UserQuestionChoice {
     readonly id: string;
     readonly label: string;
+    /** Shown verbatim in a monospace box beside the choices. */
+    readonly preview?: string;
 }
 
 export interface UserQuestionUiRequest {
@@ -99,6 +101,8 @@ export interface UserQuestionSelectedUiResponse {
     readonly type: "user_question";
     readonly outcome: "selected";
     readonly choiceId: string;
+    /** What the user typed alongside the choice, when they typed anything. */
+    readonly notes?: string;
 }
 
 export interface UserQuestionCancelledUiResponse {

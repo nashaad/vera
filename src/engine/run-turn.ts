@@ -1658,6 +1658,7 @@ async function resolveToolInteraction(
         output: JSON.stringify({
             choice_id: result.choice.id,
             label: result.choice.label,
+            ...(result.notes === undefined ? {} : { notes: result.notes }),
         }),
         isError: false,
     };

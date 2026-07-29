@@ -67,6 +67,7 @@ export interface UserQuestionOptions {
 export interface UserQuestionSelected {
     readonly outcome: "selected";
     readonly choice: UserQuestionChoice;
+    readonly notes?: string;
 }
 
 export interface UserQuestionCancelled {
@@ -989,9 +990,15 @@ function questionResult(
     const choice = request.choices.find(
         (candidate) => candidate.id === response.choiceId,
     );
-    return choice === undefined
-        ? undefined
-        : { outcome: "selected", choice: { ...choice } };
+    if (choice === undefined) {
+        return undefined;
+    }
+    const notes = response.notes?.trim();
+    return {
+        outcome: "selected",
+        choice: { ...choice },
+        ...(notes === undefined || notes.length === 0 ? {} : { notes }),
+    };
 }
 
 function abortedDenial(): ToolApprovalDenied {
