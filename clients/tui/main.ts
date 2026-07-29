@@ -1799,7 +1799,7 @@ export async function startTui(
                     renderState();
                     return;
                 }
-                settingsPicker = startTuiSessionPicker(family, currentId);
+                settingsPicker = startTuiSessionPicker(children, currentId);
                 focusActiveSurface();
                 renderState();
             }).catch((error) => {
