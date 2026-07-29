@@ -20,8 +20,10 @@ export interface ModelRequestSnapshot {
     readonly messages: readonly ModelMessage[];
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions: ProjectInstructionSnapshot;
+    readonly disabledPromptContributions?: readonly string[];
     readonly signal: AbortSignal;
 }
 
@@ -63,8 +65,16 @@ export function projectModelRequest(
     const prompt = projectSystemPrompt({
         tools,
         workspace: snapshot.workspace,
+        ...(snapshot.scratchDir === undefined
+            ? {}
+            : { scratchDir: snapshot.scratchDir }),
         date: snapshot.date,
         projectInstructions: snapshot.projectInstructions,
+        ...(snapshot.disabledPromptContributions === undefined
+            ? {}
+            : {
+                disabledContributions: snapshot.disabledPromptContributions,
+            }),
     });
     const request = Object.freeze({
         ...(snapshot.provider === undefined ? {} : { provider: snapshot.provider }),

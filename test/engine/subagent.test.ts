@@ -627,3 +627,48 @@ test("aborting the parent signal cancels the child turn", async () => {
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("a subagent inherits the parent's scratch directory in its prompt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-scratch-"));
+    const childRequests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            childRequests.push(request);
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: {
+                    role: "assistant",
+                    content: [{ type: "text", text: "done" }],
+                    source: { provider: "faux", api: "test", model: "test" },
+                    usage: emptyUsage(),
+                    stopReason: "stop",
+                },
+            });
+            return stream;
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        scratchDir: "/tmp/vera/parent-session",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        await applyEffect({
+            type: "spawn_subagent",
+            description: "child task",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            model: "test",
+        });
+
+        expect(childRequests[0]?.systemPrompt).toContain(
+            "/tmp/vera/parent-session",
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
