@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
 import {
@@ -21,7 +19,10 @@ import {
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
-import { runHeadlessLoop } from "../engine/run-turn.ts";
+import {
+    runHeadlessLoop,
+    sessionScratchDir,
+} from "../engine/run-turn.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
@@ -766,7 +767,7 @@ export class AgentRegistry {
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
-            scratchDir: join(tmpdir(), "vera", store.header.id),
+            scratchDir: sessionScratchDir(store.header.id),
             ...(this.options.disabledPromptContributions === undefined
                 ? {}
                 : {

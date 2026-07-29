@@ -800,3 +800,14 @@ test("a path escaping the scratch directory keeps its outside scope", () => {
     );
     expect(decision.behavior).not.toBe("allow");
 });
+
+test("the session scratch dir is canonical so realpathed tool paths match it", async () => {
+    const { sessionScratchDir } = await import("../../src/engine/run-turn.ts");
+    const { realpathSync, rmSync } = await import("node:fs");
+    const dir = sessionScratchDir("scratch-canonical-test");
+    try {
+        expect(realpathSync(dir)).toBe(dir);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

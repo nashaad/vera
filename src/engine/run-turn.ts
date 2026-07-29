@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -250,6 +250,19 @@ export interface RunHeadlessLoopOptions {
     readonly disabledPromptContributions?: readonly string[];
 }
 
+/**
+ * Creates the session's scratch directory and returns its canonical path.
+ * Canonical because permission checks compare realpath-resolved tool paths
+ * against it, and macOS spells the temp dir through a symlink. Synchronous
+ * so session startup keeps its event order: an extra await lets a client's
+ * first prompt race the initial history checkpoint.
+ */
+export function sessionScratchDir(sessionId: string): string {
+    const dir = join(tmpdir(), "vera", sessionId);
+    mkdirSync(dir, { recursive: true });
+    return realpathSync(dir);
+}
+
 export async function runHeadlessLoop(
     endpoint: MessageChannel<AgentUpdate, EngineCommand>,
     adapter: ModelAdapter,
@@ -287,10 +300,7 @@ export async function runHeadlessLoop(
             : await SessionStore.open(options.resumeSessionPath)
     );
     const sessionId = store.header.id;
-    // Synchronous so session startup keeps its event order: an extra await
-    // here lets a client's first prompt race the initial history checkpoint.
-    const scratchDir = join(tmpdir(), "vera", sessionId);
-    mkdirSync(scratchDir, { recursive: true });
+    const scratchDir = sessionScratchDir(sessionId);
     if (
         (options.readApprovalMode === undefined)
         !== (options.updateApprovalMode === undefined)
