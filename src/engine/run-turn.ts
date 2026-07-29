@@ -146,7 +146,10 @@ export interface RunTurnState {
      */
     readonly modelContext?: () => readonly ModelMessage[];
     readonly contextWatch?: ContextWatch;
-    readonly compact?: (signal: AbortSignal) => Promise<void>;
+    readonly compact?: (
+        signal: AbortSignal,
+        pendingMessages?: readonly ModelMessage[],
+    ) => Promise<void>;
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
     readonly inbound: InboundCommandRouter;
@@ -441,11 +444,14 @@ export async function runHeadlessLoop(
                 settings?.model ?? model,
             );
     };
-    // A fresh reading over the context as it stands now. The last request's
-    // measurement is already short by the response it produced; only its
-    // fixed overhead (system prompt, tools, instructions) is still true, so
-    // that part is carried over and the messages are counted again.
-    const measureContextNow = (): ContextMeasurement => {
+    // A fresh reading over the next context, including a user prompt that has
+    // passed attachment validation but is not durable yet. Without that
+    // pending message, one large prompt can jump from below the trigger to
+    // beyond the provider's window. The last request's fixed overhead (system
+    // prompt, tools, instructions) is carried over because it remains true.
+    const measureContextNow = (
+        pendingMessages: readonly ModelMessage[] = [],
+    ): ContextMeasurement => {
         const watched = contextWatch.measurement;
         const overhead = watched === undefined
             ? 0
@@ -456,7 +462,10 @@ export async function runHeadlessLoop(
             );
         const capacity = compactionCapacity();
         return {
-            tokens: measureMessages(store.modelContext()) + overhead,
+            tokens: measureMessages([
+                ...store.modelContext(),
+                ...pendingMessages,
+            ]) + overhead,
             ...(capacity === undefined ? {} : { capacity }),
             estimated: true,
         };
@@ -466,8 +475,9 @@ export async function runHeadlessLoop(
         : async (
             signal: AbortSignal,
             force = false,
+            pendingMessages: readonly ModelMessage[] = [],
         ): Promise<void> => {
-            const measurement = measureContextNow();
+            const measurement = measureContextNow(pendingMessages);
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
@@ -521,7 +531,14 @@ export async function runHeadlessLoop(
         store,
         modelContext: () => store.modelContext(),
         contextWatch,
-        ...(runCompaction === undefined ? {} : { compact: runCompaction }),
+        ...(runCompaction === undefined
+            ? {}
+            : {
+                compact: (
+                    signal: AbortSignal,
+                    pendingMessages: readonly ModelMessage[] = [],
+                ) => runCompaction(signal, false, pendingMessages),
+            }),
         deliveryInbox: store,
         toolRuntime: new ToolRuntime(store.header.cwd),
         inbound,
@@ -684,7 +701,10 @@ export async function runTurn(
         // are drained, so nothing pending disappears into a projection that
         // was assembled without it.
         if (state.compact !== undefined) {
-            await state.compact(turn.signal);
+            await state.compact(
+                turn.signal,
+                userMessage === undefined ? [] : [userMessage],
+            );
         }
         if (userMessage === undefined) {
             state.events.emit({ type: "delivery_turn_started" });
