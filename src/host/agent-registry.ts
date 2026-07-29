@@ -31,6 +31,7 @@ import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
 import {
     createSubagentEffectApplier,
     resolveSpawnModelChoice,
+    type SpawnModelDefault,
 } from "../engine/subagent.ts";
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
@@ -176,6 +177,8 @@ export interface AgentRegistryOptions {
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly disabledPromptContributions?: readonly string[];
+    /** What a spawn with no model override runs on; absent, the parent model. */
+    readonly subagentModel?: SpawnModelDefault;
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -781,6 +784,9 @@ export class AgentRegistry {
             ...(this.options.readPins === undefined
                 ? {}
                 : { readPins: this.options.readPins }),
+            ...(this.options.subagentModel === undefined
+                ? {}
+                : { subagentModel: this.options.subagentModel }),
             relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
                 this.relayChildToolApproval(
                     entry,
@@ -954,6 +960,7 @@ export class AgentRegistry {
             effect,
             context,
             this.options.readPins,
+            this.options.subagentModel,
         );
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };

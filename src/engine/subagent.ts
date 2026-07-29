@@ -51,6 +51,14 @@ export interface CreateSubagentEffectApplierOptions {
     readonly extensionTools?: readonly RegisteredTool[];
     /** Makes the spawn tools' model override resolvable; absent, it is refused. */
     readonly readPins?: () => readonly PinnedModel[];
+    /** What a spawn with no model override runs on; absent, the parent model. */
+    readonly subagentModel?: SpawnModelDefault;
+}
+
+export interface SpawnModelDefault {
+    readonly provider?: string;
+    readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 export type SpawnModelResolution =
@@ -68,22 +76,34 @@ export type SpawnModelResolution =
  * An override must name a pinned model: the pin list is the user's curated
  * working set, it carries its own provider, and it is short enough to hand back
  * whole in a refusal, so a wrong guess corrects itself on the next call. With
- * no override the child runs the parent's settings unchanged.
+ * no override the child runs the configured subagent default when there is
+ * one, and the parent's settings otherwise: inheriting silently multiplies
+ * whatever the parent costs across the whole fan-out.
  */
 export function resolveSpawnModelChoice(
     effect: { readonly model?: string; readonly reasoningEffort?: string },
     context: ToolEffectContext,
     readPins?: () => readonly PinnedModel[],
+    subagentModel?: SpawnModelDefault,
 ): SpawnModelResolution {
     if (effect.model === undefined) {
-        const reasoningEffort = effect.reasoningEffort
-            ?? context.reasoningEffort;
-        return {
-            ok: true,
+        const inherited: SpawnModelDefault = subagentModel ?? {
             ...(context.provider === undefined
                 ? {}
                 : { provider: context.provider }),
             model: context.model,
+            ...(context.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: context.reasoningEffort }),
+        };
+        const reasoningEffort = effect.reasoningEffort
+            ?? inherited.reasoningEffort;
+        return {
+            ok: true,
+            ...(inherited.provider === undefined
+                ? {}
+                : { provider: inherited.provider }),
+            model: inherited.model,
             ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         };
     }
@@ -185,6 +205,7 @@ export function createSubagentEffectApplier(
             effect,
             context,
             options.readPins,
+            options.subagentModel,
         );
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };

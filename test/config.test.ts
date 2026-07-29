@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     configuredReviewer,
+    configuredSubagentModel,
     loadOptionalVeraConfig,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -50,6 +51,43 @@ test("the optional load tolerates absence but not damage", () => {
     }));
     expect(loadOptionalVeraConfig({ path: present })?.model)
         .toBe("anthropic/example-model");
+});
+
+test("Vera config carries a subagent default model", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        subagent: {
+            provider: "openrouter",
+            model: "  openai/gpt-luna-medium  ",
+            reasoning_effort: "medium",
+        },
+    }));
+
+    const config = loadVeraConfig({ path });
+    expect(config.subagent).toEqual({
+        provider: "openrouter",
+        model: "openai/gpt-luna-medium",
+        reasoning_effort: "medium",
+    });
+    expect(configuredSubagentModel(config)).toEqual({
+        provider: "openrouter",
+        model: "openai/gpt-luna-medium",
+        reasoningEffort: "medium",
+    });
+});
+
+test("a damaged subagent block fails the load rather than being dropped", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        subagent: { model: "   " },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow();
 });
 
 test("Vera config selects OpenAI Codex", () => {
