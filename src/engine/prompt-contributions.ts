@@ -101,12 +101,14 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             input.scratchDir === undefined ? null : {
                 title: "Scratch directory",
                 content: `Disposable per-session scratch directory: ${input.scratchDir}\n`
-                    + "Use it instead of /tmp for temporary files: intermediate "
-                    + "results, generated scripts, and working notes. For "
-                    + "multi-step tasks, keep a todo.md there and re-read it "
-                    + "after context compaction. The directory is deleted by "
-                    + "the operating system; never store anything you need to "
-                    + "keep.",
+                    + "Use it instead of /tmp for temporary files and working "
+                    + "notes.\n"
+                    + "For tasks with more than a couple of steps, keep your "
+                    + "todo list as todo.md here (the file is the list, chat "
+                    + "is optional): create it when you start, check items "
+                    + "off as you go, re-read it after compaction.\n"
+                    + "The OS deletes this directory; keep nothing you need "
+                    + "later.",
             },
     },
     {
