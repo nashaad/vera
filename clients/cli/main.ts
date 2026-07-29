@@ -79,6 +79,11 @@ export async function runCli(
         return 0;
     }
 
+    if (args.length === 1 && args[0] === "-c") {
+        await runTui({ type: "continue" }, tuiOptions);
+        return 0;
+    }
+
     if (
         args.length === 2
         && args[0] === "attach"

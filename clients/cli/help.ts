@@ -5,6 +5,7 @@ export interface CliCommandHelp {
 
 export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera", description: "Start a new agent in the current directory" },
+    { usage: "vera -c", description: "Continue the most recent session" },
     { usage: "vera ls", description: "List live resident agents" },
     { usage: "vera attach <agent-id>", description: "Attach to a live agent" },
     { usage: "vera resume <session-id|path>", description: "Resume a durable session" },

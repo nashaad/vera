@@ -2,10 +2,12 @@ import {
     BoxRenderable,
     CliRenderEvents,
     decodePasteBytes,
+    fg,
     MarkdownRenderable,
     ScrollBoxRenderable,
     stripAnsiSequences,
     SyntaxStyle,
+    StyledText,
     TextRenderable,
     createCliRenderer,
     KeyEvent,
@@ -119,6 +121,7 @@ import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import {
     countRunningBackgroundAgents,
+    renderBackgroundAgentNames,
     renderTuiStatusDetailsLine,
 } from "./status.ts";
 import {
@@ -187,6 +190,7 @@ import {
 } from "./preferences-list.ts";
 import {
     resolveResumeTarget,
+    resolveContinueTarget,
     type TuiStartTarget,
 } from "./session-target.ts";
 export type {
@@ -203,6 +207,7 @@ import {
 } from "./timeline-picker.ts";
 import {
     TUI_ACCENT,
+    TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
     TUI_TEXT,
@@ -251,6 +256,14 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
+
+function truncateFooterLine(text: string, width: number): string {
+    const characters = Array.from(text);
+    const limit = Math.max(1, width);
+    return characters.length <= limit
+        ? text
+        : `${characters.slice(0, limit - 1).join("").trimEnd()}…`;
+}
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
@@ -367,7 +380,9 @@ export async function startConfiguredTui(
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
     });
-    const resolvedTarget = target.type === "resume"
+    const resolvedTarget = target.type === "continue"
+        ? resolveContinueTarget(await listAgentsThroughHost(host.socket_path))
+        : target.type === "resume"
         ? resolveResumeTarget(
             await listAgentsThroughHost(host.socket_path),
             target.sessionPath,
@@ -481,7 +496,6 @@ export async function startTui(
     const activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
     let theme = await resolveTuiTheme(renderer, themeName);
     applyTuiTheme(theme);
-    renderer.setBackgroundColor(theme.background);
 
     let state = createTuiState();
     let connectionFailed = false;
@@ -591,6 +605,8 @@ export async function startTui(
     let extensionCommandsLoading =
         dependencies.client.listExtensionCommands !== undefined;
     let runningBackgroundAgents = 0;
+    let runningBackgroundAgentNames = "";
+    let currentAgentHasParent = false;
     let backgroundAgentRefreshPending = false;
     let pendingSessionRename: {
         readonly requestId: string;
@@ -767,7 +783,6 @@ export async function startTui(
         left: 1,
         bottom: 1,
         zIndex: 30,
-        bg: theme.background,
     });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
@@ -780,7 +795,6 @@ export async function startTui(
         left: 1,
         bottom: 0,
         zIndex: 30,
-        bg: theme.background,
     });
 
     const queuedPromptText = new TextRenderable(renderer, {
@@ -3973,14 +3987,11 @@ export async function startTui(
         }
         theme = resolvedTheme;
         applyTuiTheme(theme);
-        renderer.setBackgroundColor(theme.background);
         clearTranscriptNodes();
         markdownStyle.destroy();
         markdownStyle = createMarkdownStyle(theme);
 
         placeholder.fg = theme.muted;
-        statusText.bg = theme.background;
-        backgroundStatusText.bg = theme.background;
         backgroundStatusText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
         commandSuggestionsText.fg = theme.text;
@@ -4134,13 +4145,67 @@ export async function startTui(
                 ? TUI_ACCENT
                 : TUI_MUTED;
         const statusLine = statusNotice ?? lifecycleHint;
-        backgroundStatusText.content = renderTuiStatusDetailsLine(
+        const statusDetailsLine = renderTuiStatusDetailsLine(
             state.modelSettings,
             state.approvalMode,
             state.context,
             process.cwd(),
-            runningBackgroundAgents,
+            0,
         );
+        const runningNames = runningBackgroundAgentNames === ""
+            ? []
+            : runningBackgroundAgentNames
+                .split("\n")
+                .map((name) =>
+                    truncateFooterLine(
+                        name,
+                        Math.min(72, renderer.width - 8),
+                    )
+                );
+        const agentSection = currentAgentHasParent
+            ? ["/parent to return"]
+            : runningNames.length === 0
+                ? []
+                : [
+                    `${runningNames.length} subagent${
+                        runningNames.length === 1 ? "" : "s"
+                    } running · /subagents to attach`,
+                    ...runningNames,
+                ];
+        const agentHeader = agentSection[0] ?? "";
+        const animatedAgentHeader = runningNames.length === 0
+            ? new StyledText([fg(TUI_MUTED)(agentHeader)])
+            : renderTuiActivityAnimation(
+                activityAnimation,
+                activityFrame(),
+                agentHeader,
+                {
+                    active: TUI_ACCENT,
+                    trail: VERA_TUI_THEME.success,
+                    inactive: TUI_ELEMENT,
+                    text: TUI_MUTED,
+                },
+                activityAnimationWidth,
+            );
+        backgroundStatusText.content = agentSection.length === 0
+            ? statusDetailsLine
+            : new StyledText([
+                fg(TUI_MUTED)(`${statusDetailsLine}\n`),
+                fg(TUI_ELEMENT)(
+                    `${"·".repeat(Math.max(1, renderer.width - 4))}\n`,
+                ),
+                ...animatedAgentHeader.chunks,
+                fg(TUI_MUTED)(
+                    agentSection.length === 1
+                        ? ""
+                        : `\n${agentSection.slice(1).join("\n")}`,
+                ),
+            ]);
+        backgroundStatusText.height = agentSection.length === 0
+            ? 1
+            : 2 + agentSection.length;
+        statusText.bottom = backgroundStatusText.height;
+        composerBox.marginBottom = 1 + backgroundStatusText.height;
         statusText.content = state.working
                 && statusNotice === undefined
                 && pendingUiRequest === undefined
@@ -4166,7 +4231,7 @@ export async function startTui(
 
     async function refreshBackgroundAgentCount(): Promise<void> {
         if (
-            dependencies.getRunningBackgroundAgentCount === undefined
+            dependencies.listAgents === undefined
             || backgroundAgentRefreshPending
             || shuttingDown
         ) {
@@ -4174,15 +4239,30 @@ export async function startTui(
         }
         backgroundAgentRefreshPending = true;
         try {
-            const nextCount =
-                await dependencies.getRunningBackgroundAgentCount();
-            if (!shuttingDown && nextCount !== runningBackgroundAgents) {
+            const agents = await dependencies.listAgents();
+            const nextCount = countRunningBackgroundAgents(agents);
+            const nextNames = renderBackgroundAgentNames(
+                agents,
+                client.agentId,
+            );
+            const nextHasParent = agents.some((agent) =>
+                agent.id === client.agentId && agent.parent_id !== undefined,
+            );
+            if (!shuttingDown && (nextCount !== runningBackgroundAgents
+                || nextNames !== runningBackgroundAgentNames
+                || nextHasParent !== currentAgentHasParent)) {
                 runningBackgroundAgents = nextCount;
+                runningBackgroundAgentNames = nextNames;
+                currentAgentHasParent = nextHasParent;
                 renderStatus();
             }
         } catch {
-            if (!shuttingDown && runningBackgroundAgents !== 0) {
+            if (!shuttingDown && (runningBackgroundAgents !== 0
+                || runningBackgroundAgentNames !== ""
+                || currentAgentHasParent)) {
                 runningBackgroundAgents = 0;
+                runningBackgroundAgentNames = "";
+                currentAgentHasParent = false;
                 renderStatus();
             }
         } finally {
@@ -4191,7 +4271,15 @@ export async function startTui(
     }
 
     function observeActivity(update: AgentUpdate): void {
-        if (update.type === "model_activity") {
+        if (update.type === "status" && update.state === "working") {
+            workingSince ??= Date.now();
+            phaseSince ??= workingSince;
+            activity = "thinking";
+        } else if (update.type === "status" && update.state === "waiting") {
+            workingSince ??= Date.now();
+            phaseSince = undefined;
+            activity = "waiting";
+        } else if (update.type === "model_activity") {
             workingSince ??= Date.now();
             activity = `retrying ${update.model}`;
         } else if (update.type === "user_prompt") {
