@@ -296,7 +296,13 @@ export class AgentRegistry {
                 options.sessionPath
                     ?? this.options.sessionPathForId?.(id)
                     ?? defaultSessionPath(id),
-                { sessionId: id, cwd: workspace },
+                {
+                    sessionId: id,
+                    cwd: workspace,
+                    ...(inherited?.parentId === undefined
+                        ? {}
+                        : { parentId: inherited.parentId }),
+                },
             );
             if (inherited !== undefined) {
                 await store.appendApprovalMode(inherited.approvalMode);
@@ -324,7 +330,15 @@ export class AgentRegistry {
         this.reserveId(store.header.id);
         try {
             this.requireOpen();
-            return this.start(store, "interactive", options.eventLogPath);
+            const parentId = store.header.parentId;
+            return parentId === undefined
+                ? this.start(store, "interactive", options.eventLogPath)
+                : this.start(
+                    store,
+                    "background",
+                    options.eventLogPath,
+                    parentId,
+                );
         } finally {
             this.startingIds.delete(store.header.id);
         }
@@ -662,6 +676,7 @@ export class AgentRegistry {
                         ? {}
                         : { forked_from: entry.store.header.origin.sessionId }),
                     ...(entry.parentId === undefined
+                            || !this.agents.has(entry.parentId)
                         ? {}
                         : { parent_id: entry.parentId }),
                     updated_at: entry.store.agentFailure()?.timestamp

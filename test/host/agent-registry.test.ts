@@ -1321,6 +1321,95 @@ test("an async subagent returns immediately and delivers its final summary", asy
     }
 });
 
+test("a resumed async subagent keeps its parent across restarts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-parent-resume-"));
+    let adapterNumber = 0;
+    const buildRegistry = () => new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "start-background",
+                            name: "async_subagent",
+                            input: { description: "Run the integration tests" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("I started the background work."),
+                    textResponse("I incorporated the background result."),
+                ]);
+            }
+            return new FauxAdapter([
+                textResponse("All integration tests pass."),
+            ]);
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    const registry = buildRegistry();
+    let childId: string;
+    try {
+        const parent = await registry.create({ id: "parent", workspace: root });
+        const parentAttachment = parent.attach();
+        expect((await parentAttachment.receive()).type).toBe("history");
+        parentAttachment.send({
+            type: "update_permissions",
+            requestId: "inherit-permissions",
+            mode: "full_access",
+        });
+        expect(await receivePermissions(parentAttachment)).toMatchObject({
+            mode: "full_access",
+            pending: false,
+        });
+        await runPrompt(
+            parentAttachment,
+            "Run tests in the background",
+            false,
+        );
+        await waitForTaskNotification(parentAttachment);
+        await finishTurnText(parentAttachment);
+        childId = registry.list()
+            .find((agent) => agent.id !== "parent")!.id;
+    } finally {
+        await registry.close();
+    }
+
+    const childSession = join(root, `${childId}.jsonl`);
+    expect((await SessionStore.open(childSession)).header.parentId)
+        .toBe("parent");
+
+    const orphanRegistry = buildRegistry();
+    try {
+        await orphanRegistry.resume({ sessionPath: childSession });
+        const orphan = orphanRegistry.list()
+            .find((agent) => agent.id === childId);
+        expect(orphan).toMatchObject({ kind: "background" });
+        expect(orphan?.parent_id).toBeUndefined();
+
+        await orphanRegistry.resume({
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        expect(orphanRegistry.list().find((agent) => agent.id === childId))
+            .toMatchObject({ kind: "background", parent_id: "parent" });
+    } finally {
+        await orphanRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a parent and async subagent exchange durable messages", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-messages-"));
     const parentSession = join(root, "parent.jsonl");
