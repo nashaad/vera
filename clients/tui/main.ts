@@ -2877,7 +2877,7 @@ export async function startTui(
                 || sessionTrashConfirmView.box.visible
                 || sessionRenamePromptView.box.visible
                 || secretPromptView.box.visible
-            ? 0.35
+            ? 0.2
             : 1;
         composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
