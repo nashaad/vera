@@ -135,6 +135,41 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     ]);
 });
 
+test("compaction preflight includes the pending user prompt", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const store = new InMemorySessionStore();
+    let pendingMessages: readonly ModelMessage[] | undefined;
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        modelContext: () => store.messages,
+        compact: async (_signal, pending) => {
+            pendingMessages = pending;
+        },
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "large incoming prompt" });
+    await runTurn(new FauxAdapter([response]), "test", state);
+
+    expect(pendingMessages).toEqual([{
+        role: "user",
+        content: [{ type: "text", text: "large incoming prompt" }],
+    }]);
+});
+
 test("a thinking-only stop becomes a visible durable model error", async () => {
     const response: AssistantMessage = {
         role: "assistant",
