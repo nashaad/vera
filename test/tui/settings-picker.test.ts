@@ -1023,9 +1023,76 @@ test("⇥ moves to All models, which lists what can run", async () => {
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // And back, since with two tabs one key is enough for both directions.
-    expect(handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state?.tab)
+    // The cycle continues through Top picks and returns to Pinned.
+    const topTab = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state;
+    expect(topTab?.tab).toBe("top");
+    expect(handleTuiSettingsPickerKey(topTab!, { name: "tab" }).state?.tab)
         .toBe("pinned");
+});
+
+test("top picks bundle an effort and gray out unconnected providers", () => {
+    const state = startTuiSettingsPicker(
+        "model",
+        undefined,
+        undefined,
+        undefined,
+        [{
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            label: "Kimi K3",
+            description: "runnable",
+        }],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [
+            {
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                label: "Kimi K3",
+                description: "verified generalist",
+                reasoningEffort: "medium",
+                available: true,
+            },
+            {
+                provider: "cerebras",
+                model: "gpt-oss-120b",
+                label: "GPT-OSS 120B",
+                description: "fast inference",
+                reasoningEffort: "medium",
+                available: false,
+            },
+        ],
+    );
+    const topTab = handleTuiSettingsPickerKey(
+        { ...state, tab: "all" },
+        { name: "tab" },
+    ).state!;
+
+    expect(topTab.tab).toBe("top");
+    expect(topTab.options.map((option) => option.label))
+        .toEqual(["Kimi K3", "GPT-OSS 120B"]);
+    // The runnable pick selects as a whole choice, model plus effort.
+    const chosen = handleTuiSettingsPickerKey(topTab, { name: "return" });
+    expect(chosen.selection).toEqual({
+        kind: "model",
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        reasoningEffort: "medium",
+    });
+    // The grayed pick does not answer Enter: its provider is not connected.
+    const onGrayed = { ...topTab, selectedIndex: 1 };
+    expect(handleTuiSettingsPickerKey(onGrayed, { name: "return" }).selection)
+        .toBeUndefined();
+    // Top-pick rows stay off the All tab, which lists what can run.
+    const allTab = handleTuiSettingsPickerKey(
+        { ...state, tab: "pinned" },
+        { name: "tab" },
+    ).state!;
+    expect(allTab.tab).toBe("all");
+    expect(allTab.options.map((option) => option.label))
+        .not.toContain("GPT-OSS 120B");
 });
 
 test("no model appears twice, because a pin is a mark on its own row", () => {
