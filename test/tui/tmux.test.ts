@@ -27,6 +27,8 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 home,
                 "test/support/tui-child.ts",
+                100,
+                36,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/help");
@@ -1442,8 +1444,10 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).not.toContain("approval required ·");
             expect(pane).not.toContain("gpt-5.6-sol");
 
+            // Down moves the highlight across the answers, so the details
+            // scroll by page.
             for (let index = 0; index < 20; index += 1) {
-                sendKey(socket, session, "Down");
+                sendKey(socket, session, "NPage");
             }
             pane = await waitForVisiblePane(
                 socket,

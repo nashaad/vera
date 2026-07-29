@@ -82,6 +82,14 @@ export interface OpenResumePickerTuiCommandAction {
     readonly type: "open_resume_picker";
 }
 
+export interface OpenSubagentsPickerTuiCommandAction {
+    readonly type: "open_subagents_picker";
+}
+
+export interface GoToParentTuiCommandAction {
+    readonly type: "go_to_parent";
+}
+
 export interface ReconnectTuiCommandAction {
     readonly type: "reconnect";
 }
@@ -135,6 +143,8 @@ export type TuiCommandAction =
     | PrefillComposerTuiCommandAction
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
+    | OpenSubagentsPickerTuiCommandAction
+    | GoToParentTuiCommandAction
     | ReconnectTuiCommandAction
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
@@ -184,6 +194,8 @@ export interface TuiCommandDefinition {
         | OpenCommandPaletteTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
+        | OpenSubagentsPickerTuiCommandAction
+        | GoToParentTuiCommandAction
         | ReconnectTuiCommandAction
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction
@@ -247,6 +259,18 @@ const RESUME_COMMAND = {
     usage: "/resume",
 } as const satisfies TuiCommandCatalogEntry;
 
+const SUBAGENTS_COMMAND = {
+    name: "subagents",
+    description: "List this conversation's subagents",
+    usage: "/subagents",
+} as const satisfies TuiCommandCatalogEntry;
+
+const PARENT_COMMAND = {
+    name: "parent",
+    description: "Switch to the parent conversation",
+    usage: "/parent",
+} as const satisfies TuiCommandCatalogEntry;
+
 const RECONNECT_COMMAND = {
     name: "reconnect",
     description: "Restart the host and reconnect this conversation",
@@ -292,6 +316,8 @@ export const BUILTIN_COMMANDS = [
     SETTINGS_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
+    SUBAGENTS_COMMAND,
+    PARENT_COMMAND,
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
@@ -620,6 +646,30 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "resume",
             action: { type: "open_resume_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...SUBAGENTS_COMMAND,
+        action: { type: "open_subagents_picker" },
+        palette: {
+            name: "subagents",
+            label: "List subagents",
+            description: "see and open this conversation's subagents",
+            group: "Session",
+            slashName: "subagents",
+            action: { type: "open_subagents_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...PARENT_COMMAND,
+        action: { type: "go_to_parent" },
+        palette: {
+            name: "parent",
+            label: "Go to parent conversation",
+            description: "jump back to the conversation that spawned this one",
+            group: "Session",
+            slashName: "parent",
+            action: { type: "go_to_parent" },
         },
     });
     registry.registerCommand({
