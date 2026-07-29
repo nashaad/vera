@@ -135,6 +135,7 @@ import {
     startTuiProviderPicker,
     tuiPickerMenuAncestor,
     withTuiPickerParent,
+    type TuiTopPickRow,
     type TuiSettingsMenuTarget,
     type TuiAnySettingsPickerState,
     type TuiSettingsPickerState,
@@ -142,6 +143,7 @@ import {
     type TuiExtensionPickerAction,
     type TuiExtensionPickerTransition,
 } from "./settings-picker.ts";
+import { loadTopPicks, type TopPick } from "../../src/model/top-picks.ts";
 import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
@@ -2354,6 +2356,7 @@ export async function startTui(
                     settingsPicker = syncTuiModelPicker(
                         settingsPicker,
                         state.modelSettings,
+                        topPickRows(),
                     );
                 }
                 if (update.type === "permissions" && preferencesList !== undefined) {
@@ -3016,9 +3019,40 @@ export async function startTui(
             state.modelSettings?.provider,
             undefined,
             state.modelSettings?.pinned,
+            topPickRows(),
         ), parent);
         renderState();
         focusActiveSurface();
+    }
+
+    /**
+     * The shipped suggestions with availability resolved against the runnable
+     * list, which is credential-gated at discovery: a pick whose model the
+     * host cannot reach right now shows grayed rather than vanishing. Read
+     * per open rather than cached, since connecting a provider mid-session
+     * changes the answer.
+     */
+    function topPickRows(): readonly TuiTopPickRow[] {
+        let picks: readonly TopPick[];
+        try {
+            picks = loadTopPicks();
+        } catch {
+            return [];
+        }
+        const runnable = state.modelSettings?.availableModels ?? [];
+        return picks.map((pick) => ({
+            provider: pick.provider,
+            model: pick.model,
+            label: pick.label,
+            description: pick.description,
+            ...(pick.reasoning_effort === undefined
+                ? {}
+                : { reasoningEffort: pick.reasoning_effort }),
+            available: runnable.some((candidate) =>
+                candidate.provider === pick.provider
+                    && candidate.model === pick.model
+            ),
+        }));
     }
 
     // The current model's own levels, looked up off the wire rather than a

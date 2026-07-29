@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "top_picks": [
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna",
+      "reasoning_effort": "medium",
+      "description": "fast general model at low cost; a good subagent default"
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-3-haiku",
+      "label": "Claude 3 Haiku",
+      "reasoning_effort": "low",
+      "description": "cheap and quick for mechanical edits and summaries"
+    },
+    {
+      "provider": "openrouter",
+      "model": "moonshotai/kimi-k3",
+      "label": "Kimi K3",
+      "reasoning_effort": "medium",
+      "description": "strong open-weight generalist, verified with Vera tools"
+    },
+    {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.2",
+      "label": "GLM-5.2",
+      "reasoning_effort": "medium",
+      "description": "capable open-weight coder, verified with Vera tools"
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "reasoning_effort": "high",
+      "description": "deep reasoning at open-weight prices, verified with Vera tools"
+    },
+    {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "reasoning_effort": "high",
+      "description": "frontier coding model for the main session"
+    },
+    {
+      "provider": "cerebras",
+      "model": "gpt-oss-120b",
+      "label": "GPT-OSS 120B",
+      "reasoning_effort": "medium",
+      "description": "very fast inference for latency-sensitive loops"
+    }
+  ]
+}
