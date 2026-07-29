@@ -806,6 +806,9 @@ function validatePickerRequest(request: VeraClientPickerRequest): void {
         || request === null
         || typeof request.title !== "string"
         || request.title.trim().length === 0
+        || (request.subtitle !== undefined
+            && (typeof request.subtitle !== "string"
+                || request.subtitle.trim().length === 0))
         || !Array.isArray(request.rows)
         || request.rows.length === 0
         || !Array.isArray(request.actions)

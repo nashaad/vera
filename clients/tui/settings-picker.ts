@@ -198,6 +198,7 @@ export interface TuiExtensionPickerState {
     readonly selectedIndex: number;
     readonly query: "";
     readonly title: string;
+    readonly subtitle?: string;
     readonly selectedId?: string;
     readonly extensionRows: readonly TuiExtensionPickerRow[];
     readonly extensionActions: readonly TuiExtensionPickerAction[];
@@ -669,6 +670,7 @@ export function startTuiExtensionPicker(
     rows: readonly TuiExtensionPickerRow[],
     selectedId: string | undefined = undefined,
     actions: readonly TuiExtensionPickerAction[] = [],
+    subtitle: string | undefined = undefined,
 ): TuiExtensionPickerState {
     const options = rows.map((row) => ({
         value: row.id,
@@ -685,6 +687,7 @@ export function startTuiExtensionPicker(
         ),
         query: "",
         title,
+        ...(subtitle === undefined ? {} : { subtitle }),
         ...(selectedId === undefined ? {} : { selectedId }),
         extensionRows: rows,
         extensionActions: actions,
@@ -1204,7 +1207,8 @@ export function tuiPickerViewportRows(
 ): number {
     return pickerMaxRows(
         renderer,
-        state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0,
+        (state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0)
+            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
     );
 }
 
@@ -1249,6 +1253,19 @@ function renderListPickerRows(
     );
     box.add(header);
     nodes.push(header);
+    let subtitleLines = 0;
+    if (!searchable && state.subtitle !== undefined) {
+        const subtitleNode = new TextRenderable(renderer, {
+            content: state.subtitle,
+            fg: TUI_MUTED,
+            width: "100%",
+            height: 2,
+            paddingLeft: 1,
+        });
+        box.add(subtitleNode);
+        nodes.push(subtitleNode);
+        subtitleLines = 1;
+    }
     if (searchable) {
         const search = dialogSearchNode(renderer, state.query);
         box.add(search);
@@ -1264,7 +1281,10 @@ function renderListPickerRows(
     const rows = windowedDisplayRows(
         listDisplayRows(state),
         state.selectedIndex,
-        pickerMaxRows(renderer, tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT),
+        pickerMaxRows(
+            renderer,
+            (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines,
+        ),
     );
     let lines = 0;
     if (rows.length === 0) {
@@ -1335,7 +1355,8 @@ function renderListPickerRows(
     box.add(footer);
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
-        + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT);
+        + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
+        + subtitleLines;
 }
 
 // The strip itself plus the blank line under it.

@@ -72,6 +72,28 @@ test("TUI status line identifies host-reported provider-default reasoning", () =
     );
 });
 
+test("TUI status line prefixes the model with a compact provider label", () => {
+    expect(renderTuiStatusDetailsLine(
+        { model: "gpt-5.6-sol", provider: "cerebras", reasoningEffort: "high" },
+        "auto",
+        undefined,
+        "/workspace",
+    )).toBe(
+        "cerebras/gpt-5.6-sol · reasoning high · /workspace · auto",
+    );
+});
+
+test("TUI status line omits the provider prefix for an unrecognized provider id", () => {
+    expect(renderTuiStatusDetailsLine(
+        { model: "gpt-5.6-sol", provider: "unknown-provider", reasoningEffort: "high" },
+        "auto",
+        undefined,
+        "/workspace",
+    )).toBe(
+        "gpt-5.6-sol · reasoning high · /workspace · auto",
+    );
+});
+
 test("TUI status does not guess settings while the host query is pending", () => {
     expect(renderTuiStatusDetailsLine(
         undefined,
