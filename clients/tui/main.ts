@@ -1759,6 +1759,109 @@ export async function startTui(
             });
             return;
         }
+        if (commandAction?.type === "open_subagents_picker") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            if (dependencies.listAgents === undefined) {
+                state = appendTuiNotice(state, "Session listing is unavailable");
+                renderState();
+                return;
+            }
+            const version = ++resumeListVersion;
+            settingsPicker = startTuiSessionPicker(
+                [],
+                client.agentId,
+                true,
+            );
+            focusActiveSurface();
+            renderState();
+            void dependencies.listAgents().then((agents) => {
+                if (
+                    shuttingDown
+                    || version !== resumeListVersion
+                    || settingsPicker?.kind !== "session"
+                ) {
+                    return;
+                }
+                const currentId = client.agentId;
+                // The current session rides along so its children thread
+                // beneath it instead of floating as flat orphan rows.
+                const family = agents.filter((agent) =>
+                    agent.id === currentId || agent.parent_id === currentId
+                );
+                if (!family.some((agent) => agent.parent_id === currentId)) {
+                    settingsPicker = undefined;
+                    state = appendTuiNotice(
+                        state,
+                        "This conversation has no subagents",
+                    );
+                    focusActiveSurface();
+                    renderState();
+                    return;
+                }
+                settingsPicker = startTuiSessionPicker(family, currentId);
+                focusActiveSurface();
+                renderState();
+            }).catch((error) => {
+                if (
+                    !shuttingDown
+                    && version === resumeListVersion
+                    && settingsPicker?.kind === "session"
+                ) {
+                    const message = error instanceof Error
+                        ? error.message
+                        : String(error);
+                    state = appendTuiNotice(
+                        state,
+                        `Could not list sessions: ${message}`,
+                    );
+                    settingsPicker = undefined;
+                    focusActiveSurface();
+                    renderState();
+                }
+            });
+            return;
+        }
+        if (commandAction?.type === "go_to_parent") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            if (dependencies.listAgents === undefined) {
+                state = appendTuiNotice(state, "Session listing is unavailable");
+                renderState();
+                return;
+            }
+            void dependencies.listAgents().then((agents) => {
+                if (shuttingDown) {
+                    return;
+                }
+                const current = agents.find(
+                    (agent) => agent.id === client.agentId,
+                );
+                const parent = current?.parent_id === undefined
+                    ? undefined
+                    : agents.find((agent) => agent.id === current.parent_id);
+                if (parent === undefined) {
+                    state = appendTuiNotice(
+                        state,
+                        "This conversation has no parent",
+                    );
+                    renderState();
+                    return;
+                }
+                beginSessionResume(parent.session_path, parent.id);
+            }).catch((error) => {
+                if (shuttingDown) return;
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                state = appendTuiNotice(
+                    state,
+                    `Could not find the parent conversation: ${message}`,
+                );
+                renderState();
+            });
+            return;
+        }
         if (commandAction?.type === "reconnect") {
             composer.clearComposer();
             const currentAgentId = client.agentId;
