@@ -45,6 +45,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "model_activity") {
+        return parseModelActivity(value, update);
+    }
     if (update.type === "compaction") {
         return (update.phase === "started" || update.phase === "finished")
                 && typeof update.strategy === "string"
@@ -224,6 +227,35 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function parseModelActivity(
+    value: unknown,
+    update: Record<string, unknown>,
+): AgentUpdate | undefined {
+    if (
+        typeof update.model !== "string"
+        || update.model.length === 0
+        || !isPositiveInteger(update.maxAttempts)
+    ) {
+        return undefined;
+    }
+    const failure = asRecord(update.failure);
+    return update.phase === "retrying"
+            && isPositiveInteger(update.nextAttempt)
+            && (update.nextAttempt as number) <= (update.maxAttempts as number)
+            && Number.isSafeInteger(update.delayMs)
+            && (update.delayMs as number) >= 0
+            && typeof update.retryAt === "string"
+            && !Number.isNaN(Date.parse(update.retryAt))
+            && failure !== undefined
+            && isProviderFailureKind(failure?.kind)
+            && (failure.statusCode === undefined
+                || (Number.isSafeInteger(failure.statusCode)
+                    && (failure.statusCode as number) >= 100
+                    && (failure.statusCode as number) <= 599))
+        ? value as AgentUpdate
+        : undefined;
 }
 
 function isToolPresentation(value: unknown): boolean {
@@ -623,6 +655,24 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function isSequence(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+    return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+function isProviderFailureKind(value: unknown): boolean {
+    return value === "connection"
+        || value === "timeout"
+        || value === "rate_limit"
+        || value === "server"
+        || value === "authentication"
+        || value === "payment_required"
+        || value === "permission"
+        || value === "invalid_request"
+        || value === "not_found"
+        || value === "request_too_large"
+        || value === "unknown";
 }
 
 function isOptionalCount(value: unknown): boolean {

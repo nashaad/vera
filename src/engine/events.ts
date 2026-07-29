@@ -228,6 +228,7 @@ export interface ModelRetryScheduledEvent {
     readonly type: "model_retry_scheduled";
     readonly model: string;
     readonly nextAttempt: number;
+    readonly maxAttempts: number;
     readonly delayMs: number;
     readonly failure: ProviderFailure;
 }

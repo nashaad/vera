@@ -78,6 +78,7 @@ import {
     createTuiQuestionView,
 } from "./question.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
+import { renderTuiDiagnostics } from "./diagnostics.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
@@ -1511,6 +1512,21 @@ export async function startTui(
         }
         if (commandAction?.type === "command_error") {
             state = appendTuiNotice(state, commandAction.message);
+            renderState();
+            return;
+        }
+        if (commandAction?.type === "show_diagnostics") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            state = appendTuiNotice(state, renderTuiDiagnostics({
+                state,
+                activity,
+                elapsed: elapsedWorkingTime(),
+                sessionId: client.agentId,
+                workspace: client.workspace ?? process.cwd(),
+                runningBackgroundAgents,
+            }));
             renderState();
             return;
         }
@@ -3949,7 +3965,14 @@ export async function startTui(
         } else if (pendingUiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
-            lifecycleHint = `${activity} · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
+            const modelActivity = state.modelActivity;
+            const waitingToRetry = modelActivity !== undefined
+                && Date.parse(modelActivity.retryAt) > Date.now();
+            lifecycleHint = waitingToRetry
+                ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
+                    + ` · ${elapsedWorkingTime()} · ${WORKING_HINT}`
+                : `${modelActivity === undefined ? activity : "thinking"}`
+                    + ` · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
         } else if (pendingImages.some((image) => image.id === undefined)) {
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
@@ -4030,7 +4053,10 @@ export async function startTui(
     }
 
     function observeActivity(update: AgentUpdate): void {
-        if (update.type === "user_prompt") {
+        if (update.type === "model_activity") {
+            workingSince ??= Date.now();
+            activity = `retrying ${update.model}`;
+        } else if (update.type === "user_prompt") {
             workingSince ??= Date.now();
             phaseSince = Date.now();
             activity = "thinking";

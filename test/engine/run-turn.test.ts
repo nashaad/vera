@@ -681,7 +681,7 @@ test("a length stop preserves streamed text and continues with a larger cap", as
     });
 });
 
-test("a transient model failure retries only in the engine event log", async () => {
+test("a transient model failure reports its retry to attached clients", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-recovery-"));
     temporaryWorkspaces.push(workspace);
     const logPath = join(workspace, "events.jsonl");
@@ -749,14 +749,26 @@ test("a transient model failure retries only in the engine event log", async () 
     await expectUserPrompt(channel, "recover", 1);
     await expectContextMeasured(channel, 2);
 
-    expect(await channel.client.receive()).toEqual({
-        type: "assistant_delta",
-        text: "recovered",
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_activity",
+        phase: "retrying",
+        model: "test",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        failure: {
+            kind: "connection",
+        },
         seq: 3,
     });
     expect(await channel.client.receive()).toEqual({
-        type: "turn_finished",
+        type: "assistant_delta",
+        text: "recovered",
         seq: 4,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "turn_finished",
+        seq: 5,
     });
     expect(await turn).toEqual(response);
     expect(attempts).toBe(2);
