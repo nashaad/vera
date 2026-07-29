@@ -1,4 +1,11 @@
-import { renderD2, type D2CharacterSet } from "./render.ts";
+import {
+    DEFAULT_MAX_WIDTH,
+    renderD2,
+    type D2CharacterSet,
+} from "./render.ts";
+
+const MIN_MAX_WIDTH = 20;
+const MAX_MAX_WIDTH = 500;
 
 interface ExtensionApi {
     readonly tools: {
@@ -40,6 +47,15 @@ export function activate(vera: ExtensionApi): void {
                     description: "Unicode box drawing by default; use ASCII "
                         + "only when maximum terminal portability is needed.",
                 },
+                max_width: {
+                    type: "integer",
+                    minimum: MIN_MAX_WIDTH,
+                    maximum: MAX_MAX_WIDTH,
+                    default: DEFAULT_MAX_WIDTH,
+                    description: "Maximum terminal columns for the rendered "
+                        + "diagram. Wide diagrams return guidance for making "
+                        + "the layout more compact.",
+                },
             },
             required: ["source"],
             additionalProperties: false,
@@ -48,11 +64,14 @@ export function activate(vera: ExtensionApi): void {
         async run({ input, workspace, signal }) {
             const source = requiredSource(input.source);
             const characterSet = parseCharacterSet(input.character_set);
+            const maxWidth = parseMaxWidth(input.max_width);
             const result = await renderD2(
                 source,
                 characterSet,
                 workspace,
                 signal,
+                undefined,
+                maxWidth,
             );
             return result.isError
                 ? result
@@ -82,4 +101,22 @@ function parseCharacterSet(value: unknown): D2CharacterSet {
         return value;
     }
     throw new Error("render_d2 character_set must be unicode or ascii");
+}
+
+function parseMaxWidth(value: unknown): number {
+    if (value === undefined) {
+        return DEFAULT_MAX_WIDTH;
+    }
+    if (
+        typeof value === "number"
+        && Number.isInteger(value)
+        && value >= MIN_MAX_WIDTH
+        && value <= MAX_MAX_WIDTH
+    ) {
+        return value;
+    }
+    throw new Error(
+        `render_d2 max_width must be an integer from ${MIN_MAX_WIDTH} to `
+            + MAX_MAX_WIDTH,
+    );
 }

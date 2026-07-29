@@ -31,6 +31,14 @@ test("manifest and entrypoint register a model-visible D2 tool", async () => {
         inputSchema: {
             required: ["source"],
             additionalProperties: false,
+            properties: {
+                max_width: {
+                    type: "integer",
+                    default: 120,
+                    minimum: 20,
+                    maximum: 500,
+                },
+            },
         },
     });
 });
@@ -65,6 +73,41 @@ test("renderer returns D2 syntax errors to the model", async () => {
         renderD2("{", "ascii", "/workspace", signal, execute),
     ).resolves.toEqual({
         output: "err: failed to compile: unexpected token",
+        isError: true,
+    });
+});
+
+test("renderer rejects diagrams wider than the terminal budget", async () => {
+    const execute: ExecuteD2 = async () => ({
+        stdout: `┌${"─".repeat(120)}┐\n`,
+        stderr: "",
+        exitCode: 0,
+    });
+
+    await expect(
+        renderD2("wide", "unicode", "/workspace", signal, execute),
+    ).resolves.toEqual({
+        output: "D2 produced a 122-column diagram, exceeding the 120-column "
+            + "limit. Use a vertical layout (`direction: down`), shorten "
+            + "labels, or split the diagram.",
+        isError: true,
+    });
+});
+
+test("renderer accepts a caller-supplied terminal budget", async () => {
+    const execute: ExecuteD2 = async () => ({
+        stdout: "界".repeat(60),
+        stderr: "",
+        exitCode: 0,
+    });
+
+    await expect(
+        renderD2("wide", "unicode", "/workspace", signal, execute, 120),
+    ).resolves.toMatchObject({ isError: false });
+    await expect(
+        renderD2("wide", "unicode", "/workspace", signal, execute, 100),
+    ).resolves.toMatchObject({
+        output: expect.stringContaining("120-column diagram"),
         isError: true,
     });
 });
@@ -108,7 +151,11 @@ test("renderer bounds source and output returned to model context", async () => 
     let calls = 0;
     const execute: ExecuteD2 = async () => {
         calls += 1;
-        return { stdout: "x".repeat(31_000), stderr: "", exitCode: 0 };
+        return {
+            stdout: `${"x".repeat(100)}\n`.repeat(310),
+            stderr: "",
+            exitCode: 0,
+        };
     };
 
     const oversizedSource = await renderD2(
@@ -182,4 +229,35 @@ test("successful tool calls publish the rendered diagram for clients", async () 
         kind: "tool_notice",
         text: result.output,
     });
+});
+
+test("tool calls can override the default terminal width", async () => {
+    if (Bun.which("d2") === null) return;
+    let run: ((request: {
+        readonly input: Readonly<Record<string, unknown>>;
+        readonly workspace: string;
+        readonly signal: AbortSignal;
+    }) => Promise<{ readonly output: string; readonly isError?: boolean }>)
+        | undefined;
+    activate({
+        tools: {
+            register(spec) {
+                run = spec.run;
+            },
+        },
+    });
+    if (run === undefined) throw new Error("render_d2 was not registered");
+
+    const result = await run({
+        input: {
+            source: "\"a very long source label\" -> "
+                + "\"a very long target label\"",
+            max_width: 20,
+        },
+        workspace: process.cwd(),
+        signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("20-column limit");
 });
