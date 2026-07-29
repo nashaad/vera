@@ -108,6 +108,8 @@ export function createTuiApprovalView(
     let expanded = false;
     /** Whether the cap is holding anything back, which is what ctrl+r is for. */
     let capped = false;
+    /** Whether the row is wide enough to carry the predicate it would remember. */
+    let scopeInline = true;
 
     const bar = new BoxRenderable(renderer, {
         id: "approval-bar",
@@ -223,7 +225,7 @@ export function createTuiApprovalView(
             const node = new TextRenderable(renderer, {
                 content: new StyledText([
                     fg(active ? TUI_BACKGROUND : TUI_MUTED)(
-                        ` ${action.key} ${approvalRowLabel(update, action)} `,
+                        approvalRowText(update, action, scopeInline),
                     ),
                 ]),
                 bg: active ? TUI_NOTICE : TUI_PANEL,
@@ -241,7 +243,7 @@ export function createTuiApprovalView(
     }
 
     function renderBody(update: ToolApprovalUiRequestUpdate): void {
-        const body = tuiApprovalBody(update, expanded);
+        const body = tuiApprovalBody(update, expanded, scopeInline);
         capped = expanded || body.hidden > 0;
         detailsText.content = new StyledText(
             body.lines.flatMap((line, index) => [
@@ -297,6 +299,7 @@ export function createTuiApprovalView(
                 ? "100%"
                 : "90%";
             box.left = approvalSideInset(renderer);
+            const inline = scopeFitsRow(renderer, update);
             bar.visible = approvalChromeVisible(renderer);
             headerText.visible = approvalHeaderVisible(renderer);
             content.paddingTop = approvalTopPadding(renderer);
@@ -304,9 +307,16 @@ export function createTuiApprovalView(
             details.marginTop = approvalDetailsMargin(renderer);
             hints.visible = renderer.width >= 60;
             if (currentRequestId === update.requestId) {
+                // A resize can take the predicate off the row or give it back.
+                if (inline !== scopeInline) {
+                    scopeInline = inline;
+                    renderBody(update);
+                    renderChrome(update);
+                }
                 return;
             }
             currentRequestId = update.requestId;
+            scopeInline = inline;
             selectedKey = "1";
             expanded = false;
             renderBody(update);
@@ -383,6 +393,43 @@ function approvalSideInset(renderer: RenderContext): number {
     return approvalChromeVisible(renderer) ? 2 : 0;
 }
 
+/**
+ * The share of the panel one answer may take before the strip of answers stops
+ * reading as a strip. The remembering row is the only one that grows, and it
+ * grows by a whole path.
+ */
+const APPROVAL_ROW_WIDTH_SHARE = 3;
+
+/**
+ * Whether the remembering row can carry its predicate. A long path pushes the
+ * later answers onto further rows, and the same predicate stated once in the
+ * body reads better than answers in a grid, so the label gives it up rather
+ * than eliding it into a claim narrower than what would be stored.
+ */
+function scopeFitsRow(
+    renderer: RenderContext,
+    update: ToolApprovalUiRequestUpdate,
+): boolean {
+    if (grantScope(update) === undefined) {
+        return true;
+    }
+    const row = APPROVAL_ROWS.find((action) => action.key === "2");
+    if (row === undefined) {
+        return true;
+    }
+    return approvalRowText(update, row, true).length
+        <= renderer.width / APPROVAL_ROW_WIDTH_SHARE;
+}
+
+/** A button's own cell: its digit, its label, and the padding around them. */
+function approvalRowText(
+    update: ToolApprovalUiRequestUpdate,
+    action: (typeof APPROVAL_ROWS)[number],
+    inlineScope: boolean,
+): string {
+    return ` ${action.key} ${approvalRowLabel(update, action, inlineScope)} `;
+}
+
 export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
     const reason = specificReason(update.request.reason);
     return [
@@ -405,10 +452,11 @@ export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
 function approvalRowLabel(
     update: ToolApprovalUiRequestUpdate,
     action: (typeof APPROVAL_ROWS)[number],
+    inlineScope = true,
 ): string {
     // Both remembering rows share the predicate, so it is written once, on the
     // first one that offers it.
-    if (action.key !== "2") {
+    if (action.key !== "2" || !inlineScope) {
         return action.label;
     }
     const scope = grantScope(update);
