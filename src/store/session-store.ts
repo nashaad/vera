@@ -35,6 +35,8 @@ export interface SessionHeader {
     readonly timestamp: string;
     readonly cwd: string;
     readonly origin?: SessionOrigin;
+    /** Session ID of the agent that spawned this one as a subagent. */
+    readonly parentId?: string;
 }
 
 export interface SessionOrigin {
@@ -182,6 +184,7 @@ export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
     readonly origin?: SessionOrigin;
+    readonly parentId?: string;
     readonly now?: () => Date;
     readonly createId?: () => string;
 }
@@ -288,6 +291,9 @@ export class SessionStore {
             ...(options.origin === undefined
                 ? {}
                 : { origin: validSessionOrigin(options.origin) }),
+            ...(options.parentId === undefined
+                ? {}
+                : { parentId: nonEmpty(options.parentId, "session parent ID") }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -1427,6 +1433,8 @@ function parseHeader(path: string, line: string | undefined): SessionHeader {
         || typeof value.cwd !== "string"
         || value.cwd.length === 0
         || (value.origin !== undefined && !isSessionOrigin(value.origin))
+        || (value.parentId !== undefined
+            && (typeof value.parentId !== "string" || value.parentId.length === 0))
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }
