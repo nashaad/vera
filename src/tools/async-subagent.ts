@@ -14,11 +14,11 @@ export const asyncSubagentTool: RegisteredTool = {
                 description: { type: "string" },
                 model: {
                     type: "string",
-                    description: "Model id for the subagent, on this agent's provider. Defaults to this agent's model.",
+                    description: "A pinned model id to run the subagent on. Defaults to this agent's model.",
                 },
                 reasoning_effort: {
                     type: "string",
-                    description: "Reasoning effort for the subagent. Defaults to this agent's effort.",
+                    description: "Reasoning effort for the subagent, from the chosen model's levels. Defaults to this agent's effort.",
                 },
             },
             required: ["description"],

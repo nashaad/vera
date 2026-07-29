@@ -27,7 +27,12 @@ import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
-import type { ApplyToolEffect, RegisteredTool } from "../tools/types.ts";
+import type {
+    ApplyToolEffect,
+    RegisteredTool,
+    ToolEffectContext,
+} from "../tools/types.ts";
+import type { PinnedModel } from "../model/catalog-view.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
@@ -44,6 +49,85 @@ export interface CreateSubagentEffectApplierOptions {
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly maxConcurrentChildren?: number;
     readonly extensionTools?: readonly RegisteredTool[];
+    /** Makes the spawn tools' model override resolvable; absent, it is refused. */
+    readonly readPins?: () => readonly PinnedModel[];
+}
+
+export type SpawnModelResolution =
+    | {
+        readonly ok: true;
+        readonly provider?: string;
+        readonly model: string;
+        readonly reasoningEffort?: ModelReasoningEffort;
+    }
+    | { readonly ok: false; readonly error: string };
+
+/**
+ * Turns a spawn tool's optional model override into runnable settings.
+ *
+ * An override must name a pinned model: the pin list is the user's curated
+ * working set, it carries its own provider, and it is short enough to hand back
+ * whole in a refusal, so a wrong guess corrects itself on the next call. With
+ * no override the child runs the parent's settings unchanged.
+ */
+export function resolveSpawnModelChoice(
+    effect: { readonly model?: string; readonly reasoningEffort?: string },
+    context: ToolEffectContext,
+    readPins?: () => readonly PinnedModel[],
+): SpawnModelResolution {
+    if (effect.model === undefined) {
+        const reasoningEffort = effect.reasoningEffort
+            ?? context.reasoningEffort;
+        return {
+            ok: true,
+            ...(context.provider === undefined
+                ? {}
+                : { provider: context.provider }),
+            model: context.model,
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        };
+    }
+    const pins = readPins?.() ?? [];
+    if (pins.length === 0) {
+        return {
+            ok: false,
+            error: "No models are pinned, so a model override cannot be used. Omit model to run this agent's model.",
+        };
+    }
+    const pin = pins.find((candidate) => candidate.model === effect.model);
+    if (pin === undefined) {
+        return {
+            ok: false,
+            error: `Model "${effect.model}" is not pinned. Pinned models: ${
+                pins.map((candidate) => candidate.model).join(", ")
+            }.`,
+        };
+    }
+    if (!pin.available) {
+        return {
+            ok: false,
+            error: `Pinned model "${pin.model}" is not available right now.`,
+        };
+    }
+    if (effect.reasoningEffort !== undefined) {
+        const levels = pin.levels.map((level) => level.id);
+        if (!levels.includes(effect.reasoningEffort)) {
+            return {
+                ok: false,
+                error: levels.length === 0
+                    ? `Model "${pin.model}" has no reasoning control; omit reasoning_effort.`
+                    : `Model "${pin.model}" does not support reasoning_effort "${effect.reasoningEffort}". Available: ${levels.join(", ")}.`,
+            };
+        }
+    }
+    return {
+        ok: true,
+        provider: pin.provider,
+        model: pin.model,
+        ...(effect.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: effect.reasoningEffort }),
+    };
 }
 
 export interface RunSubagentOptions {
@@ -97,20 +181,23 @@ export function createSubagentEffectApplier(
                 isError: true,
             };
         }
+        const resolved = resolveSpawnModelChoice(
+            effect,
+            context,
+            options.readPins,
+        );
+        if (!resolved.ok) {
+            return { kind: "output", output: resolved.error, isError: true };
+        }
         activeChildren += 1;
         const sessionId = randomUUID();
-        // An override rides the parent's provider; the parent's effort is not
-        // carried onto a different model, where it may not be supported.
-        const model = effect.model ?? context.model;
-        const reasoningEffort = effect.reasoningEffort
-            ?? (effect.model === undefined ? context.reasoningEffort : undefined);
         try {
             const result = await runSubagent({
                 adapter: options.adapter,
-                ...(context.provider === undefined
+                ...(resolved.provider === undefined
                     ? {}
-                    : { provider: context.provider }),
-                model,
+                    : { provider: resolved.provider }),
+                model: resolved.model,
                 description: effect.description,
                 workspace: options.workspace,
                 ...(options.scratchDir === undefined
@@ -127,9 +214,9 @@ export function createSubagentEffectApplier(
                 ...(options.relayToolApproval === undefined
                     ? {}
                     : { relayToolApproval: options.relayToolApproval }),
-                ...(reasoningEffort === undefined
+                ...(resolved.reasoningEffort === undefined
                     ? {}
-                    : { reasoningEffort }),
+                    : { reasoningEffort: resolved.reasoningEffort }),
                 ...(options.modelFallback === undefined
                     ? {}
                     : { modelFallback: options.modelFallback }),
