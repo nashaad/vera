@@ -81,8 +81,11 @@ export async function startResidentHost(
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
     const eventLogDirectory = options.eventLogDirectory;
+    // One store for the host, so a sign-in from anywhere is the same fact to
+    // every agent it is running.
+    const authStorage = options.authStorage ?? createAuthStorage();
     const models = options.createAdapter === undefined
-        ? await discoverAvailableModels(options.config)
+        ? await discoverAvailableModels(options.config, authStorage)
         : configuredCatalog(options.config);
     // Opened once per host, not per agent: the file is per-user. A malformed
     // or missing file reads as no preferences rather than failing startup, so
@@ -90,9 +93,6 @@ export async function startResidentHost(
     const permissionPreferences = await PermissionPreferenceStore.open(
         options.permissionPreferencesPath,
     );
-    // One store for the host, so a sign-in from anywhere is the same fact to
-    // every agent it is running.
-    const authStorage = options.authStorage ?? createAuthStorage();
     const extensions = await startExtensionRegistry({
         extensions: options.config.extensions ?? [],
         ...(options.onExtensionFailure === undefined
@@ -220,6 +220,7 @@ export async function startResidentHost(
 
 async function discoverAvailableModels(
     config: VeraConfig,
+    authStorage: AuthStorage,
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
     try {
@@ -276,6 +277,7 @@ async function discoverAvailableModels(
         }
         catalog.push(...openrouter);
     }
+    catalog.push(...await discoveredCerebrasModels(config, { authStorage }));
     catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -288,6 +290,81 @@ async function discoverAvailableModels(
         });
     }
     return catalog;
+}
+
+export interface CerebrasDiscoveryOptions {
+    readonly authStorage?: Pick<AuthStorage, "getCredential">;
+    readonly fetch?: (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => Promise<Response>;
+}
+
+export async function discoveredCerebrasModels(
+    config: VeraConfig,
+    options: CerebrasDiscoveryOptions = {},
+): Promise<readonly SuggestedModel[]> {
+    if (
+        config.provider !== "cerebras"
+        && !hasProviderCredential("cerebras", options.authStorage)
+        && !process.env.CEREBRAS_API_KEY
+    ) {
+        return [];
+    }
+    try {
+        const fetchImplementation = options.fetch ?? globalThis.fetch;
+        const response = await fetchImplementation(
+            "https://api.cerebras.ai/public/v1/models",
+            { signal: AbortSignal.timeout(2_000) },
+        );
+        if (!response.ok) return [];
+        return cerebrasModels(await response.json());
+    } catch {
+        // Discovery enriches the picker; it must never block host startup.
+        return [];
+    }
+}
+
+export function cerebrasModels(value: unknown): readonly SuggestedModel[] {
+    const body = typeof value === "object" && value !== null
+        ? value as { data?: unknown }
+        : undefined;
+    if (!Array.isArray(body?.data)) return [];
+    return body.data.flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const model = entry as {
+            id?: unknown;
+            name?: unknown;
+            description?: unknown;
+            limits?: { max_context_length?: unknown };
+        };
+        if (typeof model.id !== "string" || model.id.length === 0) return [];
+        const contextWindow = model.limits?.max_context_length;
+        return [{
+            provider: "cerebras",
+            model: model.id,
+            label: typeof model.name === "string" ? model.name : model.id,
+            description: typeof model.description === "string"
+                ? model.description
+                : "",
+            ...(typeof contextWindow === "number"
+                    && Number.isSafeInteger(contextWindow)
+                    && contextWindow > 0
+                ? { contextWindow }
+                : {}),
+        }];
+    });
+}
+
+function hasProviderCredential(
+    provider: string,
+    authStorage?: Pick<AuthStorage, "getCredential">,
+): boolean {
+    try {
+        return authStorage?.getCredential(provider) !== undefined;
+    } catch {
+        return false;
+    }
 }
 
 /**

@@ -45,6 +45,14 @@ export interface ProviderDescriptor {
  */
 export const PROVIDERS: readonly ProviderDescriptor[] = [
     {
+        id: "cerebras",
+        label: "Cerebras",
+        group: "popular",
+        credential: "api_key",
+        hint: "API key",
+        envVar: "CEREBRAS_API_KEY",
+    },
+    {
         id: "openai-codex",
         label: "OpenAI Codex",
         group: "popular",

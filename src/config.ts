@@ -39,7 +39,11 @@ import {
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
-export type VeraProviderId = "openrouter" | "openai-codex" | "ollama";
+export type VeraProviderId =
+    | "openrouter"
+    | "openai-codex"
+    | "ollama"
+    | "cerebras";
 
 export interface VeraModelFallbackConfig {
     readonly model: string;
@@ -145,7 +149,7 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, an optional non-empty reasoning_effort string, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, ollama, or cerebras, a non-empty model string, an optional non-empty reasoning_effort string, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
         );
     }
     const extensionDirectory = options.extensionDirectory
@@ -331,7 +335,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || (config.provider !== undefined
             && config.provider !== "openrouter"
             && config.provider !== "openai-codex"
-            && config.provider !== "ollama")
+            && config.provider !== "ollama"
+            && config.provider !== "cerebras")
         || typeof config.model !== "string"
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined
@@ -461,7 +466,8 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         || (reviewer.provider !== undefined
             && reviewer.provider !== "openrouter"
             && reviewer.provider !== "openai-codex"
-            && reviewer.provider !== "ollama")
+            && reviewer.provider !== "ollama"
+            && reviewer.provider !== "cerebras")
         || (reviewer.reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.reasoning_effort))
         || (reviewer.timeout_ms !== undefined
