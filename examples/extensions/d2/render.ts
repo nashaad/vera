@@ -1,6 +1,7 @@
 const MAX_SOURCE_CHARACTERS = 50_000;
 const MAX_OUTPUT_CHARACTERS = 30_000;
 const D2_TIMEOUT_SECONDS = 8;
+export const DEFAULT_MAX_WIDTH = 120;
 
 export type D2CharacterSet = "unicode" | "ascii";
 
@@ -23,6 +24,7 @@ export async function renderD2(
     workspace: string,
     signal: AbortSignal,
     execute: ExecuteD2 = executeD2,
+    maxWidth = DEFAULT_MAX_WIDTH,
 ): Promise<{ readonly output: string; readonly isError: boolean }> {
     if (source.length > MAX_SOURCE_CHARACTERS) {
         return {
@@ -56,7 +58,22 @@ export async function renderD2(
     if (output.length === 0) {
         return { output: "D2 produced no diagram.", isError: true };
     }
+    const outputWidth = widestLine(output);
+    if (outputWidth > maxWidth) {
+        return {
+            output: `D2 produced a ${outputWidth}-column diagram, exceeding `
+                + `the ${maxWidth}-column limit. Use a vertical layout `
+                + "(`direction: down`), shorten labels, or split the diagram.",
+            isError: true,
+        };
+    }
     return { output: boundOutput(output), isError: false };
+}
+
+function widestLine(output: string): number {
+    return output
+        .split("\n")
+        .reduce((width, line) => Math.max(width, Bun.stringWidth(line)), 0);
 }
 
 function boundOutput(output: string): string {

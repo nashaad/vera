@@ -3,12 +3,14 @@
 An example extension that gives the model one terminal-diagram tool:
 
 ```text
-render_d2(source, character_set?)
+render_d2(source, character_set?, max_width?)
 ```
 
 The extension runs the local D2 CLI's text renderer and returns Unicode
-box-drawing output by default. It does not add a slash command or write diagram
-files into the workspace.
+box-drawing output by default. Diagrams have a 120-column width budget unless
+`max_width` specifies another value from 20 through 500. A diagram that exceeds
+the budget returns guidance for making its layout narrower. The extension does
+not add a slash command or write diagram files into the workspace.
 
 ## Requirements
 
