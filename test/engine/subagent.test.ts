@@ -166,6 +166,48 @@ test("subagent inherits the parent turn model and reasoning", async () => {
     }
 });
 
+test("a spawn model override replaces the parent model and drops its effort", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-override-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "small-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "use the override",
+            model: "small-model",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            model: "selected",
+            reasoningEffort: "high",
+        });
+
+        expect(request?.model).toBe("small-model");
+        expect(request?.reasoningEffort).toBeUndefined();
+        expect(result.isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("subagent tool approvals relay to the parent owner", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-approval-"));
     const outside = `${root}-outside.txt`;

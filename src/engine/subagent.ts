@@ -99,13 +99,18 @@ export function createSubagentEffectApplier(
         }
         activeChildren += 1;
         const sessionId = randomUUID();
+        // An override rides the parent's provider; the parent's effort is not
+        // carried onto a different model, where it may not be supported.
+        const model = effect.model ?? context.model;
+        const reasoningEffort = effect.reasoningEffort
+            ?? (effect.model === undefined ? context.reasoningEffort : undefined);
         try {
             const result = await runSubagent({
                 adapter: options.adapter,
                 ...(context.provider === undefined
                     ? {}
                     : { provider: context.provider }),
-                model: context.model,
+                model,
                 description: effect.description,
                 workspace: options.workspace,
                 ...(options.scratchDir === undefined
@@ -122,9 +127,9 @@ export function createSubagentEffectApplier(
                 ...(options.relayToolApproval === undefined
                     ? {}
                     : { relayToolApproval: options.relayToolApproval }),
-                ...(context.reasoningEffort === undefined
+                ...(reasoningEffort === undefined
                     ? {}
-                    : { reasoningEffort: context.reasoningEffort }),
+                    : { reasoningEffort }),
                 ...(options.modelFallback === undefined
                     ? {}
                     : { modelFallback: options.modelFallback }),

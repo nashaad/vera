@@ -16,11 +16,15 @@ export interface ToolOutput {
 export interface SpawnSubagentEffect {
     readonly type: "spawn_subagent";
     readonly description: string;
+    readonly model?: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 export interface SpawnAsyncSubagentEffect {
     readonly type: "spawn_async_subagent";
     readonly description: string;
+    readonly model?: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 export interface MessageSubagentEffect {
