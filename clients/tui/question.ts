@@ -184,6 +184,9 @@ export function createTuiQuestionView(
         height: "auto",
         maxHeight: 2,
         flexShrink: 0,
+        // The hints are a separate register from the answers, so they get a
+        // blank row rather than sitting against the last one.
+        marginTop: questionBottomPadding(renderer),
         flexDirection: "row",
         flexWrap: "wrap",
     });
@@ -309,6 +312,7 @@ export function createTuiQuestionView(
             bar.visible = questionChromeVisible(renderer);
             panel.paddingTop = questionBottomPadding(renderer);
             panel.paddingBottom = questionBottomPadding(renderer);
+            actions.marginTop = questionBottomPadding(renderer);
             applyLayout();
             if (currentRequestId === update.requestId) {
                 return;
