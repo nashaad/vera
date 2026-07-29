@@ -36,9 +36,14 @@ import {
 /**
  * The prompt takes the composer's slot at the bottom of the screen: a
  * notice-toned bar down the left edge, a "Permission required" header with the
- * reason, the exact call and its grant predicates in the body, and one row of
- * buttons. The buttons keep their digits, so the keys that always answered the
- * prompt still do; ←/→ and ⏎ select the same answers by highlight.
+ * reason, the exact call and its grant predicates in the body, and the answers
+ * as a column. The answers keep their digits, so the keys that always answered
+ * the prompt still do; ↑/↓ and ⏎ select the same answers by highlight.
+ *
+ * The answers stack. A row of them side by side was tried and read as a grid
+ * the moment one label grew or the terminal narrowed, and it disagreed with the
+ * question card, which stacks. Both cards stack, and the column leaves the
+ * right of the panel free.
  */
 const APPROVAL_ROWS = [
     { key: "1", label: "Allow once" },
@@ -100,7 +105,7 @@ export function createTuiApprovalView(
 ): TuiApprovalView {
     let currentRequestId: string | undefined;
     let lastUpdate: ToolApprovalUiRequestUpdate | undefined;
-    // Highlighted button for ←/→ and ⏎. Client-local: the engine only ever
+    // Highlighted answer for ↑/↓ and ⏎. Client-local: the engine only ever
     // sees the decision.
     let selectedKey: string = "1";
     // Whether the body is showing past its cap. Reset per request: an expanded
@@ -149,15 +154,12 @@ export function createTuiApprovalView(
     });
     details.add(detailsText);
 
-    // Narrow terminals wrap the buttons onto further rows rather than clipping
-    // an answer off the screen.
     const buttons = new BoxRenderable(renderer, {
         id: "approval-buttons",
+        width: "100%",
         height: "auto",
-        flexDirection: "row",
-        flexWrap: "wrap",
-        flexGrow: 1,
-        flexShrink: 1,
+        flexDirection: "column",
+        flexShrink: 0,
     });
     const hints = new TextRenderable(renderer, {
         id: "approval-hints",
@@ -173,8 +175,7 @@ export function createTuiApprovalView(
         height: "auto",
         marginTop: 1,
         flexShrink: 0,
-        flexDirection: "row",
-        justifyContent: "space-between",
+        flexDirection: "column",
     });
     actions.add(buttons);
     actions.add(hints);
@@ -230,9 +231,11 @@ export function createTuiApprovalView(
                 ]),
                 bg: active ? TUI_NOTICE : TUI_PANEL,
                 attributes: active ? 1 : 0,
+                width: "100%",
                 height: 1,
                 flexShrink: 0,
-                marginRight: 2,
+                wrapMode: "none",
+                overflow: "hidden",
             });
             if (available.includes(action.key)) {
                 attachDialogRowPointer(node, view.pointer, Number(action.key));
@@ -264,7 +267,7 @@ export function createTuiApprovalView(
             ...(reason === undefined ? [] : [fg(TUI_MUTED)(`\n${reason}`)]),
         ]);
         hints.content = new StyledText([
-            fg(TUI_TEXT)("left/right"),
+            fg(TUI_TEXT)("up/down"),
             fg(TUI_MUTED)(" select  "),
             fg(TUI_TEXT)("enter"),
             fg(TUI_MUTED)(" confirm  "),
@@ -333,10 +336,10 @@ export function createTuiApprovalView(
             if (key.ctrl || key.meta || key.shift) {
                 return { handled: false };
             }
-            if (key.name === "left" || key.name === "right") {
+            if (key.name === "up" || key.name === "down") {
                 const keys = selectableApprovalKeys(update);
                 const index = Math.max(0, keys.indexOf(selectedKey));
-                const next = key.name === "left"
+                const next = key.name === "up"
                     ? Math.max(0, index - 1)
                     : Math.min(keys.length - 1, index + 1);
                 if (keys[next] !== undefined && keys[next] !== selectedKey) {
@@ -394,17 +397,9 @@ function approvalSideInset(renderer: RenderContext): number {
 }
 
 /**
- * The share of the panel one answer may take before the strip of answers stops
- * reading as a strip. The remembering row is the only one that grows, and it
- * grows by a whole path.
- */
-const APPROVAL_ROW_WIDTH_SHARE = 3;
-
-/**
- * Whether the remembering row can carry its predicate. A long path pushes the
- * later answers onto further rows, and the same predicate stated once in the
- * body reads better than answers in a grid, so the label gives it up rather
- * than eliding it into a claim narrower than what would be stored.
+ * Whether the remembering row can carry its predicate. An answer that outruns
+ * its row is clipped, and a clipped path claims a scope narrower than what
+ * would be stored, so the label gives it up and the body states it instead.
  */
 function scopeFitsRow(
     renderer: RenderContext,
@@ -417,8 +412,14 @@ function scopeFitsRow(
     if (row === undefined) {
         return true;
     }
-    return approvalRowText(update, row, true).length
-        <= renderer.width / APPROVAL_ROW_WIDTH_SHARE;
+    const chrome = approvalChromeVisible(renderer) ? 1 : 0;
+    const padding = 4;
+    const available = renderer.width
+        - approvalSideInset(renderer)
+        - 1
+        - chrome
+        - padding;
+    return approvalRowText(update, row, true).length <= available;
 }
 
 /** A button's own cell: its digit, its label, and the padding around them. */
@@ -438,9 +439,8 @@ export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
         "",
         renderTuiApprovalDetails(update),
         "",
-        visibleApprovalRows(update)
-            .map((action) => `${action.key} ${approvalRowLabel(update, action)}`)
-            .join("  ·  "),
+        ...visibleApprovalRows(update)
+            .map((action) => `${action.key} ${approvalRowLabel(update, action)}`),
     ].join("\n");
 }
 

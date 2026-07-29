@@ -1784,12 +1784,12 @@ export async function startTui(
                     return;
                 }
                 const currentId = client.agentId;
-                // The current session rides along so its children thread
-                // beneath it instead of floating as flat orphan rows.
-                const family = agents.filter((agent) =>
-                    agent.id === currentId || agent.parent_id === currentId
+                // Children only: the row for the session already on screen
+                // would cost a keypress to step past on the way to a child.
+                const children = agents.filter(
+                    (agent) => agent.parent_id === currentId,
                 );
-                if (!family.some((agent) => agent.parent_id === currentId)) {
+                if (children.length === 0) {
                     settingsPicker = undefined;
                     state = appendTuiNotice(
                         state,

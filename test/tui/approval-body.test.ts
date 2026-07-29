@@ -163,7 +163,7 @@ test("a set of predicates is written out rather than summarized", () => {
             ],
         },
     };
-    expect(renderTuiApproval(many)).toContain("2 Session  ·");
+    expect(renderTuiApproval(many)).toContain("\n2 Session\n");
     expect(tuiApprovalBodyText(many)).toContain("Session and always remember:");
     // The tool name is implied by the executable, so it is not repeated.
     expect(tuiApprovalBodyText(many)).toContain("- wget");
