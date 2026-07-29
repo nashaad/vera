@@ -2,6 +2,7 @@ import type { VeraConfig } from "../config.ts";
 import { createOpenAICodexAdapter } from "./openai-codex.ts";
 import { createOpenRouterAdapter } from "./openrouter.ts";
 import { createOllamaAdapter } from "./ollama-openai.ts";
+import { createCerebrasAdapter } from "./cerebras-openai.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
 import { findProvider } from "./registry.ts";
@@ -24,6 +25,10 @@ const ADAPTERS: Readonly<Record<
     string,
     (options: ConfiguredProviderOptions) => ModelAdapter
 >> = {
+    cerebras: (options) => createCerebrasAdapter({
+        apiKey: requiredApiKey("cerebras", options),
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    }),
     "openai-codex": (options) => createOpenAICodexAdapter({
         ...(options.authStorage === undefined
             ? {}

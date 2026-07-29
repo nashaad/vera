@@ -1,6 +1,10 @@
 import type { ModelReasoningEffort } from "../model/types.ts";
 
-export type CatalogProviderId = "openrouter" | "openai-codex" | "ollama";
+export type CatalogProviderId =
+    | "openrouter"
+    | "openai-codex"
+    | "ollama"
+    | "cerebras";
 
 export interface VeraCatalogModel {
     readonly name: string;
@@ -304,7 +308,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isProvider(value: unknown): value is CatalogProviderId {
     return value === "openrouter"
         || value === "openai-codex"
-        || value === "ollama";
+        || value === "ollama"
+        || value === "cerebras";
 }
 
 function isReasoningEffort(value: unknown): value is ModelReasoningEffort {

@@ -48,7 +48,7 @@ export function createOllamaAdapter(
             if (response.body === null) {
                 throw new Error("Ollama returned an empty response body");
             }
-            return decodeSse(response.body);
+            return decodeOpenAiSse(response.body);
         },
         undefined,
         OLLAMA_PROFILE,
@@ -60,7 +60,7 @@ function encodeRequest(request: OpenRouterChatRequest): Record<string, unknown> 
         model: request.model,
         stream: true,
         stream_options: { include_usage: true },
-        messages: request.messages.map(encodeMessage),
+        messages: request.messages.map(encodeOpenAiMessage),
         ...(request.maxTokens === undefined
             ? {}
             : { max_tokens: request.maxTokens }),
@@ -73,7 +73,9 @@ function encodeRequest(request: OpenRouterChatRequest): Record<string, unknown> 
     };
 }
 
-function encodeMessage(message: ChatMessages): Record<string, unknown> {
+export function encodeOpenAiMessage(
+    message: ChatMessages,
+): Record<string, unknown> {
     const value = message as unknown as Record<string, unknown>;
     return {
         role: value.role,
@@ -91,8 +93,9 @@ function encodeMessage(message: ChatMessages): Record<string, unknown> {
     };
 }
 
-async function* decodeSse(
+export async function* decodeOpenAiSse(
     body: ReadableStream<Uint8Array>,
+    provider = "Ollama",
 ): AsyncIterable<ChatStreamChunk> {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let buffered = "";
@@ -102,29 +105,32 @@ async function* decodeSse(
         while ((match = /\r?\n\r?\n/.exec(buffered)) !== null) {
             const event = buffered.slice(0, match.index);
             buffered = buffered.slice(match.index + match[0].length);
-            const chunk = parseEvent(event);
+            const chunk = parseOpenAiSseEvent(event, provider);
             if (chunk !== undefined) yield chunk;
         }
     }
     buffered += decoder.decode();
     if (buffered.trim().length > 0) {
-        const chunk = parseEvent(buffered);
+        const chunk = parseOpenAiSseEvent(buffered, provider);
         if (chunk !== undefined) yield chunk;
     }
 }
 
-function parseEvent(event: string): ChatStreamChunk | undefined {
+function parseOpenAiSseEvent(
+    event: string,
+    provider: string,
+): ChatStreamChunk | undefined {
     const data = event.replace(/\r\n?/g, "\n").split("\n")
         .filter((line) => line.startsWith("data:"))
         .map((line) => line.slice(5).trimStart())
         .join("\n");
     if (data.length === 0 || data === "[DONE]") return undefined;
-    return normalizeChunk(JSON.parse(data));
+    return normalizeChunk(JSON.parse(data), provider);
 }
 
-function normalizeChunk(value: unknown): ChatStreamChunk {
+function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
     if (typeof value !== "object" || value === null) {
-        throw new Error("Ollama returned an invalid stream chunk");
+        throw new Error(`${provider} returned an invalid stream chunk`);
     }
     const chunk = value as Record<string, unknown>;
     const choices = Array.isArray(chunk.choices)

@@ -96,6 +96,23 @@ if the local server is unavailable. In the TUI, run `/model`, search by model or
 provider, and choose a model under the `ollama` section. The provider/model pair
 becomes the default for later turns and new conversations.
 
+## Cerebras
+
+Connect an API key from the model pane, or set `CEREBRAS_API_KEY`, then create
+`~/.vera/config.json`:
+
+```json
+{
+  "schema_version": 1,
+  "provider": "cerebras",
+  "model": "gpt-oss-120b",
+  "reasoning_effort": "medium"
+}
+```
+
+Vera uses Cerebras's OpenAI-compatible streaming endpoint. When connected, the
+model pane discovers the models currently exposed by Cerebras.
+
 ## Run
 
 ```sh

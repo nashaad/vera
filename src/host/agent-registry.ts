@@ -427,7 +427,8 @@ export class AgentRegistry {
             || (patch.provider !== undefined
                 && patch.provider !== "openrouter"
                 && patch.provider !== "openai-codex"
-                && patch.provider !== "ollama")
+                && patch.provider !== "ollama"
+                && patch.provider !== "cerebras")
             || (patch.model !== undefined && patch.model.trim().length === 0)
             || (patch.reasoningEffort !== undefined
                 && patch.reasoningEffort !== null
