@@ -1,6 +1,7 @@
 import type { JsonValue } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
+import type { ToolPresentation } from "../model/types.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
 
 export interface VeraExtensionApi {
@@ -43,6 +44,11 @@ export interface VeraExtensionToolRequest {
 export interface VeraExtensionToolResult {
     readonly output: string;
     readonly isError?: boolean;
+    /**
+     * Optional client-facing rendering kept outside model input. The engine
+     * persists and publishes it only after the tool result is durable.
+     */
+    readonly presentation?: ToolPresentation;
 }
 
 export type VeraExtensionToolHandler = (
