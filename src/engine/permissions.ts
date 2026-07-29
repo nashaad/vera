@@ -181,6 +181,12 @@ export interface DecideToolPermissionOptions {
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly permissionPreferences?: readonly PermissionPreference[];
     readonly extensionTools?: readonly RegisteredTool[];
+    /**
+     * The session's scratch directory. Paths inside it are scoped as
+     * `workspace`, so routine rules apply to the space the system prompt
+     * tells the model to use freely.
+     */
+    readonly scratchDir?: string;
 }
 
 /**
@@ -441,6 +447,8 @@ export function decideToolPermission(
         workspace,
         homeDirectory,
     }, options.extensionTools).map((action) =>
+        rescopeScratchAction(action, options.scratchDir)
+    ).map((action) =>
         evaluateAction(
             permissionMode,
             action,
@@ -1151,6 +1159,23 @@ function describeAction(action: PermissionAction): string {
     return action.executable === undefined
         ? `${action.tool}:${action.verb}`
         : `${action.executable}:${action.verb}`;
+}
+
+function rescopeScratchAction(
+    action: PermissionAction,
+    scratchDir: string | undefined,
+): PermissionAction {
+    if (
+        scratchDir === undefined
+        || action.path === undefined
+        || action.scope !== "outside_workspace"
+    ) {
+        return action;
+    }
+    const root = resolve(scratchDir);
+    return action.path === root || action.path.startsWith(`${root}${sep}`)
+        ? { ...action, scope: "workspace" }
+        : action;
 }
 
 function pathScope(path: string, workspace: string): PermissionScope {
