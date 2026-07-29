@@ -218,6 +218,54 @@ test("a pinned model override replaces the parent settings", async () => {
     }
 });
 
+test("a spawn with no override runs the configured subagent default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-default-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "cheap-provider", api: "scripted", model: "cheap-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        subagentModel: {
+            provider: "cheap-provider",
+            model: "cheap-model",
+            reasoningEffort: "medium",
+        },
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "run on the default",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            provider: "parent-provider",
+            model: "expensive-model",
+            reasoningEffort: "max",
+        });
+
+        expect(request?.model).toBe("cheap-model");
+        expect(request?.provider).toBe("cheap-provider");
+        expect(request?.reasoningEffort).toBe("medium");
+        expect(result.isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a model override that is not pinned is refused with the pin list", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-unpinned-"));
     const applyEffect = createSubagentEffectApplier({

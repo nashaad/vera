@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     configuredReviewer,
+    configuredSubagentModel,
     configuredCompaction,
     configuredReviewers,
     updateVeraConfigDefaults,
@@ -76,6 +77,7 @@ export async function startResidentHost(
 ): Promise<ResidentHost> {
     const modelFallback = configuredModelFallback(options.config);
     const reviewer = configuredReviewer(options.config);
+    const subagentModel = configuredSubagentModel(options.config);
     const reviewers = configuredReviewers(options.config);
     const compaction = configuredCompaction(options.config);
     const sessionDirectory = options.sessionDirectory
@@ -137,6 +139,7 @@ export async function startResidentHost(
             : { reasoningEffort: options.config.reasoning_effort }),
         ...(modelFallback === undefined ? {} : { modelFallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
+        ...(subagentModel === undefined ? {} : { subagentModel }),
         ...(Object.keys(reviewers).length === 0 ? {} : { reviewers }),
         ...(compaction === undefined ? {} : { compaction }),
         ...(options.config.permission_modes === undefined

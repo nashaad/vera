@@ -62,6 +62,18 @@ export interface VeraReviewerConfig {
     readonly timeout_ms?: number;
 }
 
+/**
+ * Model spawned subagents run on when the spawn names none. Configured
+ * separately from the agent model because a subagent fan-out multiplies
+ * whatever it inherits: a session on a frontier model should not quietly bill
+ * every child at the same rate.
+ */
+export interface VeraSubagentConfig {
+    readonly provider?: VeraProviderId;
+    readonly model: string;
+    readonly reasoning_effort?: ModelReasoningEffort;
+}
+
 export interface VeraExtensionConfig {
     readonly path: string;
     readonly enabled: boolean;
@@ -76,6 +88,7 @@ export interface VeraConfig {
     readonly approval_mode: ApprovalMode;
     readonly fallback?: VeraModelFallbackConfig;
     readonly reviewer?: VeraReviewerConfig;
+    readonly subagent?: VeraSubagentConfig;
     readonly models?: readonly VeraCatalogModel[];
     readonly model_routes?: Readonly<Record<string, readonly string[]>>;
     readonly reviewer_profiles?: Readonly<
@@ -285,6 +298,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const config = value as Record<string, unknown>;
     const fallback = parseModelFallback(config.fallback, config.model);
     const reviewer = parseReviewer(config.reviewer);
+    const subagent = parseSubagentModel(config.subagent);
     const modelCatalog = parseModelCatalogConfig(
         config.models,
         config.model_routes,
@@ -328,6 +342,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         );
     if (
         (config.reviewer !== undefined && reviewer === undefined)
+        || (config.subagent !== undefined && subagent === undefined)
         || modelCatalog === undefined
         || permissionModes === undefined
         || extensions === undefined
@@ -362,6 +377,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : { reasoning_effort: config.reasoning_effort }),
         ...(fallback === undefined ? {} : { fallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
+        ...(subagent === undefined ? {} : { subagent }),
         ...(hasModelCatalog
             ? {
                 models: modelCatalog.models,
@@ -502,8 +518,58 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
     };
 }
 
+function parseSubagentModel(value: unknown): VeraSubagentConfig | undefined {
+    if (typeof value !== "object" || value === null) {
+        return undefined;
+    }
+    const subagent = value as Record<string, unknown>;
+    if (
+        typeof subagent.model !== "string"
+        || subagent.model.trim().length === 0
+        || (subagent.provider !== undefined
+            && subagent.provider !== "openrouter"
+            && subagent.provider !== "openai-codex"
+            && subagent.provider !== "ollama"
+            && subagent.provider !== "cerebras")
+        || (subagent.reasoning_effort !== undefined
+            && !isReasoningEffort(subagent.reasoning_effort))
+    ) {
+        return undefined;
+    }
+    return {
+        model: subagent.model.trim(),
+        ...(subagent.provider === undefined
+            ? {}
+            : { provider: subagent.provider as VeraProviderId }),
+        ...(subagent.reasoning_effort === undefined
+            ? {}
+            : { reasoning_effort: subagent.reasoning_effort }),
+    };
+}
+
 function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
     return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * The configured subagent default in engine terms, or undefined to leave
+ * spawns inheriting the parent model.
+ */
+export function configuredSubagentModel(
+    config: VeraConfig,
+): { provider?: string; model: string; reasoningEffort?: ModelReasoningEffort } | undefined {
+    if (config.subagent === undefined) {
+        return undefined;
+    }
+    return {
+        model: config.subagent.model,
+        ...(config.subagent.provider === undefined
+            ? {}
+            : { provider: config.subagent.provider }),
+        ...(config.subagent.reasoning_effort === undefined
+            ? {}
+            : { reasoningEffort: config.subagent.reasoning_effort }),
+    };
 }
 
 /**
