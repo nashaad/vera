@@ -320,6 +320,43 @@ test("task notification kind crosses the protocol boundary", () => {
     });
 });
 
+test("model retry activity crosses the protocol boundary", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "model_retry_scheduled",
+        model: "openai/gpt-5.6-sol",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        failure: {
+            kind: "server",
+            resolution: "retry",
+            message: "overloaded",
+            statusCode: 503,
+        },
+    });
+
+    expect(updates[0]).toMatchObject({
+        type: "model_activity",
+        phase: "retrying",
+        model: "openai/gpt-5.6-sol",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        failure: {
+            kind: "server",
+            statusCode: 503,
+        },
+        seq: 1,
+    });
+});
+
 test("model settings results share the ordered agent update sequence", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({

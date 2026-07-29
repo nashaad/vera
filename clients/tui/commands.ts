@@ -103,6 +103,10 @@ export interface CompactSessionTuiCommandAction {
     readonly type: "compact_session";
 }
 
+export interface ShowDiagnosticsTuiCommandAction {
+    readonly type: "show_diagnostics";
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -136,6 +140,7 @@ export type TuiCommandAction =
     | UpdateSessionNameTuiCommandAction
     | CloneSessionTuiCommandAction
     | CompactSessionTuiCommandAction
+    | ShowDiagnosticsTuiCommandAction
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
 
@@ -182,7 +187,8 @@ export interface TuiCommandDefinition {
         | ReconnectTuiCommandAction
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction
-        | CompactSessionTuiCommandAction;
+        | CompactSessionTuiCommandAction
+        | ShowDiagnosticsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
@@ -271,6 +277,12 @@ const COMPACT_COMMAND = {
     usage: "/compact",
 } as const satisfies TuiCommandCatalogEntry;
 
+const DIAGNOSTICS_COMMAND = {
+    name: "diagnostics",
+    description: "Show live turn and model activity",
+    usage: "/diagnostics",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     FORK_COMMAND,
@@ -285,6 +297,7 @@ export const BUILTIN_COMMANDS = [
     RENAME_COMMAND,
     CLONE_COMMAND,
     COMPACT_COMMAND,
+    DIAGNOSTICS_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -672,6 +685,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "compact",
             action: { type: "compact_session" },
+        },
+    });
+    registry.registerCommand({
+        ...DIAGNOSTICS_COMMAND,
+        action: { type: "show_diagnostics" },
+        palette: {
+            name: "diagnostics",
+            label: "Show diagnostics",
+            description: "inspect the current turn and model request",
+            group: "Session",
+            slashName: "diagnostics",
+            action: { type: "show_diagnostics" },
         },
     });
     // The palette does not list itself: you are already looking at it.

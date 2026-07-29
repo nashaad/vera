@@ -54,6 +54,7 @@ export const LENGTH_CONTINUATION_PROMPT = [
 export interface ModelRetryScheduled {
     readonly model: string;
     readonly nextAttempt: number;
+    readonly maxAttempts: number;
     readonly delayMs: number;
     readonly failure: ProviderFailure;
 }
@@ -179,7 +180,8 @@ export async function requestModelWithRecovery(
                         retry = {
                             scheduled: {
                                 model: activeRequest.model,
-                                nextAttempt: requestAttempt + 2,
+                                nextAttempt: retryAttempt + 2,
+                                maxAttempts: policy.delaysMs.length + 1,
                                 delayMs,
                                 failure,
                             },

@@ -79,6 +79,27 @@ test("TUI state tracks a streamed turn and tool activity", () => {
     ]);
 });
 
+test("TUI clears retry activity when a turn finishes", () => {
+    const retrying = applyAgentUpdate(createTuiState(), {
+        type: "model_activity",
+        phase: "retrying",
+        model: "test",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        retryAt: "2026-07-29T17:00:00.500Z",
+        failure: { kind: "timeout" },
+        seq: 1,
+    });
+
+    const finished = applyAgentUpdate(retrying, {
+        type: "turn_finished",
+        seq: 2,
+    });
+
+    expect(finished.modelActivity).toBeUndefined();
+});
+
 test("TUI shows the same edit diff live and from history", () => {
     const presentation = {
         kind: "unified_diff" as const,

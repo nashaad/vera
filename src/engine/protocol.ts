@@ -29,6 +29,7 @@ import type {
     ToolReviewRiskLevel,
     ToolReviewUserAuthorization,
 } from "./reviewer.ts";
+import type { ProviderFailure } from "../model/provider-failure.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -249,6 +250,23 @@ export interface ContextUpdate {
     readonly measurement: ContextMeasurement;
     readonly seq: number;
 }
+
+export interface ModelRetryActivityUpdate {
+    readonly type: "model_activity";
+    readonly phase: "retrying";
+    readonly model: string;
+    readonly nextAttempt: number;
+    readonly maxAttempts: number;
+    readonly delayMs: number;
+    readonly retryAt: string;
+    readonly failure: {
+        readonly kind: ProviderFailure["kind"];
+        readonly statusCode?: number;
+    };
+    readonly seq: number;
+}
+
+export type ModelActivityUpdate = ModelRetryActivityUpdate;
 
 /**
  * Compaction starting and ending. The transcript is unchanged either way, so
@@ -522,6 +540,7 @@ export type AgentUpdate =
     | TurnFinishedUpdate
     | AgentFailedUpdate
     | ContextUpdate
+    | ModelActivityUpdate
     | CompactionUpdate
     | StatusUpdate
     | TaskNotificationUpdate
@@ -1047,6 +1066,26 @@ export function createProtocolEncoder(
             sender.send({
                 type: "context",
                 measurement: event.measurement,
+                seq,
+            });
+        }
+
+        if (event.type === "model_retry_scheduled") {
+            seq += 1;
+            sender.send({
+                type: "model_activity",
+                phase: "retrying",
+                model: event.model,
+                nextAttempt: event.nextAttempt,
+                maxAttempts: event.maxAttempts,
+                delayMs: event.delayMs,
+                retryAt: new Date(Date.now() + event.delayMs).toISOString(),
+                failure: {
+                    kind: event.failure.kind,
+                    ...(event.failure.statusCode === undefined
+                        ? {}
+                        : { statusCode: event.failure.statusCode }),
+                },
                 seq,
             });
         }

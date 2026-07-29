@@ -4,6 +4,7 @@ import type { TextChunk } from "@opentui/core";
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
 import type {
     CompactionUpdate,
+    ModelActivityUpdate,
     TranscriptEntry,
 } from "../../src/engine/protocol.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
@@ -59,6 +60,7 @@ export interface TuiState {
     readonly approvalMode?: ApprovalMode;
     readonly permissionInspection?: PermissionInspection;
     readonly context?: ContextMeasurement;
+    readonly modelActivity?: ModelActivityUpdate;
 }
 
 export let TUI_ACCENT = VERA_TUI_THEME.accent;
@@ -155,6 +157,9 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
 }
 
 export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState {
+    if (update.type === "model_activity") {
+        return { ...state, modelActivity: update };
+    }
     if (update.type === "assistant_delta") {
         return appendAssistantText(state, update.text);
     }
@@ -189,7 +194,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return appendPresentation(state, update.presentation);
     }
     if (update.type === "turn_finished") {
-        const finished = { ...state, working: false };
+        const finished = {
+            ...state,
+            working: false,
+            modelActivity: undefined,
+        };
         if (update.empty === true) {
             return appendEntry(finished, emptyTurnEntry());
         }
@@ -211,13 +220,18 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...state,
             working: false,
             queuedPrompts: [],
+            modelActivity: undefined,
         }, {
             kind: "notice",
             text: `Agent error: ${update.detail}`,
         });
     }
     if (update.type === "status") {
-        return { ...state, working: update.state !== "idle" };
+        return {
+            ...state,
+            working: update.state !== "idle",
+            ...(update.state === "idle" ? { modelActivity: undefined } : {}),
+        };
     }
     if (update.type === "task_notification") {
         return appendEntry(state, {
@@ -244,10 +258,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return { ...state, context: update.measurement };
     }
     if (update.type === "user_prompt") {
+        const nextState = { ...state, modelActivity: undefined };
         if (userEntryShows(state.entries.at(-1), update.content, update.attachments)) {
-            return state;
+            return nextState;
         }
-        return appendEntry(state, userEntry(update.content, update.attachments));
+        return appendEntry(nextState, userEntry(update.content, update.attachments));
     }
     if (update.type === "ui_request") {
         return state;
