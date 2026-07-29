@@ -28,7 +28,10 @@ import {
     bindCompaction,
 } from "../engine/compaction-binding.ts";
 import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
-import { createSubagentEffectApplier } from "../engine/subagent.ts";
+import {
+    createSubagentEffectApplier,
+    resolveSpawnModelChoice,
+} from "../engine/subagent.ts";
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
     isToolApprovalUiRequestUpdate,
@@ -775,6 +778,9 @@ export class AgentRegistry {
                         this.options.disabledPromptContributions,
                 }),
             extensionTools: this.options.extensionTools,
+            ...(this.options.readPins === undefined
+                ? {}
+                : { readPins: this.options.readPins }),
             relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
                 this.relayChildToolApproval(
                     entry,
@@ -944,10 +950,14 @@ export class AgentRegistry {
             parentStore.header.id,
             (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0) + 1,
         );
-        // An override rides the parent's provider; the parent's effort is not
-        // carried onto a different model, where it may not be supported.
-        const reasoningEffort = effect.reasoningEffort
-            ?? (effect.model === undefined ? context.reasoningEffort : undefined);
+        const resolved = resolveSpawnModelChoice(
+            effect,
+            context,
+            this.options.readPins,
+        );
+        if (!resolved.ok) {
+            return { kind: "output", output: resolved.error, isError: true };
+        }
         let child: ResidentAgent;
         try {
             child = await this.createWithKind(
@@ -957,13 +967,11 @@ export class AgentRegistry {
                     approvalMode: context.approvalMode,
                     parentId: parentStore.header.id,
                     modelSettings: {
-                        ...(context.provider === undefined
-                            ? { provider: this.defaultProvider }
-                            : { provider: context.provider }),
-                        model: effect.model ?? context.model,
-                        ...(reasoningEffort === undefined
+                        provider: resolved.provider ?? this.defaultProvider,
+                        model: resolved.model,
+                        ...(resolved.reasoningEffort === undefined
                             ? {}
-                            : { reasoningEffort }),
+                            : { reasoningEffort: resolved.reasoningEffort }),
                     },
                 },
             );
