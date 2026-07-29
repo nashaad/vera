@@ -47,7 +47,10 @@ test("TUI approval shows the exact command and honest warning", () => {
         "",
         // The predicate rides on the row that offers it rather than repeating
         // itself as a block above the answers.
-        "1 Allow once  ·  2 Session curl  ·  3 Deny  ·  4 Always",
+        "1 Allow once",
+        "2 Session curl",
+        "3 Deny",
+        "4 Always",
     ].join("\n"));
 });
 
@@ -126,7 +129,7 @@ test("both remembering rows are unavailable without a derived predicate", () => 
         .toBeUndefined();
 });
 
-test("arrow selection moves only across available buttons", async () => {
+test("arrow selection moves only across available answers", async () => {
     const setup = await createTestRenderer({
         width: 80,
         height: 18,
@@ -143,9 +146,9 @@ test("arrow selection moves only across available buttons", async () => {
     view.update(noGrants);
 
     try {
-        // Only 1 and 3 are selectable, so a single → lands on Deny: the
-        // unavailable session/always buttons are skipped, not stopped on.
-        expect(view.handleKey(noGrants, { name: "right" }))
+        // Only 1 and 3 are selectable, so a single ↓ lands on Deny: the
+        // unavailable session/always answers are skipped, not stopped on.
+        expect(view.handleKey(noGrants, { name: "down" }))
             .toEqual({ handled: true });
         const denied = view.handleKey(noGrants, { name: "return" });
         expect(denied.response).toEqual({
@@ -153,9 +156,9 @@ test("arrow selection moves only across available buttons", async () => {
             requestId: "request-no-grants",
             response: { type: "tool_approval", decision: "deny" },
         });
-        // ← from the first button stays put and still confirms Allow once.
+        // ↑ from the first answer stays put and still confirms Allow once.
         view.update(request);
-        expect(view.handleKey(request, { name: "left" }))
+        expect(view.handleKey(request, { name: "up" }))
             .toEqual({ handled: true });
         expect(view.handleKey(request, { name: "return" }).response).toEqual({
             type: "ui_response",
@@ -171,10 +174,10 @@ test("arrow selection moves only across available buttons", async () => {
         expect(view.handleKey(request, { name: "a" }))
             .toEqual({ handled: false });
 
-        // Up/down remain available to the focused details scroller.
-        expect(view.handleKey(request, { name: "down" }))
+        // Left/right are not a second way to answer: the answers stack.
+        expect(view.handleKey(request, { name: "left" }))
             .toEqual({ handled: false });
-        expect(view.handleKey(request, { name: "up" }))
+        expect(view.handleKey(request, { name: "right" }))
             .toEqual({ handled: false });
     } finally {
         setup.renderer.destroy();
@@ -220,7 +223,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(headerLine?.indexOf("Permission"))
             .toBe(commandLine?.indexOf("$"));
         expect(frame).toContain("1 Allow once");
-        expect(frame).toContain("left/right select");
+        expect(frame).toContain("up/down select");
         expect(view.box.bottom).toBe(1);
         expect(view.box.width).toBe(77);
         expect(view.box.left).toBe(2);
@@ -265,9 +268,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         frame = setup.captureCharFrame();
         expect(view.box.left).toBe(0);
         expect(frame).toContain("1 Allow once");
-        // Too narrow to carry the predicate, which the body states instead.
-        expect(frame).toContain("2 Session ");
-        expect(frame).not.toContain("2 Session curl");
+        expect(frame).toContain("2 Session curl");
         expect(frame).toContain("3 Deny");
         expect(frame).toContain("4 Always");
         expect(view.bar.visible).toBe(false);
@@ -278,9 +279,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         frame = setup.captureCharFrame();
         expect(frame).not.toContain("Permission required");
         expect(frame).toContain("1 Allow once");
-        // Too narrow to carry the predicate, which the body states instead.
-        expect(frame).toContain("2 Session ");
-        expect(frame).not.toContain("2 Session curl");
+        expect(frame).toContain("2 Session curl");
         expect(frame).toContain("3 Deny");
         expect(frame).toContain("4 Always");
     } finally {
@@ -301,7 +300,7 @@ test("a predicate too long for its row is stated in the body", async () => {
                 input: { path: `${path}todo.md`, content: "# Internal todo\n" },
             },
             permissionGrants: [{
-                kind: "path",
+                kind: "action",
                 when: { verb: "write", path },
                 scope: "session",
                 lifetime: "session",
@@ -318,13 +317,21 @@ test("a predicate too long for its row is stated in the body", async () => {
     view.box.visible = true;
 
     try {
+        // A full-width row carries the whole predicate, so the body says
+        // nothing and the scope is stated once.
         view.update(longScope);
         await setup.flush();
-        const frame = setup.captureCharFrame();
-        // The answers stay a strip: the path is written once, above them.
+        let frame = setup.captureCharFrame();
+        expect(frame).toContain(`2 Session write ${path}`);
+        expect(frame).not.toContain("Session and always remember:");
+
+        // Narrow enough to clip it, so the body takes it instead.
+        setup.resize(50, 20);
+        view.update(longScope);
+        await setup.flush();
+        frame = setup.captureCharFrame();
         expect(frame).not.toContain(`2 Session write ${path}`);
         expect(frame).toContain("Session and always remember:");
-        expect(frame).toContain(path);
         expect(frame).toContain("4 Always");
     } finally {
         setup.renderer.destroy();
@@ -334,7 +341,7 @@ test("a predicate too long for its row is stated in the body", async () => {
 test("TUI approval grows with content before details begin scrolling", async () => {
     const setup = await createTestRenderer({
         width: 80,
-        height: 18,
+        height: 22,
         kittyKeyboard: true,
     });
     const view = createTuiApprovalView(setup.renderer);
@@ -345,7 +352,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         view.update(requestWithCommand("pwd", "short-request"));
         await setup.flush();
         const shortHeight = view.box.height;
-        expect(view.box.screenY + shortHeight).toBe(17);
+        expect(view.box.screenY + shortHeight).toBe(21);
         expect(view.details.scrollHeight).toBe(view.details.height);
 
         view.update(requestWithCommand(
@@ -363,8 +370,8 @@ test("TUI approval grows with content before details begin scrolling", async () 
         ));
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
-        expect(view.box.height).toBeLessThanOrEqual(16);
-        expect(view.box.screenY + view.box.height).toBe(17);
+        expect(view.box.height).toBeLessThanOrEqual(20);
+        expect(view.box.screenY + view.box.height).toBe(21);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
         expect(setup.captureCharFrame()).toContain("1 Allow once");
     } finally {
