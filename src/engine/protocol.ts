@@ -60,6 +60,13 @@ export interface ToolTranscriptEntry {
     readonly args: Readonly<Record<string, unknown>>;
 }
 
+export interface ToolResultTranscriptEntry {
+    readonly kind: "tool_result";
+    readonly tool: string;
+    readonly output: string;
+    readonly isError: boolean;
+}
+
 export interface PresentationTranscriptEntry {
     readonly kind: "presentation";
     readonly presentation: ToolPresentation;
@@ -82,6 +89,7 @@ export type TranscriptEntry =
     | UserTranscriptEntry
     | AssistantTranscriptEntry
     | ToolTranscriptEntry
+    | ToolResultTranscriptEntry
     | PresentationTranscriptEntry
     | ErrorTranscriptEntry
     | EmptyTranscriptEntry;
@@ -325,6 +333,8 @@ export interface ToolReviewUpdate {
 export interface ToolFinishedUpdate {
     readonly type: "tool_finished";
     readonly tool: string;
+    readonly output?: string;
+    readonly isError?: boolean;
     readonly seq: number;
 }
 
@@ -969,6 +979,8 @@ export function createProtocolEncoder(
             sender.send({
                 type: "tool_finished",
                 tool: event.toolCall.name,
+                output: textContent(event.result.content),
+                isError: event.result.isError,
                 seq,
             });
             return;
@@ -1245,6 +1257,12 @@ export function projectTranscript(
             continue;
         }
         if (message.role === "tool_result") {
+            entries.push({
+                kind: "tool_result",
+                tool: message.toolName,
+                output: textContent(message.content),
+                isError: message.isError,
+            });
             if (message.presentation !== undefined) {
                 entries.push({
                     kind: "presentation",

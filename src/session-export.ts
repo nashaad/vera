@@ -59,6 +59,10 @@ export function renderSessionMarkdown(exported: SessionExport): string {
         lines.push("", transcriptHeading(entry), "");
         if (entry.kind === "tool") {
             lines.push(indentJson(entry.args));
+        } else if (entry.kind === "tool_result") {
+            lines.push(quoteMarkdown(
+                entry.output.length === 0 ? "(no output)" : entry.output,
+            ));
         } else if (entry.kind === "error") {
             lines.push(quoteMarkdown(entry.detail ?? "Model request failed"));
         } else if (entry.kind === "empty") {
