@@ -103,6 +103,8 @@ export interface InboxSpawnOptions {
     readonly minSpawnIntervalMs?: number;
     readonly maxEntriesPerScan?: number;
     readonly now?: () => number;
+    readonly setTimer?: (run: () => void, ms: number) => unknown;
+    readonly clearTimer?: (timer: unknown) => void;
 }
 
 /** The confirmation, as a value the controller reads on every scan. */
@@ -134,6 +136,9 @@ export class InboxSpawnController {
     private heldDropped = 0;
     private queue: Promise<void> = Promise.resolve();
     private released = false;
+    private readonly setTimer: (run: () => void, ms: number) => unknown;
+    private readonly clearTimer: (timer: unknown) => void;
+    private retryTimer: unknown = null;
 
     constructor(options: InboxSpawnOptions) {
         this.options = options;
@@ -147,6 +152,14 @@ export class InboxSpawnController {
             options.maxEntriesPerScan ?? DEFAULT_MAX_ENTRIES_PER_SCAN,
         );
         this.clock = options.now ?? (() => Date.now());
+        this.setTimer = options.setTimer
+            ?? ((run, ms) => {
+                const timer = setTimeout(run, ms);
+                timer.unref?.();
+                return timer;
+            });
+        this.clearTimer = options.clearTimer
+            ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
         options.inbox.registerConsumer({
             nodeId: this.consumers.nodeId,
             label: SPAWN_CONSUMER_LABEL,
@@ -185,6 +198,20 @@ export class InboxSpawnController {
 
     release(): void {
         this.released = true;
+        if (this.retryTimer !== null) {
+            this.clearTimer(this.retryTimer);
+            this.retryTimer = null;
+        }
+    }
+
+    private scheduleRetry(delayMs: number): void {
+        if (this.retryTimer !== null || this.released) {
+            return;
+        }
+        this.retryTimer = this.setTimer(() => {
+            this.retryTimer = null;
+            void this.scan();
+        }, Math.max(1, delayMs));
     }
 
     /**
@@ -279,6 +306,11 @@ export class InboxSpawnController {
             if (!this.maySpawn(state, now)) {
                 this.hold(address, entry, "rate-limited");
                 outcomes.set(address, false);
+                // A held entry must not depend on another append to be seen
+                // again: rescan when this address's cooldown expires.
+                this.scheduleRetry(
+                    (state.lastSpawnMs ?? now) + this.minSpawnIntervalMs - now,
+                );
                 continue;
             }
             const request = this.requestFor(address, entry, state.coalesced);
