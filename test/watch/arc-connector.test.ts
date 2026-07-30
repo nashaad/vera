@@ -171,7 +171,7 @@ describe("arc connector", () => {
         inbox.close();
     });
 
-    test("keepalives and malformed frames leave the log untouched", async () => {
+    test("keepalives are silent and malformed frames record a gap", async () => {
         const inbox = Inbox.open(":memory:");
         const { context: ctx } = context(inbox, { server: "https://arc.local" });
         const connector = createArcConnector({
@@ -185,7 +185,12 @@ describe("arc connector", () => {
 
         await connector.run(ctx);
 
-        expect(inbox.tail()).toBe(1);
+        expect(inbox.tail()).toBe(2);
+        const entries = inbox.readAfter(0, { limit: 10 });
+        expect(entries[0]!.kind).toBe("source.gap");
+        expect(entries[0]!.payload).toContain("malformed_frame");
+        expect(entries[0]!.payload).toContain("v1:9");
+        expect(entries[1]!.kind).toBe("arc.done");
         expect(inbox.watchCursor("vera.arc/main")).toBe("v1:10");
         inbox.close();
     });

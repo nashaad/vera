@@ -100,6 +100,12 @@ export function createArcConnector(
                 }
                 const event = toSourceEvent(item.frame);
                 if (event === null) {
+                    context.recordGap("malformed_frame", {
+                        watch: context.watchId,
+                        detail: `unparseable SSE frame${
+                            item.frame.id === null ? "" : ` id ${item.frame.id}`
+                        }`,
+                    });
                     continue;
                 }
                 await context.admit([event]);
