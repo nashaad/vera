@@ -1,5 +1,6 @@
 import type { PermissionPredicate } from "../../src/engine/permissions.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
+import { tuiDisplayPath } from "./state.ts";
 
 /**
  * The body of the permission panel: the call itself, rendered as the tool
@@ -172,8 +173,7 @@ function writeLines(
  * outside it, where the absolute form is the part that matters.
  */
 export function tuiApprovalPath(path: string): string {
-    const workspace = `${process.cwd()}/`;
-    return path.startsWith(workspace) ? path.slice(workspace.length) : path;
+    return tuiDisplayPath(path);
 }
 
 /**

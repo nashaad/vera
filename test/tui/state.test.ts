@@ -11,6 +11,8 @@ import {
     queueTuiPrompt,
     renderTuiEntry,
     renderTuiQueuedPrompt,
+    setTuiWorkspaceRoot,
+    tuiDisplayPath,
     tuiEntryMarginTop,
     tuiToolRowText,
 } from "../../clients/tui/state.ts";
@@ -997,4 +999,24 @@ test("an empty turn reads the same live and from history", () => {
         seq: 1,
     });
     expect(rebuilt.entries).toEqual(live.entries);
+});
+
+test("paths strip the session workspace root, resolved form included", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { realpath } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const workspace = await mkdtemp(join(tmpdir(), "vera-display-"));
+    try {
+        setTuiWorkspaceRoot(workspace);
+        expect(tuiDisplayPath(`${workspace}/notes.txt`)).toBe("notes.txt");
+        const resolved = await realpath(workspace);
+        expect(tuiDisplayPath(`${resolved}/deep/notes.txt`))
+            .toBe("deep/notes.txt");
+        expect(tuiDisplayPath("/somewhere/else.txt"))
+            .toBe("/somewhere/else.txt");
+    } finally {
+        setTuiWorkspaceRoot(process.cwd());
+        await rm(workspace, { recursive: true, force: true });
+    }
 });

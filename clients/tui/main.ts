@@ -223,6 +223,8 @@ import {
     queueTuiPrompt,
     renderTuiEntry,
     renderTuiQueuedPrompt,
+    setTuiWorkspaceRoot,
+    tuiDisplayPath,
     tuiEntryMarginTop,
 } from "./state.ts";
 import { resolveTuiTheme, VERA_TUI_THEME } from "./theme.ts";
@@ -480,6 +482,7 @@ export async function startTui(
      * talks to the host reads this binding at the moment it sends.
      */
     let client = dependencies.client;
+    setTuiWorkspaceRoot(client.workspace ?? process.cwd());
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
@@ -2980,7 +2983,7 @@ export async function startTui(
                 ? createTuiDiff(
                     renderer,
                     `entry-${index}`,
-                    entry.path,
+                    tuiDisplayPath(entry.path),
                     entry.patch,
                     markdownStyle,
                     marginTop,
@@ -3760,6 +3763,7 @@ export async function startTui(
         const previous = client;
         clientGeneration += 1;
         client = next;
+        setTuiWorkspaceRoot(next.workspace ?? process.cwd());
         void previous.detach().catch(() => previous.close());
 
         state = createTuiState();

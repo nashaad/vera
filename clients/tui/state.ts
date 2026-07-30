@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+
 import { bg, bold, fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
@@ -531,10 +533,35 @@ function stringArg(
     return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+let tuiWorkspaceRoots: readonly string[] = [process.cwd()];
+
+/**
+ * The session's workspace, not this process's cwd: the TUI can attach to a
+ * session rooted anywhere. Tool results carry realpathed paths, so the
+ * resolved form of the root is stripped too when it differs.
+ */
+export function setTuiWorkspaceRoot(workspace: string): void {
+    const roots = [workspace];
+    try {
+        const resolved = realpathSync(workspace);
+        if (resolved !== workspace) {
+            roots.push(resolved);
+        }
+    } catch {
+        // A root that does not resolve locally still strips as given.
+    }
+    tuiWorkspaceRoots = roots;
+}
+
 /** The workspace-relative path, since the absolute prefix is the same on every row. */
-function displayPath(path: string): string {
-    const workspace = `${process.cwd()}/`;
-    return path.startsWith(workspace) ? path.slice(workspace.length) : path;
+export function tuiDisplayPath(path: string): string {
+    for (const root of tuiWorkspaceRoots) {
+        const prefix = root.endsWith("/") ? root : `${root}/`;
+        if (path.startsWith(prefix)) {
+            return path.slice(prefix.length);
+        }
+    }
+    return path;
 }
 
 /**
@@ -547,17 +574,17 @@ function toolRowText(
 ): string {
     const path = stringArg(args, "path");
     if (tool === "read" && path !== undefined) {
-        return `Read ${displayPath(path)}`;
+        return `Read ${tuiDisplayPath(path)}`;
     }
     if (tool === "list" && path !== undefined) {
-        return `List ${displayPath(path)}`;
+        return `List ${tuiDisplayPath(path)}`;
     }
     if (tool === "grep") {
         const pattern = stringArg(args, "pattern");
         if (pattern !== undefined) {
             return path === undefined
                 ? `Search ${pattern}`
-                : `Search ${pattern} in ${displayPath(path)}`;
+                : `Search ${pattern} in ${tuiDisplayPath(path)}`;
         }
     }
     if (tool === "bash") {
@@ -569,7 +596,7 @@ function toolRowText(
         }
     }
     if ((tool === "edit" || tool === "write") && path !== undefined) {
-        return `${tool === "edit" ? "Edit" : "Write"} ${displayPath(path)}`;
+        return `${tool === "edit" ? "Edit" : "Write"} ${tuiDisplayPath(path)}`;
     }
     if (tool === "subagent" || tool === "async_subagent") {
         const description = stringArg(args, "description");
@@ -836,7 +863,7 @@ function presentationEntry(
     return presentation.kind === "unified_diff"
         ? {
             kind: "diff",
-            text: presentation.path,
+            text: tuiDisplayPath(presentation.path),
             path: presentation.path,
             patch: presentation.patch,
         }
