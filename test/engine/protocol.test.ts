@@ -58,6 +58,12 @@ test("stored model messages project to a client transcript", () => {
         { kind: "user", text: "inspect it" },
         { kind: "assistant", text: "I will read it." },
         { kind: "tool", tool: "read", args: { path: "note.txt" } },
+        {
+            kind: "tool_result",
+            tool: "read",
+            output: "contents",
+            isError: false,
+        },
         { kind: "assistant", text: "It says contents." },
     ]);
 });

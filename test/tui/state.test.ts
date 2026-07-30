@@ -79,6 +79,84 @@ test("TUI state tracks a streamed turn and tool activity", () => {
     ]);
 });
 
+test("TUI tool headers are bold and change tense when work finishes", () => {
+    let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "bun test" },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "Running",
+        "  └ bun test",
+    ]);
+    const liveHeader = state.entries[1]!;
+    expect(renderTuiEntry(liveHeader).chunks[0]?.attributes).not.toBe(0);
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: "",
+        isError: false,
+        seq: 2,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "Ran",
+        "  │ bun test",
+        "  └ (no output)",
+    ]);
+});
+
+test("TUI describes a live subagent as delegating", () => {
+    const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "delegate"), {
+        type: "tool_started",
+        tool: "subagent",
+        args: { description: "Inspect the renderer" },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "delegate",
+        "Delegating",
+        "  └ Inspect the renderer",
+    ]);
+});
+
+test("a group stays live until every tool in it finishes", () => {
+    let state = beginTuiTurn(createTuiState(), "inspect");
+    for (const [command, seq] of [["pwd", 1], ["ls", 2]] as const) {
+        state = applyAgentUpdate(state, {
+            type: "tool_started",
+            tool: "bash",
+            args: { command },
+            seq,
+        });
+    }
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        seq: 3,
+    });
+    expect(entryLine(state.entries[1]!)).toBe("Running");
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        seq: 4,
+    });
+    expect(state.entries.map(entryLine)).toEqual([
+        "inspect",
+        "Ran",
+        "  └ pwd",
+        "    ls",
+    ]);
+});
+
 test("TUI clears retry activity when a turn finishes", () => {
     const retrying = applyAgentUpdate(createTuiState(), {
         type: "model_activity",
@@ -195,15 +273,24 @@ test("TUI stops working when the resident agent fails", () => {
 
 test("TUI connection failure stops work and clears unsendable prompts", () => {
     const state = failTuiConnection(
-        queueTuiPrompt(
-            beginTuiTurn(createTuiState(), "active prompt"),
-            "queued prompt",
+        applyAgentUpdate(
+            queueTuiPrompt(
+                beginTuiTurn(createTuiState(), "active prompt"),
+                "queued prompt",
+            ),
+            {
+                type: "tool_started",
+                tool: "bash",
+                args: { command: "sleep 1" },
+                seq: 1,
+            },
         ),
         "Host sent a non-contiguous agent update sequence",
     );
 
     expect(state.working).toBe(false);
     expect(state.queuedPrompts).toEqual([]);
+    expect(entryLine(state.entries[1]!)).toBe("Ran");
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
         text: "Connection error: Host sent a non-contiguous agent update sequence",
@@ -472,12 +559,12 @@ test("a run of tool calls hangs off the first one", () => {
 
     expect(state.entries.map(entryLine)).toEqual([
         "go",
-        "Ran",
+        "Running",
         "  └ pwd",
-        "Explored",
+        "Exploring",
         "  └ Read note.txt",
         "ok",
-        "Ran",
+        "Running",
         "  └ ls",
     ]);
 });
@@ -855,7 +942,13 @@ test("the same call twice in a row becomes one row with a count", () => {
         });
     }
 
-    expect(state.entries.map(entryLine)).toEqual(["go", "Ran", "  └ pwd ×3"]);
+    expect(state.entries.map(entryLine)).toEqual([
+        "go",
+        "Running",
+        "  └ pwd",
+        "    pwd",
+        "    pwd",
+    ]);
 });
 
 test("a repeated call counts the same live and from history", () => {

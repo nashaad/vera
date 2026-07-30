@@ -2942,6 +2942,12 @@ export async function startTui(
                 if (entry.kind === "tool" && existing instanceof BoxRenderable) {
                     updateTuiToolRow(existing, entry);
                 }
+                if (
+                    entry.kind === "tool_header"
+                    && existing instanceof TextRenderable
+                ) {
+                    existing.content = renderTuiEntry(entry);
+                }
                 return;
             }
 

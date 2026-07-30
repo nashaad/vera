@@ -50,3 +50,27 @@ test("a repeated call raises the count on the row already on screen", async () =
         setup.renderer.destroy();
     }
 });
+
+test("a finished command draws a vertical connector through wrapped lines", async () => {
+    const setup = await createTestRenderer({ width: 20, height: 8 });
+    setup.renderer.root.add(createTuiToolRow(
+        setup.renderer,
+        "entry-connected",
+        {
+            kind: "tool",
+            header: "Ran",
+            prefix: "  │ ",
+            text: "grep alpha bravo charlie",
+        },
+        0,
+    ));
+
+    try {
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        expect(rows[0]).toContain("│ grep alpha");
+        expect(rows[1]).toContain("│ bravo charlie");
+    } finally {
+        setup.renderer.destroy();
+    }
+});

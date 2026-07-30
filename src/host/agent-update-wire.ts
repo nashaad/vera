@@ -86,7 +86,13 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     if (update.type === "tool_finished") {
-        return typeof update.tool === "string" ? value as AgentUpdate : undefined;
+        return typeof update.tool === "string"
+                && (update.output === undefined
+                    || typeof update.output === "string")
+                && (update.isError === undefined
+                    || typeof update.isError === "boolean")
+            ? value as AgentUpdate
+            : undefined;
     }
     if (update.type === "tool_presentation") {
         return typeof update.tool === "string"
@@ -594,6 +600,11 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     }
     if (entry?.kind === "presentation") {
         return isToolPresentation(entry.presentation);
+    }
+    if (entry?.kind === "tool_result") {
+        return typeof entry.tool === "string"
+            && typeof entry.output === "string"
+            && typeof entry.isError === "boolean";
     }
     return entry?.kind === "tool"
         && typeof entry.tool === "string"

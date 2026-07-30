@@ -892,7 +892,7 @@ test("model fallback stays selected through the tool loop", async () => {
         args: { path: "fallback.txt", content: "used backup" },
         seq: 4,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "write",
         seq: 5,
@@ -1092,7 +1092,7 @@ test("a bash tool call runs and continues the model turn", async () => {
         args: { command: "ls" },
         seq: 3,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "bash",
         seq: 4,
@@ -1207,7 +1207,7 @@ test("ask_user waits for a semantic choice and returns its stable ID", async () 
         requestId: question.requestId,
         seq: 5,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "ask_user",
         seq: 6,
@@ -1289,7 +1289,7 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
         args: { path: "package.json" },
         seq: 3,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "read",
         seq: 4,
@@ -1589,7 +1589,7 @@ test("a pre-tool mutation becomes the validated and durable tool call", async ()
         args: { command: "printf changed" },
         seq: 3,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "bash",
         seq: 4,
@@ -1694,9 +1694,11 @@ test("a pre-tool replacement returns data without executing the tool", async () 
         type: "tool_started",
         tool: "bash",
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "bash",
+        output: "synthetic",
+        isError: false,
         seq: 4,
     });
     await expectContextMeasured(channel, 5);
@@ -2090,7 +2092,7 @@ test("full access permits an ordinary recursive deletion after hook mutation", a
         args: { command: `rm -rf ${JSON.stringify(protectedDirectory)}` },
         seq: 3,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "bash",
         seq: 4,
@@ -2163,7 +2165,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
     const abortedAt = performance.now();
     channel.client.send({ type: "abort" });
 
-    expect(await channel.client.receive()).toEqual({
+    expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "bash",
         seq: 4,
