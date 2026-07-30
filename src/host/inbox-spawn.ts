@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 import type { ConsumerRegistry } from "./consumers.ts";
 import type { Inbox, InboxEntry } from "../store/inbox.ts";
+import { SOURCE_GAP_KIND } from "../watch/source.ts";
 
 /**
  * Starting a session because an entry arrived, rather than waking one that is
@@ -234,6 +235,11 @@ export class InboxSpawnController {
 
     private classify(entry: InboxEntry): ScannedEntry {
         const address = entry.address;
+        // A gap record is a status entry about the source itself; a session
+        // must never be spawned to react to one.
+        if (entry.kind === SOURCE_GAP_KIND) {
+            return { entry, address: null, final: true };
+        }
         if (address === null || this.consumers.get(address) !== undefined) {
             return { entry, address: null, final: true };
         }
