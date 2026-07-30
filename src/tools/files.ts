@@ -1,6 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { editDiffPresentation } from "./diff-presentation.ts";
 import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 
@@ -51,12 +52,19 @@ export const writeTool: RegisteredTool = {
         const content = requiredString(input, "content", "write");
         return context.enqueueFileMutation(async () => {
             const safePath = await resolveWritePath(context.workspace, path);
+            const previousContent = await Bun.file(safePath).text()
+                .catch(() => "");
             const bytesWritten = await Bun.write(safePath, content);
             context.recordFileSnapshot(safePath, content);
             return {
                 kind: "output",
                 output: `Wrote ${bytesWritten} bytes to ${path}`,
                 isError: false,
+                presentation: editDiffPresentation(
+                    path,
+                    previousContent,
+                    content,
+                ),
             };
         });
     },

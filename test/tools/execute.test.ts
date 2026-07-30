@@ -110,6 +110,42 @@ test("file tools read and write inside the workspace", async () => {
     }
 });
 
+test("write presents a diff: all additions for a new file, changes on overwrite", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-write-diff-"));
+    const runtime = new ToolRuntime(workspace);
+
+    try {
+        const created = await executeToolCall(toolCall(
+            "call_write_new",
+            "write",
+            { path: "notes.txt", content: "alpha\nbeta\n" },
+        ), runtime);
+        expect(created.presentation).toMatchObject({
+            kind: "unified_diff",
+            path: "notes.txt",
+        });
+        if (created.presentation?.kind !== "unified_diff") {
+            throw new Error("expected an inline write diff");
+        }
+        expect(created.presentation.patch).toContain("+alpha");
+        expect(created.presentation.patch).toContain("+beta");
+        expect(created.presentation.patch).not.toContain("-alpha");
+
+        const overwritten = await executeToolCall(toolCall(
+            "call_write_again",
+            "write",
+            { path: "notes.txt", content: "alpha\ngamma\n" },
+        ), runtime);
+        if (overwritten.presentation?.kind !== "unified_diff") {
+            throw new Error("expected an inline overwrite diff");
+        }
+        expect(overwritten.presentation.patch).toContain("-beta");
+        expect(overwritten.presentation.patch).toContain("+gamma");
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("file tool guidance describes its permission-gated path reach", () => {
     const definitions = toolDefinitionsForCapabilities([]);
     expect(definitions.find((tool) => tool.name === "read")?.description).toBe(
