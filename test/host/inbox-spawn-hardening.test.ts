@@ -130,6 +130,34 @@ describe("spawn controller hardening", () => {
         expect(h.offset()).toBe(2);
     });
 
+    test("a rate-limited hold rescans itself when the cooldown expires", async () => {
+        const timers: { run: () => void; ms: number }[] = [];
+        const h = harness({
+            minSpawnIntervalMs: 60_000,
+            setTimer: (run, ms) => {
+                timers.push({ run, ms });
+                return timers.length - 1;
+            },
+            clearTimer: () => {},
+        });
+        h.append({ address: "noisy" });
+        await h.controller.scan();
+        h.setNow(2_000);
+        h.append({ address: "noisy" });
+        await h.controller.scan();
+
+        expect(h.host.requests).toHaveLength(1);
+        expect(timers).toHaveLength(1);
+        expect(timers[0]!.ms).toBe(59_000);
+
+        h.setNow(61_000);
+        timers[0]!.run();
+        await h.controller.scan();
+
+        expect(h.host.requests).toHaveLength(2);
+        expect(h.offset()).toBe(2);
+    });
+
     test("a rescan does not inflate the coalesced count", async () => {
         const h = harness({ minSpawnIntervalMs: 60_000 });
         h.append({ address: "noisy" });
