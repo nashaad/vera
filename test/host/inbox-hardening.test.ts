@@ -98,6 +98,56 @@ describe("inbox delivery hardening", () => {
         inbox.close();
     });
 
+    test("gap records advance the offset without a delivery or a wake", async () => {
+        const { inbox, coordinator } = bench();
+        const target = new RecordingTarget();
+        let wakes = 0;
+        const session = coordinator.attach({
+            label: "worker",
+            session: "session-1",
+            target,
+            triggerTurn: () => {
+                wakes += 1;
+            },
+            minWakeIntervalMs: 0,
+        });
+        inbox.appendAll([
+            entry({ kind: "source.gap", address: "worker" }),
+            entry({ kind: "source.gap", address: null }),
+        ]);
+
+        await session.pump();
+
+        expect(target.recorded).toHaveLength(0);
+        expect(wakes).toBe(0);
+        expect(session.consumer.offset()).toBe(2);
+        inbox.close();
+    });
+
+    test("a mixed batch delivers real entries and consumes trailing gaps", async () => {
+        const { inbox, coordinator } = bench();
+        const target = new RecordingTarget();
+        const session = coordinator.attach({
+            label: "worker",
+            session: "session-1",
+            target,
+            triggerTurn: () => {},
+            minWakeIntervalMs: 0,
+        });
+        inbox.appendAll([
+            entry({ kind: "source.gap" }),
+            entry({ kind: "post" }),
+            entry({ kind: "source.gap" }),
+        ]);
+
+        await session.pump();
+
+        expect(target.recorded).toHaveLength(1);
+        expect(target.recorded[0]!.content).toContain("1 new inbox entr");
+        expect(session.consumer.offset()).toBe(3);
+        inbox.close();
+    });
+
     test("an entry with a null actor is delivered to the session it names", async () => {
         const { inbox, coordinator } = bench();
         const target = new RecordingTarget();
