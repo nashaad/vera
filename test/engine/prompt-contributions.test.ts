@@ -94,3 +94,64 @@ test("prompt contribution hashes cover the rendered heading", () => {
     expect(first[0]?.sha256).not.toBe(second[0]?.sha256);
     expect(first[0]?.bytes).not.toBe(second[0]?.bytes);
 });
+
+test("a scratch directory adds the scratchpad contribution after the workspace", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        scratchDir: "/tmp/vera/session-1",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+    });
+
+    expect(contributions.map((contribution) => contribution.id)).toEqual([
+        "core.identity",
+        "core.tools",
+        "core.workspace",
+        "core.scratchpad",
+        "core.date",
+    ]);
+    const scratchpad = contributions.find(
+        (contribution) => contribution.id === "core.scratchpad",
+    );
+    expect(scratchpad?.target).toBe("stable");
+    expect(scratchpad?.content).toContain("/tmp/vera/session-1");
+});
+
+test("disabled contribution ids are omitted from both targets", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        scratchDir: "/tmp/vera/session-1",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        disabledContributions: ["core.scratchpad", "core.date"],
+    });
+
+    expect(contributions.map((contribution) => contribution.id)).toEqual([
+        "core.identity",
+        "core.tools",
+        "core.workspace",
+    ]);
+});
+
+test("scratch state renders as a contextual contribution", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 29),
+        projectInstructions: { files: [], warnings: [] },
+        scratchState: {
+            files: ["notes.txt", "todo.md"],
+            truncatedFiles: 0,
+            todo: "- [x] done\n- [ ] next\n",
+        },
+    });
+
+    const state = contributions.find(
+        (contribution) => contribution.id === "core.scratchpad-state",
+    );
+    expect(state?.target).toBe("contextual");
+    expect(state?.content).toContain("notes.txt, todo.md");
+    expect(state?.content).toContain("- [ ] next");
+});

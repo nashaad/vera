@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "top_picks": [
+    {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "reasoning_effort": "high",
+      "description": "frontier coding model for the hardest work"
+    },
+    {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (low)",
+      "reasoning_effort": "low",
+      "description": "the daily driver: frontier quality with quick, cheap turns"
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "reasoning_effort": "high",
+      "description": "frontier coding model for the hardest work"
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol (low)",
+      "reasoning_effort": "low",
+      "description": "the daily driver: frontier quality with quick, cheap turns"
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-5",
+      "label": "Claude Sonnet 5",
+      "reasoning_effort": "high",
+      "description": "frontier-adjacent quality at mid price and good speed"
+    },
+    {
+      "provider": "openrouter",
+      "model": "moonshotai/kimi-k3",
+      "label": "Kimi K3",
+      "reasoning_effort": "medium",
+      "description": "the open-weight frontier, excellent at web dev; not fast"
+    },
+    {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.2",
+      "label": "GLM-5.2",
+      "reasoning_effort": "medium",
+      "description": "MIT-licensed coder, strong results and very fast"
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "reasoning_effort": "high",
+      "description": "deep reasoning at open-weight prices"
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "label": "DeepSeek V4 Flash",
+      "reasoning_effort": "medium",
+      "description": "the quick DeepSeek for high-volume subagent work"
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra",
+      "reasoning_effort": "medium",
+      "description": "the speed tier of the 5.6 family, strong at 125+ tok/s"
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna",
+      "reasoning_effort": "medium",
+      "description": "cheapest capable 5.6; the default for spawned subagents"
+    },
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.6-flash",
+      "label": "Gemini 3.6 Flash",
+      "reasoning_effort": "medium",
+      "description": "fastest of the picks at solid quality, up to ~229 tok/s"
+    }
+  ]
+}

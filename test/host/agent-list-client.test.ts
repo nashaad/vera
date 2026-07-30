@@ -24,6 +24,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 live: true,
                 title: "Background audit",
                 updated_at: "2026-07-20T20:00:00.000Z",
+                parent_id: "parent-1",
             }, {
                 id: "agent-2",
                 workspace: "/work/one",
@@ -47,6 +48,7 @@ import { startHostServer } from "../../src/host/server.ts";
                 live: true,
                 title: "Background audit",
                 updated_at: "2026-07-20T20:00:00.000Z",
+                parent_id: "parent-1",
             });
             expect(agents[1]?.forked_from).toBe("agent-1");
         } finally {

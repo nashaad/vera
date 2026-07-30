@@ -18,7 +18,10 @@ import type {
     ToolExecutionResult,
     ToolOutput,
 } from "./types.ts";
-import { backgroundAgentTool } from "./background-agent.ts";
+import { asyncSubagentTool } from "./async-subagent.ts";
+import { messageSubagentTool } from "./message-subagent.ts";
+import { notifyParentTool } from "./notify-parent.ts";
+import { webFetchTool } from "./web-fetch.ts";
 
 const ordinaryTools: readonly RegisteredTool[] = [
     bashTool,
@@ -27,12 +30,15 @@ const ordinaryTools: readonly RegisteredTool[] = [
     editTool,
     grepTool,
     listTool,
+    webFetchTool,
 ];
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
     askUserTool,
     subagentTool,
-    backgroundAgentTool,
+    asyncSubagentTool,
+    messageSubagentTool,
+    notifyParentTool,
 ];
 for (const tool of registeredTools) {
     assertValidPermissionInputs(tool);
@@ -41,6 +47,18 @@ const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
 );
 
+export function isBuiltInToolName(name: string): boolean {
+    return toolRegistry.has(name);
+}
+
+function toolFor(
+    name: string,
+    extensionTools: readonly RegisteredTool[] = [],
+): RegisteredTool | undefined {
+    return toolRegistry.get(name)
+        ?? extensionTools.find((tool) => tool.definition.name === name);
+}
+
 /**
  * The path/URL inputs a registered tool declared for permission gating, or
  * `undefined` for a tool that declared none (its call becomes an `unknown`
@@ -48,12 +66,16 @@ const toolRegistry = new Map(
  */
 export function toolPermissionInputs(
     name: string,
+    extensionTools: readonly RegisteredTool[] = [],
 ): readonly PermissionInputSpec[] | undefined {
-    return toolRegistry.get(name)?.permissionInputs;
+    return toolFor(name, extensionTools)?.permissionInputs;
 }
 
-export function toolPermissionOperation(name: string): string | undefined {
-    return toolRegistry.get(name)?.permissionOperation;
+export function toolPermissionOperation(
+    name: string,
+    extensionTools: readonly RegisteredTool[] = [],
+): string | undefined {
+    return toolFor(name, extensionTools)?.permissionOperation;
 }
 
 function assertValidPermissionInputs(tool: RegisteredTool): void {
@@ -86,9 +108,10 @@ function inputSchemaProperties(
 export function toolDefinitionsForCapabilities(
     enabledEffects: readonly ToolEffect["type"][],
     enableUserInteraction = false,
+    extensionTools: readonly RegisteredTool[] = [],
 ): readonly ModelTool[] {
     const enabled = new Set(enabledEffects);
-    return registeredTools
+    return [...registeredTools, ...extensionTools]
         .filter((tool) =>
             (tool.effectType === undefined || enabled.has(tool.effectType))
             && (
@@ -99,8 +122,11 @@ export function toolDefinitionsForCapabilities(
         .map((tool) => tool.definition);
 }
 
-export function toolMayRunInParallel(name: string): boolean {
-    return toolRegistry.get(name)?.parallel === true;
+export function toolMayRunInParallel(
+    name: string,
+    extensionTools: readonly RegisteredTool[] = [],
+): boolean {
+    return toolFor(name, extensionTools)?.parallel === true;
 }
 
 export async function executeToolCall(
@@ -121,8 +147,9 @@ export async function executeToolHandler(
     toolCall: ToolCallContent,
     runtime: ToolRuntime,
     signal: AbortSignal,
+    extensionTools: readonly RegisteredTool[] = [],
 ): Promise<ToolExecutionResult> {
-    const tool = toolRegistry.get(toolCall.name);
+    const tool = toolFor(toolCall.name, extensionTools);
     if (tool === undefined) {
         return errorOutput(`Unknown tool: ${toolCall.name}`);
     }

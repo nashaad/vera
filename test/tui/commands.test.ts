@@ -315,9 +315,11 @@ test("preset is supplied by the bundled extension, not the core catalog", () => 
 
     expect(registry.dispatch("/preset")).toBeUndefined();
     expect(registry.suggestions("/p").map((command) => command.name))
-        .toEqual(["permissions", "palette"]);
+        .toEqual(["permissions", "parent", "palette"]);
     expect(registry.dispatch("/p")).toBeUndefined();
-    expect(registry.dispatch("/pa")).toEqual({ type: "open_command_palette" });
+    expect(registry.dispatch("/pa")).toBeUndefined();
+    expect(registry.dispatch("/pal")).toEqual({ type: "open_command_palette" });
+    expect(registry.dispatch("/par")).toEqual({ type: "go_to_parent" });
     expect(registry.dispatch("/pe")).toEqual({ type: "open_permissions_picker" });
 });
 

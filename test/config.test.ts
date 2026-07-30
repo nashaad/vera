@@ -1,11 +1,18 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
     configuredModelFallback,
     configuredReviewer,
+    configuredSubagentModel,
     loadOptionalVeraConfig,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -44,6 +51,43 @@ test("the optional load tolerates absence but not damage", () => {
     }));
     expect(loadOptionalVeraConfig({ path: present })?.model)
         .toBe("anthropic/example-model");
+});
+
+test("Vera config carries a subagent default model", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        subagent: {
+            provider: "openrouter",
+            model: "  openai/gpt-luna-medium  ",
+            reasoning_effort: "medium",
+        },
+    }));
+
+    const config = loadVeraConfig({ path });
+    expect(config.subagent).toEqual({
+        provider: "openrouter",
+        model: "openai/gpt-luna-medium",
+        reasoning_effort: "medium",
+    });
+    expect(configuredSubagentModel(config)).toEqual({
+        provider: "openrouter",
+        model: "openai/gpt-luna-medium",
+        reasoningEffort: "medium",
+    });
+});
+
+test("a damaged subagent block fails the load rather than being dropped", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        subagent: { model: "   " },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow();
 });
 
 test("Vera config selects OpenAI Codex", () => {
@@ -158,6 +202,104 @@ test("Vera config rejects a non-boolean experimental inbox flag", () => {
     }));
 
     expect(() => loadVeraConfig({ path })).toThrow();
+});
+
+test("Vera config discovers global extension directories", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const extension = join(extensionDirectory, "web-search");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(
+        join(extension, "vera.extension.json"),
+        JSON.stringify({
+            id: "nash.web-search",
+            version: "0.1.0",
+            sdk: "1",
+            entrypoint: "./index.ts",
+            capabilities: ["tools.register"],
+        }),
+    );
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+    }));
+
+    expect(loadVeraConfig({ path, extensionDirectory }).extensions).toEqual([{
+        path: extension,
+        enabled: true,
+        config: {},
+    }]);
+});
+
+test("an explicit extension entry overrides its discovered defaults", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const extension = join(extensionDirectory, "web-search");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(join(extension, "vera.extension.json"), "{}");
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+        extensions: [{
+            path: extension,
+            enabled: false,
+            config: { provider: "brave" },
+        }],
+    }));
+
+    expect(loadVeraConfig({ path, extensionDirectory }).extensions).toEqual([{
+        path: extension,
+        enabled: false,
+        config: { provider: "brave" },
+    }]);
+});
+
+test("a configured symlink can disable the same discovered extension", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const extension = join(extensionDirectory, "web-search");
+    const alias = join(root, "web-search-alias");
+    mkdirSync(extension, { recursive: true });
+    writeFileSync(join(extension, "vera.extension.json"), "{}");
+    symlinkSync(extension, alias);
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+        extensions: [{
+            path: alias,
+            enabled: false,
+        }],
+    }));
+
+    expect(loadVeraConfig({ path }).extensions).toEqual([{
+        path: alias,
+        enabled: false,
+        config: {},
+    }]);
+});
+
+test("global discovery does not follow child symlinks", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const outside = join(root, "outside");
+    mkdirSync(extensionDirectory, { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(outside, "vera.extension.json"), "{}");
+    symlinkSync(outside, join(extensionDirectory, "linked"));
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+    }));
+
+    expect(loadVeraConfig({ path }).extensions).toBeUndefined();
 });
 
 test("Vera config rejects malformed extension entries", () => {
@@ -374,7 +516,7 @@ test("Vera config rejects a missing model", () => {
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string",
+        "expected schema_version 1, provider openrouter, openai-codex, ollama, or cerebras, a non-empty model string",
     );
 });
 
@@ -555,3 +697,36 @@ test("preserving unmodelled keys still allows a default to be cleared", () => {
 function temporaryConfigPath(): string {
     return join(mkdtempSync(join(tmpdir(), "vera-config-")), "config.json");
 }
+
+test("Vera config loads disabled prompt contribution ids", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        disabled_prompt_contributions: [" core.scratchpad "],
+    }));
+
+    expect(loadVeraConfig({ path }).disabled_prompt_contributions).toEqual([
+        "core.scratchpad",
+    ]);
+});
+
+test("Vera config rejects malformed disabled prompt contribution lists", () => {
+    for (const disabled_prompt_contributions of [
+        "core.scratchpad",
+        [""],
+        [42],
+        ["core.scratchpad", "core.scratchpad"],
+    ]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            disabled_prompt_contributions,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow(
+            "Invalid Vera config",
+        );
+    }
+});

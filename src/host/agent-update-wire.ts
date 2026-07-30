@@ -9,6 +9,7 @@ import {
     isPermissionGrantProposal,
 } from "../engine/permissions.ts";
 import { isPermissionPredicate } from "../engine/permission-grants.ts";
+import { isContextMeasurement } from "../engine/context-measurement.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
@@ -34,7 +35,28 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (update.type === "history") {
         return Array.isArray(update.entries)
             && update.entries.every(isTranscriptEntry)
-            && isOptionalTokenCount(update.contextInputTokens)
+            && (update.context === undefined
+                || isContextMeasurement(update.context))
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "context") {
+        return isContextMeasurement(update.measurement)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "model_activity") {
+        return parseModelActivity(value, update);
+    }
+    if (update.type === "compaction") {
+        return (update.phase === "started" || update.phase === "finished")
+                && typeof update.strategy === "string"
+                && (update.outcome === undefined
+                    || isCompactionOutcome(update.outcome))
+                && (update.reason === undefined
+                    || typeof update.reason === "string")
+                && isOptionalCount(update.before)
+                && isOptionalCount(update.after)
             ? value as AgentUpdate
             : undefined;
     }
@@ -64,7 +86,13 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     if (update.type === "tool_finished") {
-        return typeof update.tool === "string" ? value as AgentUpdate : undefined;
+        return typeof update.tool === "string"
+                && (update.output === undefined
+                    || typeof update.output === "string")
+                && (update.isError === undefined
+                    || typeof update.isError === "boolean")
+            ? value as AgentUpdate
+            : undefined;
     }
     if (update.type === "tool_presentation") {
         return typeof update.tool === "string"
@@ -79,7 +107,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.error === undefined
                 || (typeof update.error === "string"
                     && update.error.trim().length > 0))
-            && isOptionalTokenCount(update.contextInputTokens)
+            && (update.empty === undefined || update.empty === true)
             ? value as AgentUpdate
             : undefined;
     }
@@ -104,6 +132,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.sourceAgentId === "string"
                 && update.sourceAgentId.length > 0
                 && typeof update.content === "string"
+                && (update.kind === undefined
+                    || update.kind === "attention"
+                    || update.kind === "completion")
             ? value as AgentUpdate
             : undefined;
     }
@@ -202,6 +233,35 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function parseModelActivity(
+    value: unknown,
+    update: Record<string, unknown>,
+): AgentUpdate | undefined {
+    if (
+        typeof update.model !== "string"
+        || update.model.length === 0
+        || !isPositiveInteger(update.maxAttempts)
+    ) {
+        return undefined;
+    }
+    const failure = asRecord(update.failure);
+    return update.phase === "retrying"
+            && isPositiveInteger(update.nextAttempt)
+            && (update.nextAttempt as number) <= (update.maxAttempts as number)
+            && Number.isSafeInteger(update.delayMs)
+            && (update.delayMs as number) >= 0
+            && typeof update.retryAt === "string"
+            && !Number.isNaN(Date.parse(update.retryAt))
+            && failure !== undefined
+            && isProviderFailureKind(failure?.kind)
+            && (failure.statusCode === undefined
+                || (Number.isSafeInteger(failure.statusCode)
+                    && (failure.statusCode as number) >= 100
+                    && (failure.statusCode as number) <= 599))
+        ? value as AgentUpdate
+        : undefined;
 }
 
 function isToolPresentation(value: unknown): boolean {
@@ -355,11 +415,13 @@ function isUserQuestionRequest(request: Record<string, unknown>): boolean {
         const choice = asRecord(value);
         if (
             choice === undefined
-            || !hasExactKeys(choice, ["id", "label"])
+            || !hasKeys(choice, ["id", "label"], ["preview"])
             || typeof choice.id !== "string"
             || choice.id.trim().length === 0
             || typeof choice.label !== "string"
             || choice.label.trim().length === 0
+            || (Object.hasOwn(choice, "preview")
+                && typeof choice.preview !== "string")
             || ids.has(choice.id)
         ) {
             return false;
@@ -376,6 +438,18 @@ function hasExactKeys(
     const keys = Object.keys(value);
     return keys.length === expected.length
         && expected.every((key) => Object.hasOwn(value, key));
+}
+
+/** Every required key present, and nothing beyond the optional ones. */
+function hasKeys(
+    value: Record<string, unknown>,
+    required: readonly string[],
+    optional: readonly string[],
+): boolean {
+    return required.every((key) => Object.hasOwn(value, key))
+        && Object.keys(value).every((key) =>
+            required.includes(key) || optional.includes(key)
+        );
 }
 
 function parseTimelineReply(
@@ -521,8 +595,16 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
             || (typeof entry.detail === "string"
                 && entry.detail.trim().length > 0);
     }
+    if (entry?.kind === "empty") {
+        return true;
+    }
     if (entry?.kind === "presentation") {
         return isToolPresentation(entry.presentation);
+    }
+    if (entry?.kind === "tool_result") {
+        return typeof entry.tool === "string"
+            && typeof entry.output === "string"
+            && typeof entry.isError === "boolean";
     }
     return entry?.kind === "tool"
         && typeof entry.tool === "string"
@@ -590,11 +672,6 @@ function isReasoningLevel(value: unknown): boolean {
             || typeof level.description === "string");
 }
 
-function isOptionalTokenCount(value: unknown): boolean {
-    return value === undefined
-        || (Number.isSafeInteger(value) && (value as number) >= 0);
-}
-
 function asRecord(value: unknown): Record<string, unknown> | undefined {
     return typeof value === "object" && value !== null && !Array.isArray(value)
         ? value as Record<string, unknown>
@@ -603,6 +680,39 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function isSequence(value: unknown): value is number {
     return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+    return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+function isProviderFailureKind(value: unknown): boolean {
+    return value === "connection"
+        || value === "timeout"
+        || value === "rate_limit"
+        || value === "server"
+        || value === "authentication"
+        || value === "payment_required"
+        || value === "permission"
+        || value === "invalid_request"
+        || value === "not_found"
+        || value === "request_too_large"
+        || value === "unknown";
+}
+
+function isOptionalCount(value: unknown): boolean {
+    return value === undefined
+        || (Number.isSafeInteger(value) && (value as number) >= 0);
+}
+
+function isCompactionOutcome(value: unknown): boolean {
+    return value === "compacted"
+        || value === "not_needed"
+        || value === "no_boundary"
+        || value === "rejected"
+        || value === "unavailable"
+        || value === "cancelled"
+        || value === "busy";
 }
 
 function isRiskLevel(value: unknown): boolean {

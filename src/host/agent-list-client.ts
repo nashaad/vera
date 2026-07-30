@@ -58,6 +58,13 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
             )
         )
         && (
+            agent.parent_id === undefined
+            || (
+                typeof agent.parent_id === "string"
+                && agent.parent_id.length > 0
+            )
+        )
+        && (
             agent.updated_at === undefined
             || (
                 typeof agent.updated_at === "string"

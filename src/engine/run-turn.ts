@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
     emptyUsage,
@@ -49,6 +52,7 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
     ApplyToolEffect,
+    RegisteredTool,
     ToolExecutionResult,
     ToolEffect,
     ToolEffectContext,
@@ -58,6 +62,19 @@ import { loadProjectInstructions } from "./project-instructions.ts";
 import { promptContributionMetadata } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
+import { loadScratchState } from "./scratch-state.ts";
+import {
+    measureMessages,
+    measureProjectedRequest,
+    type ContextMeasurement,
+} from "./context-measurement.ts";
+import type { CompactionStrategyDefinition } from "./compaction.ts";
+import type { CompleteText } from "./completion-service.ts";
+import {
+    compactSession,
+    shouldCompact,
+} from "./compaction-scheduler.ts";
+import { availableModels, contextWindowForModel } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
@@ -92,6 +109,7 @@ import {
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionCompactionDiagnostics,
     type SessionDeliveryEntry,
     type SessionDeliveryInbox,
     type SessionMessageStore,
@@ -106,9 +124,36 @@ const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
+/**
+ * The last measurement taken, held so the next turn can decide whether to
+ * compact before it starts. Deliberately the previous turn's reading: a turn
+ * that has already been compacted must not be judged by the number that
+ * triggered the compaction, which is the stale-trigger loop.
+ */
+export interface ContextWatch {
+    measurement?: ContextMeasurement;
+    /**
+     * The messages' own share of `measurement.tokens`, kept so the fixed
+     * overhead (system prompt, tools, instructions) can be read back out as
+     * the difference. The transcript grows between requests; the overhead is
+     * the part of the reading that stays true.
+     */
+    messageTokens?: number;
+}
+
 export interface RunTurnState {
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
+    /**
+     * What to send the model, which compaction replaces. Absent means the
+     * transcript itself, which is what a session without compaction sends.
+     */
+    readonly modelContext?: () => readonly ModelMessage[];
+    readonly contextWatch?: ContextWatch;
+    readonly compact?: (
+        signal: AbortSignal,
+        pendingMessages?: readonly ModelMessage[],
+    ) => Promise<void>;
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
     readonly inbound: InboundCommandRouter;
@@ -118,6 +163,7 @@ export interface RunTurnState {
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
+    readonly extensionTools?: readonly RegisteredTool[];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
@@ -134,6 +180,14 @@ export interface RunTurnState {
     ) => ReturnType<ReviewToolCall>;
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
+    readonly scratchDir?: string;
+    readonly disabledPromptContributions?: readonly string[];
+}
+
+export interface SessionCompactionOptions {
+    readonly strategy: CompactionStrategyDefinition;
+    readonly models: Readonly<Record<string, CompleteText>>;
+    readonly diagnostics?: SessionCompactionDiagnostics;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -149,9 +203,16 @@ export interface RunHeadlessLoopOptions {
     readonly approvalMode?: ApprovalMode;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly modelFallback?: ModelFallbackPolicy;
+    /**
+     * Strategy and bound models. Absent means the session never compacts and
+     * always sends its whole transcript, which is what every session did
+     * before compaction existed.
+     */
+    readonly compaction?: SessionCompactionOptions;
     readonly applyToolEffect?: ApplyToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
+    readonly extensionTools?: readonly RegisteredTool[];
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
@@ -187,6 +248,20 @@ export interface RunHeadlessLoopOptions {
         reply: SessionNameReplyUpdate,
     ) => void;
     readonly reviewToolCall?: ReviewToolCall;
+    readonly disabledPromptContributions?: readonly string[];
+}
+
+/**
+ * Creates the session's scratch directory and returns its canonical path.
+ * Canonical because permission checks compare realpath-resolved tool paths
+ * against it, and macOS spells the temp dir through a symlink. Synchronous
+ * so session startup keeps its event order: an extra await lets a client's
+ * first prompt race the initial history checkpoint.
+ */
+export function sessionScratchDir(sessionId: string): string {
+    const dir = join(tmpdir(), "vera", sessionId);
+    mkdirSync(dir, { recursive: true });
+    return realpathSync(dir);
 }
 
 export async function runHeadlessLoop(
@@ -226,6 +301,7 @@ export async function runHeadlessLoop(
             : await SessionStore.open(options.resumeSessionPath)
     );
     const sessionId = store.header.id;
+    const scratchDir = sessionScratchDir(sessionId);
     if (
         (options.readApprovalMode === undefined)
         !== (options.updateApprovalMode === undefined)
@@ -274,6 +350,10 @@ export async function runHeadlessLoop(
     }));
     const messages = [...store.messages()];
     let inbound: InboundCommandRouter;
+    // Assigned once the compaction closure exists, further down. Undefined
+    // while the session has no strategy bound, which makes an asked-for
+    // compaction a no-op rather than an error.
+    let compactOnRequest: ((turnActive: boolean) => Promise<void>) | undefined;
     const timeline = new TimelineController({
         state: { messages, store },
         protocol,
@@ -282,6 +362,9 @@ export async function runHeadlessLoop(
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
     });
     inbound = new InboundCommandRouter(endpoint, events, {
+        compactNow: async (turnActive) => {
+            await compactOnRequest?.(turnActive);
+        },
         hasPendingDeliveryTurn: () =>
             store.pendingDeliveries().length > 0
             || store.hasUnansweredDeliveryTurn(),
@@ -321,6 +404,11 @@ export async function runHeadlessLoop(
         ?? createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
+            scratchDir,
+            ...(options.disabledPromptContributions === undefined ? {} : {
+                disabledPromptContributions:
+                    options.disabledPromptContributions,
+            }),
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),
@@ -368,9 +456,115 @@ export async function runHeadlessLoop(
             }
             return activeReviewer.review(request, signal);
         });
+    const contextWatch: ContextWatch = {};
+    const compaction = options.compaction;
+    // Read at each compaction rather than once: the user can switch models
+    // between turns, and the window that matters is the one the next request
+    // will be sent into. The settings carry a window the catalog may not
+    // have: a locally served model's was measured at discovery.
+    const compactionCapacity = (): number | undefined => {
+        const settings = options.readModelSettings?.();
+        return settings?.contextWindow
+            ?? contextWindowForModel(
+                settings?.provider,
+                settings?.model ?? model,
+            );
+    };
+    // A fresh reading over the next context, including a user prompt that has
+    // passed attachment validation but is not durable yet. Without that
+    // pending message, one large prompt can jump from below the trigger to
+    // beyond the provider's window. The last request's fixed overhead (system
+    // prompt, tools, instructions) is carried over because it remains true.
+    const measureContextNow = (
+        pendingMessages: readonly ModelMessage[] = [],
+    ): ContextMeasurement => {
+        const watched = contextWatch.measurement;
+        const overhead = watched === undefined
+            ? 0
+            : Math.max(
+                0,
+                watched.tokens
+                    - (contextWatch.messageTokens ?? watched.tokens),
+            );
+        const capacity = compactionCapacity();
+        return {
+            tokens: measureMessages([
+                ...store.modelContext(),
+                ...pendingMessages,
+            ]) + overhead,
+            ...(capacity === undefined ? {} : { capacity }),
+            estimated: true,
+        };
+    };
+    const runCompaction = compaction === undefined
+        ? undefined
+        : async (
+            signal: AbortSignal,
+            force = false,
+            pendingMessages: readonly ModelMessage[] = [],
+        ): Promise<void> => {
+            const measurement = measureContextNow(pendingMessages);
+            // Forced only when a user asked. Compacting early is the whole
+            // point of asking, so the trigger fraction does not apply, but
+            // every other rule still does.
+            if (!force && !shouldCompact(measurement)) {
+                return;
+            }
+            events.emit({
+                type: "compaction_started",
+                strategy: compaction.strategy.id,
+            });
+            const result = await compactSession({
+                store,
+                strategy: compaction.strategy,
+                models: compaction.models,
+                ...(compaction.diagnostics === undefined
+                    ? {}
+                    : { diagnostics: compaction.diagnostics }),
+            }, measurement, signal);
+            events.emit({
+                type: "compaction_finished",
+                strategy: compaction.strategy.id,
+                outcome: result.outcome,
+                ...("reason" in result ? { reason: result.reason } : {}),
+                ...(result.outcome === "compacted"
+                    ? { before: result.before, after: result.after }
+                    : {}),
+            });
+            if (result.outcome === "compacted") {
+                // The measurement that triggered this described the request
+                // that no longer exists. Leaving it in place is the stale
+                // trigger that makes a session compact every turn.
+                contextWatch.measurement = undefined;
+                contextWatch.messageTokens = undefined;
+            }
+        };
+    if (compaction !== undefined && runCompaction !== undefined) {
+        compactOnRequest = async (turnActive) => {
+            if (turnActive) {
+                events.emit({
+                    type: "compaction_finished",
+                    strategy: compaction.strategy.id,
+                    outcome: "busy",
+                });
+                return;
+            }
+            await runCompaction(new AbortController().signal, true);
+        };
+    }
     const state: RunTurnState = {
         messages,
         store,
+        modelContext: () => store.modelContext(),
+        contextWatch,
+        ...(runCompaction === undefined
+            ? {}
+            : {
+                compact: (
+                    signal: AbortSignal,
+                    pendingMessages: readonly ModelMessage[] = [],
+                ) => runCompaction(signal, false, pendingMessages),
+            }),
         deliveryInbox: store,
         toolRuntime: new ToolRuntime(store.header.cwd),
         inbound,
@@ -380,6 +574,7 @@ export async function runHeadlessLoop(
         applyToolEffect,
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
         enableUserInteraction: options.enableUserInteraction ?? true,
+        extensionTools: options.extensionTools ?? [],
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
@@ -401,6 +596,10 @@ export async function runHeadlessLoop(
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
+        scratchDir,
+        ...(options.disabledPromptContributions === undefined ? {} : {
+            disabledPromptContributions: options.disabledPromptContributions,
+        }),
     };
     protocol.checkpoint(state.messages);
 
@@ -484,6 +683,7 @@ export async function runTurn(
                 ? []
                 : state.enabledToolEffects ?? [],
             state.enableUserInteraction === true,
+            state.extensionTools,
         );
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
             ? undefined
@@ -526,6 +726,16 @@ export async function runTurn(
             return assistantMessage;
         }
         await drainPendingDeliveries(state);
+        // Before the prompt is accepted, so a compaction that fails cannot
+        // strand a message the user has already sent, and after the deliveries
+        // are drained, so nothing pending disappears into a projection that
+        // was assembled without it.
+        if (state.compact !== undefined) {
+            await state.compact(
+                turn.signal,
+                userMessage === undefined ? [] : [userMessage],
+            );
+        }
         if (userMessage === undefined) {
             state.events.emit({ type: "delivery_turn_started" });
         } else {
@@ -533,10 +743,33 @@ export async function runTurn(
             state.events.emit({ type: "turn_started", message: userMessage });
         }
 
+        // Read once for the turn rather than per model round: the catalog is
+        // parsed from disk on every call, and a long tool loop would pay for
+        // it on each pass to answer a question whose only moving part is which
+        // model a fallback landed on.
+        const catalogModels = availableModels();
+        // The settings carry a window neither list always has: the configured
+        // model's was measured at discovery when it is served locally. The
+        // discovered list covers the models a fallback can land on, and the
+        // shipped catalog covers the rest.
+        const capacityForModel = (model: string): number | undefined =>
+            (model === modelSettings.model
+                ? modelSettings.contextWindow
+                : undefined)
+            ?? contextWindowForModel(
+                modelSettings.provider,
+                model,
+                modelSettings.availableModels,
+                catalogModels,
+            );
+
         while (true) {
             const projectInstructions = await loadProjectInstructions(
                 state.toolRuntime.workspace,
             );
+            const scratchState = state.scratchDir === undefined
+                ? undefined
+                : await loadScratchState(state.scratchDir);
             const requestDate = new Date();
             const projection = projectModelRequest({
                 ...(modelSettings.provider === undefined
@@ -547,11 +780,19 @@ export async function runTurn(
                 ...(turnReasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: turnReasoningEffort }),
-                messages: state.messages,
+                messages: state.modelContext?.() ?? state.messages,
                 tools,
                 workspace: state.toolRuntime.workspace,
+                ...(state.scratchDir === undefined
+                    ? {}
+                    : { scratchDir: state.scratchDir }),
                 date: requestDate,
                 projectInstructions,
+                ...(scratchState === undefined ? {} : { scratchState }),
+                ...(state.disabledPromptContributions === undefined ? {} : {
+                    disabledPromptContributions:
+                        state.disabledPromptContributions,
+                }),
                 signal: turn.signal,
             });
             const request = projection.request;
@@ -579,6 +820,21 @@ export async function runTurn(
                 tools: request.tools,
                 promptContributions,
             });
+            const measurement = measureProjectedRequest(
+                request,
+                capacityForModel(activeModel),
+            );
+            state.events.emit({
+                type: "context_measured",
+                model: activeModel,
+                measurement,
+            });
+            if (state.contextWatch !== undefined) {
+                state.contextWatch.measurement = measurement;
+                state.contextWatch.messageTokens = measureMessages(
+                    request.messages,
+                );
+            }
             let modelRequest;
             try {
                 modelRequest = {
@@ -629,6 +885,21 @@ export async function runTurn(
                             type: "model_fallback_selected",
                             ...fallback,
                         });
+                        // The same request is sent again to a model with its
+                        // own window, so the share of it that is filled moves
+                        // even though nothing was added to the request.
+                        const remeasured = remeasuredAgainst(
+                            measurement,
+                            capacityForModel(activeModel),
+                        );
+                        state.events.emit({
+                            type: "context_measured",
+                            model: activeModel,
+                            measurement: remeasured,
+                        });
+                        if (state.contextWatch !== undefined) {
+                            state.contextWatch.measurement = remeasured;
+                        }
                     },
                     ...(state.modelFallback === undefined
                         || (state.modelFallback.provider !== undefined
@@ -688,7 +959,10 @@ export async function runTurn(
             let interrupt: string | undefined;
             while (toolIndex < preparedToolCalls.length) {
                 const first = preparedToolCalls[toolIndex]!;
-                if (!toolMayRunInParallel(first.toolCall.name)) {
+                if (!toolMayRunInParallel(
+                    first.toolCall.name,
+                    state.extensionTools,
+                )) {
                     interrupt = await finishToolCalls(state, [
                         executePreparedTool(
                             state,
@@ -718,6 +992,7 @@ export async function runTurn(
                     toolIndex < preparedToolCalls.length
                     && toolMayRunInParallel(
                         preparedToolCalls[toolIndex]!.toolCall.name,
+                        state.extensionTools,
                     )
                 ) {
                     parallelCalls.push(preparedToolCalls[toolIndex]!);
@@ -813,19 +1088,30 @@ async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
 }
 
 function deliveryMessage(delivery: SessionDeliveryEntry): UserMessage {
+    const kind = delivery.kind ?? "completion";
+    const body = kind === "attention"
+        ? [
+            "<agent_message>",
+            `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,
+            `  <agent_id>${escapeXml(delivery.sourceAgentId)}</agent_id>`,
+            "  <status>attention</status>",
+            `  <message>${escapeXml(delivery.content)}</message>`,
+            "</agent_message>",
+        ]
+        : [
+            "<task_notification>",
+            `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,
+            `  <agent_id>${escapeXml(delivery.sourceAgentId)}</agent_id>`,
+            "  <status>completed</status>",
+            `  <summary>${escapeXml(delivery.content)}</summary>`,
+            "</task_notification>",
+        ];
     return {
         role: "user",
         internal: true,
         content: [{
             type: "text",
-            text: [
-                "<task_notification>",
-                `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,
-                `  <agent_id>${escapeXml(delivery.sourceAgentId)}</agent_id>`,
-                "  <status>completed</status>",
-                `  <summary>${escapeXml(delivery.content)}</summary>`,
-                "</task_notification>",
-            ].join("\n"),
+            text: body.join("\n"),
         }],
     };
 }
@@ -982,6 +1268,10 @@ async function executePreparedTool(
         {
             permissionModes: state.permissionModes,
             permissionPreferences: state.readPermissionPreferences?.() ?? [],
+            extensionTools: state.extensionTools,
+            ...(state.scratchDir === undefined
+                ? {}
+                : { scratchDir: state.scratchDir }),
         },
     );
     if (permission.behavior === "deny") {
@@ -1089,6 +1379,7 @@ async function executePreparedTool(
         toolCall,
         state.toolRuntime,
         signal,
+        state.extensionTools,
     );
     const output = execution.kind === "interaction"
         ? await resolveToolInteraction(state, execution.interaction, signal)
@@ -1367,6 +1658,7 @@ async function resolveToolInteraction(
         output: JSON.stringify({
             choice_id: result.choice.id,
             label: result.choice.label,
+            ...(result.notes === undefined ? {} : { notes: result.notes }),
         }),
         isError: false,
     };
@@ -1390,5 +1682,21 @@ function deniedToolResult(
         toolName: toolCall.name,
         content: [{ type: "text", text: reason }],
         isError: true,
+    };
+}
+
+/**
+ * The same measured request, against a different model's window. Dropping the
+ * capacity when the new model has none keeps a percentage from being drawn
+ * against the window of a model that is no longer running.
+ */
+function remeasuredAgainst(
+    measurement: ContextMeasurement,
+    capacity: number | undefined,
+): ContextMeasurement {
+    return {
+        tokens: measurement.tokens,
+        estimated: measurement.estimated,
+        ...(capacity === undefined ? {} : { capacity }),
     };
 }

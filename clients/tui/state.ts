@@ -1,10 +1,15 @@
-import { bg, fg, StyledText } from "@opentui/core";
+import { bg, bold, fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
-import type { TranscriptEntry } from "../../src/engine/protocol.ts";
+import type {
+    CompactionUpdate,
+    ModelActivityUpdate,
+    TranscriptEntry,
+} from "../../src/engine/protocol.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type {
     ApprovalMode,
     PermissionInspection,
@@ -30,6 +35,14 @@ export interface TuiTextTranscriptEntry {
     readonly attachments?: readonly string[];
     /** Which group a tool row belongs to, and what its header reads. */
     readonly header?: string;
+    /** The engine tool name, retained while its live row waits to finish. */
+    readonly tool?: string;
+    /** Whether this tool call is still executing. */
+    readonly active?: boolean;
+    /** Whether this row closes a tool call with its result. */
+    readonly result?: boolean;
+    /** Whether replay has paired this call with its durable result row. */
+    readonly hasResult?: boolean;
     /** The gutter drawn left of a tool row, in its own column. */
     readonly prefix?: string;
     /** How many times in a row the same call was made. */
@@ -54,7 +67,8 @@ export interface TuiState {
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
     readonly permissionInspection?: PermissionInspection;
-    readonly contextInputTokens?: number;
+    readonly context?: ContextMeasurement;
+    readonly modelActivity?: ModelActivityUpdate;
 }
 
 export let TUI_ACCENT = VERA_TUI_THEME.accent;
@@ -151,13 +165,16 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
 }
 
 export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState {
+    if (update.type === "model_activity") {
+        return { ...state, modelActivity: update };
+    }
     if (update.type === "assistant_delta") {
         return appendAssistantText(state, update.text);
     }
     if (update.type === "tool_started") {
         return {
             ...state,
-            entries: withToolEntry(state.entries, update.tool, update.args),
+            entries: withToolEntry(state.entries, update.tool, update.args, true),
         };
     }
     if (update.type === "tool_review") {
@@ -179,7 +196,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         });
     }
     if (update.type === "tool_finished") {
-        return state;
+        return {
+            ...state,
+            entries: finishToolEntry(
+                state.entries,
+                update.tool,
+                update.output,
+            ),
+        };
     }
     if (update.type === "tool_presentation") {
         return appendPresentation(state, update.presentation);
@@ -187,11 +211,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "turn_finished") {
         const finished = {
             ...state,
+            entries: settleToolEntries(state.entries),
             working: false,
-            ...(update.contextInputTokens === undefined
-                ? {}
-                : { contextInputTokens: update.contextInputTokens }),
+            modelActivity: undefined,
         };
+        if (update.empty === true) {
+            return appendEntry(finished, emptyTurnEntry());
+        }
         const error = update.error
             ?? (update.outcome === "error" ? "Model request failed"
                 : update.outcome === "aborted" ? "Turn aborted"
@@ -208,20 +234,31 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "agent_failed") {
         return appendEntry({
             ...state,
+            entries: settleToolEntries(state.entries),
             working: false,
             queuedPrompts: [],
+            modelActivity: undefined,
         }, {
             kind: "notice",
             text: `Agent error: ${update.detail}`,
         });
     }
     if (update.type === "status") {
-        return { ...state, working: update.state !== "idle" };
+        return {
+            ...state,
+            ...(update.state === "idle"
+                ? { entries: settleToolEntries(state.entries) }
+                : {}),
+            working: update.state !== "idle",
+            ...(update.state === "idle" ? { modelActivity: undefined } : {}),
+        };
     }
     if (update.type === "task_notification") {
         return appendEntry(state, {
             kind: "notification",
-            text: `Background agent ${update.sourceAgentId} completed:\n${update.content}`,
+            text: update.kind === "attention"
+                ? `Async subagent ${update.sourceAgentId} needs attention:\n${update.content}`
+                : `Async subagent ${update.sourceAgentId}:\n${update.content}`,
         });
     }
     if (update.type === "history") {
@@ -232,16 +269,20 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 state.entries,
                 canonicalEntries,
             ),
-            ...(update.contextInputTokens === undefined
+            ...(update.context === undefined
                 ? {}
-                : { contextInputTokens: update.contextInputTokens }),
+                : { context: update.context }),
         };
     }
+    if (update.type === "context") {
+        return { ...state, context: update.measurement };
+    }
     if (update.type === "user_prompt") {
+        const nextState = { ...state, modelActivity: undefined };
         if (userEntryShows(state.entries.at(-1), update.content, update.attachments)) {
-            return state;
+            return nextState;
         }
-        return appendEntry(state, userEntry(update.content, update.attachments));
+        return appendEntry(nextState, userEntry(update.content, update.attachments));
     }
     if (update.type === "ui_request") {
         return state;
@@ -298,7 +339,64 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     ) {
         return state;
     }
+    if (update.type === "compaction") {
+        return applyCompaction(state, update);
+    }
     return assertNever(update);
+}
+
+/**
+ * The transcript above the horizon still reads in full, but the model can no
+ * longer see it, and only this line says so. A failure is shown for the same
+ * reason: the session keeps working, so nothing else would reveal that the
+ * context did not get any smaller.
+ */
+function applyCompaction(
+    state: TuiState,
+    update: CompactionUpdate,
+): TuiState {
+    if (update.phase === "started") {
+        return state;
+    }
+    if (update.outcome === "compacted") {
+        return appendTuiNotice(
+            state,
+            "Earlier messages were summarized. They are still shown here, but "
+                + "the model now sees the summary instead.",
+        );
+    }
+    if (update.outcome === "busy") {
+        return appendTuiNotice(
+            state,
+            "Compaction runs between turns. Try again once this one finishes.",
+        );
+    }
+    if (update.outcome === "not_needed") {
+        // Reached only when the model's context window is unknown, since a
+        // manual request otherwise skips the trigger check.
+        return appendTuiNotice(
+            state,
+            "Could not summarize: the model's context window is not known, "
+                + "so there is no size to summarize down to.",
+        );
+    }
+    if (update.outcome === "no_boundary") {
+        return appendTuiNotice(
+            state,
+            `Nothing to summarize yet${
+                update.reason === undefined ? "" : `: ${update.reason}`
+            }`,
+        );
+    }
+    if (update.outcome === "rejected" || update.outcome === "unavailable") {
+        return appendTuiNotice(
+            state,
+            `Could not summarize the earlier messages${
+                update.reason === undefined ? "" : `: ${update.reason}`
+            }`,
+        );
+    }
+    return state;
 }
 
 export function appendTuiNotice(state: TuiState, message: string): TuiState {
@@ -308,6 +406,7 @@ export function appendTuiNotice(state: TuiState, message: string): TuiState {
 export function failTuiConnection(state: TuiState, message: string): TuiState {
     return appendTuiNotice({
         ...state,
+        entries: settleToolEntries(state.entries),
         working: false,
         queuedPrompts: [],
     }, `Connection error: ${message}`);
@@ -330,7 +429,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([fg(TUI_TEXT)(entry.text)]);
     }
     if (entry.kind === "tool_header") {
-        return new StyledText([fg(TUI_ACCENT)(entry.text)]);
+        return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
     if (entry.kind === "tool") {
         return new StyledText([
@@ -396,8 +495,20 @@ const TOOL_HEADERS: Readonly<Record<string, string>> = {
     edit: "Edited",
     write: "Edited",
     subagent: "Delegated",
-    background_agent: "Delegated",
+    async_subagent: "Delegated",
     ask_user: "Asked",
+};
+
+const LIVE_TOOL_HEADERS: Readonly<Record<string, string>> = {
+    read: "Exploring",
+    grep: "Exploring",
+    list: "Exploring",
+    bash: "Running",
+    edit: "Editing",
+    write: "Editing",
+    subagent: "Delegating",
+    async_subagent: "Delegating",
+    ask_user: "Asking",
 };
 
 function bounded(value: string): string {
@@ -406,8 +517,10 @@ function bounded(value: string): string {
         : value;
 }
 
-function toolHeader(tool: string): string {
-    return TOOL_HEADERS[tool] ?? "Worked";
+function toolHeader(tool: string, active: boolean): string {
+    return active
+        ? LIVE_TOOL_HEADERS[tool] ?? "Working"
+        : TOOL_HEADERS[tool] ?? "Worked";
 }
 
 function stringArg(
@@ -458,7 +571,7 @@ function toolRowText(
     if ((tool === "edit" || tool === "write") && path !== undefined) {
         return `${tool === "edit" ? "Edit" : "Write"} ${displayPath(path)}`;
     }
-    if (tool === "subagent" || tool === "background_agent") {
+    if (tool === "subagent" || tool === "async_subagent") {
         const description = stringArg(args, "description");
         if (description !== undefined) {
             return bounded(description.replaceAll(/\s+/g, " ").trim());
@@ -476,6 +589,7 @@ function withToolEntry(
     entries: readonly TuiTranscriptEntry[],
     tool: string,
     args: Readonly<Record<string, unknown>>,
+    active: boolean,
 ): TuiTranscriptEntry[] {
     // Review and thought rows come and go: a history checkpoint drops them, and
     // a run has to group the same way either way, or the checkpoint stops
@@ -484,10 +598,11 @@ function withToolEntry(
         entry.kind !== "review" && entry.kind !== "thought"
     );
     const previous = entries[previousIndex];
-    const header = toolHeader(tool);
+    const header = toolHeader(tool, active);
     const row = toolRowText(tool, args);
     if (
-        previous?.kind === "tool"
+        !active
+        && previous?.kind === "tool"
         && previous.header === header
         && previous.text === row
     ) {
@@ -505,15 +620,136 @@ function withToolEntry(
         return [...entries, {
             kind: "tool",
             header,
+            ...(active ? { tool, active: true } : {}),
             prefix: previous?.kind === "tool_header" ? "  └ " : "    ",
             text: row,
         }];
     }
     return [
         ...entries,
-        { kind: "tool_header", header, text: header },
-        { kind: "tool", header, prefix: "  └ ", text: row },
+        {
+            kind: "tool_header",
+            header,
+            ...(active ? { active: true } : {}),
+            text: header,
+        },
+        {
+            kind: "tool",
+            header,
+            ...(active ? { tool, active: true } : {}),
+            prefix: "  └ ",
+            text: row,
+        },
     ];
+}
+
+/**
+ * Settles the oldest matching live call. Calls can finish out of order, so the
+ * row itself carries the tool name instead of assuming the last row finished.
+ */
+function finishToolEntry(
+    entries: readonly TuiTranscriptEntry[],
+    tool: string,
+    output?: string,
+): TuiTranscriptEntry[] {
+    const toolIndex = entries.findIndex((entry) =>
+        entry.kind === "tool" && entry.active === true && entry.tool === tool
+    );
+    if (toolIndex === -1) {
+        return [...entries];
+    }
+
+    let headerIndex = toolIndex - 1;
+    while (headerIndex >= 0 && entries[headerIndex]?.kind !== "tool_header") {
+        headerIndex -= 1;
+    }
+    if (headerIndex < 0) {
+        return entries.map((entry, index) =>
+            index === toolIndex ? { ...entry, active: false } : entry
+        );
+    }
+
+    let groupEnd = headerIndex + 1;
+    while (
+        groupEnd < entries.length
+        && entries[groupEnd]?.kind !== "tool_header"
+        && (
+            entries[groupEnd]?.kind === "tool"
+            || entries[groupEnd]?.kind === "review"
+            || entries[groupEnd]?.kind === "thought"
+        )
+    ) {
+        groupEnd += 1;
+    }
+    const hasAnotherActiveCall = entries
+        .slice(headerIndex + 1, groupEnd)
+        .some((entry, offset) =>
+            headerIndex + 1 + offset !== toolIndex
+            && entry.kind === "tool"
+            && entry.active === true
+        );
+    const completedHeader = toolHeader(tool, false);
+
+    const completed = entries.map((entry, index) => {
+        if (index === toolIndex && entry.kind === "tool") {
+            const { active: _active, tool: _tool, ...completed } = entry;
+            return {
+                ...completed,
+                ...(output === undefined ? {} : { prefix: "  │ " }),
+                ...(hasAnotherActiveCall ? {} : { header: completedHeader }),
+            };
+        }
+        if (hasAnotherActiveCall || index < headerIndex || index >= groupEnd) {
+            return entry;
+        }
+        if (entry.kind === "tool_header") {
+            const { active: _active, ...completed } = entry;
+            return {
+                ...completed,
+                header: completedHeader,
+                text: completedHeader,
+            };
+        }
+        return entry.kind === "tool"
+            ? { ...entry, header: completedHeader }
+            : entry;
+    });
+    if (output === undefined) {
+        return completed;
+    }
+    const groupHeader = entries[headerIndex];
+    completed.splice(groupEnd, 0, {
+        kind: "tool",
+        header: hasAnotherActiveCall
+            ? (groupHeader?.kind === "tool_header"
+                ? groupHeader.header
+                : completedHeader)
+            : completedHeader,
+        result: true,
+        prefix: "  └ ",
+        text: toolResultText(output),
+    });
+    return completed;
+}
+
+function toolResultText(output: string): string {
+    const text = output.trim();
+    return text.length === 0 ? "(no output)" : bounded(text);
+}
+
+function settleToolEntries(
+    entries: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    let settled = entries;
+    while (true) {
+        const active = settled.find((entry) =>
+            entry.kind === "tool" && entry.active === true
+        );
+        if (active?.kind !== "tool" || active.tool === undefined) {
+            return settled;
+        }
+        settled = finishToolEntry(settled, active.tool);
+    }
 }
 
 function toTuiTranscriptEntries(
@@ -522,14 +758,16 @@ function toTuiTranscriptEntries(
     let converted: TuiTranscriptEntry[] = [];
     for (const entry of entries) {
         converted = entry.kind === "tool"
-            ? withToolEntry(converted, entry.tool, entry.args)
+            ? withToolEntry(converted, entry.tool, entry.args, false)
+            : entry.kind === "tool_result"
+            ? withHistoricalToolResult(converted, entry.tool, entry.output)
             : [...converted, toSingleTuiTranscriptEntry(entry)];
     }
     return converted;
 }
 
 function toSingleTuiTranscriptEntry(
-    entry: Exclude<TranscriptEntry, { kind: "tool" }>,
+    entry: Exclude<TranscriptEntry, { kind: "tool" | "tool_result" }>,
 ): TuiTranscriptEntry {
     if (entry.kind === "error") {
         return {
@@ -540,9 +778,49 @@ function toSingleTuiTranscriptEntry(
     if (entry.kind === "presentation") {
         return presentationEntry(entry.presentation);
     }
+    if (entry.kind === "empty") {
+        return emptyTurnEntry();
+    }
     return entry.kind === "user"
         ? userEntry(entry.text, entry.attachments)
         : entry;
+}
+
+function withHistoricalToolResult(
+    entries: readonly TuiTranscriptEntry[],
+    tool: string,
+    output: string,
+): TuiTranscriptEntry[] {
+    const callIndex = entries.findIndex((entry) =>
+        entry.kind === "tool"
+        && entry.result !== true
+        && entry.hasResult !== true
+    );
+    if (callIndex === -1) {
+        return [...entries];
+    }
+    const call = entries[callIndex]!;
+    const next = entries.map((entry, index) =>
+        index === callIndex && entry.kind === "tool"
+            ? { ...entry, hasResult: true, prefix: "  │ " }
+            : entry
+    );
+    next.splice(callIndex + 1, 0, {
+        kind: "tool",
+        header: call.kind === "tool" ? call.header : toolHeader(tool, false),
+        result: true,
+        prefix: "  └ ",
+        text: toolResultText(output),
+    });
+    return next;
+}
+
+/**
+ * The one place the wording lives, so the live turn and the same turn rebuilt
+ * from history cannot drift apart.
+ */
+function emptyTurnEntry(): TuiTranscriptEntry {
+    return { kind: "notice", text: "No response" };
 }
 
 function appendPresentation(
@@ -620,7 +898,7 @@ function transcriptEntriesEqual(
     return left.length === right.length
         && left.every((entry, index) =>
             entry.kind === right[index]?.kind
-            && entry.text === right[index]?.text
+            && comparableEntryText(entry) === comparableEntryText(right[index])
             && sameAttachments(
                 entryAttachments(entry),
                 entryAttachments(right[index]),
@@ -629,6 +907,18 @@ function transcriptEntriesEqual(
                 || (right[index]?.kind === "diff"
                     && entry.patch === right[index].patch))
         );
+}
+
+function comparableEntryText(entry: TuiTranscriptEntry | undefined): string {
+    if (entry === undefined) {
+        return "";
+    }
+    if (entry.kind !== "tool_header" || entry.active !== true) {
+        return entry.text;
+    }
+    const completed = Object.entries(LIVE_TOOL_HEADERS)
+        .find(([, live]) => live === entry.text)?.[0];
+    return completed === undefined ? entry.text : toolHeader(completed, false);
 }
 
 function entryAttachments(

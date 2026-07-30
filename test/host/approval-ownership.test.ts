@@ -190,14 +190,19 @@ async function receiveApproval(
     client: AttachedAgentClient,
 ): Promise<ApprovalRequestUpdate> {
     expect((await client.receive()).type).toBe("user_prompt");
-    const update = await client.receive();
-    if (
-        update.type !== "ui_request"
-        || !isToolApprovalUiRequestUpdate(update)
-    ) {
-        throw new Error(`Expected approval request, received ${update.type}`);
+    // Context measurements arrive whenever the engine builds a request, which
+    // is not something an approval test should have to interleave with.
+    while (true) {
+        const update = await client.receive();
+        if (update.type === "context") continue;
+        if (
+            update.type !== "ui_request"
+            || !isToolApprovalUiRequestUpdate(update)
+        ) {
+            throw new Error(`Expected approval request, received ${update.type}`);
+        }
+        return update;
     }
-    return update;
 }
 
 function answer(

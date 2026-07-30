@@ -957,7 +957,7 @@ test("pending deliveries are idempotent and survive restart until injected", asy
     const delivery = {
         id: "delivery-1",
         sourceAgentId: "background-1",
-        content: "Background agent finished: tests pass.",
+        content: "Async subagent finished: tests pass.",
     };
     const store = await SessionStore.create(path, {
         sessionId: "parent-1",
@@ -1048,7 +1048,7 @@ test("rewind requeues only a delivery abandoned with its message", async () => {
     const delivery = {
         id: "delivery-1",
         sourceAgentId: "background-1",
-        content: "Background agent finished.",
+        content: "Async subagent finished.",
     };
     const store = await SessionStore.create(path, {
         sessionId: "parent-1",
@@ -1545,6 +1545,302 @@ test("session store rejects an invalid message before writing", async () => {
     );
     expect(readLines(path)).toHaveLength(1);
 });
+
+test("a compaction replaces the model context without touching the transcript", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    const first = userMessage("first request");
+    const firstAnswer = assistantMessage("first answer");
+    const second = userMessage("second request");
+    const secondAnswer = assistantMessage("second answer");
+    for (const message of [first, firstAnswer, second, secondAnswer]) {
+        await store.appendMessage(message);
+    }
+    const summary = assistantMessage("summary of the first exchange");
+
+    await store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [summary],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    });
+
+    // The originals are what the user said, so they stay exactly as recorded;
+    // only what the model is sent changes.
+    expect(store.messages()).toEqual([first, firstAnswer, second, secondAnswer]);
+    expect(store.modelContext()).toEqual([summary, second, secondAnswer]);
+    expect((await SessionStore.open(path)).modelContext())
+        .toEqual([summary, second, secondAnswer]);
+});
+
+test("compacting again summarizes the previous projection's span", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    const thirdUser = userMessage("three");
+    const thirdAnswer = assistantMessage("third answer");
+    for (const message of [
+        userMessage("one"),
+        assistantMessage("first answer"),
+        userMessage("two"),
+        assistantMessage("second answer"),
+        thirdUser,
+        thirdAnswer,
+    ]) {
+        await store.appendMessage(message);
+    }
+    const firstSummary = assistantMessage("summary through one");
+    const secondSummary = assistantMessage("summary through two");
+
+    await store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [firstSummary],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    });
+    await store.appendCompaction({
+        boundaryMessageId: "message-4",
+        firstRetainedMessageId: "message-5",
+        projection: [secondSummary],
+        measured: { inputTokens: 30, contextWindow: 1_000, estimated: true },
+    });
+
+    // The later record wins without the earlier one being removed: both are
+    // still in the file, and a session that rewinds can fall back to the first.
+    expect(store.modelContext())
+        .toEqual([secondSummary, thirdUser, thirdAnswer]);
+    expect((await SessionStore.open(path)).modelContext())
+        .toEqual([secondSummary, thirdUser, thirdAnswer]);
+});
+
+test("rewinding past the boundary retires the compaction without deleting it", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    const first = userMessage("first request");
+    const firstAnswer = assistantMessage("first answer");
+    const second = userMessage("second request");
+    const secondAnswer = assistantMessage("second answer");
+    for (const message of [first, firstAnswer, second, secondAnswer]) {
+        await store.appendMessage(message);
+    }
+    await store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [assistantMessage("summary")],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    });
+
+    await store.rewindBefore("message-1");
+
+    expect(store.latestCompaction()).toBeUndefined();
+    expect(store.modelContext()).toEqual([]);
+    // The record is still on disk. It stopped applying because the history it
+    // described is no longer on the active branch, not because it was removed.
+    expect(readFileSync(path, "utf8")).toContain("\"type\":\"compaction\"");
+    expect((await SessionStore.open(path)).latestCompaction()).toBeUndefined();
+});
+
+test("a compaction cannot split a tool call from its result", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    const request = userMessage("read the note");
+    const call: ModelMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call-1",
+            name: "read",
+            input: { path: "note.txt" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const result: ModelMessage = {
+        role: "tool_result",
+        toolCallId: "call-1",
+        toolName: "read",
+        content: [{ type: "text", text: "contents" }],
+        isError: false,
+    };
+    for (const message of [request, call, result]) {
+        await store.appendMessage(message);
+    }
+
+    // Retaining the result alone would send a provider an answer to a call it
+    // cannot see, which it rejects outright.
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [assistantMessage("summary")],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    })).rejects.toThrow("retains a tool result");
+
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-1",
+        firstRetainedMessageId: null,
+        projection: [call],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    })).rejects.toThrow("leaves tool call call-1 unanswered");
+});
+
+test("a compaction is refused unless its anchors are on the active branch", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    await store.appendMessage(userMessage("first request"));
+    await store.appendMessage(assistantMessage("first answer"));
+    const measured = { inputTokens: 40, contextWindow: 1_000, estimated: true };
+
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-9",
+        firstRetainedMessageId: null,
+        projection: [assistantMessage("summary")],
+        measured,
+    })).rejects.toThrow("is not an active message");
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-1",
+        firstRetainedMessageId: null,
+        projection: [assistantMessage("summary")],
+        measured,
+    })).rejects.toThrow("must retain the message following its boundary");
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: null,
+        projection: [],
+        measured,
+    })).rejects.toThrow("cannot be empty");
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: null,
+        projection: [assistantMessage("summary")],
+        measured: { inputTokens: 40, contextWindow: 0, estimated: true },
+    })).rejects.toThrow("not a usable reading");
+    // NaN survives as a number in memory but serializes to null, which the
+    // loader rejects, so accepting it would write a session that cannot open.
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: null,
+        projection: [{
+            ...(assistantMessage("summary") as ModelMessage & {
+                role: "assistant";
+            }),
+            usage: { ...emptyUsage(), inputTokens: Number.NaN },
+        }],
+        measured,
+    })).rejects.toThrow("invalid message");
+    // The projection outlives the strategy that made it, so a reference to an
+    // attachment the session never stored would fail on every later turn.
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: null,
+        projection: [{
+            role: "user",
+            content: [{ type: "image_attachment", attachmentId: "missing" }],
+        }],
+        measured,
+    })).rejects.toThrow("not in this session");
+});
+
+test("a session carrying an unreadable compaction does not load", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    await store.appendMessage(userMessage("first request"));
+    appendFileSync(
+        path,
+        `${JSON.stringify({
+            type: "compaction",
+            id: "compaction-1",
+            timestamp: "2026-07-28T12:00:00.000Z",
+            boundaryMessageId: "message-1",
+            firstRetainedMessageId: null,
+            projection: [],
+            measured: { inputTokens: 1, contextWindow: 2, estimated: true },
+        })}\n`,
+    );
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 3 is not a valid compaction entry",
+    );
+});
+
+test("turns after a compaction are still sent to the model", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    const first = userMessage("first request");
+    const firstAnswer = assistantMessage("first answer");
+    for (const message of [first, firstAnswer]) {
+        await store.appendMessage(message);
+    }
+    const summary = assistantMessage("summary of the first exchange");
+    await store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: null,
+        projection: [summary],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    });
+
+    const next = userMessage("second request");
+    const nextAnswer = assistantMessage("second answer");
+    for (const message of [next, nextAnswer]) {
+        await store.appendMessage(message);
+    }
+
+    // A record describes its prefix. Everything said after it is still owed to
+    // the model, including messages that did not exist when it was written.
+    expect(store.modelContext()).toEqual([summary, next, nextAnswer]);
+    expect((await SessionStore.open(path)).modelContext())
+        .toEqual([summary, next, nextAnswer]);
+});
+
+test("a compaction cannot leave a gap between its boundary and its suffix", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    for (const message of [
+        userMessage("one"),
+        assistantMessage("first answer"),
+        userMessage("two"),
+        assistantMessage("second answer"),
+    ]) {
+        await store.appendMessage(message);
+    }
+
+    // Retaining from message-3 while compacting only through message-1 would
+    // drop message-2 with nothing recording that it went missing.
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-1",
+        firstRetainedMessageId: "message-3",
+        projection: [assistantMessage("summary")],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    })).rejects.toThrow("must retain the message following its boundary");
+});
+
+
+async function countedStore(
+    path: string,
+    cwd: string,
+): Promise<SessionStore> {
+    let sequence = 0;
+    return await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd,
+        now: () => new Date("2026-07-28T12:00:00.000Z"),
+        createId: () => {
+            sequence += 1;
+            return `message-${sequence}`;
+        },
+    });
+}
+
+function userMessage(text: string): ModelMessage {
+    return { role: "user", content: [{ type: "text", text }] };
+}
 
 function temporaryDirectory(): string {
     const directory = mkdtempSync(join(tmpdir(), "vera-session-store-"));

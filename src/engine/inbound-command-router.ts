@@ -67,6 +67,7 @@ export interface UserQuestionOptions {
 export interface UserQuestionSelected {
     readonly outcome: "selected";
     readonly choice: UserQuestionChoice;
+    readonly notes?: string;
 }
 
 export interface UserQuestionCancelled {
@@ -150,6 +151,12 @@ export interface InboundCommandRouterOptions {
     ) => Promise<void>;
     /** Resolves false when the ID names no live grant. */
     readonly removePermissionGrant?: (id: string) => Promise<boolean>;
+    /**
+     * Absent when the session cannot compact, so an asked-for compaction on a
+     * session with no strategy bound does nothing rather than reporting a
+     * failure the user cannot act on.
+     */
+    readonly compactNow?: (turnActive: boolean) => Promise<void>;
     readonly handleTimelineCommand?: (
         ownerId: string,
         command: TimelineCommand,
@@ -489,6 +496,20 @@ export class InboundCommandRouter {
                         "direct-client",
                         command.requestId,
                         command.name,
+                    );
+                    continue;
+                }
+
+                if (command.type === "compact") {
+                    // Compaction runs between turns, never inside one: the
+                    // span it replaces has to be finished and durable. A
+                    // queued prompt counts as a turn already underway, since
+                    // it can be claimed while the compaction is still running.
+                    // Prompts only enter the queue through this loop, so the
+                    // await below also keeps new ones out until it settles.
+                    await this.options.compactNow?.(
+                        this.activeTurn !== undefined
+                            || this.pendingPromptCount > 0,
                     );
                     continue;
                 }
@@ -969,9 +990,15 @@ function questionResult(
     const choice = request.choices.find(
         (candidate) => candidate.id === response.choiceId,
     );
-    return choice === undefined
-        ? undefined
-        : { outcome: "selected", choice: { ...choice } };
+    if (choice === undefined) {
+        return undefined;
+    }
+    const notes = response.notes?.trim();
+    return {
+        outcome: "selected",
+        choice: { ...choice },
+        ...(notes === undefined || notes.length === 0 ? {} : { notes }),
+    };
 }
 
 function abortedDenial(): ToolApprovalDenied {

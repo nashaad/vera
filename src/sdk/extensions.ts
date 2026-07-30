@@ -1,10 +1,13 @@
 import type { JsonValue } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
+import type { ToolPresentation } from "../model/types.ts";
+import type { PermissionInputSpec } from "../tools/types.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
     readonly commands: VeraExtensionCommands;
+    readonly tools: VeraExtensionTools;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 
@@ -17,6 +20,40 @@ export interface VeraExtensionModule {
 export interface VeraExtensionCommands {
     register(spec: VeraExtensionCommandSpec): void;
 }
+
+export interface VeraExtensionTools {
+    register(spec: VeraExtensionToolSpec): void;
+}
+
+export interface VeraExtensionToolSpec {
+    readonly name: string;
+    readonly description: string;
+    readonly inputSchema: Readonly<Record<string, unknown>>;
+    readonly parallel?: boolean;
+    readonly permissionOperation?: string;
+    readonly permissionInputs?: readonly PermissionInputSpec[];
+    readonly run: VeraExtensionToolHandler;
+}
+
+export interface VeraExtensionToolRequest {
+    readonly input: Readonly<Record<string, unknown>>;
+    readonly workspace: string;
+    readonly signal: AbortSignal;
+}
+
+export interface VeraExtensionToolResult {
+    readonly output: string;
+    readonly isError?: boolean;
+    /**
+     * Optional client-facing rendering kept outside model input. The engine
+     * persists and publishes it only after the tool result is durable.
+     */
+    readonly presentation?: ToolPresentation;
+}
+
+export type VeraExtensionToolHandler = (
+    request: VeraExtensionToolRequest,
+) => VeraExtensionToolResult | Promise<VeraExtensionToolResult>;
 
 export interface VeraExtensionCommandSpec {
     readonly name: string;
@@ -191,6 +228,7 @@ export interface VeraClientPickerAction {
 
 export interface VeraClientPickerRequest {
     readonly title: string;
+    readonly subtitle?: string;
     readonly rows: readonly VeraClientPickerRow[];
     readonly selectedId?: string;
     readonly actions: readonly VeraClientPickerAction[];

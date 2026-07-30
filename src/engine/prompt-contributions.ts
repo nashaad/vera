@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ModelTool } from "../model/types.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
+import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
 export type PromptContributionTarget = "stable" | "contextual";
 
@@ -24,18 +25,25 @@ export interface PromptContributionMetadata {
 export interface PromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface StablePromptContributionInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface ContextualPromptContributionInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 interface StablePromptContributor {
@@ -89,6 +97,24 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         }),
     },
     {
+        id: "core.scratchpad",
+        owner: "core",
+        target: "stable",
+        contribute: (input) =>
+            input.scratchDir === undefined ? null : {
+                title: "Scratch directory",
+                content: `Disposable per-session scratch directory: ${input.scratchDir}\n`
+                    + "Use it freely (writes here need no approval) instead "
+                    + "of /tmp for temporary files and working notes.\n"
+                    + "For tasks with more than a couple of steps, keep your "
+                    + "todo list as todo.md here (the file is the list, chat "
+                    + "is optional): create it when you start, check items "
+                    + "off as you go, re-read it after compaction.\n"
+                    + "The OS deletes this directory; keep nothing you need "
+                    + "later.",
+            },
+    },
+    {
         id: "core.date",
         owner: "core",
         target: "contextual",
@@ -96,6 +122,27 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             title: "Date",
             content: `Current date: ${formatLocalDate(input.date)}`,
         }),
+    },
+    {
+        id: "core.scratchpad-state",
+        owner: "core",
+        target: "contextual",
+        contribute: (input) => {
+            const state = input.scratchState;
+            if (state === undefined) {
+                return null;
+            }
+            const listed = state.truncatedFiles > 0
+                ? `${state.files.join(", ")} (+${state.truncatedFiles} more)`
+                : state.files.join(", ");
+            return {
+                title: "Scratch directory state",
+                content: `Files: ${listed}`
+                    + (state.todo === undefined
+                        ? ""
+                        : `\ntodo.md:\n${state.todo}`),
+            };
+        },
     },
     {
         id: "core.project-instructions",
@@ -157,6 +204,7 @@ export function collectStablePromptContributions(
 ): readonly PromptContribution[] {
     return BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
         contributor.target === "stable"
+            && !isDisabled(contributor.id, input.disabledContributions)
             ? collectContribution(contributor, contributor.contribute(input))
             : []
     );
@@ -167,9 +215,17 @@ export function collectContextualPromptContributions(
 ): readonly PromptContribution[] {
     return BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
         contributor.target === "contextual"
+            && !isDisabled(contributor.id, input.disabledContributions)
             ? collectContribution(contributor, contributor.contribute(input))
             : []
     );
+}
+
+function isDisabled(
+    id: string,
+    disabled: readonly string[] | undefined,
+): boolean {
+    return disabled !== undefined && disabled.includes(id);
 }
 
 function collectContribution(

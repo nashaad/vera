@@ -27,6 +27,8 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 home,
                 "test/support/tui-child.ts",
+                100,
+                36,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/help");
@@ -1302,7 +1304,9 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("PARTIAL xxxxx");
             expect(pane).toContain("redirect now");
             expect(pane).not.toContain("FIRST-END");
-            expect(pane).toContain("auto · ctx 25%");
+            // The estimate stands while the request is in flight, so the
+            // provider's own count only replaces it once the turn ends.
+            pane = await waitForPane(socket, session, "auto · ctx 25%");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
@@ -1437,9 +1441,13 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("Permission required");
             expect(pane).toContain("$ grep");
+            expect(pane).not.toContain("approval required ·");
+            expect(pane).not.toContain("gpt-5.6-sol");
 
+            // Down moves the highlight across the answers, so the details
+            // scroll by page.
             for (let index = 0; index < 20; index += 1) {
-                sendKey(socket, session, "Down");
+                sendKey(socket, session, "NPage");
             }
             pane = await waitForVisiblePane(
                 socket,
@@ -1544,6 +1552,8 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Which release channel");
             expect(pane).toContain("2  Preview");
             expect(pane).toContain("3  Nightly");
+            expect(pane).not.toContain("question waiting");
+            expect(pane).not.toContain("gpt-5.6-sol");
             // The reproduction for the status-line collision: above the short
             // terminal threshold the overlay clears the status line's row, so
             // its final line of key hints survives instead of being drawn over.

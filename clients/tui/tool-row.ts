@@ -5,6 +5,23 @@ import type { TuiTextTranscriptEntry } from "./state.ts";
 import { TUI_MUTED, tuiToolRowText } from "./state.ts";
 
 const rowText = new WeakMap<BoxRenderable, TextRenderable>();
+const rowGutter = new WeakMap<
+    BoxRenderable,
+    { box: BoxRenderable; marker: TextRenderable }
+>();
+const CONNECTOR_BORDER = {
+    topLeft: "│",
+    topRight: "",
+    bottomLeft: "│",
+    bottomRight: "",
+    horizontal: "",
+    vertical: "│",
+    topT: "",
+    bottomT: "",
+    leftT: "",
+    rightT: "",
+    cross: "",
+};
 
 /**
  * Rewrites a row in place. A repeated call raises the count on the row already
@@ -18,6 +35,19 @@ export function updateTuiToolRow(
     const text = rowText.get(node);
     if (text !== undefined) {
         text.content = tuiToolRowText(entry);
+    }
+    const gutter = rowGutter.get(node);
+    if (gutter !== undefined) {
+        const connected = entry.prefix === "  │ ";
+        gutter.box.customBorderChars = connected
+            ? CONNECTOR_BORDER
+            : undefined;
+        gutter.box.border = connected ? ["left"] : false;
+        gutter.box.visible = connected;
+        gutter.marker.visible = !connected;
+        gutter.marker.content = connected
+            ? ""
+            : (entry.prefix ?? "").slice(2);
     }
 }
 
@@ -38,13 +68,37 @@ export function createTuiToolRow(
         flexDirection: "row",
         marginTop,
     });
-    row.add(new TextRenderable(renderer, {
+    const gutter = new BoxRenderable(renderer, {
         id: `${id}-gutter`,
-        content: entry.prefix ?? "",
-        fg: TUI_MUTED,
+        width: 4,
+        position: "relative",
         flexShrink: 0,
+    });
+    const connector = new BoxRenderable(renderer, {
+        id: `${id}-gutter-connector`,
+        position: "absolute",
+        left: 2,
+        width: 2,
+        height: "100%",
+        border: ["left"],
+        borderColor: TUI_MUTED,
+        customBorderChars: CONNECTOR_BORDER,
+        visible: entry.prefix === "  │ ",
+    });
+    const marker = new TextRenderable(renderer, {
+        id: `${id}-gutter-marker`,
+        position: "absolute",
+        left: 2,
+        content: entry.prefix === "  │ "
+            ? ""
+            : (entry.prefix ?? "").slice(2),
+        fg: TUI_MUTED,
         selectable: true,
-    }));
+        visible: entry.prefix !== "  │ ",
+    });
+    gutter.add(connector);
+    gutter.add(marker);
+    row.add(gutter);
     const text = new TextRenderable(renderer, {
         id: `${id}-text`,
         content: tuiToolRowText(entry),
@@ -55,5 +109,6 @@ export function createTuiToolRow(
     });
     row.add(text);
     rowText.set(row, text);
+    rowGutter.set(row, { box: connector, marker });
     return row;
 }

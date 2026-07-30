@@ -78,3 +78,30 @@ test("host wire rejects malformed semantic user questions", () => {
         },
     })).toBeUndefined();
 });
+
+test("host wire carries a choice preview and rejects a non-string one", () => {
+    const withPreview = {
+        ...validQuestion,
+        request: {
+            ...validQuestion.request,
+            choices: [
+                {
+                    ...validQuestion.request.choices[0],
+                    preview: "  indented\n  mockup",
+                },
+                validQuestion.request.choices[1],
+            ],
+        },
+    };
+    expect(parseAgentUpdate(withPreview)).toEqual(withPreview);
+    expect(parseAgentUpdate({
+        ...validQuestion,
+        request: {
+            ...validQuestion.request,
+            choices: [
+                { ...validQuestion.request.choices[0], preview: 3 },
+                validQuestion.request.choices[1],
+            ],
+        },
+    })).toBeUndefined();
+});

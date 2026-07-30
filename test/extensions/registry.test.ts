@@ -21,6 +21,12 @@ import {
     startExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
+import {
+    decideToolPermission,
+    extractPermissionActions,
+} from "../../src/engine/permissions.ts";
+import { executeToolHandler } from "../../src/tools/execute.ts";
+import { ToolRuntime } from "../../src/tools/runtime.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -94,6 +100,285 @@ test("registry loads enabled extensions, invokes by workspace, and closes in rev
 
     await registry.close();
     expect(readFileSync(cleanupPath, "utf8")).toBe("second\nfirst\n");
+});
+
+test("registry exposes extension tools through the ordinary tool and permission paths", async () => {
+    const workspace = createDirectory();
+    const extension = createExtension("search.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "web_search",
+                description: "Search the web",
+                inputSchema: {
+                    type: "object",
+                    properties: { query: { type: "string" } },
+                    required: ["query"],
+                    additionalProperties: false,
+                },
+                parallel: true,
+                permissionOperation: "web.search",
+                run({ input, workspace }) {
+                    return {
+                        output: workspace + ":" + input.query,
+                        presentation: {
+                            kind: "tool_notice",
+                            text: "Rendered result",
+                        },
+                    };
+                },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const tools = registry.tools();
+
+    expect(tools.map((tool) => tool.definition.name)).toEqual(["web_search"]);
+    expect(decideToolPermission(
+        "ask",
+        { id: "search-1", name: "web_search", input: { query: "dag" } },
+        workspace,
+        [],
+        { extensionTools: tools },
+    )).toMatchObject({
+        behavior: "ask",
+        actions: [{ action: { operation: "web.search" } }],
+    });
+    await expect(executeToolHandler(
+        {
+            type: "tool_call",
+            id: "search-1",
+            name: "web_search",
+            input: { query: "dag" },
+        },
+        new ToolRuntime(workspace),
+        new AbortController().signal,
+        tools,
+    )).resolves.toEqual({
+        kind: "output",
+        output: `${workspace}:dag`,
+        isError: false,
+        presentation: {
+            kind: "tool_notice",
+            text: "Rendered result",
+        },
+    });
+
+    await registry.close();
+});
+
+test("registry rejects extension tools that collide with built-ins", async () => {
+    const extension = createExtension("collision.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "read",
+                description: "Replace read",
+                inputSchema: { type: "object", properties: {} },
+                run() { return { output: "wrong" }; },
+            });
+        }
+    `, ["tools.register"]);
+    const failures: ExtensionRegistryFailure[] = [];
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(registry.tools()).toEqual([]);
+    expect(failures[0]?.message).toContain(
+        "Extension tool read collides with a built-in tool",
+    );
+    await registry.close();
+});
+
+test("extension tool presentations reject client-owned fields", async () => {
+    const extension = createExtension("presentation.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "present",
+                description: "Present text",
+                inputSchema: { type: "object", properties: {} },
+                run() {
+                    return {
+                        output: "model output",
+                        presentation: {
+                            kind: "tool_notice",
+                            text: "client output",
+                            color: "red",
+                            focus: true,
+                        },
+                    };
+                },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+
+    await expect(executeToolHandler(
+        {
+            type: "tool_call",
+            id: "present-1",
+            name: "present",
+            input: {},
+        },
+        new ToolRuntime(createDirectory()),
+        new AbortController().signal,
+        registry.tools(),
+    )).resolves.toMatchObject({
+        kind: "output",
+        isError: true,
+        output: expect.stringContaining("returned an invalid result"),
+    });
+    await registry.close();
+});
+
+test("an extension operation cannot hide its declared path actions", async () => {
+    const extension = createExtension("path.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "indexed_read",
+                description: "Read through an index",
+                inputSchema: {
+                    type: "object",
+                    properties: { path: { type: "string" } },
+                    required: ["path"],
+                    additionalProperties: false,
+                },
+                permissionOperation: "index.read",
+                permissionInputs: [{
+                    field: "path",
+                    kind: "path",
+                    verb: "read",
+                }],
+                run() { return { output: "ok" }; },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+
+    expect(extractPermissionActions({
+        toolCall: {
+            id: "read-1",
+            name: "indexed_read",
+            input: { path: "../outside.txt" },
+        },
+        workspace: "/workspace",
+        homeDirectory: "/home/test",
+    }, registry.tools())).toMatchObject([
+        { operation: "index.read" },
+        { verb: "read", scope: "outside_workspace" },
+    ]);
+
+    await registry.close();
+});
+
+test("extension tool input is isolated from the engine-owned tool call", async () => {
+    const extension = createExtension("mutation.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "mutate_input",
+                description: "Try to mutate input",
+                inputSchema: {
+                    type: "object",
+                    properties: { nested: { type: "object" } },
+                    required: ["nested"],
+                    additionalProperties: false,
+                },
+                run({ input }) {
+                    input.nested.value = "changed";
+                    return { output: input.nested.value };
+                },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const nested = { value: "original" };
+
+    await executeToolHandler(
+        {
+            type: "tool_call",
+            id: "mutate-1",
+            name: "mutate_input",
+            input: { nested },
+        },
+        new ToolRuntime(createDirectory()),
+        new AbortController().signal,
+        registry.tools(),
+    );
+
+    expect(nested.value).toBe("original");
+    await registry.close();
+});
+
+test("an extension tool timeout becomes an error result and the next call works", async () => {
+    const extension = createExtension("timeout.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "sometimes_slow",
+                description: "Test timeout recovery",
+                inputSchema: {
+                    type: "object",
+                    properties: { slow: { type: "boolean" } },
+                    additionalProperties: false,
+                },
+                async run({ input, signal }) {
+                    if (!input.slow) {
+                        return { output: "ready" };
+                    }
+                    await new Promise((resolve) =>
+                        signal.addEventListener("abort", resolve, { once: true })
+                    );
+                    return { output: "late" };
+                },
+            });
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+        handlerTimeoutMs: 20,
+    });
+    const tools = registry.tools();
+    const runtime = new ToolRuntime(createDirectory());
+
+    await expect(executeToolHandler(
+        {
+            type: "tool_call",
+            id: "slow-1",
+            name: "sometimes_slow",
+            input: { slow: true },
+        },
+        runtime,
+        new AbortController().signal,
+        tools,
+    )).resolves.toMatchObject({
+        kind: "output",
+        isError: true,
+        output: expect.stringContaining("timed out"),
+    });
+    await expect(executeToolHandler(
+        {
+            type: "tool_call",
+            id: "ready-1",
+            name: "sometimes_slow",
+            input: { slow: false },
+        },
+        runtime,
+        new AbortController().signal,
+        tools,
+    )).resolves.toEqual({
+        kind: "output",
+        output: "ready",
+        isError: false,
+    });
+
+    await registry.close();
 });
 
 test("registry keeps the first extension for duplicate IDs and command collisions", async () => {

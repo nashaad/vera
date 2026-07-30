@@ -114,7 +114,7 @@ test("two real subagent effects overlap and create separate sessions", async () 
                 "subagent",
             );
             expect(request.tools?.map((tool) => tool.name)).not.toContain(
-                "background_agent",
+                "async_subagent",
             );
             expect(request.tools?.map((tool) => tool.name)).not.toContain(
                 "ask_user",
@@ -161,6 +161,165 @@ test("subagent inherits the parent turn model and reasoning", async () => {
         expect(request?.model).toBe("selected");
         expect(request?.reasoningEffort).toBe("high");
         expect(result.isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a pinned model override replaces the parent settings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-override-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "pin-provider", api: "scripted", model: "small-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        readPins: () => [{
+            provider: "pin-provider",
+            model: "small-model",
+            label: "Small",
+            available: true,
+            levels: [{ id: "low", label: "Low" }],
+        }],
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "use the override",
+            model: "small-model",
+            reasoningEffort: "low",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            provider: "parent-provider",
+            model: "selected",
+            reasoningEffort: "high",
+        });
+
+        expect(request?.model).toBe("small-model");
+        expect(request?.provider).toBe("pin-provider");
+        expect(request?.reasoningEffort).toBe("low");
+        expect(result.isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a spawn with no override runs the configured subagent default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-default-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "cheap-provider", api: "scripted", model: "cheap-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        subagentModel: {
+            provider: "cheap-provider",
+            model: "cheap-model",
+            reasoningEffort: "medium",
+        },
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "run on the default",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            provider: "parent-provider",
+            model: "expensive-model",
+            reasoningEffort: "max",
+        });
+
+        expect(request?.model).toBe("cheap-model");
+        expect(request?.provider).toBe("cheap-provider");
+        expect(request?.reasoningEffort).toBe("medium");
+        expect(result.isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a model override that is not pinned is refused with the pin list", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-unpinned-"));
+    const applyEffect = createSubagentEffectApplier({
+        adapter: new FauxAdapter([]),
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        readPins: () => [{
+            provider: "pin-provider",
+            model: "small-model",
+            label: "Small",
+            available: true,
+            levels: [],
+        }],
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "use a made-up model",
+            model: "haiku",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            model: "selected",
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.output).toBe(
+            'Model "haiku" is not pinned. Pinned models: small-model.',
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a model override with no pins is refused", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-nopins-"));
+    const applyEffect = createSubagentEffectApplier({
+        adapter: new FauxAdapter([]),
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "use an override without pins",
+            model: "small-model",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            model: "selected",
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.output).toContain("No models are pinned");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -623,6 +782,51 @@ test("aborting the parent signal cancels the child turn", async () => {
             role: "assistant",
             stopReason: "aborted",
         });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a subagent inherits the parent's scratch directory in its prompt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-scratch-"));
+    const childRequests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            childRequests.push(request);
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: {
+                    role: "assistant",
+                    content: [{ type: "text", text: "done" }],
+                    source: { provider: "faux", api: "test", model: "test" },
+                    usage: emptyUsage(),
+                    stopReason: "stop",
+                },
+            });
+            return stream;
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        scratchDir: "/tmp/vera/parent-session",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        await applyEffect({
+            type: "spawn_subagent",
+            description: "child task",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            model: "test",
+        });
+
+        expect(childRequests[0]?.systemPrompt).toContain(
+            "/tmp/vera/parent-session",
+        );
     } finally {
         await rm(root, { recursive: true, force: true });
     }

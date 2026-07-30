@@ -83,6 +83,7 @@ test("engine recovery retries a transient pre-content failure", async () => {
     expect(retries).toEqual([{
         model: "test",
         nextAttempt: 2,
+        maxAttempts: 3,
         delayMs: 500,
         failure: transientFailure,
     }]);

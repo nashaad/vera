@@ -2,10 +2,12 @@ import {
     BoxRenderable,
     CliRenderEvents,
     decodePasteBytes,
+    fg,
     MarkdownRenderable,
     ScrollBoxRenderable,
     stripAnsiSequences,
     SyntaxStyle,
+    StyledText,
     TextRenderable,
     createCliRenderer,
     KeyEvent,
@@ -78,6 +80,7 @@ import {
     createTuiQuestionView,
 } from "./question.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
+import { renderTuiDiagnostics } from "./diagnostics.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
@@ -118,6 +121,7 @@ import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import {
     countRunningBackgroundAgents,
+    renderBackgroundAgentNames,
     renderTuiStatusDetailsLine,
 } from "./status.ts";
 import {
@@ -134,6 +138,7 @@ import {
     startTuiProviderPicker,
     tuiPickerMenuAncestor,
     withTuiPickerParent,
+    type TuiTopPickRow,
     type TuiSettingsMenuTarget,
     type TuiAnySettingsPickerState,
     type TuiSettingsPickerState,
@@ -141,6 +146,7 @@ import {
     type TuiExtensionPickerAction,
     type TuiExtensionPickerTransition,
 } from "./settings-picker.ts";
+import { loadTopPicks, type TopPick } from "../../src/model/top-picks.ts";
 import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
@@ -184,6 +190,7 @@ import {
 } from "./preferences-list.ts";
 import {
     resolveResumeTarget,
+    resolveContinueTarget,
     type TuiStartTarget,
 } from "./session-target.ts";
 export type {
@@ -200,6 +207,7 @@ import {
 } from "./timeline-picker.ts";
 import {
     TUI_ACCENT,
+    TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
     TUI_TEXT,
@@ -248,6 +256,14 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
+
+function truncateFooterLine(text: string, width: number): string {
+    const characters = Array.from(text);
+    const limit = Math.max(1, width);
+    return characters.length <= limit
+        ? text
+        : `${characters.slice(0, limit - 1).join("").trimEnd()}…`;
+}
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
@@ -364,7 +380,9 @@ export async function startConfiguredTui(
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
     });
-    const resolvedTarget = target.type === "resume"
+    const resolvedTarget = target.type === "continue"
+        ? resolveContinueTarget(await listAgentsThroughHost(host.socket_path))
+        : target.type === "resume"
         ? resolveResumeTarget(
             await listAgentsThroughHost(host.socket_path),
             target.sessionPath,
@@ -478,7 +496,6 @@ export async function startTui(
     const activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
     let theme = await resolveTuiTheme(renderer, themeName);
     applyTuiTheme(theme);
-    renderer.setBackgroundColor(theme.background);
 
     let state = createTuiState();
     let connectionFailed = false;
@@ -588,6 +605,8 @@ export async function startTui(
     let extensionCommandsLoading =
         dependencies.client.listExtensionCommands !== undefined;
     let runningBackgroundAgents = 0;
+    let runningBackgroundAgentNames = "";
+    let currentAgentHasParent = false;
     let backgroundAgentRefreshPending = false;
     let pendingSessionRename: {
         readonly requestId: string;
@@ -764,7 +783,6 @@ export async function startTui(
         left: 1,
         bottom: 1,
         zIndex: 30,
-        bg: theme.background,
     });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
@@ -777,7 +795,6 @@ export async function startTui(
         left: 1,
         bottom: 0,
         zIndex: 30,
-        bg: theme.background,
     });
 
     const queuedPromptText = new TextRenderable(renderer, {
@@ -1514,6 +1531,21 @@ export async function startTui(
             renderState();
             return;
         }
+        if (commandAction?.type === "show_diagnostics") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            state = appendTuiNotice(state, renderTuiDiagnostics({
+                state,
+                activity,
+                elapsed: elapsedWorkingTime(),
+                sessionId: client.agentId,
+                workspace: client.workspace ?? process.cwd(),
+                runningBackgroundAgents,
+            }));
+            renderState();
+            return;
+        }
         if (commandAction?.type === "run_extension") {
             const directExtension = directClientExtensions.find(
                 (extension) =>
@@ -1743,6 +1775,109 @@ export async function startTui(
             });
             return;
         }
+        if (commandAction?.type === "open_subagents_picker") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            if (dependencies.listAgents === undefined) {
+                state = appendTuiNotice(state, "Session listing is unavailable");
+                renderState();
+                return;
+            }
+            const version = ++resumeListVersion;
+            settingsPicker = startTuiSessionPicker(
+                [],
+                client.agentId,
+                true,
+            );
+            focusActiveSurface();
+            renderState();
+            void dependencies.listAgents().then((agents) => {
+                if (
+                    shuttingDown
+                    || version !== resumeListVersion
+                    || settingsPicker?.kind !== "session"
+                ) {
+                    return;
+                }
+                const currentId = client.agentId;
+                // Children only: the row for the session already on screen
+                // would cost a keypress to step past on the way to a child.
+                const children = agents.filter(
+                    (agent) => agent.parent_id === currentId,
+                );
+                if (children.length === 0) {
+                    settingsPicker = undefined;
+                    state = appendTuiNotice(
+                        state,
+                        "This conversation has no subagents",
+                    );
+                    focusActiveSurface();
+                    renderState();
+                    return;
+                }
+                settingsPicker = startTuiSessionPicker(children, currentId);
+                focusActiveSurface();
+                renderState();
+            }).catch((error) => {
+                if (
+                    !shuttingDown
+                    && version === resumeListVersion
+                    && settingsPicker?.kind === "session"
+                ) {
+                    const message = error instanceof Error
+                        ? error.message
+                        : String(error);
+                    state = appendTuiNotice(
+                        state,
+                        `Could not list sessions: ${message}`,
+                    );
+                    settingsPicker = undefined;
+                    focusActiveSurface();
+                    renderState();
+                }
+            });
+            return;
+        }
+        if (commandAction?.type === "go_to_parent") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            if (dependencies.listAgents === undefined) {
+                state = appendTuiNotice(state, "Session listing is unavailable");
+                renderState();
+                return;
+            }
+            void dependencies.listAgents().then((agents) => {
+                if (shuttingDown) {
+                    return;
+                }
+                const current = agents.find(
+                    (agent) => agent.id === client.agentId,
+                );
+                const parent = current?.parent_id === undefined
+                    ? undefined
+                    : agents.find((agent) => agent.id === current.parent_id);
+                if (parent === undefined) {
+                    state = appendTuiNotice(
+                        state,
+                        "This conversation has no parent",
+                    );
+                    renderState();
+                    return;
+                }
+                beginSessionResume(parent.session_path, parent.id);
+            }).catch((error) => {
+                if (shuttingDown) return;
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                state = appendTuiNotice(
+                    state,
+                    `Could not find the parent conversation: ${message}`,
+                );
+                renderState();
+            });
+            return;
+        }
         if (commandAction?.type === "reconnect") {
             composer.clearComposer();
             const currentAgentId = client.agentId;
@@ -1869,6 +2004,19 @@ export async function startTui(
                 );
                 renderState();
             });
+            return;
+        }
+        if (commandAction?.type === "compact_session") {
+            composer.clearComposer();
+            // No reply is awaited: the compaction updates the engine already
+            // emits say what happened, and they are the same ones an automatic
+            // compaction produces.
+            void client.send({ type: "compact", requestId: randomUUID() })
+                .catch((error) => {
+                    composer.setComposerText(prompt);
+                    reportConnectionError(error);
+                });
+            showStatusNotice("summarizing earlier messages…");
             return;
         }
         if (commandAction?.type === "update_session_name") {
@@ -2222,6 +2370,7 @@ export async function startTui(
                     settingsPicker = syncTuiModelPicker(
                         settingsPicker,
                         state.modelSettings,
+                        topPickRows(),
                     );
                 }
                 if (update.type === "permissions" && preferencesList !== undefined) {
@@ -2384,6 +2533,7 @@ export async function startTui(
             request.rows,
             request.selectedId,
             actions,
+            request.subtitle,
         );
         composer.blur();
         renderState();
@@ -2663,6 +2813,10 @@ export async function startTui(
             === "tool_approval";
         questionView.box.visible = pendingUiRequest?.request.type
             === "user_question";
+        const interactiveCardVisible = approvalView.box.visible
+            || questionView.box.visible;
+        statusText.visible = !interactiveCardVisible;
+        backgroundStatusText.visible = !interactiveCardVisible;
         timelinePickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
@@ -2723,7 +2877,7 @@ export async function startTui(
                 || sessionTrashConfirmView.box.visible
                 || sessionRenamePromptView.box.visible
                 || secretPromptView.box.visible
-            ? 0.35
+            ? 0.2
             : 1;
         composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
@@ -2787,6 +2941,12 @@ export async function startTui(
                 }
                 if (entry.kind === "tool" && existing instanceof BoxRenderable) {
                     updateTuiToolRow(existing, entry);
+                }
+                if (
+                    entry.kind === "tool_header"
+                    && existing instanceof TextRenderable
+                ) {
+                    existing.content = renderTuiEntry(entry);
                 }
                 return;
             }
@@ -2879,9 +3039,40 @@ export async function startTui(
             state.modelSettings?.provider,
             undefined,
             state.modelSettings?.pinned,
+            topPickRows(),
         ), parent);
         renderState();
         focusActiveSurface();
+    }
+
+    /**
+     * The shipped suggestions with availability resolved against the runnable
+     * list, which is credential-gated at discovery: a pick whose model the
+     * host cannot reach right now shows grayed rather than vanishing. Read
+     * per open rather than cached, since connecting a provider mid-session
+     * changes the answer.
+     */
+    function topPickRows(): readonly TuiTopPickRow[] {
+        let picks: readonly TopPick[];
+        try {
+            picks = loadTopPicks();
+        } catch {
+            return [];
+        }
+        const runnable = state.modelSettings?.availableModels ?? [];
+        return picks.map((pick) => ({
+            provider: pick.provider,
+            model: pick.model,
+            label: pick.label,
+            description: pick.description,
+            ...(pick.reasoning_effort === undefined
+                ? {}
+                : { reasoningEffort: pick.reasoning_effort }),
+            available: runnable.some((candidate) =>
+                candidate.provider === pick.provider
+                    && candidate.model === pick.model
+            ),
+        }));
     }
 
     // The current model's own levels, looked up off the wire rather than a
@@ -3802,14 +3993,11 @@ export async function startTui(
         }
         theme = resolvedTheme;
         applyTuiTheme(theme);
-        renderer.setBackgroundColor(theme.background);
         clearTranscriptNodes();
         markdownStyle.destroy();
         markdownStyle = createMarkdownStyle(theme);
 
         placeholder.fg = theme.muted;
-        statusText.bg = theme.background;
-        backgroundStatusText.bg = theme.background;
         backgroundStatusText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
         commandSuggestionsText.fg = theme.text;
@@ -3823,6 +4011,7 @@ export async function startTui(
         approvalView.box.backgroundColor = theme.panel;
         approvalView.repaint();
         questionView.box.backgroundColor = theme.panel;
+        questionView.bar.backgroundColor = theme.accent;
         questionView.detailsText.fg = theme.text;
         questionView.choiceAction.fg = theme.muted;
         questionView.cancelAction.fg = theme.muted;
@@ -3931,7 +4120,14 @@ export async function startTui(
         } else if (pendingUiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
-            lifecycleHint = `${activity} · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
+            const modelActivity = state.modelActivity;
+            const waitingToRetry = modelActivity !== undefined
+                && Date.parse(modelActivity.retryAt) > Date.now();
+            lifecycleHint = waitingToRetry
+                ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
+                    + ` · ${elapsedWorkingTime()} · ${WORKING_HINT}`
+                : `${modelActivity === undefined ? activity : "thinking"}`
+                    + ` · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
         } else if (pendingImages.some((image) => image.id === undefined)) {
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
@@ -3955,13 +4151,67 @@ export async function startTui(
                 ? TUI_ACCENT
                 : TUI_MUTED;
         const statusLine = statusNotice ?? lifecycleHint;
-        backgroundStatusText.content = renderTuiStatusDetailsLine(
+        const statusDetailsLine = renderTuiStatusDetailsLine(
             state.modelSettings,
             state.approvalMode,
-            state.contextInputTokens,
+            state.context,
             process.cwd(),
-            runningBackgroundAgents,
+            0,
         );
+        const runningNames = runningBackgroundAgentNames === ""
+            ? []
+            : runningBackgroundAgentNames
+                .split("\n")
+                .map((name) =>
+                    truncateFooterLine(
+                        name,
+                        Math.min(72, renderer.width - 8),
+                    )
+                );
+        const agentSection = currentAgentHasParent
+            ? ["/parent to return"]
+            : runningNames.length === 0
+                ? []
+                : [
+                    `${runningNames.length} subagent${
+                        runningNames.length === 1 ? "" : "s"
+                    } running · /subagents to attach`,
+                    ...runningNames,
+                ];
+        const agentHeader = agentSection[0] ?? "";
+        const animatedAgentHeader = runningNames.length === 0
+            ? new StyledText([fg(TUI_MUTED)(agentHeader)])
+            : renderTuiActivityAnimation(
+                activityAnimation,
+                activityFrame(),
+                agentHeader,
+                {
+                    active: TUI_ACCENT,
+                    trail: VERA_TUI_THEME.success,
+                    inactive: TUI_ELEMENT,
+                    text: TUI_MUTED,
+                },
+                activityAnimationWidth,
+            );
+        backgroundStatusText.content = agentSection.length === 0
+            ? statusDetailsLine
+            : new StyledText([
+                fg(TUI_MUTED)(`${statusDetailsLine}\n`),
+                fg(TUI_ELEMENT)(
+                    `${"·".repeat(Math.max(1, renderer.width - 4))}\n`,
+                ),
+                ...animatedAgentHeader.chunks,
+                fg(TUI_MUTED)(
+                    agentSection.length === 1
+                        ? ""
+                        : `\n${agentSection.slice(1).join("\n")}`,
+                ),
+            ]);
+        backgroundStatusText.height = agentSection.length === 0
+            ? 1
+            : 2 + agentSection.length;
+        statusText.bottom = backgroundStatusText.height;
+        composerBox.marginBottom = 1 + backgroundStatusText.height;
         statusText.content = state.working
                 && statusNotice === undefined
                 && pendingUiRequest === undefined
@@ -3987,7 +4237,7 @@ export async function startTui(
 
     async function refreshBackgroundAgentCount(): Promise<void> {
         if (
-            dependencies.getRunningBackgroundAgentCount === undefined
+            dependencies.listAgents === undefined
             || backgroundAgentRefreshPending
             || shuttingDown
         ) {
@@ -3995,15 +4245,30 @@ export async function startTui(
         }
         backgroundAgentRefreshPending = true;
         try {
-            const nextCount =
-                await dependencies.getRunningBackgroundAgentCount();
-            if (!shuttingDown && nextCount !== runningBackgroundAgents) {
+            const agents = await dependencies.listAgents();
+            const nextCount = countRunningBackgroundAgents(agents);
+            const nextNames = renderBackgroundAgentNames(
+                agents,
+                client.agentId,
+            );
+            const nextHasParent = agents.some((agent) =>
+                agent.id === client.agentId && agent.parent_id !== undefined,
+            );
+            if (!shuttingDown && (nextCount !== runningBackgroundAgents
+                || nextNames !== runningBackgroundAgentNames
+                || nextHasParent !== currentAgentHasParent)) {
                 runningBackgroundAgents = nextCount;
+                runningBackgroundAgentNames = nextNames;
+                currentAgentHasParent = nextHasParent;
                 renderStatus();
             }
         } catch {
-            if (!shuttingDown && runningBackgroundAgents !== 0) {
+            if (!shuttingDown && (runningBackgroundAgents !== 0
+                || runningBackgroundAgentNames !== ""
+                || currentAgentHasParent)) {
                 runningBackgroundAgents = 0;
+                runningBackgroundAgentNames = "";
+                currentAgentHasParent = false;
                 renderStatus();
             }
         } finally {
@@ -4012,7 +4277,18 @@ export async function startTui(
     }
 
     function observeActivity(update: AgentUpdate): void {
-        if (update.type === "user_prompt") {
+        if (update.type === "status" && update.state === "working") {
+            workingSince ??= Date.now();
+            phaseSince ??= workingSince;
+            activity = "thinking";
+        } else if (update.type === "status" && update.state === "waiting") {
+            workingSince ??= Date.now();
+            phaseSince = undefined;
+            activity = "waiting";
+        } else if (update.type === "model_activity") {
+            workingSince ??= Date.now();
+            activity = `retrying ${update.model}`;
+        } else if (update.type === "user_prompt") {
             workingSince ??= Date.now();
             phaseSince = Date.now();
             activity = "thinking";

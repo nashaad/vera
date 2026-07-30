@@ -13,6 +13,11 @@ import type {
     ModelSettingsPatch,
     ModelTurnSettings,
 } from "./model-settings.ts";
+import { contextWindowForModel } from "./model-settings.ts";
+import {
+    measureReportedUsage,
+    type ContextMeasurement,
+} from "./context-measurement.ts";
 import {
     isApprovalMode,
     isPermissionPredicate,
@@ -24,6 +29,7 @@ import type {
     ToolReviewRiskLevel,
     ToolReviewUserAuthorization,
 } from "./reviewer.ts";
+import type { ProviderFailure } from "../model/provider-failure.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -54,6 +60,13 @@ export interface ToolTranscriptEntry {
     readonly args: Readonly<Record<string, unknown>>;
 }
 
+export interface ToolResultTranscriptEntry {
+    readonly kind: "tool_result";
+    readonly tool: string;
+    readonly output: string;
+    readonly isError: boolean;
+}
+
 export interface PresentationTranscriptEntry {
     readonly kind: "presentation";
     readonly presentation: ToolPresentation;
@@ -64,12 +77,22 @@ export interface ErrorTranscriptEntry {
     readonly detail?: string;
 }
 
+/**
+ * A turn that ended with nothing to show. Silence and a stalled client look the
+ * same in a transcript, so the absence is written down rather than left blank.
+ */
+export interface EmptyTranscriptEntry {
+    readonly kind: "empty";
+}
+
 export type TranscriptEntry =
     | UserTranscriptEntry
     | AssistantTranscriptEntry
     | ToolTranscriptEntry
+    | ToolResultTranscriptEntry
     | PresentationTranscriptEntry
-    | ErrorTranscriptEntry;
+    | ErrorTranscriptEntry
+    | EmptyTranscriptEntry;
 
 export interface PromptCommand {
     readonly type: "prompt";
@@ -168,6 +191,16 @@ export interface UpdateSessionNameCommand {
     readonly name: string | null;
 }
 
+/**
+ * Compacts now, on the same strategy the session compacts itself with. The
+ * point of asking is to compact before the window is nearly full, so this one
+ * skips the trigger fraction; every other rule the engine applies still holds.
+ */
+export interface CompactCommand {
+    readonly type: "compact";
+    readonly requestId: string;
+}
+
 export interface ListTimelineCommand {
     readonly type: "list_timeline";
     readonly requestId: string;
@@ -205,13 +238,65 @@ export type ClientCommand =
     | RemovePermissionPreferenceCommand
     | RemovePermissionGrantCommand
     | UpdateSessionNameCommand
+    | CompactCommand
     | TimelineCommand;
 
 export interface HistoryUpdate {
     readonly type: "history";
     readonly entries: readonly TranscriptEntry[];
     readonly seq: number;
-    readonly contextInputTokens?: number;
+    readonly context?: ContextMeasurement;
+}
+
+/**
+ * How full the context window is, as the engine measured it. Sent whenever the
+ * number moves: once per model round from the projected request, and again
+ * with the provider's own count when a response reports one.
+ */
+export interface ContextUpdate {
+    readonly type: "context";
+    readonly measurement: ContextMeasurement;
+    readonly seq: number;
+}
+
+export interface ModelRetryActivityUpdate {
+    readonly type: "model_activity";
+    readonly phase: "retrying";
+    readonly model: string;
+    readonly nextAttempt: number;
+    readonly maxAttempts: number;
+    readonly delayMs: number;
+    readonly retryAt: string;
+    readonly failure: {
+        readonly kind: ProviderFailure["kind"];
+        readonly statusCode?: number;
+    };
+    readonly seq: number;
+}
+
+export type ModelActivityUpdate = ModelRetryActivityUpdate;
+
+/**
+ * Compaction starting and ending. The transcript is unchanged either way, so
+ * without this a client would see the context number drop between turns with
+ * nothing to attribute it to, and a failed compaction would be silent.
+ */
+export interface CompactionUpdate {
+    readonly type: "compaction";
+    readonly phase: "started" | "finished";
+    readonly strategy: string;
+    readonly outcome?:
+        | "compacted"
+        | "not_needed"
+        | "no_boundary"
+        | "rejected"
+        | "unavailable"
+        | "cancelled"
+        | "busy";
+    readonly reason?: string;
+    readonly before?: number;
+    readonly after?: number;
+    readonly seq: number;
 }
 
 export interface UserPromptUpdate {
@@ -248,6 +333,8 @@ export interface ToolReviewUpdate {
 export interface ToolFinishedUpdate {
     readonly type: "tool_finished";
     readonly tool: string;
+    readonly output?: string;
+    readonly isError?: boolean;
     readonly seq: number;
 }
 
@@ -262,8 +349,9 @@ export interface TurnFinishedUpdate {
     readonly type: "turn_finished";
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
+    /** The turn ended with no text, no tool call, and no reasoning. */
+    readonly empty?: true;
     readonly seq: number;
-    readonly contextInputTokens?: number;
 }
 
 export interface AgentFailedUpdate {
@@ -284,6 +372,7 @@ export interface TaskNotificationUpdate {
     readonly deliveryId: string;
     readonly sourceAgentId: string;
     readonly content: string;
+    readonly kind?: "attention" | "completion";
     readonly seq: number;
 }
 
@@ -460,6 +549,9 @@ export type AgentUpdate =
     | ToolPresentationUpdate
     | TurnFinishedUpdate
     | AgentFailedUpdate
+    | ContextUpdate
+    | ModelActivityUpdate
+    | CompactionUpdate
     | StatusUpdate
     | TaskNotificationUpdate
     | UiRequestUpdate
@@ -550,6 +642,10 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                     type: "user_question",
                     outcome: "selected",
                     choiceId: response.choiceId,
+                    ...(typeof response.notes === "string"
+                            && response.notes.trim().length > 0
+                        ? { notes: response.notes.trim() }
+                        : {}),
                 },
             };
         }
@@ -683,6 +779,9 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             name: command.name,
         };
     }
+    if (command.type === "compact" && isRequestId(command.requestId)) {
+        return { type: "compact", requestId: command.requestId };
+    }
     if (command.type === "list_timeline" && isRequestId(command.requestId)) {
         return {
             type: "list_timeline",
@@ -802,6 +901,8 @@ export function createProtocolEncoder(
     attachmentName?: AttachmentNameLookup,
 ): ProtocolEncoder {
     let seq = 0;
+    let measuredCapacity: number | undefined;
+    let measuredModel: string | undefined;
 
     const encode = (event: Parameters<EngineEventSubscriber>[0]): void => {
         if (event.type === "turn_started") {
@@ -830,6 +931,7 @@ export function createProtocolEncoder(
                 deliveryId: event.deliveryId,
                 sourceAgentId: event.sourceAgentId,
                 content: event.content,
+                ...(event.kind === undefined ? {} : { kind: event.kind }),
                 seq,
             });
             return;
@@ -877,6 +979,8 @@ export function createProtocolEncoder(
             sender.send({
                 type: "tool_finished",
                 tool: event.toolCall.name,
+                output: textContent(event.result.content),
+                isError: event.result.isError,
                 seq,
             });
             return;
@@ -971,7 +1075,77 @@ export function createProtocolEncoder(
             return;
         }
 
+        if (event.type === "context_measured") {
+            measuredModel = event.model;
+            measuredCapacity = event.measurement.capacity;
+            seq += 1;
+            sender.send({
+                type: "context",
+                measurement: event.measurement,
+                seq,
+            });
+        }
+
+        if (event.type === "model_retry_scheduled") {
+            seq += 1;
+            sender.send({
+                type: "model_activity",
+                phase: "retrying",
+                model: event.model,
+                nextAttempt: event.nextAttempt,
+                maxAttempts: event.maxAttempts,
+                delayMs: event.delayMs,
+                retryAt: new Date(Date.now() + event.delayMs).toISOString(),
+                failure: {
+                    kind: event.failure.kind,
+                    ...(event.failure.statusCode === undefined
+                        ? {}
+                        : { statusCode: event.failure.statusCode }),
+                },
+                seq,
+            });
+        }
+
+        if (event.type === "compaction_started") {
+            seq += 1;
+            sender.send({
+                type: "compaction",
+                phase: "started",
+                strategy: event.strategy,
+                seq,
+            });
+        }
+
+        if (event.type === "compaction_finished") {
+            seq += 1;
+            sender.send({
+                type: "compaction",
+                phase: "finished",
+                strategy: event.strategy,
+                outcome: event.outcome,
+                ...(event.reason === undefined ? {} : { reason: event.reason }),
+                ...(event.before === undefined ? {} : { before: event.before }),
+                ...(event.after === undefined ? {} : { after: event.after }),
+                seq,
+            });
+        }
+
         if (event.type === "turn_finished") {
+            // The provider counted the request the engine had only estimated,
+            // so the turn ends on the authoritative number rather than leaving
+            // the estimate standing as the last word. The window is the one
+            // that request was measured against; re-deriving it from the
+            // catalog would drop a locally discovered model's.
+            const reported = reportedMeasurement(
+                event.message,
+                event.message.source.model === measuredModel
+                    ? measuredCapacity
+                    : undefined,
+            );
+            if (reported !== undefined) {
+                seq += 1;
+                sender.send({ type: "context", measurement: reported, seq });
+            }
             seq += 1;
             const outcome = terminalOutcome(event.message);
             const error = terminalDetail(event.message);
@@ -979,7 +1153,9 @@ export function createProtocolEncoder(
                 type: "turn_finished",
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
-                ...contextInputTokens(event.message),
+                ...(isEmptyAssistantMessage(event.message)
+                    ? { empty: true as const }
+                    : {}),
                 seq,
             });
         }
@@ -987,31 +1163,79 @@ export function createProtocolEncoder(
 
     return Object.assign(encode, {
         checkpoint(messages: readonly ModelMessage[]): void {
+            const context = latestMeasurement(
+                messages,
+                measuredModel,
+                measuredCapacity,
+            );
             sender.send({
                 type: "history",
                 entries: projectTranscript(messages, attachmentName),
-                ...latestContextInputTokens(messages),
+                ...(context === undefined ? {} : { context }),
                 seq,
             });
         },
     });
 }
 
-function latestContextInputTokens(
+/**
+ * A reconnecting client needs a number before the next turn produces one, and
+ * the last response's usage is the only measurement that survives a restart.
+ * A capacity measured this session is preferred over the catalog's, which has
+ * no entry for a locally served model.
+ */
+function latestMeasurement(
     messages: readonly ModelMessage[],
-): { readonly contextInputTokens?: number } {
-    const message = messages.findLast((candidate) => candidate.role === "assistant");
-    return message === undefined ? {} : contextInputTokens(message);
+    measuredModel?: string,
+    capacity?: number,
+): ContextMeasurement | undefined {
+    // The last assistant is not always the last one a provider counted: an
+    // aborted turn and a synthetic terminal message both end the transcript
+    // with a response carrying no usage, and stopping there would replay a
+    // session that had a measurement as one that never had one.
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message === undefined || message.role !== "assistant") {
+            continue;
+        }
+        const measurement = reportedMeasurement(
+            message,
+            message.source.model === measuredModel ? capacity : undefined,
+        );
+        if (measurement !== undefined) {
+            return measurement;
+        }
+    }
+    return undefined;
 }
 
-function contextInputTokens(
+function reportedMeasurement(
     message: ModelMessage,
-): { readonly contextInputTokens?: number } {
+    capacity?: number,
+): ContextMeasurement | undefined {
+    if (message.role !== "assistant") {
+        return undefined;
+    }
+    return measureReportedUsage(
+        message.usage,
+        capacity
+            ?? contextWindowForModel(message.source.provider, message.source.model),
+    );
+}
+
+/**
+ * A turn that produced nothing: no tool call, no visible text, and no
+ * reasoning. A turn that reasoned and then said nothing is a failure instead,
+ * and carries `stopReason: "error"` by the time it reaches here.
+ */
+export function isEmptyAssistantMessage(message: ModelMessage): boolean {
     return message.role === "assistant"
-        && Number.isSafeInteger(message.usage.inputTokens)
-        && message.usage.inputTokens > 0
-        ? { contextInputTokens: message.usage.inputTokens }
-        : {};
+        && message.stopReason === "stop"
+        && !message.content.some((content) =>
+            content.type === "tool_call"
+            || ((content.type === "text" || content.type === "thinking")
+                && content.text.length > 0)
+        );
 }
 
 export function projectTranscript(
@@ -1033,6 +1257,12 @@ export function projectTranscript(
             continue;
         }
         if (message.role === "tool_result") {
+            entries.push({
+                kind: "tool_result",
+                tool: message.toolName,
+                output: textContent(message.content),
+                isError: message.isError,
+            });
             if (message.presentation !== undefined) {
                 entries.push({
                     kind: "presentation",
@@ -1041,8 +1271,12 @@ export function projectTranscript(
             }
             continue;
         }
+        if (isEmptyAssistantMessage(message)) {
+            entries.push({ kind: "empty" });
+            continue;
+        }
         for (const content of message.content) {
-            if (content.type === "text") {
+            if (content.type === "text" && content.text.length > 0) {
                 entries.push({ kind: "assistant", text: content.text });
             }
             if (content.type === "tool_call") {

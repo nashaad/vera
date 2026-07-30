@@ -58,6 +58,12 @@ test("stored model messages project to a client transcript", () => {
         { kind: "user", text: "inspect it" },
         { kind: "assistant", text: "I will read it." },
         { kind: "tool", tool: "read", args: { path: "note.txt" } },
+        {
+            kind: "tool_result",
+            tool: "read",
+            output: "contents",
+            isError: false,
+        },
         { kind: "assistant", text: "It says contents." },
     ]);
 });
@@ -232,13 +238,13 @@ test("protocol checkpoints keep the current update sequence", () => {
         {
             type: "history",
             entries: projectTranscript(messages),
-            contextInputTokens: 64_500,
+            context: { tokens: 64_500, estimated: false },
             seq: 1,
         },
     ]);
 });
 
-test("turn completion reports the latest context input tokens", () => {
+test("turn completion reports the provider's own context count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
         send(update): void {
@@ -255,11 +261,17 @@ test("turn completion reports the latest context input tokens", () => {
         message,
     });
 
-    expect(updates).toEqual([{
-        type: "turn_finished",
-        contextInputTokens: 64_500,
-        seq: 1,
-    }]);
+    // The count lands before the turn ends, so the authoritative number is
+    // what the status line is left holding rather than the estimate the
+    // request was measured at.
+    expect(updates).toEqual([
+        {
+            type: "context",
+            measurement: { tokens: 64_500, estimated: false },
+            seq: 1,
+        },
+        { type: "turn_finished", seq: 2 },
+    ]);
 });
 
 test("task notifications share the ordered agent update sequence", () => {
@@ -290,6 +302,65 @@ test("task notifications share the ordered agent update sequence", () => {
         { type: "status", state: "working", seq: 2 },
         { type: "history", entries: [], seq: 2 },
     ]);
+});
+
+test("task notification kind crosses the protocol boundary", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file?",
+        kind: "attention",
+    });
+
+    expect(updates[0]).toMatchObject({
+        type: "task_notification",
+        kind: "attention",
+    });
+});
+
+test("model retry activity crosses the protocol boundary", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "model_retry_scheduled",
+        model: "openai/gpt-5.6-sol",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        failure: {
+            kind: "server",
+            resolution: "retry",
+            message: "overloaded",
+            statusCode: 503,
+        },
+    });
+
+    expect(updates[0]).toMatchObject({
+        type: "model_activity",
+        phase: "retrying",
+        model: "openai/gpt-5.6-sol",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        failure: {
+            kind: "server",
+            statusCode: 503,
+        },
+        seq: 1,
+    });
 });
 
 test("model settings results share the ordered agent update sequence", () => {

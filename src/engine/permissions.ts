@@ -26,6 +26,7 @@ import {
     toolPermissionOperation,
 } from "../tools/execute.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
+import type { RegisteredTool } from "../tools/types.ts";
 import {
     applyPermissionGrant,
     isPermissionGrant,
@@ -179,6 +180,13 @@ export interface DecideToolPermissionOptions {
     readonly homeDirectory?: string;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly permissionPreferences?: readonly PermissionPreference[];
+    readonly extensionTools?: readonly RegisteredTool[];
+    /**
+     * The session's scratch directory. Paths inside it are scoped as
+     * `workspace`, so routine rules apply to the space the system prompt
+     * tells the model to use freely.
+     */
+    readonly scratchDir?: string;
 }
 
 /**
@@ -211,6 +219,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
     {
         name: "routine.agent_spawn",
         when: { operation: "agent.spawn" },
+        then: "allow",
+    },
+    {
+        name: "routine.agent_message",
+        when: { operation: "agent.message" },
         then: "allow",
     },
     {
@@ -377,6 +390,7 @@ const NETWORK_GIT_OPERATIONS = new Map([
 const GIT_READ_SUBCOMMANDS = new Set(["log", "status", "diff", "show"]);
 
 export const CORE_PERMISSION_OPERATIONS = new Set([
+    "agent.message",
     "agent.spawn",
     "git.clone",
     "git.commit",
@@ -385,6 +399,7 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "git.pull",
     "git.push",
     "git.remote_update",
+    "web.fetch",
 ]);
 
 const GIT_OPTIONS_WITH_VALUE = new Set([
@@ -431,7 +446,9 @@ export function decideToolPermission(
         toolCall,
         workspace,
         homeDirectory,
-    }).map((action) =>
+    }, options.extensionTools).map((action) =>
+        rescopeScratchAction(action, options.scratchDir)
+    ).map((action) =>
         evaluateAction(
             permissionMode,
             action,
@@ -567,15 +584,17 @@ export function isPermissionInspection(
 
 export function extractPermissionActions(
     request: PermissionRequest,
+    extensionTools: readonly RegisteredTool[] = [],
 ): readonly PermissionAction[] {
     const { toolCall, workspace } = request;
-    const operation = toolPermissionOperation(toolCall.name);
+    const actions: PermissionAction[] = [];
+    const operation = toolPermissionOperation(toolCall.name, extensionTools);
     if (operation !== undefined) {
-        return [{
+        actions.push({
             tool: toolCall.name,
             verb: "unknown",
             operation,
-        }];
+        });
     }
     if (toolCall.name === "bash") {
         const command = toolCall.input.command;
@@ -595,13 +614,18 @@ export function extractPermissionActions(
     // it is a built-in file tool or a future one. A tool that declared none
     // produces a single `unknown` action, same as an unrecognized bash
     // command.
-    const declaredInputs = toolPermissionInputs(toolCall.name);
+    const declaredInputs = toolPermissionInputs(toolCall.name, extensionTools);
     if (declaredInputs === undefined || declaredInputs.length === 0) {
-        return [{ tool: toolCall.name, verb: "unknown" }];
+        return actions.length === 0
+            ? [{ tool: toolCall.name, verb: "unknown" }]
+            : actions;
     }
-    return declaredInputs.map((spec) =>
-        structuredInputAction(toolCall, spec, workspace)
-    );
+    return [
+        ...actions,
+        ...declaredInputs.map((spec) =>
+            structuredInputAction(toolCall, spec, workspace)
+        ),
+    ];
 }
 
 export function evaluateAction(
@@ -1135,6 +1159,23 @@ function describeAction(action: PermissionAction): string {
     return action.executable === undefined
         ? `${action.tool}:${action.verb}`
         : `${action.executable}:${action.verb}`;
+}
+
+function rescopeScratchAction(
+    action: PermissionAction,
+    scratchDir: string | undefined,
+): PermissionAction {
+    if (
+        scratchDir === undefined
+        || action.path === undefined
+        || action.scope !== "outside_workspace"
+    ) {
+        return action;
+    }
+    const root = resolve(scratchDir);
+    return action.path === root || action.path.startsWith(`${root}${sep}`)
+        ? { ...action, scope: "workspace" }
+        : action;
 }
 
 function pathScope(path: string, workspace: string): PermissionScope {

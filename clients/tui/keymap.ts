@@ -31,6 +31,7 @@ export type TuiKeyScope =
     | "secret_prompt"
     | "preferences_list"
     | "approval"
+    | "question"
     | "help";
 
 /** The panes that inherit every `picker` binding on top of their own. */
@@ -155,6 +156,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "session_picker",
         description: "Move the selected session to the trash",
         hint: "del trash",
+    },
+    {
+        id: "write_notes",
+        keys: ["tab"],
+        scope: "question",
+        description: "Type notes alongside the highlighted answer",
+        hint: "tab notes",
     },
     {
         id: "expand_call",

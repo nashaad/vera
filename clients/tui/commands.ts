@@ -82,6 +82,14 @@ export interface OpenResumePickerTuiCommandAction {
     readonly type: "open_resume_picker";
 }
 
+export interface OpenSubagentsPickerTuiCommandAction {
+    readonly type: "open_subagents_picker";
+}
+
+export interface GoToParentTuiCommandAction {
+    readonly type: "go_to_parent";
+}
+
 export interface ReconnectTuiCommandAction {
     readonly type: "reconnect";
 }
@@ -97,6 +105,14 @@ export interface UpdateSessionNameTuiCommandAction {
 
 export interface CloneSessionTuiCommandAction {
     readonly type: "clone_session";
+}
+
+export interface CompactSessionTuiCommandAction {
+    readonly type: "compact_session";
+}
+
+export interface ShowDiagnosticsTuiCommandAction {
+    readonly type: "show_diagnostics";
 }
 
 export interface TuiCommandErrorAction {
@@ -127,10 +143,14 @@ export type TuiCommandAction =
     | PrefillComposerTuiCommandAction
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
+    | OpenSubagentsPickerTuiCommandAction
+    | GoToParentTuiCommandAction
     | ReconnectTuiCommandAction
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
     | CloneSessionTuiCommandAction
+    | CompactSessionTuiCommandAction
+    | ShowDiagnosticsTuiCommandAction
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
 
@@ -174,9 +194,13 @@ export interface TuiCommandDefinition {
         | OpenCommandPaletteTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
+        | OpenSubagentsPickerTuiCommandAction
+        | GoToParentTuiCommandAction
         | ReconnectTuiCommandAction
         | CreateSessionTuiCommandAction
-        | CloneSessionTuiCommandAction;
+        | CloneSessionTuiCommandAction
+        | CompactSessionTuiCommandAction
+        | ShowDiagnosticsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
@@ -235,6 +259,18 @@ const RESUME_COMMAND = {
     usage: "/resume",
 } as const satisfies TuiCommandCatalogEntry;
 
+const SUBAGENTS_COMMAND = {
+    name: "subagents",
+    description: "List this conversation's subagents",
+    usage: "/subagents",
+} as const satisfies TuiCommandCatalogEntry;
+
+const PARENT_COMMAND = {
+    name: "parent",
+    description: "Switch to the parent conversation",
+    usage: "/parent",
+} as const satisfies TuiCommandCatalogEntry;
+
 const RECONNECT_COMMAND = {
     name: "reconnect",
     description: "Restart the host and reconnect this conversation",
@@ -259,6 +295,18 @@ const CLONE_COMMAND = {
     usage: "/clone",
 } as const satisfies TuiCommandCatalogEntry;
 
+const COMPACT_COMMAND = {
+    name: "compact",
+    description: "Summarize earlier messages to free context",
+    usage: "/compact",
+} as const satisfies TuiCommandCatalogEntry;
+
+const DIAGNOSTICS_COMMAND = {
+    name: "diagnostics",
+    description: "Show live turn and model activity",
+    usage: "/diagnostics",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     FORK_COMMAND,
@@ -268,10 +316,14 @@ export const BUILTIN_COMMANDS = [
     SETTINGS_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
+    SUBAGENTS_COMMAND,
+    PARENT_COMMAND,
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
     CLONE_COMMAND,
+    COMPACT_COMMAND,
+    DIAGNOSTICS_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -597,6 +649,30 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
     });
     registry.registerCommand({
+        ...SUBAGENTS_COMMAND,
+        action: { type: "open_subagents_picker" },
+        palette: {
+            name: "subagents",
+            label: "List subagents",
+            description: "see and open this conversation's subagents",
+            group: "Session",
+            slashName: "subagents",
+            action: { type: "open_subagents_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...PARENT_COMMAND,
+        action: { type: "go_to_parent" },
+        palette: {
+            name: "parent",
+            label: "Go to parent conversation",
+            description: "jump back to the conversation that spawned this one",
+            group: "Session",
+            slashName: "parent",
+            action: { type: "go_to_parent" },
+        },
+    });
+    registry.registerCommand({
         ...RECONNECT_COMMAND,
         action: { type: "reconnect" },
         palette: {
@@ -647,6 +723,30 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "clone",
             action: { type: "clone_session" },
+        },
+    });
+    registry.registerCommand({
+        ...COMPACT_COMMAND,
+        action: { type: "compact_session" },
+        palette: {
+            name: "compact",
+            label: "Summarize earlier messages",
+            description: "free context without losing the transcript",
+            group: "Session",
+            slashName: "compact",
+            action: { type: "compact_session" },
+        },
+    });
+    registry.registerCommand({
+        ...DIAGNOSTICS_COMMAND,
+        action: { type: "show_diagnostics" },
+        palette: {
+            name: "diagnostics",
+            label: "Show diagnostics",
+            description: "inspect the current turn and model request",
+            group: "Session",
+            slashName: "diagnostics",
+            action: { type: "show_diagnostics" },
         },
     });
     // The palette does not list itself: you are already looking at it.

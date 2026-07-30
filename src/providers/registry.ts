@@ -19,6 +19,8 @@ export type ProviderGroup = "popular" | "other";
 export interface ProviderDescriptor {
     readonly id: VeraProviderId;
     readonly label: string;
+    /** Compact form for tight spaces like the status line, e.g. "codex" for "OpenAI Codex". */
+    readonly shortLabel: string;
     readonly group: ProviderGroup;
     readonly credential: ProviderCredentialKind;
     /**
@@ -45,8 +47,18 @@ export interface ProviderDescriptor {
  */
 export const PROVIDERS: readonly ProviderDescriptor[] = [
     {
+        id: "cerebras",
+        label: "Cerebras",
+        shortLabel: "cerebras",
+        group: "popular",
+        credential: "api_key",
+        hint: "API key",
+        envVar: "CEREBRAS_API_KEY",
+    },
+    {
         id: "openai-codex",
         label: "OpenAI Codex",
+        shortLabel: "codex",
         group: "popular",
         credential: "oauth",
         hint: "ChatGPT Plus/Pro subscription",
@@ -54,6 +66,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
     {
         id: "openrouter",
         label: "OpenRouter",
+        shortLabel: "openrouter",
         group: "popular",
         credential: "api_key",
         hint: "API key, pay per token",
@@ -62,6 +75,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
     {
         id: "ollama",
         label: "Ollama",
+        shortLabel: "ollama",
         group: "other",
         credential: "none",
         hint: "local, no account",

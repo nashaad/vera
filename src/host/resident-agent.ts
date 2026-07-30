@@ -235,6 +235,25 @@ export class ResidentAgent {
         }
     }
 
+    sendPrompt(content: string): void {
+        if (this.isClosed || this.terminalFailure !== undefined) {
+            throw new ResidentAgentClosedError();
+        }
+        if (this.pendingCommandCount >= this.maxPendingCommands) {
+            throw new AgentCommandQueueFullError();
+        }
+        this.pendingCommandCount += 1;
+        try {
+            this.inbound.push({
+                command: { type: "prompt", content },
+                countsTowardLimit: true,
+            });
+        } catch (error) {
+            this.pendingCommandCount -= 1;
+            throw error;
+        }
+    }
+
     triggerDeliveryTurn(): void {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();

@@ -27,7 +27,12 @@ import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
-import type { ApplyToolEffect } from "../tools/types.ts";
+import type {
+    ApplyToolEffect,
+    RegisteredTool,
+    ToolEffectContext,
+} from "../tools/types.ts";
+import type { PinnedModel } from "../model/catalog-view.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
@@ -36,10 +41,113 @@ import {
 export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly workspace: string;
+    /** Shared with children: one session, one scratch space. */
+    readonly scratchDir?: string;
+    readonly disabledPromptContributions?: readonly string[];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (sessionId: string) => string;
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly maxConcurrentChildren?: number;
+    readonly extensionTools?: readonly RegisteredTool[];
+    /** Makes the spawn tools' model override resolvable; absent, it is refused. */
+    readonly readPins?: () => readonly PinnedModel[];
+    /** What a spawn with no model override runs on; absent, the parent model. */
+    readonly subagentModel?: SpawnModelDefault;
+}
+
+export interface SpawnModelDefault {
+    readonly provider?: string;
+    readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+}
+
+export type SpawnModelResolution =
+    | {
+        readonly ok: true;
+        readonly provider?: string;
+        readonly model: string;
+        readonly reasoningEffort?: ModelReasoningEffort;
+    }
+    | { readonly ok: false; readonly error: string };
+
+/**
+ * Turns a spawn tool's optional model override into runnable settings.
+ *
+ * An override must name a pinned model: the pin list is the user's curated
+ * working set, it carries its own provider, and it is short enough to hand back
+ * whole in a refusal, so a wrong guess corrects itself on the next call. With
+ * no override the child runs the configured subagent default when there is
+ * one, and the parent's settings otherwise: inheriting silently multiplies
+ * whatever the parent costs across the whole fan-out.
+ */
+export function resolveSpawnModelChoice(
+    effect: { readonly model?: string; readonly reasoningEffort?: string },
+    context: ToolEffectContext,
+    readPins?: () => readonly PinnedModel[],
+    subagentModel?: SpawnModelDefault,
+): SpawnModelResolution {
+    if (effect.model === undefined) {
+        const inherited: SpawnModelDefault = subagentModel ?? {
+            ...(context.provider === undefined
+                ? {}
+                : { provider: context.provider }),
+            model: context.model,
+            ...(context.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: context.reasoningEffort }),
+        };
+        const reasoningEffort = effect.reasoningEffort
+            ?? inherited.reasoningEffort;
+        return {
+            ok: true,
+            ...(inherited.provider === undefined
+                ? {}
+                : { provider: inherited.provider }),
+            model: inherited.model,
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        };
+    }
+    const pins = readPins?.() ?? [];
+    if (pins.length === 0) {
+        return {
+            ok: false,
+            error: "No models are pinned, so a model override cannot be used. Omit model to run this agent's model.",
+        };
+    }
+    const pin = pins.find((candidate) => candidate.model === effect.model);
+    if (pin === undefined) {
+        return {
+            ok: false,
+            error: `Model "${effect.model}" is not pinned. Pinned models: ${
+                pins.map((candidate) => candidate.model).join(", ")
+            }.`,
+        };
+    }
+    if (!pin.available) {
+        return {
+            ok: false,
+            error: `Pinned model "${pin.model}" is not available right now.`,
+        };
+    }
+    if (effect.reasoningEffort !== undefined) {
+        const levels = pin.levels.map((level) => level.id);
+        if (!levels.includes(effect.reasoningEffort)) {
+            return {
+                ok: false,
+                error: levels.length === 0
+                    ? `Model "${pin.model}" has no reasoning control; omit reasoning_effort.`
+                    : `Model "${pin.model}" does not support reasoning_effort "${effect.reasoningEffort}". Available: ${levels.join(", ")}.`,
+            };
+        }
+    }
+    return {
+        ok: true,
+        provider: pin.provider,
+        model: pin.model,
+        ...(effect.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: effect.reasoningEffort }),
+    };
 }
 
 export interface RunSubagentOptions {
@@ -48,6 +156,8 @@ export interface RunSubagentOptions {
     readonly model: string;
     readonly description: string;
     readonly workspace: string;
+    readonly scratchDir?: string;
+    readonly disabledPromptContributions?: readonly string[];
     readonly approvalMode: ApprovalMode;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly modelFallback?: ModelFallbackPolicy;
@@ -55,6 +165,7 @@ export interface RunSubagentOptions {
     readonly sessionPath?: string;
     readonly signal?: AbortSignal;
     readonly relayToolApproval?: ChildToolApprovalRelay;
+    readonly extensionTools?: readonly RegisteredTool[];
 }
 
 export type ChildToolApprovalRelay = (
@@ -90,26 +201,43 @@ export function createSubagentEffectApplier(
                 isError: true,
             };
         }
+        const resolved = resolveSpawnModelChoice(
+            effect,
+            context,
+            options.readPins,
+            options.subagentModel,
+        );
+        if (!resolved.ok) {
+            return { kind: "output", output: resolved.error, isError: true };
+        }
         activeChildren += 1;
         const sessionId = randomUUID();
         try {
             const result = await runSubagent({
                 adapter: options.adapter,
-                ...(context.provider === undefined
+                ...(resolved.provider === undefined
                     ? {}
-                    : { provider: context.provider }),
-                model: context.model,
+                    : { provider: resolved.provider }),
+                model: resolved.model,
                 description: effect.description,
                 workspace: options.workspace,
+                ...(options.scratchDir === undefined
+                    ? {}
+                    : { scratchDir: options.scratchDir }),
+                ...(options.disabledPromptContributions === undefined ? {} : {
+                    disabledPromptContributions:
+                        options.disabledPromptContributions,
+                }),
                 approvalMode: context.approvalMode,
+                extensionTools: options.extensionTools,
                 signal,
                 sessionId,
                 ...(options.relayToolApproval === undefined
                     ? {}
                     : { relayToolApproval: options.relayToolApproval }),
-                ...(context.reasoningEffort === undefined
+                ...(resolved.reasoningEffort === undefined
                     ? {}
-                    : { reasoningEffort: context.reasoningEffort }),
+                    : { reasoningEffort: resolved.reasoningEffort }),
                 ...(options.modelFallback === undefined
                     ? {}
                     : { modelFallback: options.modelFallback }),
@@ -160,7 +288,15 @@ export async function runSubagent(
             events,
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
+            extensionTools: options.extensionTools,
             promptPrefixTracker: new PromptPrefixTracker(),
+            ...(options.scratchDir === undefined
+                ? {}
+                : { scratchDir: options.scratchDir }),
+            ...(options.disabledPromptContributions === undefined ? {} : {
+                disabledPromptContributions:
+                    options.disabledPromptContributions,
+            }),
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),

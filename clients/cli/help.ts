@@ -5,12 +5,12 @@ export interface CliCommandHelp {
 
 export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera", description: "Start a new agent in the current directory" },
+    { usage: "vera -c", description: "Continue the most recent session" },
     { usage: "vera ls", description: "List live resident agents" },
     { usage: "vera attach <agent-id>", description: "Attach to a live agent" },
     { usage: "vera resume <session-id|path>", description: "Resume a durable session" },
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
-    { usage: "vera send <agent-id> [--attach <path>]… <message>", description: "Send a prompt with optional images" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn" },
     { usage: "vera host stop [-y|--yes]", description: "Stop the resident host and attached clients" },
     { usage: "vera login", description: "Sign in to a Vera account (not available yet)" },

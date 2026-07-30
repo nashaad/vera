@@ -4,6 +4,8 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     configuredReviewer,
+    configuredSubagentModel,
+    configuredCompaction,
     configuredReviewers,
     updateVeraConfigDefaults,
     type VeraConfig,
@@ -103,12 +105,17 @@ export async function startResidentHost(
 ): Promise<ResidentHost> {
     const modelFallback = configuredModelFallback(options.config);
     const reviewer = configuredReviewer(options.config);
+    const subagentModel = configuredSubagentModel(options.config);
     const reviewers = configuredReviewers(options.config);
+    const compaction = configuredCompaction(options.config);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
     const eventLogDirectory = options.eventLogDirectory;
+    // One store for the host, so a sign-in from anywhere is the same fact to
+    // every agent it is running.
+    const authStorage = options.authStorage ?? createAuthStorage();
     const models = options.createAdapter === undefined
-        ? await discoverAvailableModels(options.config)
+        ? await discoverAvailableModels(options.config, authStorage)
         : configuredCatalog(options.config);
     // Opened once per host, not per agent: the file is per-user. A malformed
     // or missing file reads as no preferences rather than failing startup, so
@@ -116,9 +123,6 @@ export async function startResidentHost(
     const permissionPreferences = await PermissionPreferenceStore.open(
         options.permissionPreferencesPath,
     );
-    // One store for the host, so a sign-in from anywhere is the same fact to
-    // every agent it is running.
-    const authStorage = options.authStorage ?? createAuthStorage();
     // The experimental gate is checked here and nowhere downstream: with the
     // flag off there is no inbox, no consumer registry and no delivery path.
     const inbox = options.inboxPath === undefined
@@ -139,6 +143,12 @@ export async function startResidentHost(
         inboxDelivery?.close();
         inbox?.close();
     };
+    const extensions = await startExtensionRegistry({
+        extensions: options.config.extensions ?? [],
+        ...(options.onExtensionFailure === undefined
+            ? {}
+            : { onFailure: options.onExtensionFailure }),
+    });
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
@@ -177,12 +187,21 @@ export async function startResidentHost(
             : { reasoningEffort: options.config.reasoning_effort }),
         ...(modelFallback === undefined ? {} : { modelFallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
+        ...(subagentModel === undefined ? {} : { subagentModel }),
         ...(Object.keys(reviewers).length === 0 ? {} : { reviewers }),
+        ...(compaction === undefined ? {} : { compaction }),
         ...(options.config.permission_modes === undefined
             ? {}
             : { permissionModes: options.config.permission_modes }),
         permissionPreferences,
         ...(inboxDelivery === undefined ? {} : { inboxDelivery }),
+        extensionTools: extensions.tools(),
+        ...(options.config.disabled_prompt_contributions === undefined
+            ? {}
+            : {
+                disabledPromptContributions:
+                    options.config.disabled_prompt_contributions,
+            }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogDirectory === undefined
@@ -215,19 +234,12 @@ export async function startResidentHost(
     }
 
     let server: HostServer;
-    let extensions: ExtensionRegistry | undefined;
     try {
         await restoreStoredAgents(
             registry,
             sessionDirectory,
             options.onRestoreFailure ?? reportRestoreFailure,
         );
-        extensions = await startExtensionRegistry({
-            extensions: options.config.extensions ?? [],
-            ...(options.onExtensionFailure === undefined
-                ? {}
-                : { onFailure: options.onExtensionFailure }),
-        });
         watches = startWatchRuntimeIfEnabled(inbox, {
             watches: extensions.contributions().watches(),
             ...(options.watchConnectors === undefined
@@ -259,13 +271,13 @@ export async function startResidentHost(
             trashSession: (targetId) => registry.trashSession(targetId),
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),
-            listExtensionCommands: () => extensions!.commands(),
+            listExtensionCommands: () => extensions.commands(),
             runExtensionCommand: (
                 name,
                 argumentsText,
                 workspace,
                 signal,
-            ) => extensions!.invokeCommand(
+            ) => extensions.invokeCommand(
                 name,
                 argumentsText,
                 workspace,
@@ -273,11 +285,11 @@ export async function startResidentHost(
             ),
             canShutdown: () => registry.idleForShutdown(),
             onShutdownAccepted: () =>
-                closeResidentHost(server, registry, extensions!, closeInbox),
+                closeResidentHost(server, registry, extensions, closeInbox),
         });
     } catch (error) {
         try {
-            await extensions?.close();
+            await extensions.close();
         } catch {
             // Preserve the host startup failure.
         }
@@ -305,6 +317,7 @@ export async function startResidentHost(
 
 async function discoverAvailableModels(
     config: VeraConfig,
+    authStorage: AuthStorage,
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
     try {
@@ -361,6 +374,7 @@ async function discoverAvailableModels(
         }
         catalog.push(...openrouter);
     }
+    catalog.push(...await discoveredCerebrasModels(config, { authStorage }));
     catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -373,6 +387,81 @@ async function discoverAvailableModels(
         });
     }
     return catalog;
+}
+
+export interface CerebrasDiscoveryOptions {
+    readonly authStorage?: Pick<AuthStorage, "getCredential">;
+    readonly fetch?: (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => Promise<Response>;
+}
+
+export async function discoveredCerebrasModels(
+    config: VeraConfig,
+    options: CerebrasDiscoveryOptions = {},
+): Promise<readonly SuggestedModel[]> {
+    if (
+        config.provider !== "cerebras"
+        && !hasProviderCredential("cerebras", options.authStorage)
+        && !process.env.CEREBRAS_API_KEY
+    ) {
+        return [];
+    }
+    try {
+        const fetchImplementation = options.fetch ?? globalThis.fetch;
+        const response = await fetchImplementation(
+            "https://api.cerebras.ai/public/v1/models",
+            { signal: AbortSignal.timeout(2_000) },
+        );
+        if (!response.ok) return [];
+        return cerebrasModels(await response.json());
+    } catch {
+        // Discovery enriches the picker; it must never block host startup.
+        return [];
+    }
+}
+
+export function cerebrasModels(value: unknown): readonly SuggestedModel[] {
+    const body = typeof value === "object" && value !== null
+        ? value as { data?: unknown }
+        : undefined;
+    if (!Array.isArray(body?.data)) return [];
+    return body.data.flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const model = entry as {
+            id?: unknown;
+            name?: unknown;
+            description?: unknown;
+            limits?: { max_context_length?: unknown };
+        };
+        if (typeof model.id !== "string" || model.id.length === 0) return [];
+        const contextWindow = model.limits?.max_context_length;
+        return [{
+            provider: "cerebras",
+            model: model.id,
+            label: typeof model.name === "string" ? model.name : model.id,
+            description: typeof model.description === "string"
+                ? model.description
+                : "",
+            ...(typeof contextWindow === "number"
+                    && Number.isSafeInteger(contextWindow)
+                    && contextWindow > 0
+                ? { contextWindow }
+                : {}),
+        }];
+    });
+}
+
+function hasProviderCredential(
+    provider: string,
+    authStorage?: Pick<AuthStorage, "getCredential">,
+): boolean {
+    try {
+        return authStorage?.getCredential(provider) !== undefined;
+    } catch {
+        return false;
+    }
 }
 
 /**

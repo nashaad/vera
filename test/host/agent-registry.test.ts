@@ -1090,6 +1090,7 @@ test("a resumed registry wakes the model for a pending delivery", async () => {
             deliveryId: "completion:child-1",
             sourceAgentId: "child-1",
             content: "The tests pass.",
+            kind: "completion",
             seq: 1,
         });
         expect(await attachment.receive()).toEqual({
@@ -1110,6 +1111,7 @@ test("a resumed registry wakes the model for a pending delivery", async () => {
             "task_notification",
             "delivery_turn_started",
             "model_request",
+            "context_measured",
             "turn_finished",
         ]);
     } finally {
@@ -1161,7 +1163,7 @@ test("a resumed registry retries a delivery turn interrupted before its reply", 
     }
 });
 
-test("a background agent returns immediately and delivers its final summary", async () => {
+test("an async subagent returns immediately and delivers its final summary", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-background-"));
     const parentSession = join(root, "parent.jsonl");
     let adapterNumber = 0;
@@ -1175,7 +1177,7 @@ test("a background agent returns immediately and delivers its final summary", as
                         content: [{
                             type: "tool_call",
                             id: "start-background",
-                            name: "background_agent",
+                            name: "async_subagent",
                             input: { description: "Run the integration tests" },
                         }],
                         source: {
@@ -1236,9 +1238,10 @@ test("a background agent returns immediately and delivers its final summary", as
         expect(child).toMatchObject({
             kind: "background",
             status: "working",
+            parent_id: "parent",
         });
         const placeholder = await toolResultText(parentSession);
-        expect(placeholder).toContain(`Background agent ${child!.id} started`);
+        expect(placeholder).toContain(`Async subagent ${child!.id} started`);
         expect((await SessionStore.open(parentSession)).pendingDeliveries())
             .toEqual([]);
 
@@ -1284,7 +1287,7 @@ test("a background agent returns immediately and delivers its final summary", as
             "subagent",
         );
         expect(childRequest?.tools?.map((tool) => tool.name)).not.toContain(
-            "background_agent",
+            "async_subagent",
         );
         expect(childStore.messages()).toEqual([
             {
@@ -1296,10 +1299,23 @@ test("a background agent returns immediately and delivers its final summary", as
             },
             textResponse("All integration tests pass."),
         ]);
+        // A prompt sent straight to the child is the user's own conversation:
+        // the child runs it, and the parent hears nothing about it.
         await runPrompt(
             registry.find(child!.id)!.attach(),
             "Run the focused tests",
         );
+        expect((await SessionStore.open(parentSession)).pendingDeliveries())
+            .toEqual([]);
+        const eventsAfterDirectPrompt = (await readFile(
+            join(root, "parent-events.jsonl"),
+            "utf8",
+        )).trim().split("\n").map(
+            (line) => JSON.parse(line) as { type: string },
+        );
+        expect(eventsAfterDirectPrompt.filter(
+            (event) => event.type === "task_notification",
+        )).toHaveLength(1);
         expect(registry.list().find((agent) => agent.id === child!.id))
             .toMatchObject({ kind: "background", status: "completed" });
     } finally {
@@ -1308,7 +1324,284 @@ test("a background agent returns immediately and delivers its final summary", as
     }
 });
 
-test("background agent approvals surface in the interactive parent", async () => {
+test("a resumed async subagent keeps its parent across restarts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-parent-resume-"));
+    let adapterNumber = 0;
+    const buildRegistry = () => new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "start-background",
+                            name: "async_subagent",
+                            input: { description: "Run the integration tests" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("I started the background work."),
+                    textResponse("I incorporated the background result."),
+                ]);
+            }
+            return new FauxAdapter([
+                textResponse("All integration tests pass."),
+            ]);
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    const registry = buildRegistry();
+    let childId: string;
+    try {
+        const parent = await registry.create({ id: "parent", workspace: root });
+        const parentAttachment = parent.attach();
+        expect((await parentAttachment.receive()).type).toBe("history");
+        parentAttachment.send({
+            type: "update_permissions",
+            requestId: "inherit-permissions",
+            mode: "full_access",
+        });
+        expect(await receivePermissions(parentAttachment)).toMatchObject({
+            mode: "full_access",
+            pending: false,
+        });
+        await runPrompt(
+            parentAttachment,
+            "Run tests in the background",
+            false,
+        );
+        await waitForTaskNotification(parentAttachment);
+        await finishTurnText(parentAttachment);
+        childId = registry.list()
+            .find((agent) => agent.id !== "parent")!.id;
+    } finally {
+        await registry.close();
+    }
+
+    const childSession = join(root, `${childId}.jsonl`);
+    expect((await SessionStore.open(childSession)).header.parentId)
+        .toBe("parent");
+
+    const orphanRegistry = buildRegistry();
+    try {
+        await orphanRegistry.resume({ sessionPath: childSession });
+        const orphan = orphanRegistry.list()
+            .find((agent) => agent.id === childId);
+        expect(orphan).toMatchObject({ kind: "background" });
+        expect(orphan?.parent_id).toBeUndefined();
+
+        await orphanRegistry.resume({
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        expect(orphanRegistry.list().find((agent) => agent.id === childId))
+            .toMatchObject({ kind: "background", parent_id: "parent" });
+    } finally {
+        await orphanRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a parent and async subagent exchange durable messages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-messages-"));
+    const parentSession = join(root, "parent.jsonl");
+    const replyInput = {
+        subagent_id: "pending",
+        message: "Use src/parser.ts as canonical.",
+    };
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "spawn-child",
+                            name: "async_subagent",
+                            input: { description: "Audit both parsers" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Audit started."),
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "reply-to-child",
+                            name: "message_subagent",
+                            input: replyInput,
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("I answered the child."),
+                    textResponse("I received the final audit."),
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "reuse-child",
+                            name: "message_subagent",
+                            input: replyInput,
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("I reused the child."),
+                    textResponse("I received the second audit."),
+                ]);
+            }
+            return new FauxAdapter([
+                {
+                    role: "assistant",
+                    content: [{
+                        type: "tool_call",
+                        id: "ask-parent",
+                        name: "notify_parent",
+                        input: {
+                            message: "Which parser is canonical?",
+                        },
+                    }],
+                    source: {
+                        provider: "faux",
+                        api: "scripted",
+                        model: "test",
+                    },
+                    usage: emptyUsage(),
+                    stopReason: "tool_use",
+                },
+                textResponse("Waiting for the parent."),
+                textResponse("src/parser.ts is canonical."),
+                textResponse("Second parser pass complete."),
+                textResponse("Human-directed parser pass complete."),
+            ], { delayMs: 25 });
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: parentSession,
+            eventLogPath: join(root, "parent-events.jsonl"),
+        });
+        const attachment = parent.attach();
+        await runPrompt(attachment, "Start the parser audit", false);
+        const child = registry.list().find((agent) => agent.id !== "parent");
+        expect(child).toBeDefined();
+        replyInput.subagent_id = child!.id;
+
+        expect(await waitForTaskNotification(attachment)).toMatchObject({
+            deliveryId: expect.stringContaining(`attention:${child!.id}:`),
+            sourceAgentId: child!.id,
+            content: "Which parser is canonical?",
+        });
+        expect(await finishTurnText(attachment)).toBe(
+            "I answered the child.",
+        );
+        expect(await waitForTaskNotification(attachment)).toMatchObject({
+            deliveryId: `completion:${child!.id}`,
+            sourceAgentId: child!.id,
+            content: "src/parser.ts is canonical.",
+        });
+        expect(await finishTurnText(attachment)).toBe(
+            "I received the final audit.",
+        );
+
+        await runPrompt(attachment, "Ask the same child for another pass", false);
+        expect(await waitForTaskNotification(attachment)).toMatchObject({
+            deliveryId: `completion:${child!.id}:2`,
+            sourceAgentId: child!.id,
+            content: "Second parser pass complete.",
+        });
+        expect(await finishTurnText(attachment)).toBe(
+            "I received the second audit.",
+        );
+
+        const childAgent = registry.find(child!.id);
+        expect(childAgent).toBeDefined();
+        const childAttachment = childAgent!.attach();
+        // Directly prompting the child is not an assignment from the parent,
+        // so no completion follows it.
+        await runPrompt(
+            childAttachment,
+            "Run one pass requested directly from the TUI",
+            false,
+        );
+        childAttachment.detach();
+        expect((await SessionStore.open(parentSession)).pendingDeliveries())
+            .toEqual([]);
+
+        const childStore = await SessionStore.open(child!.session_path);
+        expect(childStore.messages().filter((message) => message.role === "user"))
+            .toEqual([
+                {
+                    role: "user",
+                    content: [{ type: "text", text: "Audit both parsers" }],
+                },
+                {
+                    role: "user",
+                    content: [{
+                        type: "text",
+                        text: "Use src/parser.ts as canonical.",
+                    }],
+                },
+                {
+                    role: "user",
+                    content: [{
+                        type: "text",
+                        text: "Use src/parser.ts as canonical.",
+                    }],
+                },
+                {
+                    role: "user",
+                    content: [{
+                        type: "text",
+                        text: "Run one pass requested directly from the TUI",
+                    }],
+                },
+            ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("async subagent approvals surface in the interactive parent", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-background-approval-"));
     const outside = `${root}-outside.txt`;
     const parentSession = join(root, "parent.jsonl");
@@ -1323,7 +1616,7 @@ test("background agent approvals surface in the interactive parent", async () =>
                         content: [{
                             type: "tool_call",
                             id: "spawn-child",
-                            name: "background_agent",
+                            name: "async_subagent",
                             input: { description: "write the background marker" },
                         }],
                         source: {
@@ -1415,7 +1708,7 @@ test("background agent approvals surface in the interactive parent", async () =>
     }
 });
 
-test("background agent concurrency has an explicit cap", async () => {
+test("async subagent concurrency has an explicit cap", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-background-limit-"));
     let adapterNumber = 0;
     const registry = new AgentRegistry({
@@ -1429,13 +1722,13 @@ test("background agent concurrency has an explicit cap", async () => {
                             {
                                 type: "tool_call",
                                 id: "first-background",
-                                name: "background_agent",
+                                name: "async_subagent",
                                 input: { description: "first task" },
                             },
                             {
                                 type: "tool_call",
                                 id: "second-background",
-                                name: "background_agent",
+                                name: "async_subagent",
                                 input: { description: "second task" },
                             },
                         ],
@@ -1485,8 +1778,72 @@ test("background agent concurrency has an explicit cap", async () => {
             message.role === "tool_result"
             && message.isError
             && message.content[0]?.text
-                === "Background agent limit reached (1 running)."
+                === "Async subagent limit reached (1 running)."
         )).toBe(true);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("restored idle subagents do not consume async concurrency slots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-restored-background-limit-"));
+    const parentPath = join(root, "parent.jsonl");
+    const childPath = join(root, "old-child.jsonl");
+    await SessionStore.create(parentPath, {
+        sessionId: "parent",
+        cwd: root,
+    });
+    await SessionStore.create(childPath, {
+        sessionId: "old-child",
+        cwd: root,
+        parentId: "parent",
+    });
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter: () => {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "new-background",
+                            name: "async_subagent",
+                            input: { description: "new task" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Launch handled."),
+                    textResponse("Background result received."),
+                ]);
+            }
+            return adapterNumber === 2
+                ? new FauxAdapter([])
+                : new FauxAdapter([textResponse("new child done")]);
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        maxConcurrentBackgroundAgents: 1,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        eventLogPathForId: (id) => join(root, `${id}-events.jsonl`),
+    });
+
+    try {
+        const parent = await registry.resume({ sessionPath: parentPath });
+        await registry.resume({ sessionPath: childPath });
+        await runPrompt(parent.attach(), "Start another task", false);
+        const results = (await SessionStore.open(parentPath)).messages()
+            .filter((message) => message.role === "tool_result");
+        expect(results).toHaveLength(1);
+        expect(results[0]).toMatchObject({ isError: false });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

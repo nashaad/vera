@@ -16,18 +16,43 @@ export interface ToolOutput {
 export interface SpawnSubagentEffect {
     readonly type: "spawn_subagent";
     readonly description: string;
+    readonly model?: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
-export interface SpawnBackgroundAgentEffect {
-    readonly type: "spawn_background_agent";
+export interface SpawnAsyncSubagentEffect {
+    readonly type: "spawn_async_subagent";
     readonly description: string;
+    readonly model?: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
-export type ToolEffect = SpawnSubagentEffect | SpawnBackgroundAgentEffect;
+export interface MessageSubagentEffect {
+    readonly type: "message_subagent";
+    readonly subagentId: string;
+    readonly message: string;
+}
+
+export interface NotifyParentEffect {
+    readonly type: "notify_parent";
+    readonly message: string;
+}
+
+export type ToolEffect =
+    | SpawnSubagentEffect
+    | SpawnAsyncSubagentEffect
+    | MessageSubagentEffect
+    | NotifyParentEffect;
 
 export interface AskUserChoice {
     readonly id: string;
     readonly label: string;
+    /**
+     * A concrete rendering of what this choice means: a mockup, a diff, a
+     * snippet. Shown verbatim in a monospace box beside the choices, so it
+     * carries no markup and the client owes it no styling.
+     */
+    readonly preview?: string;
 }
 
 export interface AskUserInteraction {

@@ -44,15 +44,19 @@ test("subagent is exposed only when the engine can apply effects", async () => {
     ]).map((tool) => tool.name);
     const withAllEffects = toolDefinitionsForCapabilities([
         "spawn_subagent",
-        "spawn_background_agent",
+        "spawn_async_subagent",
+        "message_subagent",
+        "notify_parent",
     ]).map((tool) => tool.name);
 
     expect(ordinary).not.toContain("subagent");
-    expect(ordinary).not.toContain("background_agent");
+    expect(ordinary).not.toContain("async_subagent");
     expect(withSubagent).toContain("subagent");
-    expect(withSubagent).not.toContain("background_agent");
+    expect(withSubagent).not.toContain("async_subagent");
     expect(withAllEffects).toContain("subagent");
-    expect(withAllEffects).toContain("background_agent");
+    expect(withAllEffects).toContain("async_subagent");
+    expect(withAllEffects).toContain("message_subagent");
+    expect(withAllEffects).toContain("notify_parent");
 
     const result = await executeToolHandler(
         toolCall("call_subagent", "subagent", {

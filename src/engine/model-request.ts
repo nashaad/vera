@@ -11,6 +11,7 @@ import {
     type ProjectInstructionSnapshot,
 } from "./project-instructions.ts";
 import type { PromptContribution } from "./prompt-contributions.ts";
+import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
 export interface ModelRequestSnapshot {
     readonly provider?: string;
@@ -20,8 +21,11 @@ export interface ModelRequestSnapshot {
     readonly messages: readonly ModelMessage[];
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
+    readonly disabledPromptContributions?: readonly string[];
     readonly signal: AbortSignal;
 }
 
@@ -63,8 +67,19 @@ export function projectModelRequest(
     const prompt = projectSystemPrompt({
         tools,
         workspace: snapshot.workspace,
+        ...(snapshot.scratchDir === undefined
+            ? {}
+            : { scratchDir: snapshot.scratchDir }),
         date: snapshot.date,
         projectInstructions: snapshot.projectInstructions,
+        ...(snapshot.scratchState === undefined
+            ? {}
+            : { scratchState: snapshot.scratchState }),
+        ...(snapshot.disabledPromptContributions === undefined
+            ? {}
+            : {
+                disabledContributions: snapshot.disabledPromptContributions,
+            }),
     });
     const request = Object.freeze({
         ...(snapshot.provider === undefined ? {} : { provider: snapshot.provider }),

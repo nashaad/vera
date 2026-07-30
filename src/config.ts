@@ -19,18 +19,31 @@ import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
 import {
+    parseCompactionConfig,
     parseModelCatalogConfig,
+    resolveCompactionProfile,
     resolveReviewerProfile,
+    type ResolvedCompactionProfile,
     type VeraCatalogModel,
+    type VeraCompactionConfig,
     type VeraReviewerProfileConfig,
 } from "./config/model-catalog.ts";
 import { parsePermissionModes } from "./config/permission-modes.ts";
 import type { PermissionMode } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
+import {
+    defaultVeraExtensionDirectory,
+    discoverExtensionConfigs,
+    mergeExtensionConfigs,
+} from "./extensions/discovery.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
-export type VeraProviderId = "openrouter" | "openai-codex" | "ollama";
+export type VeraProviderId =
+    | "openrouter"
+    | "openai-codex"
+    | "ollama"
+    | "cerebras";
 
 export interface VeraModelFallbackConfig {
     readonly model: string;
@@ -49,6 +62,18 @@ export interface VeraReviewerConfig {
     readonly timeout_ms?: number;
 }
 
+/**
+ * Model spawned subagents run on when the spawn names none. Configured
+ * separately from the agent model because a subagent fan-out multiplies
+ * whatever it inherits: a session on a frontier model should not quietly bill
+ * every child at the same rate.
+ */
+export interface VeraSubagentConfig {
+    readonly provider?: VeraProviderId;
+    readonly model: string;
+    readonly reasoning_effort?: ModelReasoningEffort;
+}
+
 export interface VeraExtensionConfig {
     readonly path: string;
     readonly enabled: boolean;
@@ -63,17 +88,20 @@ export interface VeraConfig {
     readonly approval_mode: ApprovalMode;
     readonly fallback?: VeraModelFallbackConfig;
     readonly reviewer?: VeraReviewerConfig;
+    readonly subagent?: VeraSubagentConfig;
     readonly models?: readonly VeraCatalogModel[];
     readonly model_routes?: Readonly<Record<string, readonly string[]>>;
     readonly reviewer_profiles?: Readonly<
         Record<string, VeraReviewerProfileConfig>
     >;
+    readonly compaction?: VeraCompactionConfig;
     readonly permission_modes?: Readonly<
         Record<string, PermissionMode>
     >;
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly disabled_builtin_extensions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
+    readonly disabled_prompt_contributions?: readonly string[];
 }
 
 /**
@@ -86,6 +114,7 @@ export interface VeraExperimentalConfig {
 
 export interface LoadVeraConfigOptions {
     readonly path?: string;
+    readonly extensionDirectory?: string;
 }
 
 export interface VeraConfigDefaultsPatch {
@@ -143,10 +172,24 @@ export function loadVeraConfig(
     const config = parseVeraConfig(value);
     if (config === undefined) {
         throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, or ollama, a non-empty model string, an optional non-empty reasoning_effort string, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
+            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, ollama, or cerebras, a non-empty model string, an optional non-empty reasoning_effort string, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
         );
     }
-    return config;
+    const extensionDirectory = options.extensionDirectory
+        ?? (options.path === undefined
+            ? defaultVeraExtensionDirectory()
+            : join(dirname(path), "extensions"));
+    const extensions = mergeExtensionConfigs(
+        discoverExtensionConfigs(extensionDirectory),
+        config.extensions ?? [],
+    );
+    if (extensions.length === 0 && config.extensions === undefined) {
+        return config;
+    }
+    return {
+        ...config,
+        extensions,
+    };
 }
 
 export function updateVeraConfigDefaults(
@@ -264,6 +307,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const config = value as Record<string, unknown>;
     const fallback = parseModelFallback(config.fallback, config.model);
     const reviewer = parseReviewer(config.reviewer);
+    const subagent = parseSubagentModel(config.subagent);
     const modelCatalog = parseModelCatalogConfig(
         config.models,
         config.model_routes,
@@ -282,11 +326,22 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         rawPermissionModes,
         modelCatalog?.reviewer_profiles ?? {},
     );
+    // Routes come from the catalog, so a compaction block without one has
+    // nothing to name and is rejected rather than half-resolved.
+    const compaction = config.compaction === undefined
+        ? undefined
+        : parseCompactionConfig(
+            config.compaction,
+            modelCatalog?.model_routes ?? {},
+        );
     const extensions = parseExtensionConfigs(config.extensions);
     const disabledBuiltinExtensions = parseStringList(
         config.disabled_builtin_extensions,
     );
     const experimental = parseExperimental(config.experimental);
+    const disabledPromptContributions = parseStringList(
+        config.disabled_prompt_contributions,
+    );
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -297,18 +352,22 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         );
     if (
         (config.reviewer !== undefined && reviewer === undefined)
+        || (config.subagent !== undefined && subagent === undefined)
         || modelCatalog === undefined
         || permissionModes === undefined
         || extensions === undefined
         || disabledBuiltinExtensions === undefined
         || experimental === undefined
+        || disabledPromptContributions === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
+        || (config.compaction !== undefined && compaction === undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
             && config.provider !== "openrouter"
             && config.provider !== "openai-codex"
-            && config.provider !== "ollama")
+            && config.provider !== "ollama"
+            && config.provider !== "cerebras")
         || typeof config.model !== "string"
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined
@@ -329,6 +388,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : { reasoning_effort: config.reasoning_effort }),
         ...(fallback === undefined ? {} : { fallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
+        ...(subagent === undefined ? {} : { subagent }),
         ...(hasModelCatalog
             ? {
                 models: modelCatalog.models,
@@ -336,6 +396,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
                 reviewer_profiles: modelCatalog.reviewer_profiles,
             }
             : {}),
+        ...(compaction === undefined ? {} : { compaction }),
         ...(rawPermissionModes === undefined
             ? {}
             : { permission_modes: permissionModes }),
@@ -346,6 +407,11 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
                 disabled_builtin_extensions: disabledBuiltinExtensions,
             }),
         ...(config.experimental === undefined ? {} : { experimental }),
+        ...(config.disabled_prompt_contributions === undefined
+            ? {}
+            : {
+                disabled_prompt_contributions: disabledPromptContributions,
+            }),
     };
 }
 
@@ -454,7 +520,8 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         || (reviewer.provider !== undefined
             && reviewer.provider !== "openrouter"
             && reviewer.provider !== "openai-codex"
-            && reviewer.provider !== "ollama")
+            && reviewer.provider !== "ollama"
+            && reviewer.provider !== "cerebras")
         || (reviewer.reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.reasoning_effort))
         || (reviewer.timeout_ms !== undefined
@@ -479,8 +546,58 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
     };
 }
 
+function parseSubagentModel(value: unknown): VeraSubagentConfig | undefined {
+    if (typeof value !== "object" || value === null) {
+        return undefined;
+    }
+    const subagent = value as Record<string, unknown>;
+    if (
+        typeof subagent.model !== "string"
+        || subagent.model.trim().length === 0
+        || (subagent.provider !== undefined
+            && subagent.provider !== "openrouter"
+            && subagent.provider !== "openai-codex"
+            && subagent.provider !== "ollama"
+            && subagent.provider !== "cerebras")
+        || (subagent.reasoning_effort !== undefined
+            && !isReasoningEffort(subagent.reasoning_effort))
+    ) {
+        return undefined;
+    }
+    return {
+        model: subagent.model.trim(),
+        ...(subagent.provider === undefined
+            ? {}
+            : { provider: subagent.provider as VeraProviderId }),
+        ...(subagent.reasoning_effort === undefined
+            ? {}
+            : { reasoning_effort: subagent.reasoning_effort }),
+    };
+}
+
 function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
     return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * The configured subagent default in engine terms, or undefined to leave
+ * spawns inheriting the parent model.
+ */
+export function configuredSubagentModel(
+    config: VeraConfig,
+): { provider?: string; model: string; reasoningEffort?: ModelReasoningEffort } | undefined {
+    if (config.subagent === undefined) {
+        return undefined;
+    }
+    return {
+        model: config.subagent.model,
+        ...(config.subagent.provider === undefined
+            ? {}
+            : { provider: config.subagent.provider }),
+        ...(config.subagent.reasoning_effort === undefined
+            ? {}
+            : { reasoningEffort: config.subagent.reasoning_effort }),
+    };
 }
 
 /**
@@ -491,6 +608,29 @@ export function configuredReviewer(
     config: VeraConfig,
 ): ToolReviewerSettings | undefined {
     return configuredReviewers(config).default;
+}
+
+/**
+ * The compaction profile with every declared slot bound to catalog entries, or
+ * undefined when compaction is unconfigured or names something the catalog no
+ * longer has. Undefined means the session simply does not compact: a broken
+ * route must not be resolved into a shorter one and used anyway.
+ */
+export function configuredCompaction(
+    config: VeraConfig,
+): ResolvedCompactionProfile | undefined {
+    if (
+        config.compaction === undefined
+        || config.models === undefined
+        || config.model_routes === undefined
+    ) {
+        return undefined;
+    }
+    return resolveCompactionProfile({
+        models: config.models,
+        model_routes: config.model_routes,
+        reviewer_profiles: config.reviewer_profiles ?? {},
+    }, config.compaction);
 }
 
 export function configuredReviewers(

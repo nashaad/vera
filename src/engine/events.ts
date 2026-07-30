@@ -9,6 +9,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { ContextMeasurement } from "./context-measurement.ts";
 import type {
     AssistantMessage,
     ModelMessage,
@@ -60,6 +61,7 @@ export interface TaskNotificationEvent {
     readonly deliveryId: string;
     readonly sourceAgentId: string;
     readonly content: string;
+    readonly kind?: "attention" | "completion";
 }
 
 export interface ToolApprovalUiRequest {
@@ -85,6 +87,8 @@ export interface ToolApprovalUiResponse {
 export interface UserQuestionChoice {
     readonly id: string;
     readonly label: string;
+    /** Shown verbatim in a monospace box beside the choices. */
+    readonly preview?: string;
 }
 
 export interface UserQuestionUiRequest {
@@ -97,6 +101,8 @@ export interface UserQuestionSelectedUiResponse {
     readonly type: "user_question";
     readonly outcome: "selected";
     readonly choiceId: string;
+    /** What the user typed alongside the choice, when they typed anything. */
+    readonly notes?: string;
 }
 
 export interface UserQuestionCancelledUiResponse {
@@ -174,6 +180,48 @@ export interface ModelRequestEvent {
     readonly promptContributions: readonly PromptContributionMetadata[];
 }
 
+/**
+ * Emitted beside every `model_request`, carrying the size of that exact
+ * request. The engine measures because only the engine holds the projection;
+ * a client counting what it can see on screen would miss the system prompt,
+ * the tool definitions and every internal message, and two clients watching
+ * one session would disagree.
+ */
+export interface ContextMeasuredEvent {
+    readonly type: "context_measured";
+    /** The model the request was measured against, which a fallback changes. */
+    readonly model: string;
+    readonly measurement: ContextMeasurement;
+}
+
+export interface CompactionStartedEvent {
+    readonly type: "compaction_started";
+    readonly strategy: string;
+}
+
+/**
+ * Compaction is its own accepted operation with a visible end, so every way it
+ * can finish is reported, not only the one that worked. `outcome` carries the
+ * failure kinds because a session that quietly declined to compact and a
+ * session whose summarizer was unreachable look identical otherwise.
+ */
+export interface CompactionFinishedEvent {
+    readonly type: "compaction_finished";
+    readonly strategy: string;
+    readonly outcome:
+        | "compacted"
+        | "not_needed"
+        | "no_boundary"
+        | "rejected"
+        | "unavailable"
+        | "cancelled"
+        | "busy";
+    readonly reason?: string;
+    /** Estimated request size before and after, present only on success. */
+    readonly before?: number;
+    readonly after?: number;
+}
+
 export interface PromptPrefixDriftEvent {
     readonly type: "prompt_prefix_drift";
     readonly cause: PromptPrefixDrift["cause"];
@@ -184,6 +232,7 @@ export interface ModelRetryScheduledEvent {
     readonly type: "model_retry_scheduled";
     readonly model: string;
     readonly nextAttempt: number;
+    readonly maxAttempts: number;
     readonly delayMs: number;
     readonly failure: ProviderFailure;
 }
@@ -296,6 +345,9 @@ export type EngineEvent =
     | PermissionsChangedEvent
     | PermissionsRejectedEvent
     | ModelRequestEvent
+    | ContextMeasuredEvent
+    | CompactionStartedEvent
+    | CompactionFinishedEvent
     | PromptPrefixDriftEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent

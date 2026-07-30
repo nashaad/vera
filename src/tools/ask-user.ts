@@ -24,6 +24,17 @@ export const askUserTool: RegisteredTool = {
                         properties: {
                             id: { type: "string" },
                             label: { type: "string" },
+                            preview: {
+                                type: "string",
+                                description:
+                                    "Optional. What this choice concretely looks"
+                                    + " like: a layout mockup, a diff, a snippet,"
+                                    + " a small ASCII diagram. Shown verbatim in a"
+                                    + " monospace box beside the choices. Include"
+                                    + " it when the choices differ in a way the"
+                                    + " labels cannot show; omit it when it would"
+                                    + " only restate the label.",
+                            },
                         },
                         required: ["id", "label"],
                         additionalProperties: false,
@@ -68,20 +79,35 @@ function parseChoice(value: unknown, index: number): AskUserChoice {
         throw new Error(`ask_user choice ${index + 1} must be an object`);
     }
     const choice = value as Record<string, unknown>;
-    const keys = Object.keys(choice);
+    const known = ["id", "label", "preview"];
     if (
-        keys.length !== 2
-        || !Object.hasOwn(choice, "id")
+        !Object.hasOwn(choice, "id")
         || !Object.hasOwn(choice, "label")
+        || Object.keys(choice).some((key) => !known.includes(key))
     ) {
         throw new Error(
-            `ask_user choice ${index + 1} must contain only id and label`,
+            `ask_user choice ${index + 1} must contain only id, label, and`
+                + " preview",
         );
     }
     return {
         id: nonEmptyString(choice.id, `choice ${index + 1} ID`),
         label: nonEmptyString(choice.label, `choice ${index + 1} label`),
+        // A preview is kept verbatim: its indentation is part of what it shows.
+        ...(choice.preview === undefined ? {} : {
+            preview: verbatimString(
+                choice.preview,
+                `choice ${index + 1} preview`,
+            ),
+        }),
     };
+}
+
+function verbatimString(value: unknown, name: string): string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+        throw new Error(`ask_user requires a non-empty ${name}`);
+    }
+    return value;
 }
 
 function nonEmptyString(value: unknown, name: string): string {

@@ -82,16 +82,60 @@ test("host wire accepts only complete tool presentations", () => {
     })).toBeUndefined();
 });
 
-test("host wire validates context token counts", () => {
+test("host wire validates context measurements", () => {
     expect(parseAgentUpdate({
-        type: "turn_finished",
-        contextInputTokens: 64_500,
+        type: "context",
+        measurement: { tokens: 64_500, capacity: 258_000, estimated: true },
         seq: 1,
     })).toBeDefined();
+    // A window is optional, but a nonsensical one is not passed through as if
+    // it were absent: it would render a percentage of nothing.
     expect(parseAgentUpdate({
-        type: "turn_finished",
-        contextInputTokens: -1,
+        type: "context",
+        measurement: { tokens: 64_500, capacity: 0, estimated: true },
         seq: 1,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "context",
+        measurement: { tokens: -1, estimated: true },
+        seq: 1,
+    })).toBeUndefined();
+    // The label is what separates a counted number from a guessed one, so an
+    // unlabelled measurement is refused rather than assumed exact.
+    expect(parseAgentUpdate({
+        type: "context",
+        measurement: { tokens: 64_500 },
+        seq: 1,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "history",
+        entries: [],
+        context: { tokens: -1, estimated: false },
+        seq: 1,
+    })).toBeUndefined();
+});
+
+test("host wire validates model activity", () => {
+    const retry = {
+        type: "model_activity" as const,
+        phase: "retrying" as const,
+        model: "openai/gpt-5.6-sol",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        retryAt: "2026-07-29T17:00:00.000Z",
+        failure: {
+            kind: "server" as const,
+            statusCode: 503,
+        },
+        seq: 4,
+    };
+
+    expect(parseAgentUpdate(retry)).toEqual(retry);
+    expect(parseAgentUpdate({ ...retry, nextAttempt: 4 })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...retry,
+        failure: { ...retry.failure, kind: "made_up" },
     })).toBeUndefined();
 });
 
@@ -145,6 +189,22 @@ test("host wire validates task notifications", () => {
         sourceAgentId: "child-1",
         content: "The tests pass.",
         seq: 7,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file?",
+        kind: "attention",
+        seq: 8,
+    })).toMatchObject({ kind: "attention" });
+    expect(parseAgentUpdate({
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file?",
+        kind: "other",
+        seq: 8,
     })).toBeUndefined();
 });
 

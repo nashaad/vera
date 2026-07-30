@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ModelMessage } from "../model/types.ts";
+import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import type { ImageMediaType } from "../attachments/image.ts";
 import {
     isModelTurnSettings,
@@ -34,6 +35,8 @@ export interface SessionHeader {
     readonly timestamp: string;
     readonly cwd: string;
     readonly origin?: SessionOrigin;
+    /** Session ID of the agent that spawned this one as a subagent. */
+    readonly parentId?: string;
 }
 
 export interface SessionOrigin {
@@ -55,6 +58,7 @@ export interface PendingDelivery {
     readonly id: string;
     readonly sourceAgentId: string;
     readonly content: string;
+    readonly kind?: "attention" | "completion";
 }
 
 export interface SessionDeliveryEntry extends PendingDelivery {
@@ -137,10 +141,50 @@ export interface SessionRewindEntry {
     readonly headId: string | null;
 }
 
+/**
+ * A compaction never rewrites or removes a message. It appends the context the
+ * model should be sent instead, anchored to the messages it stands for, so the
+ * original transcript stays readable and a session that outlives whatever
+ * produced the projection can still be resumed from the file alone.
+ */
+export interface SessionCompactionEntry {
+    readonly type: "compaction";
+    readonly id: string;
+    readonly timestamp: string;
+    /** Compacted through, inclusive. */
+    readonly boundaryMessageId: string;
+    /** Inclusive start of the suffix kept verbatim, or null for none. */
+    readonly firstRetainedMessageId: string | null;
+    readonly projection: readonly ModelMessage[];
+    readonly measured: SessionCompactionMeasurement;
+    readonly diagnostics?: SessionCompactionDiagnostics;
+}
+
+export interface SessionCompactionMeasurement {
+    readonly inputTokens: number;
+    readonly contextWindow: number;
+    readonly estimated: boolean;
+}
+
+export interface SessionCompactionDiagnostics {
+    readonly strategy: string;
+    readonly route?: string;
+    readonly catalogEntry?: string;
+}
+
+export interface AppendCompactionRequest {
+    readonly boundaryMessageId: string;
+    readonly firstRetainedMessageId: string | null;
+    readonly projection: readonly ModelMessage[];
+    readonly measured: SessionCompactionMeasurement;
+    readonly diagnostics?: SessionCompactionDiagnostics;
+}
+
 export interface CreateSessionStoreOptions {
     readonly sessionId: string;
     readonly cwd: string;
     readonly origin?: SessionOrigin;
+    readonly parentId?: string;
     readonly now?: () => Date;
     readonly createId?: () => string;
 }
@@ -181,6 +225,7 @@ interface LoadedSessionFile {
     readonly permissionGrantRevocationEntries:
         SessionPermissionGrantRevocationEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
+    readonly compactionEntries: SessionCompactionEntry[];
     readonly agentFailure?: SessionAgentFailureEntry;
     readonly leafId: string | null;
 }
@@ -202,6 +247,7 @@ export class SessionStore {
     private readonly permissionGrantRevocationEntries:
         SessionPermissionGrantRevocationEntry[];
     private readonly attachmentEntries: SessionAttachmentEntry[];
+    private readonly compactionEntries: SessionCompactionEntry[];
     private agentFailureEntry: SessionAgentFailureEntry | undefined;
     private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
@@ -224,6 +270,7 @@ export class SessionStore {
         this.permissionGrantRevocationEntries =
             loaded.permissionGrantRevocationEntries;
         this.attachmentEntries = loaded.attachmentEntries;
+        this.compactionEntries = loaded.compactionEntries;
         this.agentFailureEntry = loaded.agentFailure;
         this.leafId = loaded.leafId;
         this.now = options.now ?? (() => new Date());
@@ -244,6 +291,9 @@ export class SessionStore {
             ...(options.origin === undefined
                 ? {}
                 : { origin: validSessionOrigin(options.origin) }),
+            ...(options.parentId === undefined
+                ? {}
+                : { parentId: nonEmpty(options.parentId, "session parent ID") }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -270,6 +320,7 @@ export class SessionStore {
                 permissionGrantEntries: [],
                 permissionGrantRevocationEntries: [],
                 attachmentEntries: [],
+                compactionEntries: [],
                 agentFailure: undefined,
                 leafId: null,
             },
@@ -506,6 +557,61 @@ export class SessionStore {
             () => undefined,
         );
         return result;
+    }
+
+    appendCompaction(
+        request: AppendCompactionRequest,
+    ): Promise<SessionCompactionEntry> {
+        // Copied on the way in, not at commit: the request waits behind
+        // whatever is already queued, and the caller still holds the arrays.
+        const snapshot = structuredClone(request) as AppendCompactionRequest;
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitCompaction(snapshot);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    /**
+     * The compaction that currently applies, or undefined when none does. A
+     * rewind past the boundary leaves the record in the file but unresolvable
+     * on the active branch, which is how a compaction is undone: by the
+     * history moving out from under it, never by deleting what was written.
+     */
+    latestCompaction(): SessionCompactionEntry | undefined {
+        const active = this.activeEntries();
+        return this.compactionEntries.findLast(
+            (entry) => compactionApplies(entry, active),
+        );
+    }
+
+    /**
+     * What the model should be sent: the accepted projection followed by the
+     * messages kept verbatim after it. Distinct from `messages()`, which stays
+     * the original transcript so clients keep showing what was really said.
+     *
+     * The suffix is everything past the boundary as the branch stands now, not
+     * a span fixed when the record was written. A record is a statement about
+     * its prefix only; the turns that follow it, including ones appended after
+     * it was accepted, are still owed to the model.
+     */
+    modelContext(): readonly ModelMessage[] {
+        const compaction = this.latestCompaction();
+        if (compaction === undefined) {
+            return this.messages();
+        }
+        const active = this.activeEntries();
+        const boundary = active.findIndex(
+            (entry) => entry.id === compaction.boundaryMessageId,
+        );
+        return [
+            ...compaction.projection,
+            ...active.slice(boundary + 1).map((entry) => entry.message),
+        ];
     }
 
     rewindBefore(userMessageId: string): Promise<SessionRewindEntry> {
@@ -748,6 +854,32 @@ export class SessionStore {
         return { ...entry };
     }
 
+    private async commitCompaction(
+        request: AppendCompactionRequest,
+    ): Promise<SessionCompactionEntry> {
+        for (const message of request.projection) {
+            for (const attachmentId of messageAttachmentIds(message)) {
+                if (!this.attachmentEntries.some(
+                    (entry) => entry.attachment.id === attachmentId,
+                )) {
+                    throw new Error(
+                        `Compaction projection references image attachment `
+                            + `${attachmentId}, which is not in this session`,
+                    );
+                }
+            }
+        }
+        const entry: SessionCompactionEntry = {
+            type: "compaction",
+            id: this.createId(),
+            timestamp: this.now().toISOString(),
+            ...validateCompaction(request, this.activeEntries()),
+        };
+        await this.appendRecord(entry);
+        this.compactionEntries.push(entry);
+        return entry;
+    }
+
     private async commitRewind(
         requestedUserMessageId: string,
     ): Promise<SessionRewindEntry> {
@@ -784,6 +916,10 @@ export class SessionStore {
 
     private async commitDelivery(delivery: PendingDelivery): Promise<boolean> {
         const id = nonEmpty(delivery.id, "delivery ID");
+        const kind = delivery.kind ?? "completion";
+        if (kind !== "attention" && kind !== "completion") {
+            throw new Error("delivery kind must be attention or completion");
+        }
         if (typeof delivery.content !== "string") {
             throw new Error("delivery content must be a string");
         }
@@ -796,6 +932,7 @@ export class SessionStore {
             if (
                 existing.sourceAgentId !== sourceAgentId
                 || existing.content !== delivery.content
+                || (existing.kind ?? "completion") !== kind
             ) {
                 throw new Error(`Delivery ${id} conflicts with its stored payload`);
             }
@@ -806,6 +943,7 @@ export class SessionStore {
             id,
             sourceAgentId,
             content: delivery.content,
+            ...(kind === "attention" ? { kind } : {}),
             timestamp: this.now().toISOString(),
         };
         await this.appendRecord(entry);
@@ -917,6 +1055,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const permissionGrantRevocationEntries:
         SessionPermissionGrantRevocationEntry[] = [];
     const attachmentEntries: SessionAttachmentEntry[] = [];
+    const compactionEntries: SessionCompactionEntry[] = [];
     let agentFailure: SessionAgentFailureEntry | undefined;
     const knownMessageIds = new Set<string>();
     const knownDeliveryIds = new Set<string>();
@@ -1142,6 +1281,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             leafId = rewind.headId;
             continue;
         }
+        if (value.type === "compaction") {
+            compactionEntries.push(
+                parseCompactionEntry(path, lineNumber, value),
+            );
+            continue;
+        }
         if (value.type === "checkpoint") {
             parseRemovedFileCheckpointEntry(path, lineNumber, value);
             continue;
@@ -1164,6 +1309,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         permissionGrantEntries,
         permissionGrantRevocationEntries,
         attachmentEntries,
+        compactionEntries,
         agentFailure,
         leafId,
     };
@@ -1287,6 +1433,8 @@ function parseHeader(path: string, line: string | undefined): SessionHeader {
         || typeof value.cwd !== "string"
         || value.cwd.length === 0
         || (value.origin !== undefined && !isSessionOrigin(value.origin))
+        || (value.parentId !== undefined
+            && (typeof value.parentId !== "string" || value.parentId.length === 0))
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }
@@ -1360,6 +1508,11 @@ function parseDeliveryEntry(
         || typeof value.sourceAgentId !== "string"
         || value.sourceAgentId.length === 0
         || typeof value.content !== "string"
+        || (
+            value.kind !== undefined
+            && value.kind !== "attention"
+            && value.kind !== "completion"
+        )
         || typeof value.timestamp !== "string"
     ) {
         throw invalidSession(
@@ -1572,6 +1725,150 @@ function copyPermissionGrant(grant: PermissionGrant): PermissionGrant {
     };
 }
 
+/**
+ * A record is only worth writing if the context it describes can be sent. The
+ * anchors have to resolve on the branch that is live now, and the seam between
+ * the projection and the retained suffix cannot split a tool call from its
+ * result: a provider rejects an unmatched pair outright, and it would do so on
+ * every later turn of a session whose original history is still intact.
+ */
+function validateCompaction(
+    request: AppendCompactionRequest,
+    active: readonly SessionMessageEntry[],
+): Omit<SessionCompactionEntry, "type" | "id" | "timestamp"> {
+    const boundaryMessageId = nonEmpty(
+        request.boundaryMessageId,
+        "compaction boundary message ID",
+    );
+    const boundaryIndex = active.findIndex(
+        (entry) => entry.id === boundaryMessageId,
+    );
+    if (boundaryIndex === -1) {
+        throw new Error(
+            `Compaction boundary ${boundaryMessageId} is not an active message`,
+        );
+    }
+    if (request.projection.length === 0) {
+        throw new Error("Compaction projection cannot be empty");
+    }
+    if (!request.projection.every(isModelMessage)) {
+        throw new Error("Compaction projection contains an invalid message");
+    }
+    assertToolCallsPaired(request.projection, "Compaction projection");
+    const retained = request.firstRetainedMessageId;
+    const successor = active[boundaryIndex + 1];
+    if (retained !== (successor?.id ?? null)) {
+        // Anything other than the message directly after the boundary would
+        // drop the messages in between without the record saying so.
+        throw new Error(
+            "Compaction must retain the message following its boundary",
+        );
+    }
+    if (successor?.message.role === "tool_result") {
+        throw new Error(
+            "Compaction retains a tool result whose call it compacted away",
+        );
+    }
+    const measured = validateCompactionMeasurement(request.measured);
+    return {
+        boundaryMessageId,
+        firstRetainedMessageId: retained,
+        projection: request.projection,
+        measured,
+        ...(request.diagnostics === undefined
+            ? {}
+            : { diagnostics: { ...request.diagnostics } }),
+    };
+}
+
+function validateCompactionMeasurement(
+    measured: SessionCompactionMeasurement,
+): SessionCompactionMeasurement {
+    if (
+        !Number.isSafeInteger(measured.inputTokens)
+        || measured.inputTokens < 0
+        || !Number.isSafeInteger(measured.contextWindow)
+        || measured.contextWindow <= 0
+        || typeof measured.estimated !== "boolean"
+    ) {
+        throw new Error("Compaction measurement is not a usable reading");
+    }
+    return {
+        inputTokens: measured.inputTokens,
+        contextWindow: measured.contextWindow,
+        estimated: measured.estimated,
+    };
+}
+
+/**
+ * Whether a stored record still describes the branch that is live. Checked on
+ * every read rather than trusted from the file: the record was written against
+ * one branch, and a rewind or a fork can leave it describing history that is
+ * no longer reachable.
+ */
+function compactionApplies(
+    entry: SessionCompactionEntry,
+    active: readonly SessionMessageEntry[],
+): boolean {
+    const boundaryIndex = active.findIndex(
+        (candidate) => candidate.id === entry.boundaryMessageId,
+    );
+    if (boundaryIndex === -1) {
+        return false;
+    }
+    const successor = active[boundaryIndex + 1];
+    if (successor === undefined) {
+        return entry.firstRetainedMessageId === null;
+    }
+    return successor.message.role !== "tool_result"
+        && (
+            entry.firstRetainedMessageId === null
+            || entry.firstRetainedMessageId === successor.id
+        );
+}
+
+function parseCompactionEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionCompactionEntry {
+    if (
+        typeof value.id !== "string"
+        || value.id.length === 0
+        || typeof value.timestamp !== "string"
+        || typeof value.boundaryMessageId !== "string"
+        || value.boundaryMessageId.length === 0
+        || (
+            value.firstRetainedMessageId !== null
+            && typeof value.firstRetainedMessageId !== "string"
+        )
+        || !Array.isArray(value.projection)
+        || value.projection.length === 0
+        || !value.projection.every(isModelMessage)
+        || !isCompactionMeasurement(value.measured)
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid compaction entry`,
+        );
+    }
+    return value as unknown as SessionCompactionEntry;
+}
+
+function isCompactionMeasurement(
+    value: unknown,
+): value is SessionCompactionMeasurement {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const measured = value as Record<string, unknown>;
+    return Number.isSafeInteger(measured.inputTokens)
+        && (measured.inputTokens as number) >= 0
+        && Number.isSafeInteger(measured.contextWindow)
+        && (measured.contextWindow as number) > 0
+        && typeof measured.estimated === "boolean";
+}
+
 function parseRewindEntry(
     path: string,
     lineNumber: number,
@@ -1737,12 +2034,14 @@ function isModelUsage(value: unknown): boolean {
     if (!isRecord(value)) {
         return false;
     }
-    return typeof value.inputTokens === "number"
-        && typeof value.outputTokens === "number"
-        && typeof value.cachedInputTokens === "number"
-        && typeof value.reasoningTokens === "number"
-        && typeof value.totalTokens === "number"
-        && (value.cost === undefined || typeof value.cost === "number");
+    // Finite is part of the shape: NaN and Infinity survive as numbers in
+    // memory but serialize to null, which the loader then rejects.
+    return Number.isFinite(value.inputTokens)
+        && Number.isFinite(value.outputTokens)
+        && Number.isFinite(value.cachedInputTokens)
+        && Number.isFinite(value.reasoningTokens)
+        && Number.isFinite(value.totalTokens)
+        && (value.cost === undefined || Number.isFinite(value.cost));
 }
 
 function isModelStopReason(value: unknown): boolean {

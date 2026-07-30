@@ -48,7 +48,7 @@ async function pickerFrame(
     }
 }
 
-test("session picker filters durable interactive conversations and selects an agent", async () => {
+test("session picker filters titled durable conversations and selects an agent", async () => {
     const state = startTuiSessionPicker([
         {
             id: "11111111-first-session",
@@ -106,6 +106,43 @@ test("session picker filters durable interactive conversations and selects an ag
             ?? searched;
     }
     expect(searched.options).toHaveLength(1);
+});
+
+test("session picker threads an async subagent under its parent", async () => {
+    const state = startTuiSessionPicker([
+        {
+            id: "parent",
+            workspace: "/work/vera",
+            session_path: "/sessions/parent.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: true,
+            title: "Coordinate parser work",
+            updated_at: "2026-07-20T20:00:00.000Z",
+        },
+        {
+            id: "child",
+            workspace: "/work/vera",
+            session_path: "/sessions/child.jsonl",
+            kind: "background",
+            status: "working",
+            live: true,
+            title: "Audit both parsers",
+            updated_at: "2026-07-20T20:01:00.000Z",
+            parent_id: "parent",
+        },
+    ], "parent", false, new Date("2026-07-20T20:02:00.000Z"));
+
+    expect(state.options.map((option) => option.sessionId))
+        .toEqual(["parent", "child"]);
+    expect(state.options[1]).toMatchObject({
+        depth: 1,
+        activity: "working",
+        threadParent: "parent",
+    });
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("Coordinate parser work");
+    expect(frame).toContain("Audit both parsers");
 });
 
 test("session picker excludes the current and unavailable conversations", async () => {
@@ -781,6 +818,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
             { id: "clear-delete", key: "delete", label: "clear" },
             { id: "clear-backspace", key: "backspace", label: "clear" },
         ],
+        "Switching models may make the next turn slower.",
     );
 
     expect(state.kind).toBe("extension");
@@ -794,6 +832,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
 
     const frame = await pickerFrame(state);
     expect(frame).toContain("Model presets");
+    expect(frame).toContain("Switching models may make the next turn slower.");
     expect(frame).toContain("Fast");
     expect(frame).toContain("Deep");
     expect(frame).toContain("⏎ apply");
@@ -984,9 +1023,76 @@ test("⇥ moves to All models, which lists what can run", async () => {
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // And back, since with two tabs one key is enough for both directions.
-    expect(handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state?.tab)
+    // The cycle continues through Top picks and returns to Pinned.
+    const topTab = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state;
+    expect(topTab?.tab).toBe("top");
+    expect(handleTuiSettingsPickerKey(topTab!, { name: "tab" }).state?.tab)
         .toBe("pinned");
+});
+
+test("top picks bundle an effort and gray out unconnected providers", () => {
+    const state = startTuiSettingsPicker(
+        "model",
+        undefined,
+        undefined,
+        undefined,
+        [{
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            label: "Kimi K3",
+            description: "runnable",
+        }],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [
+            {
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                label: "Kimi K3",
+                description: "verified generalist",
+                reasoningEffort: "medium",
+                available: true,
+            },
+            {
+                provider: "cerebras",
+                model: "gpt-oss-120b",
+                label: "GPT-OSS 120B",
+                description: "fast inference",
+                reasoningEffort: "medium",
+                available: false,
+            },
+        ],
+    );
+    const topTab = handleTuiSettingsPickerKey(
+        { ...state, tab: "all" },
+        { name: "tab" },
+    ).state!;
+
+    expect(topTab.tab).toBe("top");
+    expect(topTab.options.map((option) => option.label))
+        .toEqual(["Kimi K3", "GPT-OSS 120B"]);
+    // The runnable pick selects as a whole choice, model plus effort.
+    const chosen = handleTuiSettingsPickerKey(topTab, { name: "return" });
+    expect(chosen.selection).toEqual({
+        kind: "model",
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        reasoningEffort: "medium",
+    });
+    // The grayed pick does not answer Enter: its provider is not connected.
+    const onGrayed = { ...topTab, selectedIndex: 1 };
+    expect(handleTuiSettingsPickerKey(onGrayed, { name: "return" }).selection)
+        .toBeUndefined();
+    // Top-pick rows stay off the All tab, which lists what can run.
+    const allTab = handleTuiSettingsPickerKey(
+        { ...state, tab: "pinned" },
+        { name: "tab" },
+    ).state!;
+    expect(allTab.tab).toBe("all");
+    expect(allTab.options.map((option) => option.label))
+        .not.toContain("GPT-OSS 120B");
 });
 
 test("no model appears twice, because a pin is a mark on its own row", () => {

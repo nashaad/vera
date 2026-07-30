@@ -127,7 +127,7 @@ test("inert redirect targets never escalate past a routine read", () => {
 });
 
 test("agent launches are recognized routine operations", () => {
-    for (const name of ["subagent", "background_agent"]) {
+    for (const name of ["subagent", "async_subagent"]) {
         const toolCall = {
             id: `call-${name}`,
             name,
@@ -153,6 +153,37 @@ test("agent launches are recognized routine operations", () => {
         ).behavior).toBe("allow");
         expect(decideToolPermission(
             "auto",
+            toolCall,
+            workspace,
+            [],
+            { homeDirectory },
+        ).behavior).toBe("allow");
+    }
+});
+
+test("agent messages are recognized routine operations", () => {
+    for (const name of ["message_subagent", "notify_parent"]) {
+        const input: Record<string, string> = name === "message_subagent"
+            ? { subagent_id: "child-1", message: "Check the parser" }
+            : { message: "I need a decision" };
+        const toolCall = {
+            id: `call-${name}`,
+            name,
+            input,
+        };
+        expect(
+            extractPermissionActions({
+                toolCall,
+                workspace,
+                homeDirectory,
+            }),
+        ).toEqual([{
+            tool: name,
+            verb: "unknown",
+            operation: "agent.message",
+        }]);
+        expect(decideToolPermission(
+            "ask",
             toolCall,
             workspace,
             [],
@@ -726,3 +757,57 @@ function bash(command: string): HookToolCall {
 function toolCall(name: string, input: JsonObject): HookToolCall {
     return { id: "call_1", name, input };
 }
+
+test("scratch directory writes are routine when the scratch dir is known", () => {
+    const scratchDir = "/tmp/vera/session-1";
+    const calls = [
+        toolCall("write", {
+            path: `${scratchDir}/todo.md`,
+            content: "next steps",
+        }),
+        bash(`echo hi > ${scratchDir}/notes.txt`),
+    ];
+    for (const mode of ["ask", "auto"] as const) {
+        for (const call of calls) {
+            expect(decideToolPermission(
+                mode,
+                call,
+                workspace,
+                [],
+                { homeDirectory, scratchDir },
+            ).behavior).toBe("allow");
+            expect(decideToolPermission(
+                mode,
+                call,
+                workspace,
+                [],
+                { homeDirectory },
+            ).behavior).not.toBe("allow");
+        }
+    }
+});
+
+test("a path escaping the scratch directory keeps its outside scope", () => {
+    const decision = decideToolPermission(
+        "ask",
+        toolCall("write", {
+            path: "/tmp/vera/session-1/../other-session/todo.md",
+            content: "x",
+        }),
+        workspace,
+        [],
+        { homeDirectory, scratchDir: "/tmp/vera/session-1" },
+    );
+    expect(decision.behavior).not.toBe("allow");
+});
+
+test("the session scratch dir is canonical so realpathed tool paths match it", async () => {
+    const { sessionScratchDir } = await import("../../src/engine/run-turn.ts");
+    const { realpathSync, rmSync } = await import("node:fs");
+    const dir = sessionScratchDir("scratch-canonical-test");
+    try {
+        expect(realpathSync(dir)).toBe(dir);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});

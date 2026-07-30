@@ -29,16 +29,21 @@ import {
 } from "./approval-body.ts";
 import {
     attachDialogRowPointer,
-    dialogBottomOffset,
+    DIALOG_SHORT_TERMINAL_HEIGHT,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 
 /**
  * The prompt takes the composer's slot at the bottom of the screen: a
  * notice-toned bar down the left edge, a "Permission required" header with the
- * reason, the exact call and its grant predicates in the body, and one row of
- * buttons. The buttons keep their digits, so the keys that always answered the
- * prompt still do; ←/→ and ⏎ select the same answers by highlight.
+ * reason, the exact call and its grant predicates in the body, and the answers
+ * as a column. The answers keep their digits, so the keys that always answered
+ * the prompt still do; ↑/↓ and ⏎ select the same answers by highlight.
+ *
+ * The answers stack. A row of them side by side was tried and read as a grid
+ * the moment one label grew or the terminal narrowed, and it disagreed with the
+ * question card, which stacks. Both cards stack, and the column leaves the
+ * right of the panel free.
  */
 const APPROVAL_ROWS = [
     { key: "1", label: "Allow once" },
@@ -100,7 +105,7 @@ export function createTuiApprovalView(
 ): TuiApprovalView {
     let currentRequestId: string | undefined;
     let lastUpdate: ToolApprovalUiRequestUpdate | undefined;
-    // Highlighted button for ←/→ and ⏎. Client-local: the engine only ever
+    // Highlighted answer for ↑/↓ and ⏎. Client-local: the engine only ever
     // sees the decision.
     let selectedKey: string = "1";
     // Whether the body is showing past its cap. Reset per request: an expanded
@@ -108,12 +113,15 @@ export function createTuiApprovalView(
     let expanded = false;
     /** Whether the cap is holding anything back, which is what ctrl+r is for. */
     let capped = false;
+    /** Whether the row is wide enough to carry the predicate it would remember. */
+    let scopeInline = true;
 
     const bar = new BoxRenderable(renderer, {
         id: "approval-bar",
         width: 1,
         backgroundColor: TUI_NOTICE,
         flexShrink: 0,
+        visible: approvalChromeVisible(renderer),
     });
     const headerText = new TextRenderable(renderer, {
         id: "approval-header-text",
@@ -146,15 +154,12 @@ export function createTuiApprovalView(
     });
     details.add(detailsText);
 
-    // Narrow terminals wrap the buttons onto further rows rather than clipping
-    // an answer off the screen.
     const buttons = new BoxRenderable(renderer, {
         id: "approval-buttons",
+        width: "100%",
         height: "auto",
-        flexDirection: "row",
-        flexWrap: "wrap",
-        flexGrow: 1,
-        flexShrink: 1,
+        flexDirection: "column",
+        flexShrink: 0,
     });
     const hints = new TextRenderable(renderer, {
         id: "approval-hints",
@@ -170,8 +175,7 @@ export function createTuiApprovalView(
         height: "auto",
         marginTop: 1,
         flexShrink: 0,
-        flexDirection: "row",
-        justifyContent: "space-between",
+        flexDirection: "column",
     });
     actions.add(buttons);
     actions.add(hints);
@@ -181,7 +185,8 @@ export function createTuiApprovalView(
         flexGrow: 1,
         flexDirection: "column",
         gap: 0,
-        paddingTop: 1,
+        paddingTop: approvalTopPadding(renderer),
+        paddingBottom: approvalBottomPadding(renderer),
         paddingLeft: 2,
         paddingRight: 2,
     });
@@ -194,11 +199,13 @@ export function createTuiApprovalView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        bottom: dialogBottomOffset(renderer),
-        left: 0,
-        width: "100%",
+        bottom: 1,
+        left: approvalSideInset(renderer),
+        right: 1,
         height: "auto",
-        maxHeight: "90%",
+        maxHeight: renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
+            ? "100%"
+            : "90%",
         zIndex: 20,
         flexDirection: "row",
         visible: false,
@@ -219,14 +226,16 @@ export function createTuiApprovalView(
             const node = new TextRenderable(renderer, {
                 content: new StyledText([
                     fg(active ? TUI_BACKGROUND : TUI_MUTED)(
-                        ` ${action.key} ${approvalRowLabel(update, action)} `,
+                        approvalRowText(update, action, scopeInline),
                     ),
                 ]),
                 bg: active ? TUI_NOTICE : TUI_PANEL,
                 attributes: active ? 1 : 0,
+                width: "100%",
                 height: 1,
                 flexShrink: 0,
-                marginRight: 2,
+                wrapMode: "none",
+                overflow: "hidden",
             });
             if (available.includes(action.key)) {
                 attachDialogRowPointer(node, view.pointer, Number(action.key));
@@ -237,7 +246,7 @@ export function createTuiApprovalView(
     }
 
     function renderBody(update: ToolApprovalUiRequestUpdate): void {
-        const body = tuiApprovalBody(update, expanded);
+        const body = tuiApprovalBody(update, expanded, scopeInline);
         capped = expanded || body.hidden > 0;
         detailsText.content = new StyledText(
             body.lines.flatMap((line, index) => [
@@ -253,12 +262,12 @@ export function createTuiApprovalView(
         detailsText.fg = TUI_TEXT;
         const reason = specificReason(update.request.reason);
         headerText.content = new StyledText([
-            fg(TUI_NOTICE)("△ Permission required"),
+            fg(TUI_NOTICE)("Permission required"),
             fg(TUI_MUTED)(`  ${update.request.toolCall.name}`),
             ...(reason === undefined ? [] : [fg(TUI_MUTED)(`\n${reason}`)]),
         ]);
         hints.content = new StyledText([
-            fg(TUI_TEXT)("←→"),
+            fg(TUI_TEXT)("up/down"),
             fg(TUI_MUTED)(" select  "),
             fg(TUI_TEXT)("enter"),
             fg(TUI_MUTED)(" confirm  "),
@@ -289,12 +298,28 @@ export function createTuiApprovalView(
         },
         update(update): void {
             lastUpdate = update;
-            box.bottom = dialogBottomOffset(renderer);
+            box.maxHeight = renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
+                ? "100%"
+                : "90%";
+            box.left = approvalSideInset(renderer);
+            const inline = scopeFitsRow(renderer, update);
+            bar.visible = approvalChromeVisible(renderer);
+            headerText.visible = approvalHeaderVisible(renderer);
+            content.paddingTop = approvalTopPadding(renderer);
+            content.paddingBottom = approvalBottomPadding(renderer);
+            details.marginTop = approvalDetailsMargin(renderer);
             hints.visible = renderer.width >= 60;
             if (currentRequestId === update.requestId) {
+                // A resize can take the predicate off the row or give it back.
+                if (inline !== scopeInline) {
+                    scopeInline = inline;
+                    renderBody(update);
+                    renderChrome(update);
+                }
                 return;
             }
             currentRequestId = update.requestId;
+            scopeInline = inline;
             selectedKey = "1";
             expanded = false;
             renderBody(update);
@@ -311,10 +336,10 @@ export function createTuiApprovalView(
             if (key.ctrl || key.meta || key.shift) {
                 return { handled: false };
             }
-            if (key.name === "left" || key.name === "right") {
+            if (key.name === "up" || key.name === "down") {
                 const keys = selectableApprovalKeys(update);
                 const index = Math.max(0, keys.indexOf(selectedKey));
-                const next = key.name === "left"
+                const next = key.name === "up"
                     ? Math.max(0, index - 1)
                     : Math.min(keys.length - 1, index + 1);
                 if (keys[next] !== undefined && keys[next] !== selectedKey) {
@@ -347,6 +372,65 @@ export function createTuiApprovalView(
     return view;
 }
 
+function approvalBottomPadding(renderer: RenderContext): number {
+    return approvalChromeVisible(renderer) ? 1 : 0;
+}
+
+function approvalTopPadding(renderer: RenderContext): number {
+    return approvalHeaderVisible(renderer) ? 1 : 0;
+}
+
+function approvalDetailsMargin(renderer: RenderContext): number {
+    return approvalHeaderVisible(renderer) ? 1 : 0;
+}
+
+function approvalHeaderVisible(renderer: RenderContext): boolean {
+    return renderer.height > 6;
+}
+
+function approvalChromeVisible(renderer: RenderContext): boolean {
+    return renderer.height > DIALOG_SHORT_TERMINAL_HEIGHT;
+}
+
+function approvalSideInset(renderer: RenderContext): number {
+    return approvalChromeVisible(renderer) ? 2 : 0;
+}
+
+/**
+ * Whether the remembering row can carry its predicate. An answer that outruns
+ * its row is clipped, and a clipped path claims a scope narrower than what
+ * would be stored, so the label gives it up and the body states it instead.
+ */
+function scopeFitsRow(
+    renderer: RenderContext,
+    update: ToolApprovalUiRequestUpdate,
+): boolean {
+    if (grantScope(update) === undefined) {
+        return true;
+    }
+    const row = APPROVAL_ROWS.find((action) => action.key === "2");
+    if (row === undefined) {
+        return true;
+    }
+    const chrome = approvalChromeVisible(renderer) ? 1 : 0;
+    const padding = 4;
+    const available = renderer.width
+        - approvalSideInset(renderer)
+        - 1
+        - chrome
+        - padding;
+    return approvalRowText(update, row, true).length <= available;
+}
+
+/** A button's own cell: its digit, its label, and the padding around them. */
+function approvalRowText(
+    update: ToolApprovalUiRequestUpdate,
+    action: (typeof APPROVAL_ROWS)[number],
+    inlineScope: boolean,
+): string {
+    return ` ${action.key} ${approvalRowLabel(update, action, inlineScope)} `;
+}
+
 export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
     const reason = specificReason(update.request.reason);
     return [
@@ -355,9 +439,8 @@ export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
         "",
         renderTuiApprovalDetails(update),
         "",
-        visibleApprovalRows(update)
-            .map((action) => `${action.key} ${approvalRowLabel(update, action)}`)
-            .join("  ·  "),
+        ...visibleApprovalRows(update)
+            .map((action) => `${action.key} ${approvalRowLabel(update, action)}`),
     ].join("\n");
 }
 
@@ -369,10 +452,11 @@ export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
 function approvalRowLabel(
     update: ToolApprovalUiRequestUpdate,
     action: (typeof APPROVAL_ROWS)[number],
+    inlineScope = true,
 ): string {
     // Both remembering rows share the predicate, so it is written once, on the
     // first one that offers it.
-    if (action.key !== "2") {
+    if (action.key !== "2" || !inlineScope) {
         return action.label;
     }
     const scope = grantScope(update);

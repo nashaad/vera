@@ -102,14 +102,18 @@ test("multiple tool calls execute sequentially in content order", async () => {
                 );
             }
         }
+        // Two model rounds, so two measurements: one for the request that
+        // asked for the tools and one for the request carrying their results.
         expect(updateTypes).toEqual([
             "user_prompt",
+            "context",
             "tool_started",
             "tool_finished",
             "tool_started",
             "tool_finished",
             "tool_started",
             "tool_finished",
+            "context",
             "assistant_delta",
             "turn_finished",
         ]);
@@ -251,6 +255,9 @@ test("sibling subagents run concurrently and commit results in call order", asyn
         approvalMode: "full_access",
         enabledToolEffects: ["spawn_subagent"],
         async applyToolEffect(effect) {
+            if (effect.type !== "spawn_subagent") {
+                throw new Error(`Unexpected tool effect: ${effect.type}`);
+            }
             activeChildren += 1;
             maximumActiveChildren = Math.max(
                 maximumActiveChildren,

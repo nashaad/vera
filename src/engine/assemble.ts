@@ -1,5 +1,6 @@
 import type { ModelTool } from "../model/types.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
+import type { ScratchStateSnapshot } from "./scratch-state.ts";
 import {
     collectBuiltInPromptContributions,
     collectContextualPromptContributions,
@@ -15,18 +16,25 @@ import {
 export interface AssembleSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface AssembleStableSystemPromptInput {
     readonly tools: readonly ModelTool[];
     readonly workspace: string;
+    readonly scratchDir?: string;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface AssembleContextualSystemPromptInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly scratchState?: ScratchStateSnapshot;
+    readonly disabledContributions?: readonly string[];
 }
 
 export interface SystemPromptProjection {

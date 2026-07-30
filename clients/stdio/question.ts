@@ -8,9 +8,14 @@ export function renderStdioQuestion(
 ): string {
     return [
         update.request.question,
-        ...update.request.choices.map(
-            (choice, index) => `${index + 1}. ${choice.label}`,
-        ),
+        // A preview follows its own choice, indented under it: this client has
+        // one column, so side by side is not available to it.
+        ...update.request.choices.flatMap((choice, index) => [
+            `${index + 1}. ${choice.label}`,
+            ...(choice.preview === undefined
+                ? []
+                : choice.preview.split("\n").map((line) => `   ${line}`)),
+        ]),
         `${update.request.choices.length + 1}. Other (type your answer)`,
     ].join("\n");
 }

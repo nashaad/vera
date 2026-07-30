@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     countRunningBackgroundAgents,
+    renderBackgroundAgentNames,
     renderTuiStatusDetailsLine,
 } from "../../clients/tui/status.ts";
 
@@ -9,9 +10,25 @@ test("TUI status line shows host-reported model and reasoning", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
-        contextWindow: 258_000,
-    }, "auto", 64_500, "/workspace")).toBe(
+    }, "auto", {
+        tokens: 64_500,
+        capacity: 258_000,
+        estimated: false,
+    }, "/workspace")).toBe(
         "gpt-5.6-sol · reasoning high · /workspace · auto · ctx 25%",
+    );
+});
+
+test("TUI status marks a character-counted measurement as approximate", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+    }, "auto", {
+        tokens: 64_500,
+        capacity: 258_000,
+        estimated: true,
+    }, "/workspace")).toBe(
+        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx ~25%",
     );
 });
 
@@ -24,13 +41,24 @@ test("TUI status line shows host-reported reasoning off", () => {
     );
 });
 
-test("TUI status starts known context windows at zero percent", () => {
+test("TUI status shows no context share before anything is measured", () => {
+    // Zero would be a number nobody measured: the system prompt and the tool
+    // definitions occupy the window before the first request is even built.
     expect(renderTuiStatusDetailsLine({
         model: "gemma4:26b",
         reasoningEffort: "low",
         contextWindow: 131_072,
     }, "auto", undefined, "/workspace")).toBe(
-        "gemma4:26b · reasoning low · /workspace · auto · ctx 0%",
+        "gemma4:26b · reasoning low · /workspace · auto",
+    );
+});
+
+test("TUI status shows no context share for a model with no known window", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "gemma4:26b",
+        reasoningEffort: "low",
+    }, "auto", { tokens: 40_000, estimated: true }, "/workspace")).toBe(
+        "gemma4:26b · reasoning low · /workspace · auto",
     );
 });
 
@@ -42,6 +70,28 @@ test("TUI status line identifies host-reported provider-default reasoning", () =
         "/workspace",
     )).toBe(
         "gpt-5.6-sol · reasoning default · /workspace · FULL ACCESS · RED ZONE",
+    );
+});
+
+test("TUI status line prefixes the model with a compact provider label", () => {
+    expect(renderTuiStatusDetailsLine(
+        { model: "gpt-5.6-sol", provider: "cerebras", reasoningEffort: "high" },
+        "auto",
+        undefined,
+        "/workspace",
+    )).toBe(
+        "cerebras/gpt-5.6-sol · reasoning high · /workspace · auto",
+    );
+});
+
+test("TUI status line omits the provider prefix for an unrecognized provider id", () => {
+    expect(renderTuiStatusDetailsLine(
+        { model: "gpt-5.6-sol", provider: "unknown-provider", reasoningEffort: "high" },
+        "auto",
+        undefined,
+        "/workspace",
+    )).toBe(
+        "gpt-5.6-sol · reasoning high · /workspace · auto",
     );
 });
 
@@ -64,7 +114,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         1,
     )).toBe(
-        "1 background agent running · test · reasoning low · /workspace · ask",
+        "1 async subagent running · test · reasoning low · /workspace · ask",
     );
     expect(renderTuiStatusDetailsLine(
         { model: "test", reasoningEffort: "low" },
@@ -73,7 +123,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         2,
     )).toBe(
-        "2 background agents running · test · reasoning low · /workspace · ask",
+        "2 async subagents running · test · reasoning low · /workspace · ask",
     );
 });
 
@@ -94,6 +144,15 @@ test("running background-agent count counts the live ones only", () => {
             kind: "interactive",
         },
     ])).toBe(2);
+});
+
+test("background-agent names stack active children and omit finished ones", () => {
+    expect(renderBackgroundAgentNames([
+        { ...backgroundAgent("working"), parent_id: "main", title: "research" },
+        { ...backgroundAgent("waiting"), parent_id: "main", title: "review" },
+        { ...backgroundAgent("completed"), parent_id: "main", title: "done" },
+        { ...backgroundAgent("working"), parent_id: "other", title: "else" },
+    ], "main")).toBe("* research\n* review");
 });
 
 function backgroundAgent(

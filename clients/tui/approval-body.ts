@@ -29,8 +29,13 @@ export const TUI_APPROVAL_BODY_LINES = 15;
 export function tuiApprovalBody(
     update: ToolApprovalUiRequestUpdate,
     expanded = false,
+    inlineScope = true,
 ): TuiApprovalBody {
-    const lines = [...sourceLines(update), ...callLines(update), ...scopeLines(update)];
+    const lines = [
+        ...sourceLines(update),
+        ...callLines(update),
+        ...scopeLines(update, inlineScope),
+    ];
     if (expanded || lines.length <= TUI_APPROVAL_BODY_LINES) {
         return { lines, hidden: 0 };
     }
@@ -48,8 +53,9 @@ export function tuiApprovalBody(
 export function tuiApprovalBodyText(
     update: ToolApprovalUiRequestUpdate,
     expanded = false,
+    inlineScope = true,
 ): string {
-    return tuiApprovalBody(update, expanded).lines
+    return tuiApprovalBody(update, expanded, inlineScope).lines
         .map((line) => line.text)
         .join("\n");
 }
@@ -193,11 +199,12 @@ export function describeGrantPredicate(
 }
 
 /**
- * What the remembering rows cannot offer. When a predicate exists the scope
- * rides on the choice label instead, so the body says nothing.
+ * What the remembering rows cannot offer. When a predicate rides on the choice
+ * label the body says nothing, so the same scope is never stated twice.
  */
 function scopeLines(
     update: ToolApprovalUiRequestUpdate,
+    inlineScope: boolean,
 ): readonly TuiApprovalLine[] {
     if (update.request.sourceAgentId !== undefined) {
         return [];
@@ -209,9 +216,10 @@ function scopeLines(
             { text: "Session and always are unavailable.", tone: "muted" },
         ];
     }
-    // One predicate rides on the choice label. A set of them cannot, so it is
-    // written out rather than summarized by whichever one came first.
-    if (grants.length === 1) {
+    // One predicate rides on the choice label when the row can hold it. A set
+    // of them never can, so it is written out rather than summarized by
+    // whichever one came first.
+    if (grants.length === 1 && inlineScope) {
         return [];
     }
     return [

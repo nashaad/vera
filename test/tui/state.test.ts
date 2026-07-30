@@ -79,6 +79,105 @@ test("TUI state tracks a streamed turn and tool activity", () => {
     ]);
 });
 
+test("TUI tool headers are bold and change tense when work finishes", () => {
+    let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "bun test" },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "Running",
+        "  └ bun test",
+    ]);
+    const liveHeader = state.entries[1]!;
+    expect(renderTuiEntry(liveHeader).chunks[0]?.attributes).not.toBe(0);
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: "",
+        isError: false,
+        seq: 2,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "Ran",
+        "  │ bun test",
+        "  └ (no output)",
+    ]);
+});
+
+test("TUI describes a live subagent as delegating", () => {
+    const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "delegate"), {
+        type: "tool_started",
+        tool: "subagent",
+        args: { description: "Inspect the renderer" },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "delegate",
+        "Delegating",
+        "  └ Inspect the renderer",
+    ]);
+});
+
+test("a group stays live until every tool in it finishes", () => {
+    let state = beginTuiTurn(createTuiState(), "inspect");
+    for (const [command, seq] of [["pwd", 1], ["ls", 2]] as const) {
+        state = applyAgentUpdate(state, {
+            type: "tool_started",
+            tool: "bash",
+            args: { command },
+            seq,
+        });
+    }
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        seq: 3,
+    });
+    expect(entryLine(state.entries[1]!)).toBe("Running");
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        seq: 4,
+    });
+    expect(state.entries.map(entryLine)).toEqual([
+        "inspect",
+        "Ran",
+        "  └ pwd",
+        "    ls",
+    ]);
+});
+
+test("TUI clears retry activity when a turn finishes", () => {
+    const retrying = applyAgentUpdate(createTuiState(), {
+        type: "model_activity",
+        phase: "retrying",
+        model: "test",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        retryAt: "2026-07-29T17:00:00.500Z",
+        failure: { kind: "timeout" },
+        seq: 1,
+    });
+
+    const finished = applyAgentUpdate(retrying, {
+        type: "turn_finished",
+        seq: 2,
+    });
+
+    expect(finished.modelActivity).toBeUndefined();
+});
+
 test("TUI shows the same edit diff live and from history", () => {
     const presentation = {
         kind: "unified_diff" as const,
@@ -104,6 +203,33 @@ test("TUI shows the same edit diff live and from history", () => {
         path: "notes.txt",
         patch: presentation.patch,
     }]);
+});
+
+test("TUI shows multiline tool notices live and from history", () => {
+    const presentation = {
+        kind: "tool_notice" as const,
+        text: "┌──────┐\n│ Vera │\n└──────┘",
+    };
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "tool_presentation",
+        tool: "render_d2",
+        presentation,
+        seq: 1,
+    });
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "presentation", presentation }],
+        seq: 1,
+    });
+
+    expect(live.entries).toEqual(replayed.entries);
+    expect(live.entries).toEqual([{
+        kind: "notice",
+        text: presentation.text,
+    }]);
+    expect(plainText(renderTuiEntry(live.entries[0]!))).toBe(
+        presentation.text,
+    );
 });
 
 test("TUI shows model failures when a turn finishes", () => {
@@ -147,15 +273,24 @@ test("TUI stops working when the resident agent fails", () => {
 
 test("TUI connection failure stops work and clears unsendable prompts", () => {
     const state = failTuiConnection(
-        queueTuiPrompt(
-            beginTuiTurn(createTuiState(), "active prompt"),
-            "queued prompt",
+        applyAgentUpdate(
+            queueTuiPrompt(
+                beginTuiTurn(createTuiState(), "active prompt"),
+                "queued prompt",
+            ),
+            {
+                type: "tool_started",
+                tool: "bash",
+                args: { command: "sleep 1" },
+                seq: 1,
+            },
         ),
         "Host sent a non-contiguous agent update sequence",
     );
 
     expect(state.working).toBe(false);
     expect(state.queuedPrompts).toEqual([]);
+    expect(entryLine(state.entries[1]!)).toBe("Ran");
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
         text: "Connection error: Host sent a non-contiguous agent update sequence",
@@ -227,7 +362,7 @@ test("TUI renders a background completion without starting a turn", () => {
     expect(state.working).toBe(false);
     expect(state.entries).toEqual([{
         kind: "notification",
-        text: "Background agent child-1 completed:\nThe tests pass.",
+        text: "Async subagent child-1:\nThe tests pass.",
     }]);
     const working = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "keep working"),
@@ -240,6 +375,22 @@ test("TUI renders a background completion without starting a turn", () => {
         },
     );
     expect(working.working).toBe(true);
+});
+
+test("TUI identifies an async subagent attention request", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "task_notification",
+        deliveryId: "attention:child-1:message-1",
+        sourceAgentId: "child-1",
+        content: "Which file should I inspect?",
+        kind: "attention",
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notification",
+        text: "Async subagent child-1 needs attention:\nWhich file should I inspect?",
+    }]);
 });
 
 test("TUI state keeps host-reported model settings", () => {
@@ -307,21 +458,33 @@ test("TUI state keeps host-reported permissions", () => {
     expect(state.entries).toEqual([]);
 });
 
-test("TUI state keeps context usage across completion and replay", () => {
+test("TUI state keeps context usage across measurement and replay", () => {
     let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
-        type: "turn_finished",
-        contextInputTokens: 64_500,
+        type: "context",
+        measurement: { tokens: 64_500, capacity: 258_000, estimated: true },
         seq: 1,
     });
-    expect(state.contextInputTokens).toBe(64_500);
+    expect(state.context).toEqual({
+        tokens: 64_500,
+        capacity: 258_000,
+        estimated: true,
+    });
+
+    // The provider's own count for the same request supersedes the estimate.
+    state = applyAgentUpdate(state, {
+        type: "context",
+        measurement: { tokens: 61_902, capacity: 258_000, estimated: false },
+        seq: 2,
+    });
+    expect(state.context?.estimated).toBe(false);
 
     state = applyAgentUpdate(state, {
         type: "history",
         entries: [],
-        contextInputTokens: 70_000,
+        context: { tokens: 70_000, capacity: 258_000, estimated: false },
         seq: 1,
     });
-    expect(state.contextInputTokens).toBe(70_000);
+    expect(state.context?.tokens).toBe(70_000);
 });
 
 test("TUI does not duplicate its optimistic user prompt", () => {
@@ -396,12 +559,12 @@ test("a run of tool calls hangs off the first one", () => {
 
     expect(state.entries.map(entryLine)).toEqual([
         "go",
-        "Ran",
+        "Running",
         "  └ pwd",
-        "Explored",
+        "Exploring",
         "  └ Read note.txt",
         "ok",
-        "Ran",
+        "Running",
         "  └ ls",
     ]);
 });
@@ -779,7 +942,13 @@ test("the same call twice in a row becomes one row with a count", () => {
         });
     }
 
-    expect(state.entries.map(entryLine)).toEqual(["go", "Ran", "  └ pwd ×3"]);
+    expect(state.entries.map(entryLine)).toEqual([
+        "go",
+        "Running",
+        "  └ pwd",
+        "    pwd",
+        "    pwd",
+    ]);
 });
 
 test("a repeated call counts the same live and from history", () => {
@@ -794,4 +963,38 @@ test("a repeated call counts the same live and from history", () => {
     });
 
     expect(state.entries.map(entryLine)).toEqual(["go", "Ran", "  └ pwd ×2"]);
+});
+
+test("a turn that produced nothing says so", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "user_prompt",
+        content: "do nothing",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "turn_finished",
+        empty: true,
+        seq: 2,
+    });
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "No response",
+    });
+});
+
+test("an empty turn reads the same live and from history", () => {
+    let live = createTuiState();
+    live = applyAgentUpdate(live, {
+        type: "turn_finished",
+        empty: true,
+        seq: 1,
+    });
+    let rebuilt = createTuiState();
+    rebuilt = applyAgentUpdate(rebuilt, {
+        type: "history",
+        entries: [{ kind: "empty" }],
+        seq: 1,
+    });
+    expect(rebuilt.entries).toEqual(live.entries);
 });

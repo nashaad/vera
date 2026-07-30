@@ -94,6 +94,8 @@ export interface TuiSettingsPickerOption {
     readonly current?: boolean;
     /** The session this one was forked from, when the host reported one. */
     readonly forkedFrom?: string;
+    /** Parent used to place a fork or async subagent under its source. */
+    readonly threadParent?: string;
     /** How deep under its parent a forked row sits. Absent at the top level. */
     readonly depth?: number;
     /**
@@ -106,6 +108,10 @@ export interface TuiSettingsPickerOption {
     readonly pinnedRank?: number;
     /** True on a pinned row whose model cannot run right now. */
     readonly unavailable?: boolean;
+    /** Set on a top-pick row: the effort the suggestion bundles in. */
+    readonly reasoningEffort?: ModelReasoningEffort;
+    /** True on a row that belongs to the Top picks tab. */
+    readonly topPick?: boolean;
     /**
      * The heading this row belongs under. Model rows leave it unset and are
      * grouped by their provider instead, which is the same idea: a heading is
@@ -131,11 +137,23 @@ export interface TuiProviderRow {
 }
 
 /**
- * Two questions, two tabs. "All models" is what can run; "Pinned" is the short
- * list the user keeps. They were one list with a pinned group on top, which
- * showed every kept model twice and so reduced nothing.
+ * Three questions, three tabs. "All models" is what can run; "Pinned" is the
+ * short list the user keeps; "Top picks" is Vera's shipped suggestions, each a
+ * model plus a reasoning setting, grayed where the provider is not connected.
+ * All and Pinned were one list with a pinned group on top, which showed every
+ * kept model twice and so reduced nothing.
  */
-export type TuiModelPickerTab = "all" | "pinned";
+export type TuiModelPickerTab = "all" | "pinned" | "top";
+
+/** A curated suggestion row, availability already resolved by the caller. */
+export interface TuiTopPickRow {
+    readonly provider: string;
+    readonly model: string;
+    readonly label: string;
+    readonly description: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+    readonly available: boolean;
+}
 
 export interface TuiExtensionPickerRow {
     readonly id: string;
@@ -196,6 +214,7 @@ export interface TuiExtensionPickerState {
     readonly selectedIndex: number;
     readonly query: "";
     readonly title: string;
+    readonly subtitle?: string;
     readonly selectedId?: string;
     readonly extensionRows: readonly TuiExtensionPickerRow[];
     readonly extensionActions: readonly TuiExtensionPickerAction[];
@@ -334,11 +353,18 @@ export function startTuiSettingsPicker(
     currentProvider: string | undefined = undefined,
     availablePermissionModes: readonly string[] | undefined = undefined,
     pinned: readonly PinnedModel[] | undefined = undefined,
+    topPicks: readonly TuiTopPickRow[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const allOptions = kind === "theme"
         ? THEME_OPTIONS
         : kind === "model"
-        ? modelOptions(availableModels, currentProvider, currentModel, pinned)
+        ? modelOptions(
+            availableModels,
+            currentProvider,
+            currentModel,
+            pinned,
+            topPicks,
+        )
         : permissionOptions(availablePermissionModes);
     // The pane opens on Pinned, which is the short list the user built for
     // exactly this moment. It falls back to All when nothing is pinned yet,
@@ -388,6 +414,7 @@ export function syncTuiModelPicker(
         readonly availableModels?: readonly SuggestedModel[];
         readonly pinned?: readonly PinnedModel[];
     } | undefined,
+    topPicks: readonly TuiTopPickRow[] | undefined = undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
         return state;
@@ -403,6 +430,7 @@ export function syncTuiModelPicker(
         settings?.provider,
         undefined,
         settings?.pinned,
+        topPicks,
     );
     // The tab is the user's own place in the pane, so a snapshot arriving from
     // the host must not move them out of it. Pinning a model from the Pinned tab
@@ -623,8 +651,7 @@ export function startTuiSessionPicker(
     // re-attach with the screen left up, so its row costs nothing and answers
     // "which one am I in" without the user having to remember.
     const options = agents
-        .filter((agent) => agent.kind === "interactive"
-            && agent.status !== "closed"
+        .filter((agent) => agent.status !== "closed"
             && agent.status !== "failed"
             && agent.title !== undefined)
         .toSorted((left, right) =>
@@ -642,6 +669,9 @@ export function startTuiSessionPicker(
             ...(agent.forked_from === undefined
                 ? {}
                 : { forkedFrom: agent.forked_from }),
+            ...(agent.parent_id === undefined && agent.forked_from === undefined
+                ? {}
+                : { threadParent: agent.parent_id ?? agent.forked_from }),
         }));
     const threaded = threadSessionOptions(options);
     return {
@@ -665,6 +695,7 @@ export function startTuiExtensionPicker(
     rows: readonly TuiExtensionPickerRow[],
     selectedId: string | undefined = undefined,
     actions: readonly TuiExtensionPickerAction[] = [],
+    subtitle: string | undefined = undefined,
 ): TuiExtensionPickerState {
     const options = rows.map((row) => ({
         value: row.id,
@@ -681,6 +712,7 @@ export function startTuiExtensionPicker(
         ),
         query: "",
         title,
+        ...(subtitle === undefined ? {} : { subtitle }),
         ...(selectedId === undefined ? {} : { selectedId }),
         extensionRows: rows,
         extensionActions: actions,
@@ -773,7 +805,7 @@ function threadSessionOptions(
     const byParent = new Map<string, number[]>();
     const listed = new Set(options.map((option) => option.sessionId));
     options.forEach((option, index) => {
-        const parent = option.forkedFrom;
+        const parent = option.threadParent ?? option.forkedFrom;
         if (parent === undefined || !listed.has(parent)) {
             return;
         }
@@ -805,7 +837,7 @@ function threadSessionOptions(
         }
     };
     options.forEach((option, index) => {
-        const parent = option.forkedFrom;
+        const parent = option.threadParent ?? option.forkedFrom;
         if (parent === undefined || !listed.has(parent)) {
             place(index);
         }
@@ -850,6 +882,9 @@ function clipToCells(value: string, cells: number): string {
 function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
     if (agent.status === "working" || agent.status === "waiting") {
         return agent.status;
+    }
+    if (agent.kind === "background" && agent.status === "completed") {
+        return "completed";
     }
     // A live session with nothing running is one someone has open, which is
     // worth saying: the rest of the column is how long ago a row was last
@@ -964,14 +999,17 @@ export function handleTuiSettingsPickerKey(
     ) {
         return { state, handled: true, openProviders: true };
     }
-    // Tab flips between the two views of the same list. Shift is tolerated
-    // rather than given its own direction: with two tabs, forward and backward
-    // are the same move.
+    // Tab cycles the views of the same list. Shift is tolerated rather than
+    // given its own direction: the cycle is short enough that forward always
+    // gets there.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
-        const tab: TuiModelPickerTab = state.tab === "pinned" ? "all" : "pinned";
+        const cycle: readonly TuiModelPickerTab[] = ["pinned", "all", "top"];
+        const tab: TuiModelPickerTab = cycle[
+            (cycle.indexOf(state.tab ?? "all") + 1) % cycle.length
+        ]!;
         const selectedValue = state.options[state.selectedIndex]?.value;
         const options = modelTabOptions(state.allOptions, tab);
         // The query is dropped on the way across. A search is a question about
@@ -1071,6 +1109,11 @@ export function handleTuiSettingsPickerKey(
     if (key.name === "return" || key.name === "enter") {
         const selected = state.options[state.selectedIndex];
         if (selected === undefined) {
+            return unchanged(state, true);
+        }
+        // A grayed top pick is a suggestion the user cannot run yet; choosing
+        // it would fail at the provider, so the row does not answer Enter.
+        if (selected.topPick === true && selected.unavailable === true) {
             return unchanged(state, true);
         }
         return {
@@ -1197,7 +1240,8 @@ export function tuiPickerViewportRows(
 ): number {
     return pickerMaxRows(
         renderer,
-        state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0,
+        (state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0)
+            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
     );
 }
 
@@ -1242,6 +1286,19 @@ function renderListPickerRows(
     );
     box.add(header);
     nodes.push(header);
+    let subtitleLines = 0;
+    if (!searchable && state.subtitle !== undefined) {
+        const subtitleNode = new TextRenderable(renderer, {
+            content: state.subtitle,
+            fg: TUI_MUTED,
+            width: "100%",
+            height: 2,
+            paddingLeft: 1,
+        });
+        box.add(subtitleNode);
+        nodes.push(subtitleNode);
+        subtitleLines = 1;
+    }
     if (searchable) {
         const search = dialogSearchNode(renderer, state.query);
         box.add(search);
@@ -1257,7 +1314,10 @@ function renderListPickerRows(
     const rows = windowedDisplayRows(
         listDisplayRows(state),
         state.selectedIndex,
-        pickerMaxRows(renderer, tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT),
+        pickerMaxRows(
+            renderer,
+            (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines,
+        ),
     );
     let lines = 0;
     if (rows.length === 0) {
@@ -1291,8 +1351,11 @@ function renderListPickerRows(
                     state,
                     row.option,
                     activityWidth,
-                    row.option.forkedFrom !== undefined
-                        && onScreen.has(row.option.forkedFrom),
+                    (row.option.threadParent ?? row.option.forkedFrom)
+                            !== undefined
+                        && onScreen.has(
+                            (row.option.threadParent ?? row.option.forkedFrom)!,
+                        ),
                 ),
                 ...(state.kind === "session"
                     ? { tint: (tinted = !tinted) }
@@ -1325,7 +1388,8 @@ function renderListPickerRows(
     box.add(footer);
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
-        + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT);
+        + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
+        + subtitleLines;
 }
 
 // The strip itself plus the blank line under it.
@@ -1334,6 +1398,7 @@ const MODEL_TAB_STRIP_HEIGHT = 2;
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pinned", "Pinned"],
     ["all", "All models"],
+    ["top", "Top picks"],
 ];
 
 /**
@@ -1589,7 +1654,12 @@ function optionMeta(
     // is the one thing about a row that a provider heading cannot tell you, and
     // choosing it is a dead end.
     if (option.unavailable === true) {
-        return "unavailable";
+        return option.topPick === true ? "not connected" : "unavailable";
+    }
+    if (option.topPick === true) {
+        return option.reasoningEffort === undefined
+            ? option.provider
+            : `${option.provider} · ${option.reasoningEffort}`;
     }
     return isProviderGrouped(state) ? undefined : option.provider;
 }
@@ -1736,6 +1806,7 @@ function modelOptions(
     currentProvider: string | undefined,
     currentModel: string | undefined,
     pinned: readonly PinnedModel[] = [],
+    topPicks: readonly TuiTopPickRow[] = [],
 ): readonly TuiSettingsPickerOption[] {
     const rankOf = new Map(
         pinned.map((entry, rank) =>
@@ -1787,10 +1858,37 @@ function modelOptions(
             unavailable: true,
         }];
     });
-    return [...runnable, ...orphanPins].toSorted((left, right) =>
-        left.provider.localeCompare(right.provider)
-            || left.label.localeCompare(right.label)
-    );
+    // Top picks are their own rows rather than marks on runnable rows: a pick
+    // bundles an effort, so the same model can be a pick and an All row with
+    // different meanings. They keep the catalog's own order, which is the
+    // curation, and sort after the runnable list so nothing above shifts.
+    // The effort is part of the row's identity: the same model can be
+    // suggested twice at different settings, and those are different picks.
+    const picks = topPicks.map((pick) => ({
+        value: JSON.stringify([
+            pick.provider,
+            pick.model,
+            "top",
+            pick.reasoningEffort ?? "",
+        ]),
+        label: pick.label,
+        description: pick.description,
+        searchText: `${pick.provider} ${pick.model}`,
+        provider: pick.provider,
+        model: pick.model,
+        topPick: true,
+        ...(pick.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: pick.reasoningEffort }),
+        ...(pick.available ? {} : { unavailable: true }),
+    }));
+    return [
+        ...[...runnable, ...orphanPins].toSorted((left, right) =>
+            left.provider.localeCompare(right.provider)
+                || left.label.localeCompare(right.label)
+        ),
+        ...picks,
+    ];
 }
 
 /**
@@ -1805,8 +1903,13 @@ function modelTabOptions(
     allOptions: readonly TuiSettingsPickerOption[],
     tab: TuiModelPickerTab,
 ): readonly TuiSettingsPickerOption[] {
+    if (tab === "top") {
+        return allOptions.filter((option) => option.topPick === true);
+    }
     if (tab === "all") {
-        return allOptions.filter((option) => option.unavailable !== true);
+        return allOptions.filter((option) =>
+            option.unavailable !== true && option.topPick !== true
+        );
     }
     return allOptions
         .filter((option) => option.pinnedRank !== undefined)
@@ -1826,7 +1929,16 @@ function pickerSelection(
         if (option.provider === undefined || option.model === undefined) {
             throw new Error("model picker option is missing provider identity");
         }
-        return { kind, provider: option.provider, model: option.model };
+        return {
+            kind,
+            provider: option.provider,
+            model: option.model,
+            // A top pick is a whole choice, model and effort together, so
+            // selecting one skips the chained level pane.
+            ...(option.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: option.reasoningEffort }),
+        };
     }
     const value = option.value;
     if (kind === "provider") {

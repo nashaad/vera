@@ -53,6 +53,13 @@ test("TUI question renders the choices as a highlighted list", async () => {
         await setup.flush();
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Which release channel should Vera use?");
+        const lines = frame.split("\n");
+        const headerLine = lines.find((line) => line.includes("Question"));
+        const questionLine = lines.find((line) =>
+            line.includes("Which release channel")
+        );
+        expect(headerLine?.indexOf("Question"))
+            .toBe(questionLine?.indexOf("Which"));
         // Numbers front each choice; no bracket noise.
         expect(frame).toContain("1  Stable");
         expect(frame).toContain("2  Preview");
@@ -222,6 +229,11 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         expect(frame).toContain("Which release channel");
         expect(frame).toContain("1-9");
         expect(frame).toContain("esc cancel");
+        expect(view.box.width).toBe(77);
+        expect(view.box.left).toBe(2);
+        expect(view.bar.height).toBe(view.box.height);
+        expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
+            .toBe(" ".repeat(80));
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
         expect(view.box.zIndex).toBe(20);
         expect(view.actions.screenY).toBeLessThan(18);
@@ -234,6 +246,8 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(view.box.bottom).toBe(1);
+        expect(view.box.width).toBe(41);
+        expect(view.box.left).toBe(0);
         // The title is clipped here, not by the offset but by the existing
         // `maxHeight: "100%"` short-terminal rule, which lets the box start one
         // row above the viewport. The question itself, its choices, and its key
@@ -277,8 +291,7 @@ test("TUI question grows with content before details begin scrolling", async () 
         view.update(request);
         await setup.flush();
         const shortHeight = view.box.height;
-        // 16, not 17: the bottom row belongs to the status line now.
-        expect(view.box.screenY + shortHeight).toBe(16);
+        expect(view.box.screenY + shortHeight).toBe(17);
         expect(view.details.scrollHeight).toBe(view.details.height);
 
         view.update(questionWithLabel(
@@ -297,7 +310,7 @@ test("TUI question grows with content before details begin scrolling", async () 
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
         expect(view.box.height).toBeLessThanOrEqual(16);
-        expect(view.box.screenY + view.box.height).toBe(16);
+        expect(view.box.screenY + view.box.height).toBe(17);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
         expect(setup.captureCharFrame()).toContain("1-2");
     } finally {
@@ -337,3 +350,131 @@ function questionWithLabel(
         },
     };
 }
+
+const previewRequest: UserQuestionUiRequestUpdate = {
+    ...request,
+    requestId: "question-preview",
+    request: {
+        ...request.request,
+        choices: [
+            {
+                id: "stable-channel",
+                label: "Stable",
+                preview: "┌────────┐\n│ stable │\n└────────┘",
+            },
+            {
+                id: "preview-channel",
+                label: "Preview",
+                preview: "┌─────────┐\n│ preview │\n└─────────┘",
+            },
+        ],
+    },
+};
+
+test("TUI question shows the highlighted choice's preview beside it", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(previewRequest);
+
+    try {
+        await setup.flush();
+        let frame = setup.captureCharFrame();
+        expect(frame).toContain("│ stable │");
+        expect(frame).not.toContain("│ preview │");
+        // Side by side: the preview shares a row with the choice it explains.
+        const stableLine = frame.split("\n")
+            .find((line) => line.includes("1  Stable"));
+        expect(stableLine).toContain("│");
+
+        view.handleKey(previewRequest, { name: "down" });
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("│ preview │");
+        expect(frame).not.toContain("│ stable │");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a narrow terminal puts the preview under the choices", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(previewRequest);
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("│ stable │");
+        const stableLine = frame.split("\n")
+            .find((line) => line.includes("1  Stable"));
+        expect(stableLine).not.toContain("│ stable │");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("notes typed alongside a choice travel with the answer", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(previewRequest);
+
+    try {
+        expect(view.handleKey(previewRequest, { name: "tab" }))
+            .toEqual({ handled: true });
+        for (const character of "but pin it") {
+            view.handleKey(previewRequest, {
+                name: character,
+                sequence: character,
+            });
+        }
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Notes: but pin it");
+        expect(view.handleKey(previewRequest, { name: "enter" })).toEqual({
+            handled: true,
+            response: {
+                type: "ui_response",
+                requestId: "question-preview",
+                response: {
+                    type: "user_question",
+                    outcome: "selected",
+                    choiceId: "stable-channel",
+                    notes: "but pin it",
+                },
+            },
+        });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("escape leaves the notes field without cancelling the question", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(previewRequest);
+    try {
+        view.handleKey(previewRequest, { name: "tab" });
+        expect(view.handleKey(previewRequest, { name: "escape" }))
+            .toEqual({ handled: true });
+        expect(view.handleKey(previewRequest, { name: "1", sequence: "1" }))
+            .toEqual({
+                handled: true,
+                response: {
+                    type: "ui_response",
+                    requestId: "question-preview",
+                    response: {
+                        type: "user_question",
+                        outcome: "selected",
+                        choiceId: "stable-channel",
+                    },
+                },
+            });
+    } finally {
+        setup.renderer.destroy();
+    }
+});

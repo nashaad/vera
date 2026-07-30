@@ -37,6 +37,7 @@ export interface ChatProviderProfile {
     readonly supportsImageInput?: boolean;
     readonly reasoningEffort?: (
         effort: ModelReasoningEffort,
+        model: string,
     ) => string | undefined;
     readonly classifyError?: (value: unknown) => ProviderFailure;
 }
@@ -44,7 +45,7 @@ export interface ChatProviderProfile {
 const OPENROUTER_PROFILE: ChatProviderProfile = {
     provider: "openrouter",
     api: "openrouter-chat",
-    supportsImageInput: false,
+    supportsImageInput: true,
 };
 
 export class OpenRouterAdapter implements ModelAdapter {
@@ -83,7 +84,10 @@ export class OpenRouterAdapter implements ModelAdapter {
             });
             const profileEffort = request.reasoningEffort === undefined
                 ? undefined
-                : this.profile.reasoningEffort?.(request.reasoningEffort);
+                : this.profile.reasoningEffort?.(
+                    request.reasoningEffort,
+                    request.model,
+                );
             const verifiedMapping = request.reasoningEffort === undefined
                 ? undefined
                 : profileEffort ?? this.reasoningMappings

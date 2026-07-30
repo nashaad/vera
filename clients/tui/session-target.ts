@@ -15,10 +15,29 @@ export interface ResumeTuiTarget {
     readonly sessionPath: string;
 }
 
+export interface ContinueTuiTarget {
+    readonly type: "continue";
+}
+
 export type TuiStartTarget =
     | CreateTuiTarget
     | AttachTuiTarget
+    | ContinueTuiTarget
     | ResumeTuiTarget;
+
+export function resolveContinueTarget(
+    agents: readonly RegisteredAgentSummary[],
+): AttachTuiTarget {
+    const latest = agents
+        .filter((agent) => agent.kind === "interactive")
+        .toSorted((left, right) =>
+            (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
+        )[0];
+    if (latest === undefined) {
+        throw new Error("No previous Vera session to continue");
+    }
+    return { type: "attach", agentId: latest.id };
+}
 
 export function resolveResumeTarget(
     agents: readonly RegisteredAgentSummary[],

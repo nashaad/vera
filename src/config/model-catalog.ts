@@ -1,6 +1,10 @@
 import type { ModelReasoningEffort } from "../model/types.ts";
 
-export type CatalogProviderId = "openrouter" | "openai-codex" | "ollama";
+export type CatalogProviderId =
+    | "openrouter"
+    | "openai-codex"
+    | "ollama"
+    | "cerebras";
 
 export interface VeraCatalogModel {
     readonly name: string;
@@ -96,6 +100,27 @@ export function parseModelCatalogConfig(
     };
 }
 
+/**
+ * A named route resolved to catalog entries, in preference order. Anything
+ * that binds a model for internal work goes through here rather than reading
+ * `model_routes` itself, so a route that names a model the catalog dropped
+ * fails the same way everywhere instead of resolving to a short list.
+ */
+export function resolveModelRoute(
+    config: VeraModelCatalogConfig,
+    routeName: string,
+): readonly VeraCatalogModel[] | undefined {
+    const route = config.model_routes[routeName];
+    if (route === undefined) {
+        return undefined;
+    }
+    const models = route.flatMap((modelName) => {
+        const model = config.models.find((entry) => entry.name === modelName);
+        return model === undefined ? [] : [model];
+    });
+    return models.length === route.length ? models : undefined;
+}
+
 export function resolveReviewerProfile(
     config: VeraModelCatalogConfig,
     name: string,
@@ -104,15 +129,8 @@ export function resolveReviewerProfile(
     if (profile === undefined) {
         return undefined;
     }
-    const route = config.model_routes[profile.model_route];
-    if (route === undefined) {
-        return undefined;
-    }
-    const models = route.flatMap((modelName) => {
-        const model = config.models.find((entry) => entry.name === modelName);
-        return model === undefined ? [] : [model];
-    });
-    if (models.length !== route.length) {
+    const models = resolveModelRoute(config, profile.model_route);
+    if (models === undefined) {
         return undefined;
     }
     return {
@@ -122,6 +140,90 @@ export function resolveReviewerProfile(
         ...(profile.timeout_ms === undefined
             ? {}
             : { timeout_ms: profile.timeout_ms }),
+    };
+}
+
+/**
+ * Which strategy compacts this session, and which route answers each model
+ * slot the strategy declares. Slots are named by the strategy, so config maps
+ * names to routes without either side knowing the other's catalog.
+ */
+export interface VeraCompactionConfig {
+    readonly strategy: string;
+    readonly models: Readonly<Record<string, string>>;
+    readonly timeout_ms?: number;
+}
+
+export interface ResolvedCompactionProfile {
+    readonly strategy: string;
+    /** Slot name to the route's models, in preference order. */
+    readonly slots: Readonly<Record<string, readonly VeraCatalogModel[]>>;
+    /** Slot name to the route it came from. Diagnostic only. */
+    readonly routes: Readonly<Record<string, string>>;
+    readonly timeout_ms?: number;
+}
+
+export function parseCompactionConfig(
+    value: unknown,
+    routes: Readonly<Record<string, readonly string[]>>,
+): VeraCompactionConfig | undefined {
+    if (!isRecord(value)) {
+        return undefined;
+    }
+    const strategy = value.strategy;
+    const models = value.models;
+    const timeout = value.timeout_ms;
+    if (
+        typeof strategy !== "string"
+        || !isStrategyId(strategy)
+        || !isRecord(models)
+        || (timeout !== undefined
+            && (typeof timeout !== "number"
+                || !Number.isInteger(timeout)
+                || timeout < 1_000
+                || timeout > 600_000))
+    ) {
+        return undefined;
+    }
+    const slots: Record<string, string> = {};
+    for (const [slot, route] of Object.entries(models)) {
+        if (
+            !isConfigName(slot)
+            || typeof route !== "string"
+            || routes[route] === undefined
+        ) {
+            return undefined;
+        }
+        slots[slot] = route;
+    }
+    return {
+        strategy,
+        models: slots,
+        ...(timeout === undefined ? {} : { timeout_ms: timeout }),
+    };
+}
+
+export function resolveCompactionProfile(
+    config: VeraModelCatalogConfig,
+    compaction: VeraCompactionConfig,
+): ResolvedCompactionProfile | undefined {
+    const slots: Record<string, readonly VeraCatalogModel[]> = {};
+    const routes: Record<string, string> = {};
+    for (const [slot, routeName] of Object.entries(compaction.models)) {
+        const models = resolveModelRoute(config, routeName);
+        if (models === undefined) {
+            return undefined;
+        }
+        slots[slot] = models;
+        routes[slot] = routeName;
+    }
+    return {
+        strategy: compaction.strategy,
+        slots,
+        routes,
+        ...(compaction.timeout_ms === undefined
+            ? {}
+            : { timeout_ms: compaction.timeout_ms }),
     };
 }
 
@@ -206,7 +308,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isProvider(value: unknown): value is CatalogProviderId {
     return value === "openrouter"
         || value === "openai-codex"
-        || value === "ollama";
+        || value === "ollama"
+        || value === "cerebras";
 }
 
 function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
@@ -215,4 +318,14 @@ function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
 
 function isConfigName(value: string): boolean {
     return /^[a-z0-9][a-z0-9_-]*$/.test(value);
+}
+
+/** `<publisher>/<local-id>`, the same shape extension contributions carry. */
+function isStrategyId(value: string): boolean {
+    const [publisher, local, ...rest] = value.split("/");
+    return rest.length === 0
+        && publisher !== undefined
+        && local !== undefined
+        && isConfigName(publisher)
+        && isConfigName(local);
 }

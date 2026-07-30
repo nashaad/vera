@@ -1250,3 +1250,44 @@ function bashToolCall(command: string): HookToolCall {
         input: { command },
     };
 }
+
+test("the inbound router carries a preview out and notes back", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const answered = router.requestUserQuestion({
+        question: "Which environment?",
+        choices: [
+            { id: "staging", label: "Staging", preview: "  staging box" },
+            { id: "production", label: "Production" },
+        ],
+    });
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") {
+        throw new Error("Expected a UI request update");
+    }
+    expect(request.request).toMatchObject({
+        choices: [
+            { id: "staging", label: "Staging", preview: "  staging box" },
+            { id: "production", label: "Production" },
+        ],
+    });
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: {
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "staging",
+            notes: "  but only for a week  ",
+        },
+    });
+
+    expect(await answered).toEqual({
+        outcome: "selected",
+        choice: { id: "staging", label: "Staging", preview: "  staging box" },
+        notes: "but only for a week",
+    });
+});
