@@ -1,5 +1,6 @@
 import type { ConsumerHandle, ConsumerRegistry } from "./consumers.ts";
 import type { InboxEntry } from "../store/inbox.ts";
+import { SOURCE_GAP_KIND } from "../watch/source.ts";
 import type { PendingDelivery } from "../store/session-store.ts";
 
 /**
@@ -142,12 +143,23 @@ export class InboxDeliverySession {
             // Addressed entries are for their consumer. Addressing is a filter,
             // not a private channel, but the default read is the accepted
             // semantic: unaddressed entries plus this consumer's own.
-            const entries = this.handle.read({
+            const read = this.handle.read({
                 limit,
                 addresses: [this.handle.label],
             });
-            if (entries.length === 0) {
+            if (read.length === 0) {
                 return;
+            }
+            // Gap records are status only: they stay visible in the log but
+            // never become a delivery or a wake. The offset still moves past
+            // them, or a gap-only stretch would pin every later read behind it.
+            const entries = read.filter((entry) => entry.kind !== SOURCE_GAP_KIND);
+            if (entries.length === 0) {
+                this.handle.advance(read[read.length - 1]!.seq);
+                if (read.length < limit) {
+                    return;
+                }
+                continue;
             }
             const now = this.coordinator.now();
             if (!this.handle.mayWake(now)) {
@@ -174,7 +186,9 @@ export class InboxDeliverySession {
                 });
                 return;
             }
-            this.handle.advance(last.seq);
+            // Past the whole read, not just the delivered entries, so a
+            // trailing gap record is consumed by the batch that saw it.
+            this.handle.advance(read[read.length - 1]!.seq);
             if (this.released) {
                 return;
             }
@@ -182,7 +196,7 @@ export class InboxDeliverySession {
                 this.handle.recordWake(this.coordinator.now());
                 this.triggerTurn();
             }
-            if (entries.length < limit) {
+            if (read.length < limit) {
                 return;
             }
         }
