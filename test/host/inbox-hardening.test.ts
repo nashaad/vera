@@ -184,7 +184,7 @@ describe("inbox delivery hardening", () => {
         inbox.close();
     });
 
-    test("hello cannot claim a label a dormant consumer holds an offset for", () => {
+    test("hello reclaims a dormant label without resetting its offset", () => {
         const inbox = Inbox.open(":memory:");
         const consumers = new ConsumerRegistry(inbox, "node-a");
         const first = consumers.hello({ label: "reviewer" });
@@ -194,9 +194,12 @@ describe("inbox delivery hardening", () => {
 
         const next = consumers.hello({ label: "reviewer" });
 
-        expect(next.label).toBe("reviewer-2");
+        expect(next.label).toBe("reviewer");
         expect(next.offset()).toBe(2);
         expect(inbox.offsetOf(first.id)).toBe(2);
+
+        const live = consumers.hello({ label: "reviewer" });
+        expect(live.label).toBe("reviewer-2");
         inbox.close();
     });
 

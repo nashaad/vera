@@ -288,10 +288,12 @@ export class ConsumerRegistry {
         }
     }
 
-    /** Live on this node, or holding a durable offset row on it. */
+    /**
+     * Only a live handle blocks a label. A dormant durable row is the same
+     * consumer returning: hello reattaches to it and resumes at its offset.
+     */
     private taken(label: string): boolean {
-        return this.live.has(label)
-            || this.inbox.offsetOf({ nodeId: this.nodeId, label }) !== null;
+        return this.live.has(label);
     }
 }
 

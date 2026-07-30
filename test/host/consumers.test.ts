@@ -36,16 +36,19 @@ describe("consumer handles", () => {
         inbox.close();
     });
 
-    test("a released label is not handed to the next hello", () => {
+    test("a released label reclaims its durable offset on the next hello", () => {
         const { inbox, registry } = fixture();
         const first = registry.hello({ label: "reviewer" });
         inbox.appendAll([entry("a"), entry("b")]);
-        first.advance(2);
+        first.advance(1);
         first.release();
+        inbox.appendAll([entry("c")]);
 
         const returning = registry.hello({ label: "reviewer" });
-        expect(returning.id.label).toBe("reviewer-2");
-        expect(inbox.offsetOf(first.id)).toBe(2);
+        expect(returning.id.label).toBe("reviewer");
+        expect(returning.offset()).toBe(1);
+        expect(returning.read({ limit: 10 }).map((row) => row.kind))
+            .toEqual(["b", "c"]);
         inbox.close();
     });
 
