@@ -189,6 +189,7 @@ import {
     type TuiPreferencesListState,
 } from "./preferences-list.ts";
 import {
+    renderResumeHint,
     resolveResumeTarget,
     resolveContinueTarget,
     type TuiStartTarget,
@@ -232,10 +233,12 @@ import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
+    loadTuiRecentSessionId,
     loadTuiThemePreference,
     loadTuiExtensionPreference,
     deleteTuiExtensionPreference,
     saveTuiExtensionPreference,
+    saveTuiRecentSessionId,
     saveTuiThemePreference,
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
@@ -288,6 +291,7 @@ export interface TuiDependencies {
     ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
     readonly resumeSession?: (sessionPath: string) => Promise<TuiAgentClient>;
     readonly reconnectSession?: (agentId: string) => Promise<TuiAgentClient>;
+    readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
     readonly sessionSwitchTimeoutMs?: number;
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
@@ -383,7 +387,10 @@ export async function startConfiguredTui(
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
     });
     const resolvedTarget = target.type === "continue"
-        ? resolveContinueTarget(await listAgentsThroughHost(host.socket_path))
+        ? resolveContinueTarget(
+            await listAgentsThroughHost(host.socket_path),
+            loadTuiRecentSessionId(),
+        )
         : target.type === "resume"
         ? resolveResumeTarget(
             await listAgentsThroughHost(host.socket_path),
@@ -405,6 +412,14 @@ export async function startConfiguredTui(
         socketPath: host.socket_path,
         agentId,
     });
+    const rememberSession = (enteredAgentId: string): void => {
+        saveTuiRecentSessionId(enteredAgentId);
+    };
+    try {
+        rememberSession(agentId);
+    } catch (error) {
+        process.stderr.write(`${recentSessionSaveFailure(error)}\n`);
+    }
     // One call, not a loop: the TUI attaches to whatever session the user moves
     // to without closing, so there is no longer a "start me again against this
     // other session" answer for a caller to act on.
@@ -412,7 +427,7 @@ export async function startConfiguredTui(
         attachAgent({ socketPath: host.socket_path, agentId: id });
     try {
         const listAgents = () => listAgentsThroughHost(host.socket_path);
-        await startTui({
+        const exit = await startTui({
             client,
             listAgents,
             getRunningBackgroundAgentCount: async () =>
@@ -451,6 +466,7 @@ export async function startConfiguredTui(
                 });
                 return attach(currentAgentId);
             },
+            onSessionEntered: rememberSession,
             trashSession: (sessionId) =>
                 trashSessionThroughHost(host.socket_path, sessionId),
             renameSession: (sessionId, name) =>
@@ -465,6 +481,7 @@ export async function startConfiguredTui(
                 ? {}
                 : { clientExtensions: config.extensions }),
         });
+        process.stdout.write(renderResumeHint(exit.agentId));
     } catch (error) {
         client.close();
         throw error;
@@ -3767,6 +3784,13 @@ export async function startTui(
         void previous.detach().catch(() => previous.close());
 
         state = createTuiState();
+        if (next.agentId !== undefined) {
+            try {
+                dependencies.onSessionEntered?.(next.agentId);
+            } catch (error) {
+                state = appendTuiNotice(state, recentSessionSaveFailure(error));
+            }
+        }
         connectionFailed = false;
         abortRequested = false;
         workingSince = undefined;
@@ -4347,6 +4371,11 @@ export async function startTui(
         return Math.floor(Date.now() / interval);
     }
 
+}
+
+function recentSessionSaveFailure(error: unknown): string {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `Could not remember this session for vera -c: ${detail}`;
 }
 
 function rejectionNotice(
