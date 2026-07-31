@@ -1002,12 +1002,17 @@ test("the model pane opens on Pinned, in the order the user's own use produced",
     expect(frame).toContain("unavailable");
     expect(frame).toContain("All models");
     expect(frame).toContain("Pinned");
+    expect(frame).toContain("Models you saved for quick access.");
 });
 
-test("with nothing pinned the pane opens on All models", () => {
+test("with nothing pinned the pane opens on explained All models", async () => {
     // An empty tab answers no question, so the pane falls back to the list that
     // can always answer "which model do I switch to".
-    expect(modelPickerWithPins([]).tab).toBe("all");
+    const state = modelPickerWithPins([]);
+    expect(state.tab).toBe("all");
+    expect(await pickerFrame(state)).toContain(
+        "Every model available from connected providers.",
+    );
 });
 
 test("⇥ moves to All models, which lists what can run", async () => {
@@ -1026,6 +1031,9 @@ test("⇥ moves to All models, which lists what can run", async () => {
     // The cycle continues through Top picks and returns to Pinned.
     const topTab = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state;
     expect(topTab?.tab).toBe("top");
+    expect(await pickerFrame(topTab!)).toContain(
+        "Recommended model and reasoning combinations.",
+    );
     expect(handleTuiSettingsPickerKey(topTab!, { name: "tab" }).state?.tab)
         .toBe("pinned");
 });

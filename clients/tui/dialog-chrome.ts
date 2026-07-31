@@ -29,8 +29,9 @@ import {
 export const DIALOG_GUTTER_WIDTH = 3;
 
 // The card chrome that surrounds a variable-height row list: the header line,
-// the three-line search block, the footer, and the card's own top padding.
-export const DIALOG_CHROME_HEIGHT = 8;
+// the three-line search block, the footer with its separating blank line, and
+// the card's own top padding.
+export const DIALOG_CHROME_HEIGHT = 9;
 
 // Below this height an overlay cannot spare a row. The question overlay draws
 // the same line for its own height cap, so "short" means one thing in the TUI
@@ -107,13 +108,17 @@ export function dialogFooterNode(
     renderer: RenderContext,
     hint: string,
 ): TextRenderable {
+    // marginTop, not paddingTop: these text nodes lay their content out from
+    // the first line of the box, so padding would put the blank line under the
+    // hints rather than above them. The margin also collapses first when the
+    // card runs short, which keeps the hints on screen.
     return new TextRenderable(renderer, {
         content: hint,
         fg: TUI_MUTED,
         width: "100%",
         height: 2,
+        marginTop: 1,
         paddingLeft: 1,
-        paddingTop: 1,
     });
 }
 

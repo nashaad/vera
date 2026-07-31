@@ -1392,8 +1392,8 @@ function renderListPickerRows(
         + subtitleLines;
 }
 
-// The strip itself plus the blank line under it.
-const MODEL_TAB_STRIP_HEIGHT = 2;
+// The strip, its explanation, and the blank line under both.
+const MODEL_TAB_STRIP_HEIGHT = 3;
 
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pinned", "Pinned"],
@@ -1401,10 +1401,17 @@ const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["top", "Top picks"],
 ];
 
+const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
+    pinned: "Models you saved for quick access.",
+    all: "Every model available from connected providers.",
+    top: "Recommended model and reasoning combinations.",
+};
+
 /**
- * The two tabs, drawn as one line of labels with the active one accented. No
- * borders or brackets: the pane already has a card edge, and a second frame
- * inside it reads as two panes rather than two views of one list.
+ * The tabs, drawn as one line of labels with the active one accented, followed
+ * by one line that explains the active collection. No borders or brackets: the
+ * pane already has a card edge, and a second frame inside it reads as two panes
+ * rather than three views of one list.
  */
 function modelTabStripNode(
     renderer: RenderContext,
@@ -1419,6 +1426,9 @@ function modelTabStripNode(
             id === tab ? fg(TUI_ACCENT)(label) : fg(TUI_MUTED)(label),
         );
     });
+    chunks.push(
+        fg(TUI_MUTED)(`\n${MODEL_TAB_DESCRIPTIONS[tab]}`),
+    );
     return new TextRenderable(renderer, {
         content: new StyledText(chunks),
         width: "100%",
