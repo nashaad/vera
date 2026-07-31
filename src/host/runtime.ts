@@ -31,7 +31,9 @@ import {
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
+import { ToolHooks } from "../engine/hooks.ts";
 import { AgentRegistry } from "./agent-registry.ts";
+import { createReminderHook } from "./reminder-rules.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
 import {
@@ -147,6 +149,11 @@ export async function startResidentHost(
             : { permissionModes: options.config.permission_modes }),
         permissionPreferences,
         extensionTools: extensions.tools(),
+        createToolHooks: () => {
+            const hooks = new ToolHooks();
+            hooks.registerPostToolUse(createReminderHook());
+            return hooks;
+        },
         ...(options.config.disabled_prompt_contributions === undefined
             ? {}
             : {
