@@ -929,6 +929,9 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
         ...(settings.contextWindow === undefined
             ? {}
             : { contextWindow: settings.contextWindow }),
+        ...(settings.subagentDefault === undefined
+            ? {}
+            : { subagentDefault: { ...settings.subagentDefault } }),
         ...(settings.availableReasoningEfforts === undefined
             ? {}
             : {

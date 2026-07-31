@@ -43,6 +43,23 @@ export function renderTuiDiagnostics(
     } else if (state.modelSettings !== undefined) {
         lines.push(`  model        ${state.modelSettings.model}`);
     }
+    if (state.modelSettings !== undefined) {
+        const effort = state.modelSettings.reasoningEffort ?? "default";
+        lines.push(`  reasoning    ${effort}`);
+        const child = state.modelSettings.subagentDefault;
+        if (child === undefined) {
+            lines.push("  subagents    unknown (restart the resident host)");
+        } else if (child.mode === "fixed") {
+            const identity = child.provider === undefined
+                ? child.model
+                : `${child.provider}/${child.model}`;
+            lines.push(`  subagents    ${identity} (${child.reasoningEffort ?? "default"})`);
+        } else {
+            lines.push(
+                `  subagents    inherit parent (${state.modelSettings.model}, ${effort})`,
+            );
+        }
+    }
 
     if (state.context !== undefined) {
         const capacity = state.context.capacity;

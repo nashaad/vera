@@ -56,6 +56,76 @@ test("TUI diagnostics remains useful before model activity arrives", () => {
     expect(text).toContain("session      unavailable");
 });
 
+test("TUI diagnostics does not claim inheritance without host data", () => {
+    const text = renderTuiDiagnostics({
+        state: {
+            ...createTuiState(),
+            modelSettings: {
+                model: "parent-model",
+                reasoningEffort: "max",
+            },
+        },
+        activity: "thinking",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+    });
+
+    expect(text).toContain(
+        "subagents    unknown (restart the resident host)",
+    );
+    expect(text).not.toContain("inherit parent");
+});
+
+test("TUI diagnostics shows the effective fixed subagent default", () => {
+    const text = renderTuiDiagnostics({
+        state: {
+            ...createTuiState(),
+            modelSettings: {
+                provider: "openai-codex",
+                model: "gpt-5.6-sol",
+                reasoningEffort: "high",
+                subagentDefault: {
+                    mode: "fixed",
+                    provider: "openrouter",
+                    model: "openai/gpt-5.4-mini",
+                    reasoningEffort: "low",
+                },
+            },
+        },
+        activity: "thinking",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+    });
+
+    expect(text).toContain("model        gpt-5.6-sol");
+    expect(text).toContain("reasoning    high");
+    expect(text).toContain(
+        "subagents    openrouter/openai/gpt-5.4-mini (low)",
+    );
+});
+
+test("TUI diagnostics explains inherited subagent settings", () => {
+    const text = renderTuiDiagnostics({
+        state: {
+            ...createTuiState(),
+            modelSettings: {
+                model: "parent-model",
+                subagentDefault: { mode: "inherit" },
+            },
+        },
+        activity: "thinking",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+    });
+
+    expect(text).toContain(
+        "subagents    inherit parent (parent-model, default)",
+    );
+});
+
 test("TUI diagnostics describes the request after retry backoff ends", () => {
     const text = renderTuiDiagnostics({
         state: {
