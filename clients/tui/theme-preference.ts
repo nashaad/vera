@@ -20,6 +20,7 @@ import {
 interface TuiClientPreferences {
     readonly theme: TuiThemeName;
     readonly animation: TuiActivityAnimation;
+    readonly recent_session_id?: string;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
     readonly model_presets?: DiskModelPresetSlots;
@@ -45,6 +46,22 @@ export function saveTuiThemePreference(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         theme,
+    }, path);
+}
+
+export function loadTuiRecentSessionId(
+    path = tuiThemePreferencePath(),
+): string | undefined {
+    return loadTuiClientPreferences(path).recent_session_id;
+}
+
+export function saveTuiRecentSessionId(
+    sessionId: string,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        recent_session_id: sessionId,
     }, path);
 }
 
@@ -157,6 +174,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
         if (typeof value === "object" && value !== null) {
             const theme = Reflect.get(value, "theme");
             const animation = Reflect.get(value, "animation");
+            const recentSessionId = Reflect.get(value, "recent_session_id");
             const interval = boundedInteger(
                 Reflect.get(value, "animation_interval_ms"),
                 80,
@@ -179,6 +197,10 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 animation: isTuiActivityAnimation(animation)
                     ? animation
                     : "conveyor",
+                ...(typeof recentSessionId === "string"
+                        && recentSessionId.length > 0
+                    ? { recent_session_id: recentSessionId }
+                    : {}),
                 ...(interval === undefined
                     ? {}
                     : { animation_interval_ms: interval }),

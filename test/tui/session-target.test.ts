@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+    renderResumeHint,
     resolveContinueTarget,
     resolveResumeTarget,
 } from "../../clients/tui/session-target.ts";
@@ -75,7 +76,23 @@ test("continue selects the latest interactive session, not a child", () => {
         type: "attach",
         agentId: "latest",
     });
+    expect(resolveContinueTarget(agents, "older")).toEqual({
+        type: "attach",
+        agentId: "older",
+    });
+    expect(resolveContinueTarget(agents, "missing")).toEqual({
+        type: "attach",
+        agentId: "latest",
+    });
     expect(() => resolveContinueTarget([agents[1]!])).toThrow(
         "No previous Vera session to continue",
     );
+});
+
+test("the TUI exit hint names the session that can be resumed", () => {
+    expect(renderResumeHint("019f8d27-4206-7f61-9123-a65fa174d97c")).toBe(
+        "\nTo continue this session, run: "
+        + "vera resume 019f8d27-4206-7f61-9123-a65fa174d97c\n",
+    );
+    expect(renderResumeHint(undefined)).toBe("");
 });

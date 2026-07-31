@@ -8,10 +8,12 @@ import {
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
     loadTuiModelPresets,
+    loadTuiRecentSessionId,
     loadTuiExtensionPreference,
     loadTuiThemePreference,
     saveTuiActivityAnimationPreference,
     saveTuiModelPresets,
+    saveTuiRecentSessionId,
     saveTuiExtensionPreference,
     deleteTuiExtensionPreference,
     saveTuiThemePreference,
@@ -35,6 +37,18 @@ test("TUI theme preference persists outside the engine configuration", () => {
 
     saveTuiThemePreference("github", path);
     expect(loadTuiActivityAnimationPreference(path)).toBe("symmetric_wave");
+});
+
+test("the most recently entered session persists with other TUI preferences", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-recent-session-"));
+    const path = join(directory, "tui.json");
+
+    expect(loadTuiRecentSessionId(path)).toBeUndefined();
+    saveTuiThemePreference("nightowl", path);
+    saveTuiRecentSessionId("session-2", path);
+
+    expect(loadTuiRecentSessionId(path)).toBe("session-2");
+    expect(loadTuiThemePreference(path)).toBe("nightowl");
 });
 
 test("legacy TUI preferences gain the default animation when saved", () => {

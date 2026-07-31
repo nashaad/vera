@@ -27,9 +27,11 @@ export type TuiStartTarget =
 
 export function resolveContinueTarget(
     agents: readonly RegisteredAgentSummary[],
+    recentSessionId?: string,
 ): AttachTuiTarget {
-    const latest = agents
-        .filter((agent) => agent.kind === "interactive")
+    const interactive = agents.filter((agent) => agent.kind === "interactive");
+    const recent = interactive.find((agent) => agent.id === recentSessionId);
+    const latest = recent ?? interactive
         .toSorted((left, right) =>
             (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
         )[0];
@@ -37,6 +39,12 @@ export function resolveContinueTarget(
         throw new Error("No previous Vera session to continue");
     }
     return { type: "attach", agentId: latest.id };
+}
+
+export function renderResumeHint(agentId: string | undefined): string {
+    return agentId === undefined
+        ? ""
+        : `\nTo continue this session, run: vera resume ${agentId}\n`;
 }
 
 export function resolveResumeTarget(
