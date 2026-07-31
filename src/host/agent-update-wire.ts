@@ -10,6 +10,7 @@ import {
 } from "../engine/permissions.ts";
 import { isPermissionPredicate } from "../engine/permission-grants.ts";
 import { isContextMeasurement } from "../engine/context-measurement.ts";
+import { isModelTurnSettings } from "../engine/model-settings.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
@@ -142,31 +143,10 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
         return typeof update.requestId === "string" ? value as AgentUpdate : undefined;
     }
     if (update.type === "model_settings") {
-        const settings = asRecord(update.settings);
         return typeof update.requestId === "string"
                 && update.requestId.length > 0
                 && typeof update.pending === "boolean"
-                && typeof settings?.model === "string"
-                && settings.model.length > 0
-                && (settings.provider === undefined
-                    || (typeof settings.provider === "string"
-                        && settings.provider.length > 0))
-                && (settings.reasoningEffort === undefined
-                    || isModelReasoningEffort(settings.reasoningEffort))
-                && (settings.availableReasoningEfforts === undefined
-                    || (Array.isArray(settings.availableReasoningEfforts)
-                        && settings.availableReasoningEfforts.every(
-                            isModelReasoningEffort,
-                        )))
-                && (settings.availableModels === undefined
-                    || (Array.isArray(settings.availableModels)
-                        && settings.availableModels.every(isAvailableModel)))
-                && (settings.pinned === undefined
-                    || (Array.isArray(settings.pinned)
-                        && settings.pinned.every(isPinnedModel)))
-                && (settings.contextWindow === undefined
-                    || (Number.isSafeInteger(settings.contextWindow)
-                        && (settings.contextWindow as number) > 0))
+                && isModelTurnSettings(update.settings)
             ? value as AgentUpdate
             : undefined;
     }

@@ -514,6 +514,7 @@ export class AgentRegistry {
             entry.modelSettings.provider ?? this.defaultProvider,
             this.options.availableModels,
             this.options.readPins?.(),
+            this.options.subagentModel,
         );
     }
 
@@ -547,6 +548,7 @@ export class AgentRegistry {
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.options.availableModels,
             this.options.readPins?.(),
+            this.options.subagentModel,
         );
     }
 
@@ -876,6 +878,7 @@ export class AgentRegistry {
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.options.availableModels,
                     this.options.readPins?.(),
+                    this.options.subagentModel,
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -1353,6 +1356,7 @@ function settingsForClient(
     provider: string,
     models: readonly SuggestedModel[] = availableModels(),
     pinned: readonly PinnedModel[] = [],
+    subagentModel?: SpawnModelDefault,
 ): ModelTurnSettings {
     const contextWindow = contextWindowForModel(provider, settings.model, models);
     return {
@@ -1363,6 +1367,18 @@ function settingsForClient(
         ),
         availableModels: availableModelsWithLevels(models),
         pinned,
+        subagentDefault: subagentModel === undefined
+            ? { mode: "inherit" }
+            : {
+                mode: "fixed",
+                ...(subagentModel.provider === undefined
+                    ? {}
+                    : { provider: subagentModel.provider }),
+                model: subagentModel.model,
+                ...(subagentModel.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: subagentModel.reasoningEffort }),
+            },
         ...(contextWindow === undefined ? {} : { contextWindow }),
     };
 }

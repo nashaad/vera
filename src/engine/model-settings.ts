@@ -30,6 +30,19 @@ export interface ModelTurnSettings {
      */
     readonly pinned?: readonly PinnedModel[];
     readonly contextWindow?: number;
+    /**
+     * The settings a spawn without an explicit model will use. This is
+     * runtime inspection data, not part of the session's persisted model
+     * choice.
+     */
+    readonly subagentDefault?: SubagentModelDefault;
+}
+
+export interface SubagentModelDefault {
+    readonly mode: "inherit" | "fixed";
+    readonly provider?: string;
+    readonly model?: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 export interface ModelSettingsPatch {
@@ -61,7 +74,26 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
                 && settings.pinned.every(isPinnedModel)))
         && (settings.contextWindow === undefined
             || (Number.isSafeInteger(settings.contextWindow)
-                && (settings.contextWindow as number) > 0));
+                && (settings.contextWindow as number) > 0))
+        && (settings.subagentDefault === undefined
+            || isSubagentModelDefault(settings.subagentDefault));
+}
+
+function isSubagentModelDefault(value: unknown): value is SubagentModelDefault {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const settings = value as Record<string, unknown>;
+    return (settings.mode === "inherit" || settings.mode === "fixed")
+        && (settings.provider === undefined
+            || (typeof settings.provider === "string"
+                && settings.provider.trim().length > 0))
+        && (settings.model === undefined
+            || (typeof settings.model === "string"
+                && settings.model.trim().length > 0))
+        && (settings.reasoningEffort === undefined
+            || isModelReasoningEffort(settings.reasoningEffort))
+        && (settings.mode !== "fixed" || typeof settings.model === "string");
 }
 
 const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [

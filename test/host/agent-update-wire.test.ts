@@ -115,6 +115,32 @@ test("host wire validates context measurements", () => {
     })).toBeUndefined();
 });
 
+test("host wire validates subagent model diagnostics", () => {
+    const update = {
+        type: "model_settings" as const,
+        requestId: "settings-1",
+        pending: false,
+        settings: {
+            model: "parent-model",
+            subagentDefault: {
+                mode: "fixed" as const,
+                model: "child-model",
+                reasoningEffort: "low",
+            },
+        },
+        seq: 1,
+    };
+
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({
+        ...update,
+        settings: {
+            ...update.settings,
+            subagentDefault: { mode: "fixed" },
+        },
+    })).toBeUndefined();
+});
+
 test("host wire validates model activity", () => {
     const retry = {
         type: "model_activity" as const,
