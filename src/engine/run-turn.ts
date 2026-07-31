@@ -249,6 +249,8 @@ export interface RunHeadlessLoopOptions {
     ) => void;
     readonly reviewToolCall?: ReviewToolCall;
     readonly disabledPromptContributions?: readonly string[];
+    /** Hooks for the session's turns; absent means none registered. */
+    readonly hooks?: ToolHooks;
 }
 
 /**
@@ -569,7 +571,7 @@ export async function runHeadlessLoop(
         toolRuntime: new ToolRuntime(store.header.cwd),
         inbound,
         events,
-        hooks: new ToolHooks(),
+        hooks: options.hooks ?? new ToolHooks(),
         approvalMode: localApprovalMode,
         applyToolEffect,
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],

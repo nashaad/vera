@@ -8,6 +8,7 @@ import {
     type ApprovalMode,
     type PermissionMode,
 } from "../engine/permissions.ts";
+import type { ToolHooks } from "../engine/hooks.ts";
 import type { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import {
@@ -177,6 +178,8 @@ export interface AgentRegistryOptions {
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly disabledPromptContributions?: readonly string[];
+    /** Builds each resident agent's tool hooks; absent means none. */
+    readonly createToolHooks?: () => ToolHooks;
     /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
 }
@@ -907,6 +910,9 @@ export class AgentRegistry {
                         disabledPromptContributions:
                             this.options.disabledPromptContributions,
                     }),
+                ...(this.options.createToolHooks === undefined
+                    ? {}
+                    : { hooks: this.options.createToolHooks() }),
             },
         ).catch(async (error: unknown) => {
             if (!agent.closed) {
