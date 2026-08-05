@@ -26,7 +26,7 @@ import {
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import { runTurn, type RunTurnState } from "./run-turn.ts";
-import { ToolRuntime } from "../tools/runtime.ts";
+import { newStashingToolRuntime } from "./preimage.ts";
 import type {
     ApplyToolEffect,
     RegisteredTool,
@@ -283,7 +283,7 @@ export async function runSubagent(
         const state: RunTurnState = {
             messages: [],
             store,
-            toolRuntime: new ToolRuntime(options.workspace),
+            toolRuntime: newStashingToolRuntime(options.workspace, sessionId),
             inbound: new InboundCommandRouter(channel.engine, events),
             events,
             hooks: new ToolHooks(),

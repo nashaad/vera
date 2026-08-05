@@ -1,14 +1,36 @@
+export type PreimageRecorder = (
+    path: string,
+    content: string,
+) => Promise<void>;
+
 export class ToolRuntime {
     readonly workspace: string;
     private readonly fileSnapshots = new Map<string, string>();
+    private readonly preimageRecorder: PreimageRecorder | undefined;
     private mutationTail: Promise<void> = Promise.resolve();
 
-    constructor(workspace: string) {
+    constructor(workspace: string, preimageRecorder?: PreimageRecorder) {
         this.workspace = workspace;
+        this.preimageRecorder = preimageRecorder;
     }
 
     recordFileSnapshot(path: string, content: string): void {
         this.fileSnapshots.set(path, content);
+    }
+
+    /**
+     * Preserves a file's contents before its first mutation. Failures never
+     * block the mutation itself: the stash is a recovery aid, not a gate.
+     */
+    async stashPreimage(path: string, content: string): Promise<void> {
+        if (this.preimageRecorder === undefined) {
+            return;
+        }
+        try {
+            await this.preimageRecorder(path, content);
+        } catch {
+            // A failed capture must not fail the write.
+        }
     }
 
     assertFreshFileSnapshot(

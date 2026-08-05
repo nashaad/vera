@@ -36,7 +36,7 @@ export const writeTool: RegisteredTool = {
     permissionInputs: [{ field: "path", kind: "path", verb: "write" }],
     definition: {
         name: "write",
-        description: "Write a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
+        description: "Create a new UTF-8 text file, or completely replace an existing one. Replacement is total: any existing content not included in this call is destroyed. To modify an existing file (append, insert, or change part of it), use edit instead. Relative paths resolve from the workspace.",
         inputSchema: {
             type: "object",
             properties: {
@@ -52,13 +52,23 @@ export const writeTool: RegisteredTool = {
         const content = requiredString(input, "content", "write");
         return context.enqueueFileMutation(async () => {
             const safePath = await resolveWritePath(context.workspace, path);
-            const previousContent = await Bun.file(safePath).text()
-                .catch(() => "");
+            const previousFile = Bun.file(safePath);
+            const existedBefore = await previousFile.exists();
+            const previousContent = existedBefore ? await previousFile.text() : "";
+            if (existedBefore) {
+                await context.stashPreimage(safePath, previousContent);
+            }
             const bytesWritten = await Bun.write(safePath, content);
             context.recordFileSnapshot(safePath, content);
             return {
                 kind: "output",
-                output: `Wrote ${bytesWritten} bytes to ${path}`,
+                output: writeResultSummary(
+                    path,
+                    content,
+                    bytesWritten,
+                    existedBefore,
+                    previousContent,
+                ),
                 isError: false,
                 presentation: editDiffPresentation(
                     path,
@@ -69,6 +79,25 @@ export const writeTool: RegisteredTool = {
         });
     },
 };
+
+export function writeResultSummary(
+    path: string,
+    content: string,
+    bytesWritten: number,
+    existedBefore: boolean,
+    previousContent: string,
+): string {
+    const written = `Wrote ${lineCount(content)} (${bytesWritten} bytes) to ${path}`;
+    if (!existedBefore) {
+        return `${written} (new file)`;
+    }
+    return `${written}, fully replacing the previous content: ${lineCount(previousContent)} (${Buffer.byteLength(previousContent)} bytes)`;
+}
+
+function lineCount(content: string): string {
+    const count = content === "" ? 0 : content.split("\n").length;
+    return `${count} line${count === 1 ? "" : "s"}`;
+}
 
 export async function resolveReadPath(
     workspace: string,
