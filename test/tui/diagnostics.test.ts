@@ -166,6 +166,20 @@ test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
             preimages: 3,
             bytes: 213786,
             oldestCapturedAt: "2026-08-05T17:00:00.000Z",
+            entries: [
+                {
+                    path: "/vault/plan.md",
+                    sessionId: "session-a",
+                    capturedAt: "2026-08-05T19:00:00.000Z",
+                    bytes: 106893,
+                },
+                {
+                    path: "/vault/notes.md",
+                    sessionId: "session-b",
+                    capturedAt: "2026-08-05T17:00:00.000Z",
+                    bytes: 106893,
+                },
+            ],
         },
         stashRoot: "/home/user/.vera/stash",
         now: Date.parse("2026-08-05T20:00:00.000Z"),
@@ -174,7 +188,10 @@ test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
     expect(text).toContain(
         "stash        3 pre-images across 2 sessions (208.8 KiB, oldest 3h)",
     );
-    expect(text).toContain("restore with: cp <key> <path>");
+    expect(text).toContain(
+        "1h ago  104.4 KiB  /vault/plan.md  (/home/user/.vera/stash/session-a)",
+    );
+    expect(text).toContain("cp <key> <path>");
 });
 
 test("TUI diagnostics reports an empty stash without recovery steps", () => {
@@ -188,5 +205,5 @@ test("TUI diagnostics reports an empty stash without recovery steps", () => {
     });
 
     expect(text).toContain("stash        empty (/home/user/.vera/stash)");
-    expect(text).not.toContain("restore with");
+    expect(text).not.toContain("cp <key> <path>");
 });

@@ -92,17 +92,33 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     if (stash === undefined) {
         return [`  stash        empty (${snapshot.stashRoot})`];
     }
+    const now = snapshot.now ?? Date.now();
     const oldest = stash.oldestCapturedAt === undefined
         ? ""
-        : `, oldest ${age(stash.oldestCapturedAt, snapshot.now ?? Date.now())}`;
-    return [
+        : `, oldest ${age(stash.oldestCapturedAt, now)}`;
+    const lines = [
         `  stash        ${stash.preimages} pre-image${stash.preimages === 1 ? "" : "s"}`
             + ` across ${stash.sessions} session${stash.sessions === 1 ? "" : "s"}`
             + ` (${formatStashBytes(stash.bytes)}${oldest})`,
-        `               files overwritten by write/edit keep a copy in ${snapshot.stashRoot}/<session>/;`,
-        "               each <key>.json names its original path; restore with: cp <key> <path>",
     ];
+    for (const entry of stash.entries.slice(0, MAX_STASH_ENTRIES)) {
+        lines.push(
+            `               ${age(entry.capturedAt, now)} ago`
+                + `  ${formatStashBytes(entry.bytes)}`
+                + `  ${entry.path}  (${snapshot.stashRoot}/${entry.sessionId})`,
+        );
+    }
+    const hidden = stash.entries.length - MAX_STASH_ENTRIES;
+    if (hidden > 0) {
+        lines.push(`               and ${hidden} more; sidecars in ${snapshot.stashRoot} list them all`);
+    }
+    lines.push(
+        "               restore: the <key>.json sidecar names the original path; cp <key> <path>",
+    );
+    return lines;
 }
+
+const MAX_STASH_ENTRIES = 5;
 
 function age(capturedAt: string, now: number): string {
     const ms = Math.max(0, now - Date.parse(capturedAt));

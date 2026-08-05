@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -67,11 +67,20 @@ export function defaultStashRoot(): string {
     return join(homedir(), ".vera", "stash");
 }
 
+export interface StashEntry {
+    readonly path: string;
+    readonly sessionId: string;
+    readonly capturedAt: string;
+    readonly bytes: number;
+}
+
 export interface StashSummary {
     readonly sessions: number;
     readonly preimages: number;
     readonly bytes: number;
     readonly oldestCapturedAt: string | undefined;
+    /** Newest captures first. */
+    readonly entries: readonly StashEntry[];
 }
 
 /** Sizes up the stash for diagnostics. Synchronous: the stash stays small. */
@@ -85,9 +94,8 @@ export function summarizeStash(
         return undefined;
     }
     let sessions = 0;
-    let preimages = 0;
     let bytes = 0;
-    let oldestMs: number | undefined;
+    const entries: StashEntry[] = [];
     for (const entry of sessionDirs) {
         const directory = join(root, entry);
         let files: string[];
@@ -99,35 +107,60 @@ export function summarizeStash(
         } catch {
             continue;
         }
-        const blobs = files.filter((file) => !file.endsWith(".json"));
-        if (blobs.length === 0) {
-            continue;
-        }
-        sessions += 1;
-        preimages += blobs.length;
-        for (const blob of blobs) {
-            try {
-                const info = statSync(join(directory, blob));
-                bytes += info.size;
-                if (oldestMs === undefined || info.mtimeMs < oldestMs) {
-                    oldestMs = info.mtimeMs;
-                }
-            } catch {
+        let sessionBlobs = 0;
+        for (const file of files) {
+            if (!file.endsWith(".json")) {
                 continue;
             }
+            const sidecar = readSidecar(join(directory, file));
+            if (sidecar === undefined) {
+                continue;
+            }
+            sessionBlobs += 1;
+            bytes += sidecar.bytes;
+            entries.push(sidecar);
+        }
+        if (sessionBlobs > 0) {
+            sessions += 1;
         }
     }
     if (sessions === 0) {
         return undefined;
     }
+    entries.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
     return {
         sessions,
-        preimages,
+        preimages: entries.length,
         bytes,
-        oldestCapturedAt: oldestMs === undefined
-            ? undefined
-            : new Date(oldestMs).toISOString(),
+        oldestCapturedAt: entries[entries.length - 1]?.capturedAt,
+        entries,
     };
+}
+
+function readSidecar(path: string): StashEntry | undefined {
+    try {
+        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+        if (typeof parsed !== "object" || parsed === null) {
+            return undefined;
+        }
+        const record = parsed as Record<string, unknown>;
+        if (
+            typeof record.path !== "string"
+            || typeof record.sessionId !== "string"
+            || typeof record.capturedAt !== "string"
+            || typeof record.bytes !== "number"
+        ) {
+            return undefined;
+        }
+        return {
+            path: record.path,
+            sessionId: record.sessionId,
+            capturedAt: record.capturedAt,
+            bytes: record.bytes,
+        };
+    } catch {
+        return undefined;
+    }
 }
 
 /** Removes session stash directories whose newest entry is older than the cap. */
