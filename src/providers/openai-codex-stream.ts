@@ -65,6 +65,10 @@ export class OpenAICodexStreamDecoder {
             );
             return;
         }
+        if (event.type === "response.reasoning_summary_part.added") {
+            this.separateThinking(numberValue(event.output_index));
+            return;
+        }
         if (
             event.type === "response.reasoning_summary_text.delta"
             || event.type === "response.reasoning_text.delta"
@@ -194,6 +198,22 @@ export class OpenAICodexStreamDecoder {
         }
         this.content[contentIndex] = { ...block, text: block.text + text };
         this.output.push({ type: "thinking_delta", contentIndex, text });
+    }
+
+    /**
+     * A new summary part starts where the previous one ended, and the blank line
+     * between them is never streamed: the non-streaming path joins the parts with
+     * one, so the streaming path writes it here.
+     */
+    private separateThinking(outputIndex: number): void {
+        const contentIndex = this.thinkingBlocks.get(outputIndex);
+        if (contentIndex === undefined) {
+            return;
+        }
+        const block = this.content[contentIndex];
+        if (block?.type === "thinking" && block.text.length > 0) {
+            this.appendThinking(outputIndex, "\n\n");
+        }
     }
 
     private ensureThinking(outputIndex: number): number {

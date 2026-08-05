@@ -67,7 +67,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
-    if (update.type === "assistant_delta") {
+    if (update.type === "assistant_delta" || update.type === "assistant_thinking") {
         return typeof update.text === "string" ? value as AgentUpdate : undefined;
     }
     if (update.type === "tool_started") {

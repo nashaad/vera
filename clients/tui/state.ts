@@ -49,6 +49,10 @@ export interface TuiTextTranscriptEntry {
     readonly prefix?: string;
     /** How many times in a row the same call was made. */
     readonly repeat?: number;
+    /** The reasoning a `thought` summary folds away. */
+    readonly reasoning?: string;
+    /** Whether a `thought` summary is showing its reasoning. */
+    readonly expanded?: boolean;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -71,6 +75,14 @@ export interface TuiState {
     readonly permissionInspection?: PermissionInspection;
     readonly context?: ContextMeasurement;
     readonly modelActivity?: ModelActivityUpdate;
+    /**
+     * Reasoning streamed so far this phase, held off the transcript until the
+     * phase ends. Keeping it out of `entries` is what stops a history rebuild
+     * from having to preserve a row that has no backing message.
+     */
+    readonly pendingThinking?: string;
+    /** Whether new `thought` summaries open showing their reasoning. */
+    readonly thinkingExpanded?: boolean;
 }
 
 export let TUI_ACCENT = VERA_TUI_THEME.accent;
@@ -172,6 +184,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "assistant_delta") {
         return appendAssistantText(state, update.text);
+    }
+    if (update.type === "assistant_thinking") {
+        return appendThinkingText(state, update.text);
     }
     if (update.type === "tool_started") {
         return {
@@ -415,10 +430,68 @@ export function failTuiConnection(state: TuiState, message: string): TuiState {
 }
 
 export function appendTuiThought(state: TuiState, seconds: number): TuiState {
-    return appendEntry(state, {
+    const reasoning = (state.pendingThinking ?? "").trim();
+    const expanded = state.thinkingExpanded === true && reasoning.length > 0;
+    if (reasoning.length === 0) {
+        return appendEntry(dropTuiThinking(state), {
+            kind: "thought",
+            text: `Thought: ${seconds.toFixed(1)}s`,
+        });
+    }
+    return appendEntry(dropTuiThinking(state), {
         kind: "thought",
-        text: `+ Thought: ${seconds.toFixed(1)}s`,
+        text: thoughtSummary(seconds, expanded),
+        reasoning,
+        ...(expanded ? { expanded: true } : {}),
     });
+}
+
+/**
+ * The fold marker doubles as the state: `+` closed, `-` open. A summary with no
+ * reasoning behind it carries no marker, because there is nothing to open and a
+ * marker that does nothing when pressed reads as a broken key.
+ */
+function thoughtSummary(seconds: number, expanded: boolean): string {
+    return `${expanded ? "-" : "+"} Thought: ${seconds.toFixed(1)}s`;
+}
+
+/**
+ * Drops reasoning that never reached a summary. A turn that ends without a
+ * thought phase still has to clear it, or it leaks into the next one.
+ */
+export function dropTuiThinking(state: TuiState): TuiState {
+    return state.pendingThinking === undefined
+        ? state
+        : { ...state, pendingThinking: undefined };
+}
+
+/**
+ * Opens or closes every reasoning fold at once.
+ *
+ * Transcript rows are not focusable, so there is nothing to point at to expand
+ * one on its own. The flag also sets how later summaries arrive, so the choice
+ * holds for the rest of the session rather than only for what is on screen.
+ */
+export function toggleTuiThinking(state: TuiState): TuiState {
+    const expanded = state.thinkingExpanded !== true;
+    return {
+        ...state,
+        thinkingExpanded: expanded,
+        entries: state.entries.map((entry) => {
+            if (entry.kind !== "thought" || entry.reasoning === undefined) {
+                return entry;
+            }
+            return {
+                ...entry,
+                text: thoughtSummary(thoughtSeconds(entry.text), expanded),
+                expanded,
+            };
+        }),
+    };
+}
+
+function thoughtSeconds(text: string): number {
+    return Number.parseFloat(text.replace(/^[+-] Thought: /, "")) || 0;
 }
 
 export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
@@ -442,7 +515,10 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
     }
     if (entry.kind === "thought") {
-        return new StyledText([fg(TUI_NOTICE)(entry.text)]);
+        const summary = fg(TUI_NOTICE)(entry.text);
+        return entry.expanded === true && entry.reasoning !== undefined
+            ? new StyledText([summary, fg(TUI_MUTED)(`\n\n${entry.reasoning}`)])
+            : new StyledText([summary]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
@@ -618,9 +694,9 @@ function withToolEntry(
     args: Readonly<Record<string, unknown>>,
     active: boolean,
 ): TuiTranscriptEntry[] {
-    // Review and thought rows come and go: a history checkpoint drops them, and
-    // a run has to group the same way either way, or the checkpoint stops
-    // matching what is on screen.
+    // Review, thinking, and thought rows come and go: a history checkpoint
+    // drops them, and a run has to group the same way either way, or the
+    // checkpoint stops matching what is on screen.
     const previousIndex = entries.findLastIndex((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
     );
@@ -898,6 +974,13 @@ function appendAssistantText(state: TuiState, text: string): TuiState {
     return { ...state, entries };
 }
 
+function appendThinkingText(state: TuiState, text: string): TuiState {
+    return {
+        ...state,
+        pendingThinking: (state.pendingThinking ?? "") + text,
+    };
+}
+
 function appendEntry(state: TuiState, entry: TuiTranscriptEntry): TuiState {
     return { ...state, entries: [...state.entries, entry] };
 }
@@ -909,13 +992,69 @@ function preserveLiveReviewEntries(
     const withoutTransientEntries = current.filter((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
     );
-    if (
-        current.some((entry) => entry.kind === "review")
-        && transcriptEntriesEqual(withoutTransientEntries, canonical)
-    ) {
-        return current.filter((entry) => entry.kind !== "thought");
+    const base = current.some((entry) => entry.kind === "review")
+            && transcriptEntriesEqual(withoutTransientEntries, canonical)
+        ? current.filter((entry) => entry.kind !== "thought")
+        : canonical;
+    return restoreReasoningEntries(base, anchoredReasoningEntries(current));
+}
+
+interface AnchoredReasoning {
+    /** How many durable rows precede this row. */
+    readonly after: number;
+    readonly entry: TuiTranscriptEntry;
+}
+
+/**
+ * A thought summary has no backing message, so a history rebuild drops it, and
+ * a turn emits history while it is still streaming. Anchoring the summary to
+ * the count of durable rows before it survives the rebuild and holds its place.
+ */
+function anchoredReasoningEntries(
+    entries: readonly TuiTranscriptEntry[],
+): readonly AnchoredReasoning[] {
+    const anchored: AnchoredReasoning[] = [];
+    let durable = 0;
+    for (const entry of entries) {
+        if (entry.kind === "thought") {
+            anchored.push({ after: durable, entry });
+        } else if (entry.kind !== "review") {
+            durable += 1;
+        }
     }
-    return canonical;
+    return anchored;
+}
+
+function restoreReasoningEntries(
+    base: readonly TuiTranscriptEntry[],
+    anchored: readonly AnchoredReasoning[],
+): readonly TuiTranscriptEntry[] {
+    if (anchored.length === 0) {
+        return base;
+    }
+    const restored: TuiTranscriptEntry[] = [];
+    let durable = 0;
+    let next = 0;
+    const takeAnchored = (): void => {
+        while (anchored[next]?.after === durable) {
+            restored.push(anchored[next]!.entry);
+            next += 1;
+        }
+    };
+
+    takeAnchored();
+    for (const entry of base) {
+        restored.push(entry);
+        if (entry.kind !== "review") {
+            durable += 1;
+            takeAnchored();
+        }
+    }
+    // A summary can outrun the rebuilt rows when the turn ends mid-stream.
+    for (; next < anchored.length; next += 1) {
+        restored.push(anchored[next]!.entry);
+    }
+    return restored;
 }
 
 function transcriptEntriesEqual(

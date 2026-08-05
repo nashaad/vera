@@ -12,7 +12,7 @@ import { FauxAdapter } from "./faux-adapter.ts";
 
 const responses: AssistantMessage[] = [
     response(`PARTIAL ${"x".repeat(200)} FIRST-END`),
-    response("STEER WORKED"),
+    thinkingResponse("WEIGHING THE ORDERINGS", "STEER WORKED"),
 ];
 const channel = createInProcessChannel();
 void runHeadlessLoop(
@@ -44,6 +44,17 @@ const client: TuiAgentClient = {
 };
 
 await startTui({ client });
+
+function thinkingResponse(
+    reasoning: string,
+    text: string,
+): AssistantMessage {
+    const message = response(text);
+    return {
+        ...message,
+        content: [{ type: "thinking", text: reasoning }, ...message.content],
+    };
+}
 
 function response(text: string): AssistantMessage {
     return {

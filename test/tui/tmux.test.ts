@@ -1293,7 +1293,9 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
             expect(pane).toContain("esc redirect/stop");
-            expect(pane).toMatch(/\+ Thought: \d+\.\d+s/);
+            // No fold marker: this turn reasons without producing any summary
+            // text, so there is nothing behind the line to open.
+            expect(pane).toMatch(/(?<![+-] )Thought: \d+\.\d+s/);
             sendText(socket, session, "redirect now");
             sendKey(socket, session, "Enter");
 
@@ -1307,6 +1309,14 @@ test.skipIf(!tmuxAvailable)(
             // The estimate stands while the request is in flight, so the
             // provider's own count only replaces it once the turn ends.
             pane = await waitForPane(socket, session, "auto · ctx 25%");
+
+            // The second turn reasons, so its summary carries a fold that
+            // ctrl+o opens over a row already drawn.
+            expect(pane).toMatch(/\+ Thought: \d+\.\d+s/);
+            expect(pane).not.toContain("WEIGHING THE ORDERINGS");
+            sendKey(socket, session, "C-o");
+            pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
+            expect(pane).toMatch(/- Thought: \d+\.\d+s/);
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
