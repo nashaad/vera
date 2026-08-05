@@ -9,8 +9,11 @@ import { availableModelsWithLevels } from "../../src/model/catalog-view.ts";
 import type { AuthStorage } from "../../src/providers/auth-storage.ts";
 import {
     discoveredCodexModels,
+    discoveredOllamaModels,
     ollamaContextWindow,
 } from "../../src/host/runtime.ts";
+import { availableReasoningEfforts } from "../../src/engine/model-settings.ts";
+import { readProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 
 test("Ollama model metadata exposes its declared context window", () => {
     expect(ollamaContextWindow({
@@ -99,6 +102,118 @@ test("no stored Codex credential means no Codex models offered", () => {
                 authStorage: stubAuth(undefined),
             },
         ).length).toBeGreaterThan(0);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+const OLLAMA_SHOW: Record<string, Record<string, unknown>> = {
+    "granite4.1:8b": {
+        capabilities: ["completion", "tools"],
+        model_info: { "granite.context_length": 131_072 },
+    },
+    "qwen4:8b": {
+        capabilities: ["completion", "tools", "thinking"],
+        model_info: { "qwen4.context_length": 262_144 },
+    },
+    "nomic-embed:v2": { capabilities: ["embedding"] },
+    "ancient:7b": { model_info: { "ancient.context_length": 8_192 } },
+};
+
+function stubOllamaHost(
+    show: Record<string, Record<string, unknown>>,
+    unreachable: readonly string[] = [],
+): (input: string | URL | Request, init?: RequestInit) => Promise<Response> {
+    return async (input, init) => {
+        if (String(input).endsWith("/v1/models")) {
+            return Response.json({
+                data: Object.keys(show).map((id) => ({ id })),
+            });
+        }
+        const { model } = JSON.parse(String(init?.body)) as { model: string };
+        if (unreachable.includes(model)) {
+            return new Response("", { status: 500 });
+        }
+        return Response.json(show[model]);
+    };
+}
+
+test("Ollama discovery records declared capabilities as catalog levels", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-runtime-ollama-"));
+    try {
+        const models = await discoveredOllamaModels({
+            host: "127.0.0.1:11434/",
+            cacheDir: directory,
+            fetch: stubOllamaHost(OLLAMA_SHOW),
+        });
+
+        expect(models.map((model) => model.model)).toEqual([
+            "granite4.1:8b",
+            "qwen4:8b",
+            "ancient:7b",
+        ]);
+        expect(models[0]).toMatchObject({
+            provider: "ollama",
+            label: "granite4.1:8b",
+            description: "installed locally",
+            contextWindow: 131_072,
+        });
+
+        // A model that lists capabilities without "thinking" has no reasoning
+        // control, and saying so is what keeps the dial off it. A model whose
+        // daemon declares nothing is left undescribed instead.
+        expect(availableReasoningEfforts("ollama", "granite4.1:8b", {
+            cacheDir: directory,
+        })).toEqual([]);
+        expect([...availableReasoningEfforts("ollama", "qwen4:8b", {
+            cacheDir: directory,
+        })].sort()).toEqual(["high", "low", "medium"]);
+        expect([...availableReasoningEfforts("ollama", "ancient:7b", {
+            cacheDir: directory,
+        })].sort()).toEqual(["high", "low", "max", "medium"]);
+
+        const snapshot = readProviderCatalogSnapshot("ollama", {
+            cacheDir: directory,
+        });
+        expect(snapshot.models.map((model) => model.id)).toEqual([
+            "granite4.1:8b",
+            "qwen4:8b",
+        ]);
+        expect(snapshot.models[1]?.tool_support).toBe(true);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("one unreachable Ollama model does not drop the others", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-runtime-ollama-"));
+    try {
+        const models = await discoveredOllamaModels({
+            cacheDir: directory,
+            fetch: stubOllamaHost(OLLAMA_SHOW, ["qwen4:8b"]),
+        });
+
+        expect(models.map((model) => model.model)).toEqual([
+            "granite4.1:8b",
+            "qwen4:8b",
+            "ancient:7b",
+        ]);
+        expect(readProviderCatalogSnapshot("ollama", { cacheDir: directory })
+            .models.map((model) => model.id)).toEqual(["granite4.1:8b"]);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("an offline Ollama daemon yields no models", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-runtime-ollama-"));
+    try {
+        expect(await discoveredOllamaModels({
+            cacheDir: directory,
+            fetch: async () => {
+                throw new Error("connection refused");
+            },
+        })).toEqual([]);
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }
