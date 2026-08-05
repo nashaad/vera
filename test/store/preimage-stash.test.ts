@@ -97,3 +97,25 @@ test("sweep removes only directories older than the retention age", async () => 
 test("sweep of a missing root is a no-op", async () => {
     await sweepStaleStashes(join(tmpdir(), "vera-stash-none"), 30);
 });
+
+test("summarizeStash reports sessions, blobs, bytes, and the oldest capture", async () => {
+    await withRoot(async (root) => {
+        const { summarizeStash } = await import(
+            "../../src/store/preimage-stash.ts"
+        );
+        expect(summarizeStash(root)).toBeUndefined();
+
+        const first = new PreimageStash("session-1", root);
+        await first.capture("/a.md", "content a");
+        const second = new PreimageStash("session-2", root);
+        await second.capture("/b.md", "longer content b");
+
+        const summary = summarizeStash(root);
+        expect(summary).toMatchObject({
+            sessions: 2,
+            preimages: 2,
+            bytes: 25,
+        });
+        expect(typeof summary?.oldestCapturedAt).toBe("string");
+    });
+});

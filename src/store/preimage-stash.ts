@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readdirSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -64,6 +65,69 @@ export function stashKey(path: string): string {
 
 export function defaultStashRoot(): string {
     return join(homedir(), ".vera", "stash");
+}
+
+export interface StashSummary {
+    readonly sessions: number;
+    readonly preimages: number;
+    readonly bytes: number;
+    readonly oldestCapturedAt: string | undefined;
+}
+
+/** Sizes up the stash for diagnostics. Synchronous: the stash stays small. */
+export function summarizeStash(
+    root: string = defaultStashRoot(),
+): StashSummary | undefined {
+    let sessionDirs: string[];
+    try {
+        sessionDirs = readdirSync(root);
+    } catch {
+        return undefined;
+    }
+    let sessions = 0;
+    let preimages = 0;
+    let bytes = 0;
+    let oldestMs: number | undefined;
+    for (const entry of sessionDirs) {
+        const directory = join(root, entry);
+        let files: string[];
+        try {
+            if (!statSync(directory).isDirectory()) {
+                continue;
+            }
+            files = readdirSync(directory);
+        } catch {
+            continue;
+        }
+        const blobs = files.filter((file) => !file.endsWith(".json"));
+        if (blobs.length === 0) {
+            continue;
+        }
+        sessions += 1;
+        preimages += blobs.length;
+        for (const blob of blobs) {
+            try {
+                const info = statSync(join(directory, blob));
+                bytes += info.size;
+                if (oldestMs === undefined || info.mtimeMs < oldestMs) {
+                    oldestMs = info.mtimeMs;
+                }
+            } catch {
+                continue;
+            }
+        }
+    }
+    if (sessions === 0) {
+        return undefined;
+    }
+    return {
+        sessions,
+        preimages,
+        bytes,
+        oldestCapturedAt: oldestMs === undefined
+            ? undefined
+            : new Date(oldestMs).toISOString(),
+    };
 }
 
 /** Removes session stash directories whose newest entry is older than the cap. */
