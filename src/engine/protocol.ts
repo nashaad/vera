@@ -312,6 +312,16 @@ export interface AssistantDeltaUpdate {
     readonly seq: number;
 }
 
+/**
+ * Reasoning text as it streams. Live-only: it is never persisted, so a client
+ * that misses it has nothing to catch up on.
+ */
+export interface AssistantThinkingUpdate {
+    readonly type: "assistant_thinking";
+    readonly text: string;
+    readonly seq: number;
+}
+
 export interface ToolStartedUpdate {
     readonly type: "tool_started";
     readonly tool: string;
@@ -543,6 +553,7 @@ export type AgentUpdate =
     | HistoryUpdate
     | UserPromptUpdate
     | AssistantDeltaUpdate
+    | AssistantThinkingUpdate
     | ToolStartedUpdate
     | ToolReviewUpdate
     | ToolFinishedUpdate
@@ -943,6 +954,19 @@ export function createProtocolEncoder(
             seq += 1;
             sender.send({
                 type: "assistant_delta",
+                text: event.event.text,
+                seq,
+            });
+            return;
+        }
+
+        if (
+            event.type === "model_stream"
+            && event.event.type === "thinking_delta"
+        ) {
+            seq += 1;
+            sender.send({
+                type: "assistant_thinking",
                 text: event.event.text,
                 seq,
             });

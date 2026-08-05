@@ -219,6 +219,8 @@ import {
     applyTuiTheme,
     appendTuiNotice,
     appendTuiThought,
+    dropTuiThinking,
+    toggleTuiThinking,
     applyAgentUpdate,
     userEntryShows,
     beginNextQueuedTuiTurn,
@@ -1405,6 +1407,17 @@ export async function startTui(
                 key.stopPropagation();
                 return;
             }
+        }
+
+        if (
+            tuiBindingId("global", key) === "toggle_thinking"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            state = toggleTuiThinking(state);
+            renderState();
+            return;
         }
 
         const extensionKey = tuiChord(key);
@@ -2969,9 +2982,11 @@ export async function startTui(
                     updateTuiToolRow(existing, entry);
                 }
                 if (
-                    entry.kind === "tool_header"
+                    (entry.kind === "tool_header" || entry.kind === "thought")
                     && existing instanceof TextRenderable
                 ) {
+                    // A thought row's height changes when its fold opens, so
+                    // it is re-rendered rather than left as first drawn.
                     existing.content = renderTuiEntry(entry);
                 }
                 return;
@@ -4326,6 +4341,12 @@ export async function startTui(
             workingSince ??= Date.now();
             phaseSince = Date.now();
             activity = "thinking";
+        } else if (update.type === "assistant_thinking") {
+            // Reasoning can resume after visible text, so each burst re-arms the
+            // phase and earns its own summary line.
+            workingSince ??= Date.now();
+            phaseSince ??= Date.now();
+            activity = "thinking";
         } else if (update.type === "assistant_delta") {
             finishThoughtPhase();
             workingSince ??= Date.now();
@@ -4347,6 +4368,7 @@ export async function startTui(
 
     function finishThoughtPhase(): void {
         if (activity !== "thinking" || phaseSince === undefined) {
+            state = dropTuiThinking(state);
             return;
         }
         const seconds = Math.max(0, Date.now() - phaseSince) / 1_000;

@@ -3,10 +3,12 @@ import type { StyledText } from "@opentui/core";
 
 import {
     appendTuiThought,
+    toggleTuiThinking,
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
     beginTuiTurn,
     createTuiState,
+    dropTuiThinking,
     failTuiConnection,
     queueTuiPrompt,
     renderTuiEntry,
@@ -31,14 +33,153 @@ function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
 }
 
-test("TUI renders a compact completed thought duration", () => {
+test("a thought with no reasoning behind it carries no fold marker", () => {
     const state = appendTuiThought(createTuiState(), 3.04);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "+ Thought: 3.0s",
+        text: "Thought: 3.0s",
     }]);
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("+ Thought: 3.0s");
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Thought: 3.0s");
+});
+
+test("streamed reasoning stays off the transcript until it is summarized", () => {
+    let state = createTuiState();
+    for (const text of ["first ", "part"]) {
+        state = applyAgentUpdate(state, {
+            type: "assistant_thinking",
+            text,
+            seq: 1,
+        });
+    }
+
+    expect(state.entries).toEqual([]);
+    // Deltas are fragments, so they join exactly as they arrived.
+    expect(state.pendingThinking).toBe("first part");
+});
+
+test("the thought summary folds the reasoning it collected", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "weighing the two orderings",
+        seq: 1,
+    });
+    state = appendTuiThought(state, 12.4);
+
+    expect(state.entries).toEqual([{
+        kind: "thought",
+        text: "+ Thought: 12.4s",
+        reasoning: "weighing the two orderings",
+    }]);
+    expect(state.pendingThinking).toBeUndefined();
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe("+ Thought: 12.4s");
+});
+
+test("toggling reasoning opens every fold and every later one", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "weighing the two orderings",
+        seq: 1,
+    });
+    state = toggleTuiThinking(appendTuiThought(state, 12.4));
+
+    expect(state.entries[0]).toEqual({
+        kind: "thought",
+        text: "- Thought: 12.4s",
+        reasoning: "weighing the two orderings",
+        expanded: true,
+    });
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe("- Thought: 12.4s\n\nweighing the two orderings");
+
+    // The flag holds, so a later summary arrives already open.
+    state = applyAgentUpdate(state, {
+        type: "assistant_thinking",
+        text: "second burst",
+        seq: 2,
+    });
+    state = appendTuiThought(state, 1.5);
+    expect(state.entries[1]).toMatchObject({
+        text: "- Thought: 1.5s",
+        expanded: true,
+    });
+
+    expect(toggleTuiThinking(state).entries[0]).toMatchObject({
+        text: "+ Thought: 12.4s",
+        expanded: false,
+    });
+});
+
+test("dropping live reasoning leaves settled rows alone", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_delta",
+        text: "here is the fix",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "assistant_thinking",
+        text: "second reasoning burst",
+        seq: 2,
+    });
+
+    const dropped = dropTuiThinking(state);
+    expect(dropped.entries).toEqual([{
+        kind: "assistant",
+        text: "here is the fix",
+    }]);
+    expect(dropped.pendingThinking).toBeUndefined();
+});
+
+test("a thought summary survives a history rebuild in place", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "weighing the two orderings",
+        seq: 1,
+    });
+    state = appendTuiThought(state, 8.3);
+    state = applyAgentUpdate(state, {
+        type: "assistant_delta",
+        text: "move the flush above the check",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "which ordering?" },
+            { kind: "assistant", text: "move the flush above the check" },
+        ],
+        seq: 3,
+    });
+
+    // The summary has no backing message, so the rebuild has to re-place it.
+    expect(state.entries).toEqual([
+        {
+            kind: "thought",
+            text: "+ Thought: 8.3s",
+            reasoning: "weighing the two orderings",
+        },
+        { kind: "user", text: "which ordering?" },
+        { kind: "assistant", text: "move the flush above the check" },
+    ]);
+});
+
+test("reasoning collected mid-turn survives a history rebuild", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "weighing the two orderings",
+        seq: 1,
+    });
+    // A turn emits history while it is still streaming, and the rebuild only
+    // touches entries, so reasoning waiting for its summary is untouched.
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [{ kind: "user", text: "which ordering?" }],
+        seq: 2,
+    });
+
+    expect(state.entries).toEqual([{ kind: "user", text: "which ordering?" }]);
+    expect(state.pendingThinking).toBe("weighing the two orderings");
 });
 
 test("TUI state tracks a streamed turn and tool activity", () => {

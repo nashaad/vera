@@ -89,6 +89,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         anyModifiers: true,
     },
     {
+        id: "toggle_thinking",
+        keys: ["ctrl+o"],
+        scope: "global",
+        description: "Show or hide the model's reasoning",
+        hint: "ctrl+o reasoning",
+    },
+    {
         id: "cycle-reasoning",
         keys: ["ctrl+t"],
         scope: "global",

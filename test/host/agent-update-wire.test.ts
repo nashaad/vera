@@ -2,6 +2,16 @@ import { expect, test } from "bun:test";
 
 import { parseAgentUpdate } from "../../src/host/agent-update-wire.ts";
 
+test("host wire carries streamed reasoning and rejects a missing text field", () => {
+    const thinking = {
+        type: "assistant_thinking" as const,
+        text: "the stop check runs before the flush",
+        seq: 4,
+    };
+    expect(parseAgentUpdate(thinking)).toEqual(thinking);
+    expect(parseAgentUpdate({ type: "assistant_thinking", seq: 4 })).toBeUndefined();
+});
+
 test("host wire validates requester-owned image attachment results", () => {
     const attached = {
         type: "image_attached" as const,

@@ -197,6 +197,11 @@ test("a thinking-only stop becomes a visible durable model error", async () => {
     const result = runTurn(new FauxAdapter([response]), "test", state);
     await expectUserPrompt(channel, "read the note", 1);
     await expectContextMeasured(channel, 2);
+    // The reasoning still streams; only the turn's outcome is an error.
+    expect(await channel.client.receive()).toMatchObject({
+        type: "assistant_thinking",
+        text: "<tool_calls>not a structured call</tool_calls>",
+    });
     expect(await channel.client.receive()).toMatchObject({
         type: "turn_finished",
         outcome: "error",
