@@ -24,6 +24,7 @@ export type TuiTranscriptEntryKind =
     | "assistant"
     | "tool"
     | "tool_header"
+    | "thinking"
     | "thought"
     | "review"
     | "notice"
@@ -280,7 +281,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "history") {
         const canonicalEntries = toTuiTranscriptEntries(update.entries);
-        return {
+        // The live reasoning row is rebuilt rather than preserved, so a rebuild
+        // that lands mid-phase puts it back at the end where it belongs.
+        return withLiveThinking({
             ...state,
             entries: preserveLiveReviewEntries(
                 state.entries,
@@ -289,7 +292,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.context === undefined
                 ? {}
                 : { context: update.context }),
-        };
+        });
     }
     if (update.type === "context") {
         return { ...state, context: update.measurement };
@@ -460,9 +463,10 @@ function thoughtSummary(seconds: number, expanded: boolean): string {
  * thought phase still has to clear it, or it leaks into the next one.
  */
 export function dropTuiThinking(state: TuiState): TuiState {
-    return state.pendingThinking === undefined
-        ? state
-        : { ...state, pendingThinking: undefined };
+    if (state.pendingThinking === undefined) {
+        return state;
+    }
+    return withLiveThinking({ ...state, pendingThinking: undefined });
 }
 
 /**
@@ -699,6 +703,7 @@ function withToolEntry(
     // checkpoint stops matching what is on screen.
     const previousIndex = entries.findLastIndex((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
+        && entry.kind !== "thinking"
     );
     const previous = entries[previousIndex];
     const header = toolHeader(tool, active);
@@ -780,6 +785,7 @@ function finishToolEntry(
             entries[groupEnd]?.kind === "tool"
             || entries[groupEnd]?.kind === "review"
             || entries[groupEnd]?.kind === "thought"
+            || entries[groupEnd]?.kind === "thinking"
         )
     ) {
         groupEnd += 1;
@@ -975,9 +981,31 @@ function appendAssistantText(state: TuiState, text: string): TuiState {
 }
 
 function appendThinkingText(state: TuiState, text: string): TuiState {
-    return {
+    return withLiveThinking({
         ...state,
         pendingThinking: (state.pendingThinking ?? "") + text,
+    });
+}
+
+/**
+ * Puts the reasoning collected so far on screen as one live row at the end of
+ * the transcript.
+ *
+ * `pendingThinking` stays the record of what arrived, and the row is rebuilt
+ * from it rather than appended to, so a history rebuild that drops the row
+ * costs nothing: the next delta puts it back whole. That is also why the row
+ * carries no state of its own.
+ */
+function withLiveThinking(state: TuiState): TuiState {
+    const settled = state.entries.at(-1)?.kind === "thinking"
+        ? state.entries.slice(0, -1)
+        : state.entries;
+    const pending = state.pendingThinking;
+    return {
+        ...state,
+        entries: pending === undefined || pending.length === 0
+            ? settled
+            : [...settled, { kind: "thinking", text: pending }],
     };
 }
 
@@ -991,10 +1019,13 @@ function preserveLiveReviewEntries(
 ): readonly TuiTranscriptEntry[] {
     const withoutTransientEntries = current.filter((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
+        && entry.kind !== "thinking"
     );
     const base = current.some((entry) => entry.kind === "review")
             && transcriptEntriesEqual(withoutTransientEntries, canonical)
-        ? current.filter((entry) => entry.kind !== "thought")
+        ? current.filter((entry) =>
+            entry.kind !== "thought" && entry.kind !== "thinking"
+        )
         : canonical;
     return restoreReasoningEntries(base, anchoredReasoningEntries(current));
 }
@@ -1018,7 +1049,7 @@ function anchoredReasoningEntries(
     for (const entry of entries) {
         if (entry.kind === "thought") {
             anchored.push({ after: durable, entry });
-        } else if (entry.kind !== "review") {
+        } else if (entry.kind !== "review" && entry.kind !== "thinking") {
             durable += 1;
         }
     }
