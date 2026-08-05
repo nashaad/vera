@@ -153,3 +153,40 @@ test("TUI diagnostics describes the request after retry backoff ends", () => {
     expect(text).toContain("request      attempt 2 of 3");
     expect(text).not.toContain("retry in");
 });
+
+test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "thinking",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        stash: {
+            sessions: 2,
+            preimages: 3,
+            bytes: 213786,
+            oldestCapturedAt: "2026-08-05T17:00:00.000Z",
+        },
+        stashRoot: "/home/user/.vera/stash",
+        now: Date.parse("2026-08-05T20:00:00.000Z"),
+    });
+
+    expect(text).toContain(
+        "stash        3 pre-images across 2 sessions (208.8 KiB, oldest 3h)",
+    );
+    expect(text).toContain("restore with: cp <key> <path>");
+});
+
+test("TUI diagnostics reports an empty stash without recovery steps", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "thinking",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        stashRoot: "/home/user/.vera/stash",
+    });
+
+    expect(text).toContain("stash        empty (/home/user/.vera/stash)");
+    expect(text).not.toContain("restore with");
+});

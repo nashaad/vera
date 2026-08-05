@@ -81,6 +81,10 @@ import {
 } from "./question.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { renderTuiDiagnostics } from "./diagnostics.ts";
+import {
+    defaultStashRoot,
+    summarizeStash,
+} from "../../src/store/preimage-stash.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
@@ -1562,6 +1566,8 @@ export async function startTui(
                 sessionId: client.agentId,
                 workspace: client.workspace ?? process.cwd(),
                 runningBackgroundAgents,
+                stash: summarizeStash(),
+                stashRoot: defaultStashRoot(),
             }));
             renderState();
             return;

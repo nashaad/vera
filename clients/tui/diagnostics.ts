@@ -1,3 +1,4 @@
+import type { StashSummary } from "../../src/store/preimage-stash.ts";
 import type { TuiState } from "./state.ts";
 
 export interface TuiDiagnosticsSnapshot {
@@ -7,6 +8,8 @@ export interface TuiDiagnosticsSnapshot {
     readonly sessionId?: string;
     readonly workspace: string;
     readonly runningBackgroundAgents: number;
+    readonly stash?: StashSummary;
+    readonly stashRoot?: string;
     readonly now?: number;
 }
 
@@ -77,7 +80,46 @@ export function renderTuiDiagnostics(
     lines.push(`  session      ${snapshot.sessionId ?? "unavailable"}`);
     lines.push(`  workspace    ${snapshot.workspace}`);
     lines.push(`  background   ${snapshot.runningBackgroundAgents} running`);
+    lines.push(...stashLines(snapshot));
     return lines.join("\n");
+}
+
+function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
+    if (snapshot.stashRoot === undefined) {
+        return [];
+    }
+    const stash = snapshot.stash;
+    if (stash === undefined) {
+        return [`  stash        empty (${snapshot.stashRoot})`];
+    }
+    const oldest = stash.oldestCapturedAt === undefined
+        ? ""
+        : `, oldest ${age(stash.oldestCapturedAt, snapshot.now ?? Date.now())}`;
+    return [
+        `  stash        ${stash.preimages} pre-image${stash.preimages === 1 ? "" : "s"}`
+            + ` across ${stash.sessions} session${stash.sessions === 1 ? "" : "s"}`
+            + ` (${formatStashBytes(stash.bytes)}${oldest})`,
+        `               files overwritten by write/edit keep a copy in ${snapshot.stashRoot}/<session>/;`,
+        "               each <key>.json names its original path; restore with: cp <key> <path>",
+    ];
+}
+
+function age(capturedAt: string, now: number): string {
+    const ms = Math.max(0, now - Date.parse(capturedAt));
+    const hours = ms / (60 * 60 * 1000);
+    if (hours < 1) {
+        return `${Math.max(1, Math.round(ms / (60 * 1000)))}m`;
+    }
+    return hours < 48 ? `${Math.round(hours)}h` : `${Math.round(hours / 24)}d`;
+}
+
+function formatStashBytes(bytes: number): string {
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+    return bytes < 1024 * 1024
+        ? `${(bytes / 1024).toFixed(1)} KiB`
+        : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function retryDelay(retryAt: string, now: number): string {
