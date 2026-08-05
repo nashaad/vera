@@ -20,5 +20,6 @@ export function newStashingToolRuntime(
     return new ToolRuntime(
         workspace,
         (path, content) => stash.capture(path, content),
+        stash.directory,
     );
 }
