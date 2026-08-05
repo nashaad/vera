@@ -49,6 +49,7 @@ import {
 } from "../tools/execute.ts";
 import { initBashParser } from "../tools/bash-parser.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
+import { newStashingToolRuntime } from "./preimage.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
     ApplyToolEffect,
@@ -568,7 +569,7 @@ export async function runHeadlessLoop(
                 ) => runCompaction(signal, false, pendingMessages),
             }),
         deliveryInbox: store,
-        toolRuntime: new ToolRuntime(store.header.cwd),
+        toolRuntime: newStashingToolRuntime(store.header.cwd, store.header.id),
         inbound,
         events,
         hooks: options.hooks ?? new ToolHooks(),

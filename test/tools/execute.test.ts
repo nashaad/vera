@@ -33,7 +33,7 @@ test("oversized edit diffs become bounded notices", () => {
 
     expect(editDiffPresentation("large.txt", before, after)).toEqual({
         kind: "tool_notice",
-        text: expect.stringContaining("exceeds the inline limit"),
+        text: expect.stringContaining("-500 +500 lines"),
     });
 });
 
@@ -97,7 +97,9 @@ test("file tools read and write inside the workspace", async () => {
             toolName: "write",
             isError: false,
         });
-        expect(writeResult.content[0]?.text).toBe("Wrote 15 bytes to notes.txt");
+        expect(writeResult.content[0]?.text).toBe(
+            "Wrote 1 line (15 bytes) to notes.txt (new file)",
+        );
         expect(readResult).toMatchObject({
             role: "tool_result",
             toolCallId: "call_read",
@@ -146,13 +148,81 @@ test("write presents a diff: all additions for a new file, changes on overwrite"
     }
 });
 
+test("write and edit stash the pre-image before the first mutation", async () => {
+    const workspace = await realpath(
+        await mkdtemp(join(tmpdir(), "vera-files-")),
+    );
+    const captured: Array<{ path: string; content: string }> = [];
+    const runtime = new ToolRuntime(workspace, async (path, content) => {
+        captured.push({ path, content });
+    });
+
+    try {
+        await executeToolCall(toolCall(
+            "call_create",
+            "write",
+            { path: "notes.txt", content: "original" },
+        ), runtime);
+        expect(captured).toEqual([]);
+
+        await executeToolCall(toolCall(
+            "call_replace",
+            "write",
+            { path: "notes.txt", content: "replacement" },
+        ), runtime);
+        expect(captured).toEqual([
+            { path: join(workspace, "notes.txt"), content: "original" },
+        ]);
+
+        await executeToolCall(toolCall(
+            "call_edit",
+            "edit",
+            {
+                path: "notes.txt",
+                edits: [{ old_string: "replacement", new_string: "edited" }],
+            },
+        ), runtime);
+        expect(captured[1]).toEqual({
+            path: join(workspace, "notes.txt"),
+            content: "replacement",
+        });
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a failing pre-image recorder does not fail the write", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-files-"));
+    const runtime = new ToolRuntime(workspace, () => {
+        throw new Error("stash unavailable");
+    });
+
+    try {
+        await executeToolCall(toolCall(
+            "call_create",
+            "write",
+            { path: "notes.txt", content: "original" },
+        ), runtime);
+        const result = await executeToolCall(toolCall(
+            "call_replace",
+            "write",
+            { path: "notes.txt", content: "replacement" },
+        ), runtime);
+        expect(result.isError).toBe(false);
+        expect(await Bun.file(join(workspace, "notes.txt")).text())
+            .toBe("replacement");
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("file tool guidance describes its permission-gated path reach", () => {
     const definitions = toolDefinitionsForCapabilities([]);
     expect(definitions.find((tool) => tool.name === "read")?.description).toBe(
         "Read a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
     );
     expect(definitions.find((tool) => tool.name === "write")?.description).toBe(
-        "Write a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
+        "Create a new UTF-8 text file, or completely replace an existing one. Replacement is total: any existing content not included in this call is destroyed. To modify an existing file (append, insert, or change part of it), use edit instead. Relative paths resolve from the workspace.",
     );
 });
 

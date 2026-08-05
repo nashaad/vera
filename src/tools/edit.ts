@@ -17,7 +17,7 @@ export const editTool: RegisteredTool = {
     permissionInputs: [{ field: "path", kind: "path", verb: "write" }],
     definition: {
         name: "edit",
-        description: "Edit a previously read file using exact text replacements.",
+        description: "Modify an existing, previously read file using exact text replacements. This is the correct tool for any change to a file that already exists, including appending to it. Only the matched text changes; the rest of the file is preserved.",
         inputSchema: {
             type: "object",
             properties: {
@@ -57,6 +57,7 @@ async function editFileInWorkspace(
         const path = await resolveReadPath(runtime.workspace, requestedPath);
         const originalContent = await Bun.file(path).text();
         runtime.assertFreshFileSnapshot(path, originalContent, requestedPath);
+        await runtime.stashPreimage(path, originalContent);
 
         let editedContent = originalContent;
         for (const [index, edit] of edits.entries()) {

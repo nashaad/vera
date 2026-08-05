@@ -18,10 +18,40 @@ export function editDiffPresentation(
     if (bytes > MAX_DIFF_BYTES || lines > MAX_DIFF_LINES) {
         return {
             kind: "tool_notice",
-            text: `Diff not shown for ${path}: ${lines.toLocaleString()} lines (${formatBytes(bytes)}) exceeds the inline limit.`,
+            text: `Diff too large to show inline for ${path}: ${diffMagnitude(patch, before, after)}.`,
         };
     }
     return { kind: "unified_diff", path, patch };
+}
+
+/**
+ * Summarizes how much a change added, removed, and left of the original
+ * file. An oversized diff drops its detail, never its magnitude: the
+ * summary is what tells a reader that a change was destructive.
+ */
+function diffMagnitude(patch: string, before: string, after: string): string {
+    let added = 0;
+    let removed = 0;
+    for (const line of patch.split("\n")) {
+        if (line.startsWith("+") && !line.startsWith("+++")) {
+            added += 1;
+        } else if (line.startsWith("-") && !line.startsWith("---")) {
+            removed += 1;
+        }
+    }
+    const beforeBytes = Buffer.byteLength(before);
+    const afterBytes = Buffer.byteLength(after);
+    const size = `${formatBytes(beforeBytes)} -> ${formatBytes(afterBytes)}`;
+    const counts = `-${removed.toLocaleString()} +${added.toLocaleString()} lines (${size})`;
+    if (beforeBytes === 0 || afterBytes >= beforeBytes) {
+        return counts;
+    }
+    const lostPercent = Math.round(
+        ((beforeBytes - afterBytes) / beforeBytes) * 100,
+    );
+    return lostPercent >= 1
+        ? `${counts}, ${lostPercent}% of file removed`
+        : counts;
 }
 
 function formatBytes(bytes: number): string {
