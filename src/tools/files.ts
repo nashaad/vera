@@ -88,16 +88,18 @@ export function writeResultSummary(
     existedBefore: boolean,
     previousContent: string,
 ): string {
-    const written = `Wrote ${lineCount(content)} (${bytesWritten} bytes) to ${path}`;
+    const written = `Wrote ${lineCount(content)} (${bytesWritten.toLocaleString()} bytes) to ${path}`;
     if (!existedBefore) {
         return `${written} (new file)`;
     }
-    return `${written}, fully replacing the previous content: ${lineCount(previousContent)} (${Buffer.byteLength(previousContent)} bytes)`;
+    return `${written}, fully replacing the previous content: ${lineCount(previousContent)} (${Buffer.byteLength(previousContent).toLocaleString()} bytes)`;
 }
 
 function lineCount(content: string): string {
-    const count = content === "" ? 0 : content.split("\n").length;
-    return `${count} line${count === 1 ? "" : "s"}`;
+    const count = content === ""
+        ? 0
+        : content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+    return `${count.toLocaleString()} line${count === 1 ? "" : "s"}`;
 }
 
 export async function resolveReadPath(
