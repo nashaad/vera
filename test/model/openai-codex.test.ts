@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
     createOpenAICodexAdapter,
@@ -190,7 +193,12 @@ describe("OpenAI Codex adapter", () => {
             requests.push(request);
             return events(responses.shift() ?? []);
         };
-        const adapter = new OpenAICodexAdapter(sendResponse);
+        // Its own empty catalog dir, so the level list is a fact of the test
+        // rather than of whichever models the machine running it has cached.
+        const adapter = new OpenAICodexAdapter(
+            sendResponse,
+            mkdtempSync(join(tmpdir(), "vera-catalog-")),
+        );
         const initialMessages: ModelMessage[] = [
             { role: "user", content: [{ type: "text", text: "Where am I?" }] },
         ];
@@ -269,8 +277,7 @@ describe("OpenAI Codex adapter", () => {
         expect(requests[0]).toMatchObject({
             model: "gpt-5.6-sol",
             instructions: "Be concise.",
-            // gpt-5.6-sol has no known level list in this slice (the
-            // catalog loader is a later slice), so "off" resolves to no
+            // No catalog, so no known level list, so "off" resolves to no
             // level specified rather than a hardcoded "none".
             reasoning: { summary: "auto" },
             input: [{
@@ -509,3 +516,80 @@ async function* events(
         yield value;
     }
 }
+
+test("the requested reasoning level reaches the request as a provider effort", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "vera-catalog-"));
+    writeFileSync(
+        join(cacheDir, "openai-codex.json"),
+        JSON.stringify({
+            schema_version: 2,
+            provider: "openai-codex",
+            models: [{
+                id: "gpt-5.6-sol",
+                label: "GPT-5.6-Sol",
+                default_level: "low",
+                levels: [
+                    { id: "high", label: "High" },
+                    { id: "low", label: "Low" },
+                ],
+            }],
+        }),
+    );
+
+    const requests: OpenAICodexRequest[] = [];
+    const adapter = new OpenAICodexAdapter(async (request) => {
+        requests.push(request);
+        return events([{ type: "response.completed" }]);
+    }, cacheDir);
+
+    const stream = adapter.stream({
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    });
+    for await (const _event of stream) {
+        // Drain the stream.
+    }
+
+    // Without the level list the effort key is absent entirely, which is how
+    // a chosen level used to be accepted, displayed, and never sent.
+    expect(requests[0]?.reasoning).toEqual({ effort: "high", summary: "auto" });
+});
+
+test("summary parts are separated by the blank line the stream omits", async () => {
+    const adapter = new OpenAICodexAdapter(async () => events([
+        { type: "response.output_item.added", output_index: 0, item: { type: "reasoning" } },
+        {
+            type: "response.reasoning_summary_text.delta",
+            output_index: 0,
+            delta: "Weighing the two orderings.",
+        },
+        { type: "response.reasoning_summary_part.added", output_index: 0 },
+        {
+            type: "response.reasoning_summary_text.delta",
+            output_index: 0,
+            delta: "Settling on the second.",
+        },
+        {
+            type: "response.output_item.done",
+            output_index: 0,
+            item: { type: "reasoning", id: "reasoning-1" },
+        },
+        { type: "response.completed" },
+    ]));
+
+    const deltas: string[] = [];
+    const stream = adapter.stream({
+        model: "gpt-5.6-sol",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    });
+    for await (const event of stream) {
+        if (event.type === "thinking_delta") {
+            deltas.push(event.text);
+        }
+    }
+
+    expect(deltas.join("")).toBe(
+        "Weighing the two orderings.\n\nSettling on the second.",
+    );
+});

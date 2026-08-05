@@ -1,7 +1,11 @@
 import { platform, release, arch } from "node:os";
 
 import { OpenAICodexStreamDecoder } from "./openai-codex-stream.ts";
-import { resolveReasoningSelection } from "../model/reasoning-effort.ts";
+import {
+    resolveReasoningSelection,
+    type ResolveReasoningOptions,
+} from "../model/reasoning-effort.ts";
+import { effectiveCatalog } from "../model/catalog.ts";
 import {
     encodeOpenAICodexInput,
     encodeOpenAICodexTools,
@@ -39,9 +43,12 @@ export interface OpenAICodexAdapterOptions extends OpenAICodexAuthorizationOptio
 export class OpenAICodexAdapter implements ModelAdapter {
     readonly supportsImageInput = true;
     private readonly sendResponse: SendOpenAICodexResponse;
+    /** Where the model catalog is read from, so a test can name its own. */
+    private readonly catalogCacheDir: string | undefined;
 
-    constructor(sendResponse: SendOpenAICodexResponse) {
+    constructor(sendResponse: SendOpenAICodexResponse, cacheDir?: string) {
         this.sendResponse = sendResponse;
+        this.catalogCacheDir = cacheDir;
     }
 
     stream(request: ModelRequest): ModelEventStream {
@@ -71,6 +78,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
                     "openai-codex",
                     request.model,
                     request.reasoningEffort,
+                    codexReasoningLevels(request.model, this.catalogCacheDir),
                 );
             const providerRequest: OpenAICodexRequest = {
                 model: request.model,
@@ -265,4 +273,34 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 
 function toError(value: unknown): Error {
     return value instanceof Error ? value : new Error(String(value));
+}
+
+/**
+ * The model's own reasoning levels, from the catalog Vera already publishes
+ * from the Codex cache.
+ *
+ * `resolveReasoningSelection` takes a level list from its caller and returns no
+ * provider effort without one, so a request made without this carries no
+ * `effort` at all: the level the user picked is accepted, displayed, and never
+ * sent. A model the catalog has not heard of still yields nothing, which is the
+ * honest answer rather than a guessed ladder.
+ */
+function codexReasoningLevels(
+    model: string,
+    cacheDir: string | undefined,
+): ResolveReasoningOptions {
+    const catalog = effectiveCatalog(
+        "openai-codex",
+        cacheDir === undefined ? {} : { cacheDir },
+    );
+    const catalogModel = catalog.models.find((candidate) => candidate.id === model);
+    if (catalogModel === undefined || catalogModel.levels.length === 0) {
+        return {};
+    }
+    return {
+        supportedEfforts: catalogModel.levels.map((level) => level.id),
+        ...(catalogModel.default_level === undefined
+            ? {}
+            : { defaultLevel: catalogModel.default_level }),
+    };
 }
