@@ -1420,10 +1420,20 @@ export async function startTui(
             // Opening every fold grows the transcript above the viewport, which
             // walks the view backwards through the conversation. The reasoning
             // worth reading is the most recent, so the view follows it.
+            //
+            // Reading the bottom first is what keeps the toggle from costing
+            // the follow: setting a scroll position anywhere but the bottom
+            // drops sticky scroll for the rest of the session, so a transcript
+            // that was keeping up with the stream is put back on the bottom
+            // rather than pointed at a row.
+            const wasFollowing = transcript.scrollTop
+                >= transcript.scrollHeight - transcript.viewport.height;
             const lastThought = state.entries.findLastIndex((entry) =>
                 entry.kind === "thought"
             );
-            if (lastThought >= 0) {
+            if (wasFollowing) {
+                transcript.scrollTo(transcript.scrollHeight);
+            } else if (lastThought >= 0) {
                 transcript.scrollChildIntoView(`entry-${lastThought}`);
             }
             return;
