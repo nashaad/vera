@@ -43,7 +43,7 @@ test("a thought with no reasoning behind it carries no fold marker", () => {
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Thought: 3.0s");
 });
 
-test("streamed reasoning stays off the transcript until it is summarized", () => {
+test("streamed reasoning shows live and is rebuilt from what arrived", () => {
     let state = createTuiState();
     for (const text of ["first ", "part"]) {
         state = applyAgentUpdate(state, {
@@ -53,8 +53,9 @@ test("streamed reasoning stays off the transcript until it is summarized", () =>
         });
     }
 
-    expect(state.entries).toEqual([]);
-    // Deltas are fragments, so they join exactly as they arrived.
+    // Deltas are fragments, so they join exactly as they arrived, and the live
+    // row carries the whole of it rather than the last delta.
+    expect(state.entries).toEqual([{ kind: "thinking", text: "first part" }]);
     expect(state.pendingThinking).toBe("first part");
 });
 
@@ -170,15 +171,18 @@ test("reasoning collected mid-turn survives a history rebuild", () => {
         text: "weighing the two orderings",
         seq: 1,
     });
-    // A turn emits history while it is still streaming, and the rebuild only
-    // touches entries, so reasoning waiting for its summary is untouched.
+    // A turn emits history while it is still streaming. The rebuild drops the
+    // live row, and it is put back from the reasoning that already arrived.
     state = applyAgentUpdate(state, {
         type: "history",
         entries: [{ kind: "user", text: "which ordering?" }],
         seq: 2,
     });
 
-    expect(state.entries).toEqual([{ kind: "user", text: "which ordering?" }]);
+    expect(state.entries).toEqual([
+        { kind: "user", text: "which ordering?" },
+        { kind: "thinking", text: "weighing the two orderings" },
+    ]);
     expect(state.pendingThinking).toBe("weighing the two orderings");
 });
 

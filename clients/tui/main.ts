@@ -1417,6 +1417,15 @@ export async function startTui(
             key.stopPropagation();
             state = toggleTuiThinking(state);
             renderState();
+            // Opening every fold grows the transcript above the viewport, which
+            // walks the view backwards through the conversation. The reasoning
+            // worth reading is the most recent, so the view follows it.
+            const lastThought = state.entries.findLastIndex((entry) =>
+                entry.kind === "thought"
+            );
+            if (lastThought >= 0) {
+                transcript.scrollChildIntoView(`entry-${lastThought}`);
+            }
             return;
         }
 
@@ -2982,11 +2991,14 @@ export async function startTui(
                     updateTuiToolRow(existing, entry);
                 }
                 if (
-                    (entry.kind === "tool_header" || entry.kind === "thought")
+                    (entry.kind === "tool_header"
+                        || entry.kind === "thought"
+                        || entry.kind === "thinking")
                     && existing instanceof TextRenderable
                 ) {
-                    // A thought row's height changes when its fold opens, so
-                    // it is re-rendered rather than left as first drawn.
+                    // A thought row's height changes when its fold opens and a
+                    // thinking row grows with every delta, so both are
+                    // re-rendered rather than left as first drawn.
                     existing.content = renderTuiEntry(entry);
                 }
                 return;
