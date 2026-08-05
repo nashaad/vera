@@ -103,3 +103,94 @@ test("Ollama compatibility exposes connection and HTTP failures as terminal erro
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toContain("HTTP 404");
 });
+
+interface CapabilityProbe {
+    readonly bodies: () => readonly Record<string, unknown>[];
+    readonly shows: () => number;
+    readonly fetch: (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => Promise<Response>;
+}
+
+function stubOllama(show: () => Response | Promise<Response>): CapabilityProbe {
+    const bodies: Record<string, unknown>[] = [];
+    let shows = 0;
+    return {
+        bodies: () => bodies,
+        shows: () => shows,
+        fetch: async (input, init) => {
+            const url = String(input instanceof Request ? input.url : input);
+            if (url.endsWith("/api/show")) {
+                shows += 1;
+                return await show();
+            }
+            bodies.push(JSON.parse(String(init?.body)));
+            return new Response(
+                'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}\n\n'
+                    + "data: [DONE]\n\n",
+                { status: 200 },
+            );
+        },
+    };
+}
+
+function capabilities(...values: string[]): Response {
+    return Response.json({ capabilities: values });
+}
+
+async function send(
+    probe: CapabilityProbe,
+    model = "granite4.1:8b",
+): Promise<void> {
+    await createOllamaAdapter({ fetch: probe.fetch }).stream({
+        model,
+        reasoningEffort: "low",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    }).result();
+}
+
+test("a model that declares no thinking capability is sent no reasoning effort", async () => {
+    const probe = stubOllama(() => capabilities("completion", "tools"));
+    await send(probe);
+    expect(probe.bodies()[0]).not.toHaveProperty("reasoning_effort");
+});
+
+test("a model that declares thinking keeps its reasoning effort", async () => {
+    const probe = stubOllama(() => capabilities("completion", "thinking"));
+    await send(probe);
+    expect(probe.bodies()[0]).toMatchObject({ reasoning_effort: "low" });
+});
+
+test("an unavailable capability probe leaves the request unchanged", async () => {
+    const missing = stubOllama(() => new Response("", { status: 404 }));
+    await send(missing);
+    expect(missing.bodies()[0]).toMatchObject({ reasoning_effort: "low" });
+
+    const offline = stubOllama(() => {
+        throw new Error("connection refused");
+    });
+    await send(offline);
+    expect(offline.bodies()[0]).toMatchObject({ reasoning_effort: "low" });
+
+    const silent = stubOllama(() => Response.json({ model_info: {} }));
+    await send(silent);
+    expect(silent.bodies()[0]).toMatchObject({ reasoning_effort: "low" });
+});
+
+test("capabilities are probed once per model for an adapter's lifetime", async () => {
+    const probe = stubOllama(() => capabilities("completion"));
+    const adapter = createOllamaAdapter({ fetch: probe.fetch });
+    const turn = () =>
+        adapter.stream({
+            model: "granite4.1:8b",
+            reasoningEffort: "low",
+            messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        }).result();
+    await turn();
+    await turn();
+
+    expect(probe.shows()).toBe(1);
+    expect(probe.bodies()).toHaveLength(2);
+    expect(probe.bodies()[1]).not.toHaveProperty("reasoning_effort");
+});

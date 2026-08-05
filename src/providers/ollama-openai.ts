@@ -28,13 +28,21 @@ export function createOllamaAdapter(
     options: OllamaAdapterOptions = {},
 ): ModelAdapter {
     const fetchImplementation = options.fetch ?? globalThis.fetch;
-    const endpoint = `${normalizeHost(options.host ?? "http://127.0.0.1:11434")}/v1/chat/completions`;
+    const host = normalizeHost(options.host ?? "http://127.0.0.1:11434");
+    const endpoint = `${host}/v1/chat/completions`;
+    const thinking = new Map<string, boolean>();
     return new OpenRouterAdapter(
         async (request, signal) => {
+            const supportsThinking = await resolveThinkingSupport(
+                thinking,
+                fetchImplementation,
+                host,
+                request.model,
+            );
             const response = await fetchImplementation(endpoint, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify(encodeRequest(request)),
+                body: JSON.stringify(encodeRequest(request, supportsThinking)),
                 signal,
             });
             if (!response.ok) {
@@ -55,7 +63,52 @@ export function createOllamaAdapter(
     );
 }
 
-function encodeRequest(request: OpenRouterChatRequest): Record<string, unknown> {
+/**
+ * A model whose declared capabilities omit `thinking` rejects the request with
+ * HTTP 400 rather than ignoring the field, and it rejects `"none"` too, so the
+ * whole field goes rather than its value. Only a positive "capabilities listed,
+ * thinking absent" answer gates; anything else sends the request as asked.
+ */
+async function resolveThinkingSupport(
+    cache: Map<string, boolean>,
+    fetchImplementation: (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => Promise<Response>,
+    host: string,
+    model: string,
+): Promise<boolean> {
+    const cached = cache.get(model);
+    if (cached !== undefined) return cached;
+    let capabilities: readonly unknown[] | undefined;
+    try {
+        const response = await fetchImplementation(`${host}/api/show`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model }),
+            signal: AbortSignal.timeout(750),
+        });
+        if (!response.ok) return true;
+        const body = await response.json() as { capabilities?: unknown };
+        if (!Array.isArray(body.capabilities)) {
+            // The daemon answered and named no capabilities: a stable fact
+            // about this model, unlike a daemon that was not reachable.
+            cache.set(model, true);
+            return true;
+        }
+        capabilities = body.capabilities;
+    } catch {
+        return true;
+    }
+    const supported = capabilities.includes("thinking");
+    cache.set(model, supported);
+    return supported;
+}
+
+function encodeRequest(
+    request: OpenRouterChatRequest,
+    supportsThinking: boolean,
+): Record<string, unknown> {
     return {
         model: request.model,
         stream: true,
@@ -64,7 +117,7 @@ function encodeRequest(request: OpenRouterChatRequest): Record<string, unknown> 
         ...(request.maxTokens === undefined
             ? {}
             : { max_tokens: request.maxTokens }),
-        ...(request.reasoning === undefined
+        ...(request.reasoning === undefined || !supportsThinking
             ? {}
             : { reasoning_effort: request.reasoning.effort }),
         ...(request.tools === undefined || request.tools.length === 0
