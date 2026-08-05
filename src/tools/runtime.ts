@@ -5,13 +5,20 @@ export type PreimageRecorder = (
 
 export class ToolRuntime {
     readonly workspace: string;
+    /** Where captured pre-images land, for messages that point at them. */
+    readonly stashDirectory: string | undefined;
     private readonly fileSnapshots = new Map<string, string>();
     private readonly preimageRecorder: PreimageRecorder | undefined;
     private mutationTail: Promise<void> = Promise.resolve();
 
-    constructor(workspace: string, preimageRecorder?: PreimageRecorder) {
+    constructor(
+        workspace: string,
+        preimageRecorder?: PreimageRecorder,
+        stashDirectory?: string,
+    ) {
         this.workspace = workspace;
         this.preimageRecorder = preimageRecorder;
+        this.stashDirectory = stashDirectory;
     }
 
     recordFileSnapshot(path: string, content: string): void {

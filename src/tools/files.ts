@@ -74,6 +74,7 @@ export const writeTool: RegisteredTool = {
                     path,
                     previousContent,
                     content,
+                    context.stashDirectory,
                 ),
             };
         });

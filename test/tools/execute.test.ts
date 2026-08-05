@@ -37,6 +37,35 @@ test("oversized edit diffs become bounded notices", () => {
     });
 });
 
+test("a destructive oversized diff notice points at the pre-image stash", () => {
+    const before = Array.from(
+        { length: 500 },
+        (_, index) => `line ${index}`,
+    ).join("\n");
+
+    const destructive = editDiffPresentation(
+        "large.txt",
+        before,
+        "stub",
+        "/stash/session-1",
+    );
+    expect(destructive).toEqual({
+        kind: "tool_notice",
+        text: expect.stringContaining("pre-image saved in /stash/session-1"),
+    });
+
+    const grown = editDiffPresentation(
+        "large.txt",
+        before,
+        `${before}\n${before}`,
+        "/stash/session-1",
+    );
+    expect(grown).toEqual({
+        kind: "tool_notice",
+        text: expect.not.stringContaining("pre-image"),
+    });
+});
+
 test("subagent is exposed only when the engine can apply effects", async () => {
     const ordinary = toolDefinitionsForCapabilities([]).map((tool) => tool.name);
     const withSubagent = toolDefinitionsForCapabilities([

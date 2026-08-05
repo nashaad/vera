@@ -82,6 +82,7 @@ async function editFileInWorkspace(
                 requestedPath,
                 originalContent,
                 editedContent,
+                runtime.stashDirectory,
             ),
         };
     });

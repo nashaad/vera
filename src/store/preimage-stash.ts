@@ -21,7 +21,7 @@ interface PreimageSidecar {
  * mutations of the same file in the same session never replace it.
  */
 export class PreimageStash {
-    private readonly directory: string;
+    readonly directory: string;
     private readonly sessionId: string;
     private readonly captured = new Set<string>();
     private prepared: Promise<void> | undefined;
