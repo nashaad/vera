@@ -1409,10 +1409,24 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         state.effortSubstitution,
-    )).toContain("reasoning low → high");
+    )).toContain("reasoning high (asked low)");
 
-    // The stored setting is untouched: the arrow is the report, not a change.
+    // The stored setting is untouched: the line reports, it does not change.
     expect(state.modelSettings?.reasoningEffort).toBe("low");
+
+    // A turn that sent no reasoning level at all says so in the same place.
+    const none = applyAgentUpdate(state, {
+        ...EFFORT_SUBSTITUTION,
+        using: undefined,
+    } as AgentUpdate);
+    expect(renderTuiStatusDetailsLine(
+        none.modelSettings,
+        "auto",
+        undefined,
+        "/workspace",
+        0,
+        none.effortSubstitution,
+    )).toContain("reasoning none (asked low)");
 
     // A different model is a different question, so the evidence is dropped.
     const moved = applyAgentUpdate(state, settingsUpdate({

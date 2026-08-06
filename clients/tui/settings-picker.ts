@@ -411,8 +411,11 @@ export function startTuiSettingsPicker(
             : pooledOptions.length > 0
             ? "pool"
             : "all";
+    const collapsed = kind === "model"
+        ? defaultCollapsedSections(allOptions, currentValue)
+        : [];
     const options = kind === "model"
-        ? modelPickerOptions(allOptions, openingTab, [], "")
+        ? modelPickerOptions(allOptions, openingTab, collapsed, "")
         : allOptions;
     const selectedIndex = Math.max(
         0,
@@ -425,6 +428,7 @@ export function startTuiSettingsPicker(
         selectedIndex,
         query: "",
         ...(kind === "model" ? { tab: openingTab } : {}),
+        ...(collapsed.length === 0 ? {} : { collapsed }),
         ...(kind === "model" && currentValue !== undefined
             ? { initialModel: currentValue }
             : {}),
@@ -1126,6 +1130,40 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
+    // Fold and unfold everything, ahead of the modifier bail-out below because
+    // both chords carry shift. Either one replaces whatever mix of open and
+    // closed sections the user had: it is one answer to "show me less" or
+    // "show me all of it", not an edit to each section in turn.
+    const foldAll = state.kind !== "model"
+        ? undefined
+        : tuiBindingId("model_picker", key);
+    if (foldAll === "collapse_all" || foldAll === "expand_all") {
+        const collapsed = foldAll === "collapse_all"
+            ? sectionLabels(state as TuiSettingsPickerState)
+            : [];
+        const modelState = state as TuiSettingsPickerState;
+        const options = modelPickerOptions(
+            modelState.allOptions,
+            modelState.tab ?? "all",
+            collapsed,
+            modelState.query,
+        );
+        const selectedValue = modelState.options[modelState.selectedIndex]
+            ?.value;
+        return {
+            state: {
+                ...modelState,
+                collapsed,
+                options,
+                selectedIndex: restoredCursor(
+                    options,
+                    selectedValue,
+                    modelState.initialModel,
+                ),
+            },
+            handled: true,
+        };
+    }
     // Half-page movement, ahead of the modifier bail-out below. The cursor
     // travels with the jump rather than the window sliding out from under it,
     // so ctrl+d is ↓ held down and nothing new has to be learned about where
@@ -1643,10 +1681,13 @@ export function pickerFooter(
                 : [{ text: tuiKeyHint("verify_model"), drop: 4 }]),
             // Only while the cursor is on a heading: the keys do nothing on a
             // model row, and a hint for them there would be a lie.
-            ...(selected?.section === undefined
-                ? []
-                : [{ text: "←→ fold", drop: 1 }]),
-            { text: tuiKeyHint("open_providers"), drop: 5 },
+            // The whole-list keys are worth a slot behind the row's own keys;
+            // on a heading, where ← and → do something too, the entry moves up
+            // because folding is then what the highlighted row is for.
+            selected?.section === undefined
+                ? { text: "⇧←→ fold all", drop: 5 }
+                : { text: "←→ ⇧←→ fold", drop: 1 },
+            { text: tuiKeyHint("open_providers"), drop: 6 },
             { text: "⇥ tabs", drop: 3 },
             { text: "esc close", drop: 0 },
         ], width);
@@ -2265,6 +2306,43 @@ function sectionedOptions(
         }
     });
     return options;
+}
+
+/**
+ * How All models opens: Top picks showing, the providers closed.
+ *
+ * The recommendations are the answer to "which model should I switch to", and
+ * a provider list of a few hundred rows underneath them is a haystack around
+ * that answer. The section holding the running model stays open, because the
+ * pane opens with the cursor on that row and a cursor inside a closed section
+ * is a pane that opens somewhere the user cannot see.
+ */
+function defaultCollapsedSections(
+    allOptions: readonly TuiSettingsPickerOption[],
+    currentValue: string | undefined,
+): readonly string[] {
+    const rows = modelTabRows(allOptions, "all");
+    const open = rows.find((option) => option.value === currentValue)?.provider;
+    const sections = new Set<string>();
+    rows.forEach((option) => {
+        const label = option.group ?? option.provider ?? "Other";
+        if (label !== open) {
+            sections.add(label);
+        }
+    });
+    return [...sections];
+}
+
+/** Every section the list is showing, closed or open. */
+function sectionLabels(
+    state: TuiSettingsPickerState,
+): readonly string[] {
+    return modelPickerOptions(
+        state.allOptions,
+        state.tab ?? "all",
+        [],
+        state.query,
+    ).flatMap((option) => option.section === undefined ? [] : [option.section]);
 }
 
 /** The pane with one section opened or closed, cursor left on its heading. */
