@@ -22,6 +22,8 @@ import { asyncSubagentTool } from "./async-subagent.ts";
 import { messageSubagentTool } from "./message-subagent.ts";
 import { notifyParentTool } from "./notify-parent.ts";
 import { webFetchTool } from "./web-fetch.ts";
+import { catalogSearchTool } from "./catalog-search.ts";
+import { poolAddTool } from "./pool-add.ts";
 
 const ordinaryTools: readonly RegisteredTool[] = [
     bashTool,
@@ -31,6 +33,7 @@ const ordinaryTools: readonly RegisteredTool[] = [
     grepTool,
     listTool,
     webFetchTool,
+    catalogSearchTool,
 ];
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
@@ -39,6 +42,7 @@ const registeredTools: readonly RegisteredTool[] = [
     asyncSubagentTool,
     messageSubagentTool,
     notifyParentTool,
+    poolAddTool,
 ];
 for (const tool of registeredTools) {
     assertValidPermissionInputs(tool);

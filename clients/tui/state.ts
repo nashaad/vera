@@ -7,6 +7,8 @@ import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
 import type {
     CompactionUpdate,
     ModelActivityUpdate,
+    PoolAdmissionProgressUpdate,
+    PoolAdmissionResultUpdate,
     TranscriptEntry,
 } from "../../src/engine/protocol.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
@@ -55,6 +57,18 @@ export interface TuiTextTranscriptEntry {
     readonly reasoning?: string;
     /** Whether a `thought` summary is showing its reasoning. */
     readonly expanded?: boolean;
+    /** Whether this completed tool row is hidden behind its group header. */
+    readonly hidden?: boolean;
+    /** How many logical output lines a folded tool header summarizes. */
+    readonly detailLines?: number;
+    /** One bounded action summary retained while a tool group is folded. */
+    readonly detailPreview?: string;
+    /**
+     * The `pool_add` request this checklist entry reports on. Progress updates
+     * rewrite the entry in place rather than appending, so the checklist reads
+     * as one live surface instead of one line per state change.
+     */
+    readonly admission?: string;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -85,6 +99,42 @@ export interface TuiState {
     readonly pendingThinking?: string;
     /** Whether new `thought` summaries open showing their reasoning. */
     readonly thinkingExpanded?: boolean;
+    /** Whether completed tool groups are forced open or closed. */
+    readonly toolDetailsExpanded?: boolean;
+    /** The admission run in flight, or awaiting its refreshed pool snapshot. */
+    readonly admission?: TuiAdmissionState;
+}
+
+export interface TuiAdmissionStep {
+    readonly step: string;
+    readonly label: string;
+    readonly status: "running" | "passed" | "failed" | "skipped";
+    readonly detail?: string;
+}
+
+/**
+ * One `pool_add` as the transcript shows it: the subject line, the steps seen
+ * so far, and the verdict once it lands. Kept on `TuiState` rather than only in
+ * the entry text so a later `model_settings` snapshot can finish the "added"
+ * line with the verified level count, which only that snapshot knows.
+ */
+export interface TuiAdmissionState {
+    readonly requestId: string;
+    readonly subject: string;
+    readonly steps: readonly TuiAdmissionStep[];
+    readonly verdict?: "added" | "incompatible" | "unavailable";
+    readonly provider?: string;
+    readonly model?: string;
+    readonly reason?: string;
+    readonly statusCode?: number;
+    /** How many levels the refreshed pool snapshot reported as verified. */
+    readonly verifiedLevels?: number;
+    /**
+     * Nothing more will arrive for this run. Kept rather than cleared so a
+     * surface still showing the verdict has data to render; a new run
+     * replaces it.
+     */
+    readonly settled?: boolean;
 }
 
 export let TUI_ACCENT = VERA_TUI_THEME.accent;
@@ -217,10 +267,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "tool_finished") {
         return {
             ...state,
-            entries: finishToolEntry(
-                state.entries,
-                update.tool,
-                update.output,
+            entries: applyToolDetailPreference(
+                finishToolEntry(state.entries, update.tool, update.output),
+                state.toolDetailsExpanded,
             ),
         };
     }
@@ -230,7 +279,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "turn_finished") {
         const finished = {
             ...state,
-            entries: settleToolEntries(state.entries),
+            entries: applyToolDetailPreference(
+                settleToolEntries(state.entries),
+                state.toolDetailsExpanded,
+            ),
             working: false,
             modelActivity: undefined,
         };
@@ -253,7 +305,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "agent_failed") {
         return appendEntry({
             ...state,
-            entries: settleToolEntries(state.entries),
+            entries: applyToolDetailPreference(
+                settleToolEntries(state.entries),
+                state.toolDetailsExpanded,
+            ),
             working: false,
             queuedPrompts: [],
             modelActivity: undefined,
@@ -266,7 +321,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return {
             ...state,
             ...(update.state === "idle"
-                ? { entries: settleToolEntries(state.entries) }
+                ? {
+                    entries: applyToolDetailPreference(
+                        settleToolEntries(state.entries),
+                        state.toolDetailsExpanded,
+                    ),
+                }
                 : {}),
             working: update.state !== "idle",
             ...(update.state === "idle" ? { modelActivity: undefined } : {}),
@@ -281,7 +341,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         });
     }
     if (update.type === "history") {
-        const canonicalEntries = toTuiTranscriptEntries(update.entries);
+        const canonicalEntries = applyToolDetailPreference(
+            toTuiTranscriptEntries(update.entries),
+            state.toolDetailsExpanded,
+        );
         // The live reasoning row is rebuilt rather than preserved, so a rebuild
         // that lands mid-phase puts it back at the end where it belongs.
         return withLiveThinking({
@@ -312,7 +375,16 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "model_settings") {
-        return { ...state, modelSettings: update.settings };
+        return finishAdmissionFromSnapshot({
+            ...state,
+            modelSettings: update.settings,
+        }, update.settings);
+    }
+    if (update.type === "pool_admission_progress") {
+        return applyAdmissionProgress(state, update);
+    }
+    if (update.type === "pool_admission_result") {
+        return applyAdmissionResult(state, update);
     }
     if (update.type === "model_settings_rejected") {
         // Every settings change is announced optimistically the moment it is
@@ -420,6 +492,206 @@ function applyCompaction(
     return state;
 }
 
+/**
+ * Opens the checklist the moment `pool_add` is sent, so the transcript answers
+ * the keypress immediately rather than waiting on the first probe. Only the
+ * sender knows which model the request names: the progress updates carry the
+ * requestId alone.
+ */
+export function beginTuiAdmission(
+    state: TuiState,
+    requestId: string,
+    subject: string,
+): TuiState {
+    const admission: TuiAdmissionState = { requestId, subject, steps: [] };
+    return withAdmissionEntry({ ...state, admission }, admission);
+}
+
+function applyAdmissionProgress(
+    state: TuiState,
+    update: PoolAdmissionProgressUpdate,
+): TuiState {
+    const current = state.admission?.requestId === update.requestId
+        ? state.admission
+        // A stream this client did not start (say, after a reattach) still
+        // renders: the checklist is exactly what the engine sends.
+        : { requestId: update.requestId, subject: "model", steps: [] };
+    const seen = current.steps.some((step) => step.step === update.step);
+    const next: TuiAdmissionState = {
+        ...current,
+        steps: seen
+            ? current.steps.map((step) =>
+                step.step === update.step
+                    ? {
+                        step: update.step,
+                        label: update.label,
+                        status: update.status,
+                        ...(update.detail === undefined
+                            ? {}
+                            : { detail: update.detail }),
+                    }
+                    : step
+            )
+            : [...current.steps, {
+                step: update.step,
+                label: update.label,
+                status: update.status,
+                ...(update.detail === undefined
+                    ? {}
+                    : { detail: update.detail }),
+            }],
+    };
+    return withAdmissionEntry({ ...state, admission: next }, next);
+}
+
+function applyAdmissionResult(
+    state: TuiState,
+    update: PoolAdmissionResultUpdate,
+): TuiState {
+    const current = state.admission?.requestId === update.requestId
+        ? state.admission
+        : {
+            requestId: update.requestId,
+            subject: `${update.provider}/${update.model}`,
+            steps: [],
+        };
+    const next: TuiAdmissionState = {
+        ...current,
+        verdict: update.verdict,
+        provider: update.provider,
+        model: update.model,
+        ...(update.reason === undefined ? {} : { reason: update.reason }),
+        ...(update.statusCode === undefined
+            ? {}
+            : { statusCode: update.statusCode }),
+    };
+    // "added" stays live until the refreshed pool snapshot supplies the
+    // verified level count. The other verdicts are complete as they stand.
+    const settled: TuiAdmissionState = update.verdict === "added"
+        ? next
+        : { ...next, settled: true };
+    return withAdmissionEntry({ ...state, admission: settled }, settled);
+}
+
+/**
+ * The `model_settings` snapshot that follows an "added" verdict carries the
+ * one fact the verdict line still owes the user: how many reasoning levels
+ * admission verified.
+ */
+function finishAdmissionFromSnapshot(
+    state: TuiState,
+    settings: ModelTurnSettings,
+): TuiState {
+    const admission = state.admission;
+    if (admission?.verdict !== "added" || admission.settled === true) {
+        return state;
+    }
+    const entry = settings.pooled?.find((candidate) =>
+        candidate.provider === admission.provider
+        && candidate.model === admission.model
+    );
+    const finished: TuiAdmissionState = {
+        ...admission,
+        ...(entry === undefined ? {} : { verifiedLevels: entry.levels.length }),
+        settled: true,
+    };
+    return withAdmissionEntry({ ...state, admission: finished }, finished);
+}
+
+/** Symbols one column wide, so the step labels line up as a checklist. */
+function admissionStepMark(status: TuiAdmissionStep["status"]): string {
+    if (status === "running") return "…";
+    if (status === "passed") return "✓";
+    if (status === "failed") return "✗";
+    return "−";
+}
+
+/** One line per step, in the order the engine ran them. */
+export function tuiAdmissionStepLines(
+    admission: TuiAdmissionState,
+): readonly string[] {
+    return admission.steps.map((step) => {
+        const detail = step.detail === undefined ? "" : `: ${step.detail}`;
+        const skipped = step.status === "skipped" ? " (skipped)" : "";
+        return `  ${admissionStepMark(step.status)} ${step.label}${skipped}${detail}`;
+    });
+}
+
+/**
+ * The verdict as one factual line, or undefined while the run is live. What
+ * to do next (retry, dismiss) belongs to the surface showing it: the dialog
+ * says it in its footer, the transcript appends its own sentence.
+ */
+export function tuiAdmissionVerdictLine(
+    admission: TuiAdmissionState,
+): string | undefined {
+    if (admission.verdict === "added") {
+        return admission.verifiedLevels === undefined
+            ? "Added to the pool"
+            : `Added to the pool (${admission.verifiedLevels} ${
+                admission.verifiedLevels === 1 ? "level" : "levels"
+            } verified)`;
+    }
+    if (admission.verdict === "incompatible") {
+        return `Not added, incompatible${
+            admission.reason === undefined ? "" : `: ${admission.reason}`
+        }`;
+    }
+    if (admission.verdict === "unavailable") {
+        return `Provider unavailable${
+            admission.statusCode === undefined
+                ? ""
+                : ` (HTTP ${admission.statusCode})`
+        }${admission.reason === undefined ? "" : `: ${admission.reason}`}`;
+    }
+    return undefined;
+}
+
+function admissionChecklistText(admission: TuiAdmissionState): string {
+    const lines = [
+        admission.verdict === undefined
+            ? `Verifying ${admission.subject}…`
+            : `Verifying ${admission.subject}`,
+        ...tuiAdmissionStepLines(admission),
+    ];
+    const verdict = tuiAdmissionVerdictLine(admission);
+    if (verdict !== undefined) {
+        lines.push(admission.verdict === "unavailable"
+            ? `${verdict}. Select the model again to retry.`
+            : verdict);
+    }
+    return lines.join("\n");
+}
+
+/**
+ * The one checklist entry for this request, rewritten in place as its steps
+ * change state. Matched by requestId rather than by position: a retry opens a
+ * fresh entry, and anything else that lands in the transcript mid-run must not
+ * absorb the update.
+ */
+function withAdmissionEntry(
+    state: TuiState,
+    admission: TuiAdmissionState,
+): TuiState {
+    const entry: TuiTranscriptEntry = {
+        kind: "notice",
+        text: admissionChecklistText(admission),
+        admission: admission.requestId,
+    };
+    const index = state.entries.findLastIndex((candidate) =>
+        candidate.kind === "notice"
+        && candidate.admission === admission.requestId
+    );
+    return index === -1
+        ? appendEntry(state, entry)
+        : {
+            ...state,
+            entries: state.entries.map((candidate, at) =>
+                at === index ? entry : candidate
+            ),
+        };
+}
+
 export function appendTuiNotice(state: TuiState, message: string): TuiState {
     return appendEntry(state, { kind: "notice", text: message });
 }
@@ -427,7 +699,10 @@ export function appendTuiNotice(state: TuiState, message: string): TuiState {
 export function failTuiConnection(state: TuiState, message: string): TuiState {
     return appendTuiNotice({
         ...state,
-        entries: settleToolEntries(state.entries),
+        entries: applyToolDetailPreference(
+            settleToolEntries(state.entries),
+            state.toolDetailsExpanded,
+        ),
         working: false,
         queuedPrompts: [],
     }, `Connection error: ${message}`);
@@ -495,6 +770,19 @@ export function toggleTuiThinking(state: TuiState): TuiState {
     };
 }
 
+export function toggleTuiToolDetails(state: TuiState): TuiState {
+    const expanded = !state.entries.some((entry) =>
+        entry.kind === "tool"
+        && entry.active !== true
+        && entry.hidden !== true
+    );
+    return {
+        ...state,
+        toolDetailsExpanded: expanded,
+        entries: applyToolDetailPreference(state.entries, expanded),
+    };
+}
+
 function thoughtSeconds(text: string): number {
     return Number.parseFloat(text.replace(/^[+-] Thought: /, "")) || 0;
 }
@@ -509,7 +797,16 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([fg(TUI_TEXT)(entry.text)]);
     }
     if (entry.kind === "tool_header") {
-        return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
+        const header = bold(fg(TUI_ACCENT)(entry.text));
+        return entry.detailLines === undefined
+            ? new StyledText([header])
+            : new StyledText([
+                header,
+                ...(entry.detailPreview === undefined
+                    ? []
+                    : [fg(TUI_MUTED)(` · ${entry.detailPreview}`)]),
+                fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
+            ]);
     }
     if (entry.kind === "tool") {
         return new StyledText([
@@ -855,6 +1152,104 @@ function finishToolEntry(
 function toolResultText(output: string): string {
     const text = output.trim();
     return text.length === 0 ? "(no output)" : bounded(text);
+}
+
+const AUTO_FOLD_TOOL_LINES = 8;
+
+/**
+ * Completed tool groups stay compact when their content would dominate the
+ * transcript. An explicit detail choice applies to every completed group;
+ * active work always remains visible so the user can see what is happening.
+ */
+function applyToolDetailPreference(
+    entries: readonly TuiTranscriptEntry[],
+    preference?: boolean,
+): TuiTranscriptEntry[] {
+    const next = [...entries];
+    for (let headerIndex = 0; headerIndex < next.length; headerIndex += 1) {
+        const header = next[headerIndex];
+        if (header?.kind !== "tool_header") {
+            continue;
+        }
+
+        let end = headerIndex + 1;
+        while (
+            end < next.length
+            && (
+                next[end]?.kind === "tool"
+                || next[end]?.kind === "review"
+                || next[end]?.kind === "thought"
+                || next[end]?.kind === "thinking"
+            )
+        ) {
+            end += 1;
+        }
+        const rows = next.slice(headerIndex + 1, end).filter((entry) =>
+            entry.kind === "tool"
+        );
+        const active = header.active === true || rows.some((entry) =>
+            entry.kind === "tool" && entry.active === true
+        );
+        const detailLines = rows.reduce((total, entry) =>
+            total + entry.text.split("\n").length, 0
+        );
+        const foldable = !active
+            && detailLines > 0
+            && (preference !== undefined || detailLines > AUTO_FOLD_TOOL_LINES);
+        const expanded = preference === true;
+        const detailPreview = rows.find((entry) =>
+            entry.kind === "tool" && entry.result !== true
+        );
+        const previewText = detailPreview?.kind === "tool"
+            ? compactToolPreview(detailPreview.text)
+            : undefined;
+        const base = header.header ?? header.text.replace(
+            /^[+-] | · \d+ lines?$/g,
+            "",
+        );
+        const {
+            detailLines: _detailLines,
+            detailPreview: _detailPreview,
+            expanded: _expanded,
+            ...plainHeader
+        } = header;
+
+        next[headerIndex] = foldable
+            ? {
+                ...plainHeader,
+                text: `${expanded ? "-" : "+"} ${base} · ${detailLines} ${
+                    detailLines === 1 ? "line" : "lines"
+                }`,
+                detailLines,
+                ...(expanded || previewText === undefined
+                    ? {}
+                    : { detailPreview: previewText }),
+                expanded,
+            }
+            : {
+                ...plainHeader,
+                text: base,
+            };
+        for (let index = headerIndex + 1; index < end; index += 1) {
+            const entry = next[index];
+            if (entry?.kind === "tool") {
+                const { hidden: _hidden, ...visible } = entry;
+                next[index] = foldable && !expanded
+                    ? { ...visible, hidden: true }
+                    : visible;
+            }
+        }
+        headerIndex = end - 1;
+    }
+    return next;
+}
+
+function compactToolPreview(text: string): string | undefined {
+    const summary = text.split("\n", 1)[0]?.replaceAll(/\s+/g, " ").trim() ?? "";
+    if (summary.length === 0) {
+        return undefined;
+    }
+    return summary.length > 48 ? `${summary.slice(0, 47)}…` : summary;
 }
 
 function settleToolEntries(

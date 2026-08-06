@@ -1,3 +1,4 @@
+import type { PooledModel } from "../../src/model/catalog-view.ts";
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 
@@ -985,12 +986,13 @@ test("theme picker renders as a borderless palette card with swatches", async ()
     }
 });
 
-const pinnedModels = [
+const pooledModels = [
     {
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         label: "GPT-5.6-Sol",
         available: true,
+        status: "ready",
         description: "frontier coding model",
         levels: [],
     },
@@ -999,12 +1001,13 @@ const pinnedModels = [
         model: "z-ai/glm-5.2",
         label: "GLM-5.2",
         available: false,
+        status: "ready",
         levels: [],
     },
 ] as const;
 
-function modelPickerWithPins(
-    pinned: readonly (typeof pinnedModels)[number][] = pinnedModels,
+function modelPickerWithPool(
+    pooled: readonly PooledModel[] = pooledModels,
 ) {
     return startTuiSettingsPicker(
         "model",
@@ -1015,17 +1018,17 @@ function modelPickerWithPins(
         "default",
         "openrouter",
         undefined,
-        pinned,
+        pooled,
     );
 }
 
-test("the model pane opens on Pinned, in the order the user's own use produced", async () => {
-    const state = modelPickerWithPins();
+test("the model pane opens on Pool, in the order the user's own use produced", async () => {
+    const state = modelPickerWithPool();
     const frame = await pickerFrame(state);
 
-    expect(state.tab).toBe("pinned");
-    // Pin order, not provider order: the pin list is ordered by when each model
-    // was pinned, and sorting it by provider would throw that away.
+    expect(state.tab).toBe("pool");
+    // Pool order, not provider order: the pool is ordered by when each model
+    // was added, and sorting it by provider would throw that away.
     expect(state.options.map((option) => option.model)).toEqual([
         "gpt-5.6-sol",
         "z-ai/glm-5.2",
@@ -1036,14 +1039,14 @@ test("the model pane opens on Pinned, in the order the user's own use produced",
     // heading could never carry.
     expect(frame).toContain("unavailable");
     expect(frame).toContain("All models");
-    expect(frame).toContain("Pinned");
-    expect(frame).toContain("Models you saved for quick access.");
+    expect(frame).toContain("Pool");
+    expect(frame).toContain("Models you added to your pool.");
 });
 
-test("with nothing pinned the pane opens on explained All models", async () => {
+test("with an empty pool the pane opens on explained All models", async () => {
     // An empty tab answers no question, so the pane falls back to the list that
     // can always answer "which model do I switch to".
-    const state = modelPickerWithPins([]);
+    const state = modelPickerWithPool([]);
     expect(state.tab).toBe("all");
     expect(await pickerFrame(state)).toContain(
         "Every model available from connected providers.",
@@ -1051,26 +1054,26 @@ test("with nothing pinned the pane opens on explained All models", async () => {
 });
 
 test("⇥ moves to All models, which lists what can run", async () => {
-    const state = modelPickerWithPins();
+    const state = modelPickerWithPool();
     const allTab = handleTuiSettingsPickerKey(state, { name: "tab" }).state;
 
     expect(allTab?.tab).toBe("all");
-    // A pinned model that cannot run right now is not offered here: choosing it
-    // would be a dead end. It keeps its row on the Pinned tab.
+    // A pool model that cannot run right now is not offered here: choosing it
+    // would be a dead end. It keeps its row on the Pool tab.
     expect(allTab?.options.map((option) => option.model)).toEqual([
         "z-ai/glm-5.2",
         "moonshotai/kimi-k3",
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // The cycle continues through Top picks and returns to Pinned.
+    // The cycle continues through Top picks and returns to Pool.
     const topTab = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state;
     expect(topTab?.tab).toBe("top");
     expect(await pickerFrame(topTab!)).toContain(
         "Recommended model and reasoning combinations.",
     );
     expect(handleTuiSettingsPickerKey(topTab!, { name: "tab" }).state?.tab)
-        .toBe("pinned");
+        .toBe("pool");
 });
 
 test("top picks bundle an effort and gray out unconnected providers", () => {
@@ -1130,7 +1133,7 @@ test("top picks bundle an effort and gray out unconnected providers", () => {
         .toBeUndefined();
     // Top-pick rows stay off the All tab, which lists what can run.
     const allTab = handleTuiSettingsPickerKey(
-        { ...state, tab: "pinned" },
+        { ...state, tab: "pool" },
         { name: "tab" },
     ).state!;
     expect(allTab.tab).toBe("all");
@@ -1138,17 +1141,45 @@ test("top picks bundle an effort and gray out unconnected providers", () => {
         .not.toContain("GPT-OSS 120B");
 });
 
-test("no model appears twice, because a pin is a mark on its own row", () => {
-    const state = modelPickerWithPins();
+test("no model appears twice, because pool membership is a mark on its own row", () => {
+    const state = modelPickerWithPool();
 
     expect(state.allOptions.filter((option) =>
         option.model === "z-ai/glm-5.2"
     )).toHaveLength(1);
-    // The same row carries the pin and answers on both tabs.
+    // The same row carries the pool mark and answers on both tabs.
     const glm = state.allOptions.find((option) =>
         option.model === "z-ai/glm-5.2"
     );
-    expect(glm?.pinnedRank).toBe(1);
+    expect(glm?.pooledRank).toBe(1);
+});
+
+test("a needs-verify pool row says so and offers ⏎ verify", async () => {
+    const state = modelPickerWithPool([{
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        available: false,
+        status: "needs_verify",
+        levels: [],
+    }]);
+    const frame = await pickerFrame(state);
+
+    expect(state.tab).toBe("pool");
+    // The row is kept but marked: it cannot run until admission passes, and
+    // the column that would carry "unavailable" says what ⏎ will do instead.
+    expect(frame).toContain("needs verify");
+    expect(frame).toContain("⏎ verify");
+    const row = state.options[state.selectedIndex];
+    expect(row?.needsVerify).toBe(true);
+    // Enter still reports the model choice; the caller routes a needs-verify
+    // choice to admission rather than to a settings change.
+    expect(handleTuiSettingsPickerKey(state, { name: "return" }).selection)
+        .toEqual({
+            kind: "model",
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+        });
 });
 
 test("a model row is the name alone, with no description beside it", async () => {
@@ -1180,10 +1211,10 @@ test("a model row is the name alone, with no description beside it", async () =>
 });
 
 test("a search reaches models on the other tab", () => {
-    const onPinned = modelPickerWithPins();
-    const searched = handleTuiSettingsPickerKey(onPinned, { name: "k" });
+    const onPool = modelPickerWithPool();
+    const searched = handleTuiSettingsPickerKey(onPool, { name: "k" });
 
-    // kimi is runnable but not pinned, so it has no row on this tab. Typing its
+    // kimi is runnable but not pooled, so it has no row on this tab. Typing its
     // name still finds it: the user is asking whether the model exists, not
     // whether it exists on the tab they happen to be standing on.
     expect(searched.state?.options.map((option) => option.model))
@@ -1203,11 +1234,11 @@ test("a search reaches models on the other tab", () => {
     ]);
 });
 
-test("ctrl+s asks to pinned the highlighted model, and to unpin a pinned one", () => {
-    const state = modelPickerWithPins([]);
+test("ctrl+s asks to pool the highlighted model, and to remove a pooled one", () => {
+    const state = modelPickerWithPool([]);
     const kimi = handleTuiSettingsPickerKey(state, { name: "s", ctrl: true });
 
-    expect(kimi.pinToggle).toEqual({
+    expect(kimi.poolToggle).toEqual({
         action: "add",
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
@@ -1216,13 +1247,13 @@ test("ctrl+s asks to pinned the highlighted model, and to unpin a pinned one", (
     // answers with a new snapshot.
     expect(kimi.state).toBe(state);
 
-    // The pane opens on Pinned, whose first row is the most recently used pin.
-    const cursor = modelPickerWithPins();
+    // The pane opens on Pool, whose first row is the most recently used entry.
+    const cursor = modelPickerWithPool();
 
     expect(cursor.options[cursor.selectedIndex]?.model).toBe("gpt-5.6-sol");
     expect(
         handleTuiSettingsPickerKey(cursor, { name: "s", ctrl: true })
-            .pinToggle,
+            .poolToggle,
     ).toEqual({
         action: "remove",
         provider: "openai-codex",
@@ -1231,51 +1262,51 @@ test("ctrl+s asks to pinned the highlighted model, and to unpin a pinned one", (
 });
 
 test("the model picker footer names the action the highlighted row would take", async () => {
-    const onPinnedRow = modelPickerWithPins();
-    expect(onPinnedRow.options[onPinnedRow.selectedIndex]?.model)
+    const onPoolRow = modelPickerWithPool();
+    expect(onPoolRow.options[onPoolRow.selectedIndex]?.model)
         .toBe("gpt-5.6-sol");
-    expect(await pickerFrame(onPinnedRow)).toContain("^s unpin");
+    expect(await pickerFrame(onPoolRow)).toContain("^s remove");
 
     const onRunningModel = handleTuiSettingsPickerKey(
-        onPinnedRow,
+        onPoolRow,
         { name: "tab" },
     ).state!;
     expect(onRunningModel.options[onRunningModel.selectedIndex]?.model)
         .toBe("moonshotai/kimi-k3");
-    expect(await pickerFrame(onRunningModel)).toContain("^s pin");
+    expect(await pickerFrame(onRunningModel)).toContain("^s pool");
 });
 
 test("a settings snapshot rebuilds the open pane without moving the cursor", () => {
-    const state = modelPickerWithPins([]);
+    const state = modelPickerWithPool([]);
     const highlighted = state.options[state.selectedIndex];
     const synced = syncTuiModelPicker(state, {
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
         availableModels,
-        pinned: pinnedModels,
+        pooled: pooledModels,
     });
 
-    // A row gained a pin mark above the cursor. The cursor follows the model,
+    // A row gained a pool mark above the cursor. The cursor follows the model,
     // not the index.
     expect(synced.options[synced.selectedIndex]?.value)
         .toBe(highlighted?.value);
     expect(synced.allOptions.find((option) =>
         option.model === "z-ai/glm-5.2"
-    )?.pinnedRank).toBe(1);
+    )?.pooledRank).toBe(1);
 });
 
 test("a snapshot leaves the user on the tab they moved to", () => {
     // The tab is the user's own place in the pane, so a rebuild must not drop
     // them back onto the one it opens with mid-action.
     const onAllTab = handleTuiSettingsPickerKey(
-        modelPickerWithPins(),
+        modelPickerWithPool(),
         { name: "tab" },
     ).state!;
     const synced = syncTuiModelPicker(onAllTab, {
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
         availableModels,
-        pinned: pinnedModels,
+        pooled: pooledModels,
     });
 
     expect(synced.tab).toBe("all");
@@ -1286,16 +1317,16 @@ test("a snapshot leaves the user on the tab they moved to", () => {
 });
 
 test("a snapshot keeps the pane the pane was opened from", () => {
-    // Pinning a model round-trips through the host and rebuilds this pane. If
-    // the rebuild dropped the parent, pinning would quietly turn escape from
+    // Adding a model round-trips through the host and rebuilds this pane. If
+    // the rebuild dropped the parent, adding would quietly turn escape from
     // "back to /settings" into "close everything".
     const menu = startTuiSettingsMenu("settings");
-    const state = withTuiPickerParent(modelPickerWithPins([]), menu);
+    const state = withTuiPickerParent(modelPickerWithPool([]), menu);
     const synced = syncTuiModelPicker(state, {
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
         availableModels,
-        pinned: pinnedModels,
+        pooled: pooledModels,
     });
 
     expect(handleTuiSettingsPickerKey(synced, { name: "escape" }).state)
@@ -1391,7 +1422,7 @@ test("the wheel moves the cursor, so enter still means the row on screen", () =>
     // The pane windows itself around selectedIndex. A wheel that slid the
     // window on its own would leave the highlight off screen, pointing at
     // something the user can no longer see.
-    const state = modelPickerWithPins();
+    const state = modelPickerWithPool();
     const down = handleTuiSettingsPickerScroll(state, {
         direction: "down",
         delta: 3,
@@ -1408,7 +1439,7 @@ test("the wheel moves the cursor, so enter still means the row on screen", () =>
 });
 
 test("the wheel stops at both ends and ignores a sideways scroll", () => {
-    const state = modelPickerWithPins();
+    const state = modelPickerWithPool();
 
     expect(handleTuiSettingsPickerScroll(state, {
         direction: "up",
@@ -1426,7 +1457,7 @@ test("the wheel stops at both ends and ignores a sideways scroll", () => {
 
 test("a trackpad delta below one row still moves a row", () => {
     // A scroll that moves nothing reads as a dead pane.
-    expect(handleTuiSettingsPickerScroll(modelPickerWithPins(), {
+    expect(handleTuiSettingsPickerScroll(modelPickerWithPool(), {
         direction: "down",
         delta: 0.2,
     }).state?.selectedIndex).toBe(1);
@@ -1435,5 +1466,5 @@ test("a trackpad delta below one row still moves a row", () => {
 test("the pane names the half-page keys where it names the others", async () => {
     // ctrl+d and ctrl+u are unfindable otherwise: nothing on screen says a
     // pane responds to them.
-    expect(await pickerFrame(modelPickerWithPins())).toContain("^d^u move");
+    expect(await pickerFrame(modelPickerWithPool())).toContain("^d^u move");
 });

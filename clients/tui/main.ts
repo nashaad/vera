@@ -28,7 +28,10 @@ import {
 } from "../../src/engine/protocol.ts";
 import type { ModelSettingsPatch } from "../../src/engine/model-settings.ts";
 import type { UserMessage } from "../../src/model/types.ts";
-import type { ReasoningLevel } from "../../src/model/catalog-shape.ts";
+import type {
+    ReasoningLevel,
+    ReasoningLevelId,
+} from "../../src/model/catalog-shape.ts";
 import {
     loadOptionalVeraConfig,
     type VeraExtensionConfig,
@@ -125,6 +128,13 @@ import {
     createTuiSessionTrashConfirmView,
     handleTuiSessionTrashConfirmKey,
 } from "./session-trash-confirm.ts";
+import {
+    createTuiAdmissionDialogView,
+    handleTuiAdmissionDialogKey,
+    startTuiAdmissionDialog,
+    type TuiAdmissionApply,
+    type TuiAdmissionDialogState,
+} from "./admission-dialog.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import {
@@ -225,9 +235,11 @@ import {
     appendTuiThought,
     dropTuiThinking,
     toggleTuiThinking,
+    toggleTuiToolDetails,
     applyAgentUpdate,
     userEntryShows,
     beginNextQueuedTuiTurn,
+    beginTuiAdmission,
     beginTuiTurn,
     createTuiState,
     failTuiConnection,
@@ -237,6 +249,7 @@ import {
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
+    type TuiTranscriptEntry,
 } from "./state.ts";
 import { resolveTuiTheme, VERA_TUI_THEME } from "./theme.ts";
 import {
@@ -619,6 +632,15 @@ export async function startTui(
     let help: TuiHelpState | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let confirmingFullAccess = false;
+    let admissionDialog: TuiAdmissionDialogState | undefined;
+    /** The model pane the dialog covered, put back when the dialog leaves. */
+    let admissionReturnPicker: TuiSettingsPickerState | undefined;
+    /**
+     * The settings change each in-flight admission was meant to end in,
+     * applied when its "added" verdict lands. Keyed by requestId rather than
+     * held on the dialog: hiding the dialog must not lose the switch.
+     */
+    const pendingAdmissionApply = new Map<string, TuiAdmissionApply>();
     let sessionTrashCandidate: {
         readonly sessionId: string;
         readonly label: string;
@@ -810,6 +832,7 @@ export async function startTui(
     transcript.add(placeholder);
 
     const entryNodes: (TextRenderable | MarkdownRenderable | BoxRenderable)[] = [];
+    const entryNodeKinds: TuiTranscriptEntry["kind"][] = [];
 
     const statusText = new TextRenderable(renderer, {
         id: "status",
@@ -874,6 +897,7 @@ export async function startTui(
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
+    const admissionDialogView = createTuiAdmissionDialogView(renderer);
     const sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(renderer);
     const approvalView = createTuiApprovalView(renderer);
@@ -1022,6 +1046,7 @@ export async function startTui(
     app.add(commandPaletteView.box);
     app.add(helpView.box);
     app.add(permissionsConfirmView.box);
+    app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
     app.add(commandSuggestionsBox);
     app.add(composerBox);
@@ -1265,6 +1290,43 @@ export async function startTui(
             }
         }
 
+        // Blocking like the trash confirm: every key stops here while the
+        // dialog is up, so nothing underneath can act on a stray press.
+        if (admissionDialog !== undefined) {
+            key.preventDefault();
+            key.stopPropagation();
+            const action = handleTuiAdmissionDialogKey(
+                admissionDialog,
+                dialogAdmission(),
+                key,
+            );
+            if (action === undefined) {
+                return;
+            }
+            if (action === "start" || action === "retry") {
+                const requestId = requestPoolAdmission(
+                    admissionDialog.provider,
+                    admissionDialog.model,
+                );
+                if (admissionDialog.apply !== undefined) {
+                    pendingAdmissionApply.set(requestId, admissionDialog.apply);
+                }
+                admissionDialog = { ...admissionDialog, requestId };
+                renderState();
+                return;
+            }
+            if (action === "cancel" || action === "hide") {
+                // Cancel means nothing was sent; hide leaves the probes
+                // running with the transcript notice as their surface.
+                closeAdmissionDialog(false);
+                return;
+            }
+            // Dismissing after an "added" verdict reopens the picker rebuilt
+            // from the refreshed pool, which is where the new row now lives.
+            closeAdmissionDialog(dialogAdmission()?.verdict === "added");
+            return;
+        }
+
         // Ahead of the picker: the prompt is drawn over the pane that opened
         // it, so it takes the keys while it is up.
         if (sessionRenamePrompt !== undefined) {
@@ -1455,6 +1517,8 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
+            const wasFollowing = transcript.scrollTop
+                >= transcript.scrollHeight - transcript.viewport.height;
             state = toggleTuiThinking(state);
             renderState();
             // Opening every fold grows the transcript above the viewport, which
@@ -1466,8 +1530,6 @@ export async function startTui(
             // drops sticky scroll for the rest of the session, so a transcript
             // that was keeping up with the stream is put back on the bottom
             // rather than pointed at a row.
-            const wasFollowing = transcript.scrollTop
-                >= transcript.scrollHeight - transcript.viewport.height;
             const lastThought = state.entries.findLastIndex((entry) =>
                 entry.kind === "thought"
             );
@@ -1475,6 +1537,32 @@ export async function startTui(
                 transcript.scrollTo(transcript.scrollHeight);
             } else if (lastThought >= 0) {
                 transcript.scrollChildIntoView(`entry-${lastThought}`);
+            }
+            return;
+        }
+
+        if (
+            tuiBindingId("conversation", key) === "toggle_tool_details"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            // Read this before the fold changes the transcript height. Once
+            // expanded, the old bottom can look like a manually scrolled view.
+            const wasFollowing = transcript.scrollTop
+                >= transcript.scrollHeight - transcript.viewport.height;
+            state = toggleTuiToolDetails(state);
+            renderState();
+            if (wasFollowing) {
+                transcript.scrollTo(transcript.scrollHeight);
+            } else {
+                const lastToolGroup = state.entries.findLastIndex((entry) =>
+                    entry.kind === "tool_header"
+                    && entry.detailLines !== undefined
+                );
+                if (lastToolGroup >= 0) {
+                    transcript.scrollChildIntoView(`entry-${lastToolGroup}`);
+                }
             }
             return;
         }
@@ -1755,10 +1843,42 @@ export async function startTui(
         }
         if (commandAction?.type === "update_model") {
             composer.clearComposer();
+            // A typed model that is not ready in the pool routes into
+            // add-and-verify rather than running directly: admission is the
+            // gate, and the checklist doubles as the reply. A host that
+            // serves no pool at all keeps the direct path, mirroring the
+            // engine's own gate.
+            const typed = commandAction.model.trim();
+            const pooled = state.modelSettings?.pooled;
+            const ready = pooled?.find((candidate) =>
+                candidate.status === "ready"
+                && (candidate.model === typed
+                    || `${candidate.provider}/${candidate.model}` === typed));
+            if (pooled !== undefined && ready === undefined) {
+                const separator = typed.indexOf("/");
+                const provider = separator > 0
+                    ? typed.slice(0, separator)
+                    : state.modelSettings?.provider;
+                const model = separator > 0
+                    ? typed.slice(separator + 1)
+                    : typed;
+                if (provider === undefined || model.length === 0) {
+                    state = appendTuiNotice(
+                        state,
+                        `"${typed}" is not in the pool; use provider/model to add and verify it`,
+                    );
+                } else {
+                    openAdmissionDialog(provider, model, { provider, model });
+                }
+                renderState();
+                return;
+            }
             requestModelSettingsChange(
-                { model: commandAction.model },
-                `model → ${commandAction.model}`,
-                `the model to ${commandAction.model}`,
+                ready === undefined
+                    ? { model: typed }
+                    : { provider: ready.provider, model: ready.model },
+                `model → ${ready?.model ?? typed}`,
+                `the model to ${ready?.model ?? typed}`,
             );
             renderState();
             return;
@@ -2446,6 +2566,31 @@ export async function startTui(
                 }
                 observeActivity(update);
                 state = applyAgentUpdate(state, update);
+                if (update.type === "pool_admission_result") {
+                    // The switch the admission was started for. Applied on the
+                    // verdict rather than on dialog dismissal, so hiding the
+                    // dialog does not swallow the change the user asked for.
+                    const apply = pendingAdmissionApply.get(update.requestId);
+                    pendingAdmissionApply.delete(update.requestId);
+                    if (apply !== undefined && update.verdict === "added") {
+                        const chosen = apply.reasoningEffort === undefined
+                            ? `${apply.provider}/${apply.model}`
+                            : `${apply.provider}/${apply.model} (${apply.reasoningEffort})`;
+                        requestModelSettingsChange(
+                            {
+                                provider: apply.provider,
+                                model: apply.model,
+                                ...(apply.reasoningEffort === undefined
+                                    ? {}
+                                    : {
+                                        reasoningEffort: apply.reasoningEffort,
+                                    }),
+                            },
+                            `model → ${chosen}`,
+                            `the model to ${chosen}`,
+                        );
+                    }
+                }
                 if (
                     update.type === "model_settings"
                     && state.modelSettings !== undefined
@@ -2748,6 +2893,9 @@ export async function startTui(
         if (confirmingFullAccess) {
             return () => permissionsConfirmView.box.focus();
         }
+        if (admissionDialog !== undefined) {
+            return () => admissionDialogView.box.focus();
+        }
         if (sessionTrashCandidate !== undefined) {
             return () => sessionTrashConfirmView.box.focus();
         }
@@ -2893,6 +3041,9 @@ export async function startTui(
         commandPalette = undefined;
         help = undefined;
         confirmingFullAccess = false;
+        admissionDialog = undefined;
+        admissionReturnPicker = undefined;
+        pendingAdmissionApply.clear();
         sessionTrashCandidate = undefined;
         sessionTrashPending = false;
         abortRequested = false;
@@ -2916,13 +3067,12 @@ export async function startTui(
             === "tool_approval";
         questionView.box.visible = pendingUiRequest?.request.type
             === "user_question";
-        // Only the two overlays that ask the user something take the footer
-        // with them. Behind a pane you are reading rather than answering, the
-        // status line is still the answer to "what is this session".
-        const interactiveCardVisible = approvalView.box.visible
-            || questionView.box.visible;
-        statusText.visible = !interactiveCardVisible;
-        backgroundStatusText.visible = !interactiveCardVisible;
+        // The lifecycle row reads "ready" while a card waits on an answer, so
+        // it goes; the details row stays, because the approval mode it carries
+        // is why the card is asking, and FULL ACCESS · RED ZONE has to be
+        // readable from the dialog it explains.
+        statusText.visible = !(approvalView.box.visible
+            || questionView.box.visible);
         timelinePickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
@@ -2970,6 +3120,11 @@ export async function startTui(
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && confirmingFullAccess;
+        admissionDialogView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && sessionTrashCandidate === undefined
+            && !confirmingFullAccess
+            && admissionDialog !== undefined;
         sessionTrashConfirmView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate !== undefined;
@@ -2981,6 +3136,7 @@ export async function startTui(
             || commandPaletteView.box.visible
             || helpView.box.visible
             || permissionsConfirmView.box.visible
+            || admissionDialogView.box.visible
             || sessionTrashConfirmView.box.visible
             || sessionRenamePromptView.box.visible
             || secretPromptView.box.visible;
@@ -2988,6 +3144,7 @@ export async function startTui(
         composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
+            && admissionDialog === undefined
             && sessionTrashCandidate === undefined
             && secretPrompt === undefined
             && sessionRenamePrompt === undefined
@@ -3031,14 +3188,33 @@ export async function startTui(
         if (sessionTrashCandidate !== undefined) {
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
         }
+        if (admissionDialog !== undefined) {
+            admissionDialogView.update(admissionDialog, dialogAdmission());
+        }
 
-        while (entryNodes.length > state.entries.length) {
+        // Transcript state can replace a live row with a different semantic
+        // row at the same index (most notably `thinking` -> `thought`). Reusing
+        // the old renderable leaves OpenTUI's wrapped-text geometry stale in
+        // longer transcripts, producing reasoning bodies only a few columns
+        // wide. Rebuild from the first changed kind so ordering stays intact
+        // without redrawing the stable prefix.
+        const changedKindAt = state.entries.findIndex((entry, index) =>
+            entryNodes[index] !== undefined
+            && entryNodeKinds[index] !== entry.kind
+        );
+        const retainedEntries = changedKindAt === -1
+            ? state.entries.length
+            : changedKindAt;
+        while (entryNodes.length > retainedEntries) {
             entryNodes.pop()?.destroy();
+            entryNodeKinds.pop();
         }
 
         state.entries.forEach((entry, index) => {
             const existing = entryNodes[index];
             if (existing) {
+                existing.visible = entry.kind !== "tool"
+                    || entry.hidden !== true;
                 if (
                     existing instanceof MarkdownRenderable &&
                     existing.content !== entry.text
@@ -3051,12 +3227,14 @@ export async function startTui(
                 if (
                     (entry.kind === "tool_header"
                         || entry.kind === "thought"
-                        || entry.kind === "thinking")
+                        || entry.kind === "thinking"
+                        || entry.kind === "notice")
                     && existing instanceof TextRenderable
                 ) {
-                    // A thought row's height changes when its fold opens and a
-                    // thinking row grows with every delta, so both are
-                    // re-rendered rather than left as first drawn.
+                    // A thought row's height changes when its fold opens, a
+                    // thinking row grows with every delta, and an admission
+                    // checklist notice is rewritten in place per step, so all
+                    // are re-rendered rather than left as first drawn.
                     existing.content = renderTuiEntry(entry);
                 }
                 return;
@@ -3105,6 +3283,8 @@ export async function startTui(
                     marginTop,
                 });
             entryNodes.push(node);
+            entryNodeKinds.push(entry.kind);
+            node.visible = entry.kind !== "tool" || entry.hidden !== true;
             transcript.add(node);
         });
 
@@ -3126,6 +3306,7 @@ export async function startTui(
             || commandPalette !== undefined
             || help !== undefined
             || confirmingFullAccess
+            || admissionDialog !== undefined
             || sessionTrashCandidate !== undefined;
     }
 
@@ -3149,7 +3330,7 @@ export async function startTui(
             undefined,
             state.modelSettings?.provider,
             undefined,
-            state.modelSettings?.pinned,
+            state.modelSettings?.pooled,
             topPickRows(),
         ), parent);
         renderState();
@@ -3186,19 +3367,40 @@ export async function startTui(
         }));
     }
 
-    // The current model's own levels, looked up off the wire rather than a
-    // flat effort list, so the pane renders exactly what this model offers.
-    // A model missing from `availableModels` (unrecognised, e.g. reached
-    // through the `/model <name>` escape hatch) is treated the same as a
-    // model with an empty `levels` array: no facts about it have reached the
-    // client, so there is nothing to render either way.
-    function currentModelLevels(): readonly ReasoningLevel[] {
-        const models = state.modelSettings?.availableModels ?? [];
-        const current = models.find((candidate) =>
-            candidate.provider === state.modelSettings?.provider
-            && candidate.model === state.modelSettings?.model
+    /**
+     * The level facts for one model, looked up off the wire rather than a
+     * flat effort list, so a pane renders exactly what this model offers.
+     *
+     * A ready pool entry wins over the runnable list: admission narrowed its
+     * levels to the ones this key actually verified, and the catalog's full
+     * list would offer settings the engine will refuse. A model in neither
+     * list (unrecognised, e.g. reached through the `/model <name>` escape
+     * hatch) is treated the same as a model with an empty `levels` array: no
+     * facts about it have reached the client.
+     */
+    function modelLevelFacts(
+        provider: string | undefined,
+        model: string | undefined,
+    ): {
+        readonly levels: readonly ReasoningLevel[];
+        readonly defaultLevel?: ReasoningLevelId;
+    } | undefined {
+        const pooledEntry = state.modelSettings?.pooled?.find((candidate) =>
+            candidate.provider === provider && candidate.model === model
         );
-        return current?.levels ?? [];
+        if (pooledEntry?.status === "ready") {
+            return pooledEntry;
+        }
+        return state.modelSettings?.availableModels?.find((candidate) =>
+            candidate.provider === provider && candidate.model === model
+        );
+    }
+
+    function currentModelLevels(): readonly ReasoningLevel[] {
+        return modelLevelFacts(
+            state.modelSettings?.provider,
+            state.modelSettings?.model,
+        )?.levels ?? [];
     }
 
     function openReasoningPicker(parent?: TuiSettingsPickerState): void {
@@ -3216,10 +3418,9 @@ export async function startTui(
             renderState();
             return;
         }
-        const current = state.modelSettings?.availableModels?.find(
-            (candidate) =>
-                candidate.provider === state.modelSettings?.provider
-                && candidate.model === state.modelSettings?.model,
+        const current = modelLevelFacts(
+            state.modelSettings?.provider,
+            state.modelSettings?.model,
         );
         settingsPicker = withTuiPickerParent(startTuiReasoningPicker(
             levels,
@@ -3726,16 +3927,20 @@ export async function startTui(
             );
             return;
         }
-        if ("pinToggle" in transition && transition.pinToggle !== undefined) {
+        if ("poolToggle" in transition && transition.poolToggle !== undefined) {
             // The pane stays open and stays on the same row. It is not updated
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
+            const toggle = transition.poolToggle;
+            if (toggle.action === "add") {
+                openAdmissionDialog(toggle.provider, toggle.model);
+                return;
+            }
             sendCommand({
-                type: "update_pin",
+                type: "pool_remove",
                 requestId: randomUUID(),
-                action: transition.pinToggle.action,
-                provider: transition.pinToggle.provider,
-                model: transition.pinToggle.model,
+                provider: toggle.provider,
+                model: toggle.model,
             });
         }
         if (transition.selection !== undefined) {
@@ -3744,12 +3949,36 @@ export async function startTui(
                 return;
             }
             if (selection.kind === "model") {
+                // A model that is not ready in the pool cannot be switched
+                // to, whichever tab it was chosen from: the engine's pool
+                // gate would refuse it. Choosing one opens the admission
+                // dialog instead, and the chosen model (with a top pick's
+                // bundled effort) is applied once the verdict is "added". A
+                // host that serves no pool keeps the direct path.
+                const pooled = state.modelSettings?.pooled;
+                const pooledEntry = pooled?.find(
+                    (candidate) =>
+                        candidate.provider === selection.provider
+                        && candidate.model === selection.model,
+                );
+                if (
+                    pooled !== undefined
+                    && pooledEntry?.status !== "ready"
+                ) {
+                    settingsPicker = previousPicker?.kind === "extension"
+                        ? undefined
+                        : previousPicker;
+                    openAdmissionDialog(selection.provider, selection.model, {
+                        provider: selection.provider,
+                        model: selection.model,
+                        ...(selection.reasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: selection.reasoningEffort }),
+                    });
+                    return;
+                }
                 const chosenLevels = selection.reasoningEffort === undefined
-                    ? state.modelSettings?.availableModels?.find(
-                        (candidate) =>
-                            candidate.provider === selection.provider
-                            && candidate.model === selection.model,
-                    )
+                    ? modelLevelFacts(selection.provider, selection.model)
                     : undefined;
                 if (
                     chosenLevels !== undefined
@@ -3902,6 +4131,9 @@ export async function startTui(
         preferencesList = undefined;
         preferencesListParent = undefined;
         confirmingFullAccess = false;
+        admissionDialog = undefined;
+        admissionReturnPicker = undefined;
+        pendingAdmissionApply.clear();
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
         sessionTitle = undefined;
@@ -4092,6 +4324,66 @@ export async function startTui(
         requestedModelChanges.set(requestId, subject);
         sendCommand({ type: "update_model_settings", requestId, patch });
         showStatusNotice(toast);
+    }
+
+    /**
+     * Sends `pool_add` and opens the admission checklist in the transcript.
+     * The reply is a stream rather than one update, so the checklist entry is
+     * created here and rewritten by the progress updates as they land. The
+     * transcript entry is written whether or not the dialog is showing: it is
+     * the durable record, and the only surface a reattached client gets.
+     */
+    function requestPoolAdmission(provider: string, model: string): string {
+        const requestId = randomUUID();
+        state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
+        sendCommand({ type: "pool_add", requestId, provider, model });
+        renderState();
+        return requestId;
+    }
+
+    /** The live admission record for the dialog's own request, if any. */
+    function dialogAdmission() {
+        return state.admission !== undefined
+                && state.admission.requestId === admissionDialog?.requestId
+            ? state.admission
+            : undefined;
+    }
+
+    /**
+     * The confirmation gate every admission entry path goes through: nothing
+     * probes the provider until the user answers this dialog. The model pane,
+     * when one is open, is set aside rather than closed so leaving the dialog
+     * can put the user back where they were.
+     */
+    function openAdmissionDialog(
+        provider: string,
+        model: string,
+        apply?: TuiAdmissionApply,
+    ): void {
+        admissionReturnPicker = settingsPicker?.kind === "model"
+            ? settingsPicker
+            : undefined;
+        settingsPicker = undefined;
+        admissionDialog = startTuiAdmissionDialog(provider, model, apply);
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function closeAdmissionDialog(reopenPoolPicker: boolean): void {
+        const returnPicker = admissionReturnPicker;
+        admissionDialog = undefined;
+        admissionReturnPicker = undefined;
+        if (reopenPoolPicker && returnPicker !== undefined) {
+            // Rebuilt rather than restored: the pool changed under the saved
+            // pane, and a fresh open lands on the Pool tab, where the newly
+            // admitted row is.
+            openModelPicker(returnPicker.parent);
+            return;
+        }
+        settingsPicker = returnPicker;
+        focusActiveSurface();
+        renderState();
     }
 
     function requestPermissionsChange(mode: string): void {

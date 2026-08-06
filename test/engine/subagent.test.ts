@@ -166,7 +166,7 @@ test("subagent inherits the parent turn model and reasoning", async () => {
     }
 });
 
-test("a pinned model override replaces the parent settings", async () => {
+test("a pooled model override replaces the parent settings", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-override-"));
     const final: AssistantMessage = {
         role: "assistant",
@@ -187,11 +187,12 @@ test("a pinned model override replaces the parent settings", async () => {
         adapter,
         workspace: root,
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
-        readPins: () => [{
+        readPool: () => [{
             provider: "pin-provider",
             model: "small-model",
             label: "Small",
             available: true,
+            status: "ready",
             levels: [{ id: "low", label: "Low" }],
         }],
     });
@@ -266,17 +267,33 @@ test("a spawn with no override runs the configured subagent default", async () =
     }
 });
 
-test("a model override that is not pinned is refused with the pin list", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-subagent-unpinned-"));
+test("an unpooled model override inherits the default, with a notice", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-unpooled-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "selected" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
     const applyEffect = createSubagentEffectApplier({
-        adapter: new FauxAdapter([]),
+        adapter,
         workspace: root,
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
-        readPins: () => [{
+        readPool: () => [{
             provider: "pin-provider",
             model: "small-model",
             label: "Small",
             available: true,
+            status: "ready",
             levels: [],
         }],
     });
@@ -291,35 +308,64 @@ test("a model override that is not pinned is refused with the pin list", async (
             model: "selected",
         });
 
-        expect(result.isError).toBe(true);
-        expect(result.output).toBe(
-            'Model "haiku" is not pinned. Pinned models: small-model.',
+        expect(result.isError).toBe(false);
+        expect(request?.model).toBe("selected");
+        expect(result.output).toContain(
+            'Requested model "haiku" is not in the pool',
         );
+        expect(result.output).toContain("Add the model to the pool");
+        expect(result.output).toContain("child done");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
 });
 
-test("a model override with no pins is refused", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-subagent-nopins-"));
+test("a needs-verify pool entry falls through like an unpooled model", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-unverified-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "selected" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
     const applyEffect = createSubagentEffectApplier({
-        adapter: new FauxAdapter([]),
+        adapter,
         workspace: root,
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        readPool: () => [{
+            provider: "pin-provider",
+            model: "small-model",
+            label: "Small",
+            available: false,
+            status: "needs_verify",
+            levels: [],
+        }],
     });
 
     try {
         const result = await applyEffect({
             type: "spawn_subagent",
-            description: "use an override without pins",
+            description: "use an unverified model",
             model: "small-model",
         }, new AbortController().signal, {
             approvalMode: "auto",
             model: "selected",
         });
 
-        expect(result.isError).toBe(true);
-        expect(result.output).toContain("No models are pinned");
+        expect(result.isError).toBe(false);
+        expect(request?.model).toBe("selected");
+        expect(result.output).toContain(
+            'Requested model "small-model" is not in the pool',
+        );
     } finally {
         await rm(root, { recursive: true, force: true });
     }

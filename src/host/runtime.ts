@@ -13,7 +13,7 @@ import {
 import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
-import { pinnedModels } from "../model/catalog-view.ts";
+import { pooledModels } from "../model/catalog-view.ts";
 import type {
     CatalogModel,
     ReasoningLevel,
@@ -22,7 +22,9 @@ import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
 
 const hostLog = createHostLogger();
-import { addPin, removePin } from "../model/pin-store.ts";
+import { addPoolEntry, removePoolEntry } from "../model/pool-store.ts";
+import { admitModel } from "../model/admission.ts";
+import { effectiveCatalog } from "../model/catalog.ts";
 import {
     refreshCodexCatalog,
     type CodexCatalogRefreshOptions,
@@ -113,25 +115,60 @@ export async function startResidentHost(
             ? {}
             : { onFailure: options.onExtensionFailure }),
     });
+    const createAdapter = options.createAdapter
+        ?? ((provider?: string) => createConfiguredModelAdapter({
+            ...options.config,
+            provider: (provider ?? options.config.provider) as VeraConfig["provider"],
+        }, { authStorage, log: hostLog }));
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
-        createAdapter: options.createAdapter
-            ?? ((provider) => createConfiguredModelAdapter({
-                ...options.config,
-                provider: (provider ?? options.config.provider) as VeraConfig["provider"],
-            }, { authStorage, log: hostLog })),
+        createAdapter,
         provider: options.config.provider,
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,
-        readPins: () => pinnedModels(models),
-        updatePin: (action, entry) => {
-            if (action === "add") {
-                addPin(entry);
-            } else {
-                removePin(entry);
+        readPool: () => pooledModels(models),
+        admitToPool: async (entry, onStep) => {
+            let adapter;
+            try {
+                adapter = createAdapter(entry.provider);
+            } catch (error) {
+                return {
+                    verdict: "unavailable",
+                    reason: error instanceof Error
+                        ? error.message
+                        : "provider is not configured",
+                };
             }
+            const catalogModel = effectiveCatalog(entry.provider)
+                .models.find((candidate) => candidate.id === entry.model);
+            const verdict = await admitModel({
+                adapter,
+                provider: entry.provider,
+                model: entry.model,
+                ...(catalogModel === undefined ? {} : { catalogModel }),
+                onStep,
+            });
+            if (verdict.status === "added") {
+                addPoolEntry({
+                    provider: entry.provider,
+                    model: entry.model,
+                    verification: verdict.verification,
+                });
+                return { verdict: "added" };
+            }
+            return {
+                verdict: verdict.status,
+                reason: verdict.reason,
+                ...(verdict.status === "incompatible"
+                        && verdict.statusCode !== undefined
+                    ? { statusCode: verdict.statusCode }
+                    : {}),
+            };
+        },
+        removeFromPool: (entry) => {
+            removePoolEntry(entry);
         },
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({

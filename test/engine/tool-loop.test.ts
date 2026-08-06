@@ -111,6 +111,8 @@ test("multiple tool calls execute sequentially in content order", async () => {
             "tool_finished",
             "tool_started",
             "tool_finished",
+            // The write tool announces its diff presentation once it lands.
+            "tool_presentation",
             "tool_started",
             "tool_finished",
             "context",

@@ -902,15 +902,20 @@ test("model fallback stays selected through the tool loop", async () => {
         tool: "write",
         seq: 5,
     });
-    await expectContextMeasured(channel, 6);
+    expect(await channel.client.receive()).toMatchObject({
+        type: "tool_presentation",
+        tool: "write",
+        seq: 6,
+    });
+    await expectContextMeasured(channel, 7);
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "finished on backup",
-        seq: 7,
+        seq: 8,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 8,
+        seq: 9,
     });
     expect(await turn).toEqual(finalResponse);
     expect(models).toEqual(["primary", "backup", "backup"]);
@@ -919,16 +924,16 @@ test("model fallback stays selected through the tool loop", async () => {
 
     channel.client.send({ type: "prompt", content: "new turn" });
     const nextTurn = runTurn(adapter, "primary", state);
-    await expectUserPrompt(channel, "new turn", 9);
-    await expectContextMeasured(channel, 10);
+    await expectUserPrompt(channel, "new turn", 10);
+    await expectContextMeasured(channel, 11);
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "primary again",
-        seq: 11,
+        seq: 12,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 12,
+        seq: 13,
     });
     expect(await nextTurn).toEqual(nextTurnResponse);
     expect(models).toEqual(["primary", "backup", "backup", "primary"]);

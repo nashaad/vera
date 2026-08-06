@@ -123,11 +123,29 @@ export interface InboundCommandRouterOptions {
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
     /**
-     * Returns the settings snapshot as it stands after the edit, so the reply
-     * carries the new pin list. `undefined` means the edit did not happen.
+     * Runs admission for one model and returns the verdict, with the settings
+     * snapshot as it stands afterwards so the reply carries the new pool.
+     * `onStep` fires per admission check for the client's checklist.
      */
-    readonly updatePin?: (
-        action: "add" | "remove",
+    readonly poolAdd?: (
+        entry: { readonly provider: string; readonly model: string },
+        onStep: (step: {
+            readonly step: string;
+            readonly label: string;
+            readonly status: "running" | "passed" | "failed" | "skipped";
+            readonly detail?: string;
+        }) => void,
+    ) => Promise<{
+        readonly verdict: "added" | "incompatible" | "unavailable";
+        readonly reason?: string;
+        readonly statusCode?: number;
+        readonly settings?: ModelTurnSettings;
+    }>;
+    /**
+     * Returns the settings snapshot as it stands after the removal.
+     * `undefined` means the edit did not happen.
+     */
+    readonly poolRemove?: (
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
@@ -449,8 +467,16 @@ export class InboundCommandRouter {
                     continue;
                 }
 
-                if (command.type === "update_pin") {
-                    await this.updatePin(command.requestId, command.action, {
+                if (command.type === "pool_add") {
+                    await this.poolAdd(command.requestId, {
+                        provider: command.provider,
+                        model: command.model,
+                    });
+                    continue;
+                }
+
+                if (command.type === "pool_remove") {
+                    await this.poolRemove(command.requestId, {
                         provider: command.provider,
                         model: command.model,
                     });
@@ -572,17 +598,59 @@ export class InboundCommandRouter {
         });
     }
 
-    private async updatePin(
+    private async poolAdd(
         requestId: string,
-        action: "add" | "remove",
         entry: { readonly provider: string; readonly model: string },
     ): Promise<void> {
-        const settings = await this.options.updatePin?.(action, entry);
+        if (this.options.poolAdd === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        const result = await this.options.poolAdd(entry, (step) => {
+            this.events.emit({
+                type: "pool_admission_progress",
+                requestId,
+                step: step.step,
+                label: step.label,
+                status: step.status,
+                ...(step.detail === undefined ? {} : { detail: step.detail }),
+            });
+        });
+        this.events.emit({
+            type: "pool_admission_result",
+            requestId,
+            provider: entry.provider,
+            model: entry.model,
+            verdict: result.verdict,
+            ...(result.reason === undefined ? {} : { reason: result.reason }),
+            ...(result.statusCode === undefined
+                ? {}
+                : { statusCode: result.statusCode }),
+        });
+        if (result.settings !== undefined) {
+            this.events.emit({
+                type: "model_settings_changed",
+                requestId,
+                settings: copyModelSettings(result.settings),
+                pending: this.hasPendingTurn(),
+            });
+        }
+    }
+
+    private async poolRemove(
+        requestId: string,
+        entry: { readonly provider: string; readonly model: string },
+    ): Promise<void> {
+        const settings = await this.options.poolRemove?.(entry);
         if (settings === undefined) {
             this.events.emit({
                 type: "model_settings_rejected",
                 requestId,
-                reason: this.options.updatePin === undefined
+                reason: this.options.poolRemove === undefined
                     ? "unavailable"
                     : "invalid",
             });
@@ -947,10 +1015,10 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
                     levels: model.levels.map((level) => ({ ...level })),
                 })),
             }),
-        ...(settings.pinned === undefined
+        ...(settings.pooled === undefined
             ? {}
             : {
-                pinned: settings.pinned.map((model) => ({
+                pooled: settings.pooled.map((model) => ({
                     ...model,
                     levels: model.levels.map((level) => ({ ...level })),
                 })),

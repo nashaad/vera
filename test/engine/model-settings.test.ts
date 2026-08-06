@@ -120,7 +120,7 @@ test("a model the user did not choose keeps any effort it can resolve", () => {
     )).toBe(unlisted);
 });
 
-test("settings validation accepts the pinned and per-model levels", () => {
+test("settings validation accepts the pool and per-model levels", () => {
     const available = {
         provider: "test",
         model: "with-levels",
@@ -129,25 +129,26 @@ test("settings validation accepts the pinned and per-model levels", () => {
         levels: [{ id: "high", label: "High" }],
         defaultLevel: "high",
     };
-    const pinned = {
+    const pooled = {
         provider: "test",
         model: "kept",
         label: "kept",
         available: false,
+        status: "needs_verify",
         levels: [],
     };
 
     expect(isModelTurnSettings({
         model: "with-levels",
         availableModels: [available],
-        pinned: [pinned],
+        pooled: [pooled],
     })).toBe(true);
     // An empty level list is a fact about the model, not a missing field.
     expect(isModelTurnSettings({
         model: "with-levels",
         availableModels: [{ ...available, levels: [], defaultLevel: undefined }],
     })).toBe(true);
-    expect(isModelTurnSettings({ model: "with-levels", pinned: [] })).toBe(true);
+    expect(isModelTurnSettings({ model: "with-levels", pooled: [] })).toBe(true);
 });
 
 test("settings validation rejects entries missing their new fields", () => {
@@ -162,20 +163,32 @@ test("settings validation rejects entries missing their new fields", () => {
     })).toBe(false);
     expect(isModelTurnSettings({
         model: "with-levels",
-        pinned: [{
+        pooled: [{
             provider: "test",
             model: "kept",
             label: "kept",
+            status: "ready",
             levels: [],
         }],
     })).toBe(false);
     expect(isModelTurnSettings({
         model: "with-levels",
-        pinned: [{
+        pooled: [{
             provider: "test",
             model: "kept",
             label: "kept",
             available: true,
+            levels: [],
+        }],
+    })).toBe(false);
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        pooled: [{
+            provider: "test",
+            model: "kept",
+            label: "kept",
+            available: true,
+            status: "ready",
             levels: [{ label: "High" }],
         }],
     })).toBe(false);

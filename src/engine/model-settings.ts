@@ -10,7 +10,7 @@ import {
 } from "../model/supported-models.ts";
 import type {
     AvailableModel,
-    PinnedModel,
+    PooledModel,
 } from "../model/catalog-view.ts";
 
 export interface ModelTurnSettings {
@@ -24,11 +24,11 @@ export interface ModelTurnSettings {
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
     readonly availableModels?: readonly AvailableModel[];
     /**
-     * The models the user keeps, most recently used first. Separate from
+     * The pool: the models the user admitted, newest first. Separate from
      * `availableModels` because it answers a different question and carries
      * entries that are not currently runnable.
      */
-    readonly pinned?: readonly PinnedModel[];
+    readonly pooled?: readonly PooledModel[];
     readonly contextWindow?: number;
     /**
      * The settings a spawn without an explicit model will use. This is
@@ -69,9 +69,9 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
         && (settings.availableModels === undefined
             || (Array.isArray(settings.availableModels)
                 && settings.availableModels.every(isAvailableModel)))
-        && (settings.pinned === undefined
-            || (Array.isArray(settings.pinned)
-                && settings.pinned.every(isPinnedModel)))
+        && (settings.pooled === undefined
+            || (Array.isArray(settings.pooled)
+                && settings.pooled.every(isPooledModel)))
         && (settings.contextWindow === undefined
             || (Number.isSafeInteger(settings.contextWindow)
                 && (settings.contextWindow as number) > 0))
@@ -253,7 +253,7 @@ function isAvailableModel(value: unknown): boolean {
             || typeof model.defaultLevel === "string");
 }
 
-function isPinnedModel(value: unknown): boolean {
+function isPooledModel(value: unknown): boolean {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;
     }
@@ -262,6 +262,7 @@ function isPinnedModel(value: unknown): boolean {
         && typeof model.model === "string"
         && typeof model.label === "string"
         && typeof model.available === "boolean"
+        && (model.status === "ready" || model.status === "needs_verify")
         && (model.description === undefined
             || typeof model.description === "string")
         && (model.contextWindow === undefined

@@ -17,7 +17,7 @@ import {
     loadVeraConfig,
     updateVeraConfigDefaults,
 } from "../src/config.ts";
-import { addPin, readPins } from "../src/model/pin-store.ts";
+import { addPoolEntry, readPool } from "../src/model/pool-store.ts";
 
 test("Vera config loads the shared model choice", () => {
     const path = temporaryConfigPath();
@@ -624,9 +624,9 @@ test("switching providers clears a provider-specific fallback", () => {
 });
 
 test("updating the defaults preserves keys the config type does not model", () => {
-    // The pinned store writes into the same file, under a key `VeraConfig` has
+    // The pool store writes into the same file, under a key `VeraConfig` has
     // no field for. Before this, changing model round-tripped the file through
-    // the type and silently erased the user's whole pinned.
+    // the type and silently erased the user's whole pool.
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
@@ -634,11 +634,11 @@ test("updating the defaults preserves keys the config type does not model", () =
         model: "gpt-5.6-sol",
         approval_mode: "ask",
     }));
-    addPin({ provider: "openai-codex", model: "gpt-5.6-sol" }, { path });
+    addPoolEntry({ provider: "openai-codex", model: "gpt-5.6-sol" }, { path });
 
     updateVeraConfigDefaults({ model: "some-other-model" }, { path });
 
-    expect(readPins({ path })).toEqual([
+    expect(readPool({ path })).toEqual([
         { provider: "openai-codex", model: "gpt-5.6-sol" },
     ]);
     expect(loadVeraConfig({ path }).model).toBe("some-other-model");

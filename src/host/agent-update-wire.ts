@@ -157,6 +157,35 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "pool_admission_progress") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && typeof update.step === "string"
+                && typeof update.label === "string"
+                && (update.status === "running"
+                    || update.status === "passed"
+                    || update.status === "failed"
+                    || update.status === "skipped")
+                && (update.detail === undefined
+                    || typeof update.detail === "string")
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "pool_admission_result") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && typeof update.provider === "string"
+                && typeof update.model === "string"
+                && (update.verdict === "added"
+                    || update.verdict === "incompatible"
+                    || update.verdict === "unavailable")
+                && (update.reason === undefined
+                    || typeof update.reason === "string")
+                && (update.statusCode === undefined
+                    || Number.isSafeInteger(update.statusCode))
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "permissions") {
         return typeof update.requestId === "string"
                 && update.requestId.length > 0
@@ -624,12 +653,13 @@ function isAvailableModel(value: unknown): boolean {
             || typeof model.defaultLevel === "string");
 }
 
-function isPinnedModel(value: unknown): boolean {
+function isPooledModel(value: unknown): boolean {
     const model = asRecord(value);
     return typeof model?.provider === "string"
         && typeof model.model === "string"
         && typeof model.label === "string"
         && typeof model.available === "boolean"
+        && (model.status === "ready" || model.status === "needs_verify")
         && (model.description === undefined
             || typeof model.description === "string")
         && (model.contextWindow === undefined

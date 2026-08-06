@@ -27,6 +27,7 @@
  */
 export type TuiKeyScope =
     | "global"
+    | "conversation"
     | "composer"
     | "unfocused"
     | "picker"
@@ -100,6 +101,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+o reasoning",
     },
     {
+        id: "toggle_tool_details",
+        keys: ["ctrl+e"],
+        scope: "conversation",
+        description: "Show or hide tool details",
+        hint: "ctrl+e details",
+    },
+    {
         id: "cycle-reasoning",
         keys: ["ctrl+t"],
         scope: "global",
@@ -140,11 +148,11 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Move the cursor half a page up",
     },
     {
-        id: "toggle_pinned",
+        id: "toggle_pooled",
         keys: ["ctrl+s"],
         scope: "model_picker",
-        description: "Pin or unpin the selected model",
-        hint: "^s pin",
+        description: "Add or remove the selected model from the pool",
+        hint: "^s pool",
     },
     {
         id: "open_providers",
@@ -157,7 +165,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "switch_tab",
         keys: ["tab"],
         scope: "model_picker",
-        description: "Switch between pinned and all models",
+        description: "Switch between pool and all models",
         hint: "tab switch",
     },
     {

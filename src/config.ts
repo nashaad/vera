@@ -239,7 +239,7 @@ export function updateVeraConfigDefaults(
  * file deliberately migrated away from, and carrying those across would
  * resurrect them. Add a key here when a new owner starts writing to this file.
  */
-const FOREIGN_CONFIG_KEYS = ["pinned"] as const;
+const FOREIGN_CONFIG_KEYS = ["pinned", "pool"] as const;
 
 function foreignConfigEntries(path: string): Record<string, unknown> {
     let raw: Record<string, unknown>;
