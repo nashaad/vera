@@ -108,6 +108,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+e details",
     },
     {
+        id: "jump_to_bottom",
+        keys: ["ctrl+g"],
+        scope: "conversation",
+        description: "Follow the transcript from the bottom again",
+        hint: "ctrl+g bottom",
+    },
+    {
         id: "cycle-reasoning",
         keys: ["ctrl+t"],
         scope: "global",
