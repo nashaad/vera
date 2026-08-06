@@ -1929,7 +1929,7 @@ test.skipIf(!tmuxAvailable)(
             sendMouseWheel(socket, session, "up", 20, 4, 10);
             pane = await waitForPane(socket, session, "Jump to bottom");
 
-            sendKey(socket, session, "C-g");
+            sendCtrlEnd(socket, session);
             await waitForVisiblePaneWhere(
                 socket,
                 session,
@@ -1938,7 +1938,7 @@ test.skipIf(!tmuxAvailable)(
             );
 
             // The wheel is the other way back, and it has to re-engage the
-            // same follow the key does.
+            // same follow the keys do.
             sendMouseWheel(socket, session, "up", 20, 4, 10);
             pane = await waitForPane(socket, session, "Jump to bottom");
             sendMouseWheel(socket, session, "down", 20, 4, 40);
@@ -1967,6 +1967,18 @@ function sendText(socket: string, session: string, value: string): void {
 
 function sendKey(socket: string, session: string, key: string): void {
     runTmux(socket, ["send-keys", "-t", session, key]);
+}
+
+function sendCtrlEnd(socket: string, session: string): void {
+    runTmux(socket, [
+        "send-keys",
+        "-t",
+        session,
+        "-H",
+        ...Array.from(Buffer.from("\x1b[1;5F"), (byte) =>
+            byte.toString(16).padStart(2, "0")
+        ),
+    ]);
 }
 
 function sendMouseWheel(
