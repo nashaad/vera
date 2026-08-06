@@ -108,6 +108,34 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+e details",
     },
     {
+        id: "scroll_line_up",
+        keys: ["ctrl+up"],
+        scope: "conversation",
+        description: "Scroll the transcript up one line",
+    },
+    {
+        id: "scroll_line_down",
+        keys: ["ctrl+down"],
+        scope: "conversation",
+        description: "Scroll the transcript down one line",
+    },
+    // A terminal only reports the shift on a ctrl+letter chord under the kitty
+    // keyboard protocol. Elsewhere ctrl+shift+u arrives as plain ctrl+u, which
+    // is the composer's clear-line, so these chords go unmatched rather than
+    // taking it. The arrow bindings above are the form that works everywhere.
+    {
+        id: "scroll_half_page_up",
+        keys: ["ctrl+shift+up", "ctrl+shift+u"],
+        scope: "conversation",
+        description: "Scroll the transcript half a page up",
+    },
+    {
+        id: "scroll_half_page_down",
+        keys: ["ctrl+shift+down", "ctrl+shift+d"],
+        scope: "conversation",
+        description: "Scroll the transcript half a page down",
+    },
+    {
         id: "jump_to_bottom",
         keys: ["ctrl+end"],
         scope: "conversation",

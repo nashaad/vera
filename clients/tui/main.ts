@@ -1593,13 +1593,26 @@ export async function startTui(
             return;
         }
 
-        if (
-            tuiBindingId("conversation", key) === "jump_to_bottom"
-            && !anyOverlayOpen()
-        ) {
+        const scrollBinding = anyOverlayOpen()
+            ? undefined
+            : tuiBindingId("conversation", key);
+        const scrollLines = scrollBinding === "scroll_line_up"
+            ? -1
+            : scrollBinding === "scroll_line_down"
+            ? 1
+            : scrollBinding === "scroll_half_page_up"
+            ? -Math.max(1, Math.floor(transcript.viewport.height / 2))
+            : scrollBinding === "scroll_half_page_down"
+            ? Math.max(1, Math.floor(transcript.viewport.height / 2))
+            : undefined;
+        if (scrollBinding === "jump_to_bottom" || scrollLines !== undefined) {
             key.preventDefault();
             key.stopPropagation();
-            transcript.scrollTo(transcript.scrollHeight);
+            if (scrollLines === undefined) {
+                transcript.scrollTo(transcript.scrollHeight);
+            } else {
+                transcript.scrollBy(scrollLines);
+            }
             renderJumpToBottom();
             return;
         }

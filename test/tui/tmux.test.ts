@@ -1926,10 +1926,12 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
 
-            sendMouseWheel(socket, session, "up", 20, 4, 10);
+            for (let index = 0; index < 6; index += 1) {
+                sendEscapeSequence(socket, session, "\x1b[1;5A");
+            }
             pane = await waitForPane(socket, session, "Jump to bottom");
 
-            sendCtrlEnd(socket, session);
+            sendEscapeSequence(socket, session, "\x1b[1;5F");
             await waitForVisiblePaneWhere(
                 socket,
                 session,
@@ -1969,13 +1971,17 @@ function sendKey(socket: string, session: string, key: string): void {
     runTmux(socket, ["send-keys", "-t", session, key]);
 }
 
-function sendCtrlEnd(socket: string, session: string): void {
+function sendEscapeSequence(
+    socket: string,
+    session: string,
+    sequence: string,
+): void {
     runTmux(socket, [
         "send-keys",
         "-t",
         session,
         "-H",
-        ...Array.from(Buffer.from("\x1b[1;5F"), (byte) =>
+        ...Array.from(Buffer.from(sequence), (byte) =>
             byte.toString(16).padStart(2, "0")
         ),
     ]);
