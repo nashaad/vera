@@ -74,7 +74,7 @@ test("the thought summary folds the reasoning it collected", () => {
     }]);
     expect(state.pendingThinking).toBeUndefined();
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("+ Thought: 12.4s");
+        .toBe("+ Thought: 12.4s  ctrl+o reasoning");
 });
 
 test("toggling reasoning opens every fold and every later one", () => {
@@ -92,7 +92,7 @@ test("toggling reasoning opens every fold and every later one", () => {
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("- Thought: 12.4s\n\nweighing the two orderings");
+        .toBe("- Thought: 12.4s  ctrl+o reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {

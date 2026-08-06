@@ -17,6 +17,7 @@ import type {
     PermissionInspection,
 } from "../../src/engine/permissions.ts";
 import type { TuiTheme } from "./theme.ts";
+import { tuiKeyHint } from "./keymap.ts";
 import { VERA_TUI_THEME } from "./theme.ts";
 
 export type TuiTranscriptEntryKind =
@@ -520,9 +521,19 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "thought") {
         const summary = fg(TUI_NOTICE)(entry.text);
-        return entry.expanded === true && entry.reasoning !== undefined
-            ? new StyledText([summary, fg(TUI_MUTED)(`\n\n${entry.reasoning}`)])
-            : new StyledText([summary]);
+        if (entry.reasoning === undefined) {
+            return new StyledText([summary]);
+        }
+        // The hint rides the rendered row, not the stored text, so the stored
+        // summary stays the fold marker other code parses.
+        const hint = fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_thinking")}`);
+        return entry.expanded === true
+            ? new StyledText([
+                summary,
+                hint,
+                fg(TUI_MUTED)(`\n\n${entry.reasoning}`),
+            ])
+            : new StyledText([summary, hint]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
