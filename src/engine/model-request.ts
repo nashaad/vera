@@ -51,18 +51,20 @@ export function buildModelRequest(
 export function projectModelRequest(
     snapshot: ModelRequestSnapshot,
 ): ModelRequestProjection {
-    const messages = Object.freeze(snapshot.messages.map(
-        (message): ModelMessage => {
-            if (message.role !== "tool_result") return message;
-            return {
-                role: "tool_result",
-                toolCallId: message.toolCallId,
-                toolName: message.toolName,
-                content: message.content,
-                isError: message.isError,
-            };
-        },
-    ));
+    const messages = Object.freeze(snapshot.messages
+        .filter(isReplayableModelMessage)
+        .map(
+            (message): ModelMessage => {
+                if (message.role !== "tool_result") return message;
+                return {
+                    role: "tool_result",
+                    toolCallId: message.toolCallId,
+                    toolName: message.toolName,
+                    content: message.content,
+                    isError: message.isError,
+                };
+            },
+        ));
     const tools = Object.freeze([...snapshot.tools]);
     const prompt = projectSystemPrompt({
         tools,
@@ -99,5 +101,25 @@ export function projectModelRequest(
     return Object.freeze({
         request,
         promptContributions: prompt.contributions,
+    });
+}
+
+/**
+ * Terminal failures stay in the durable transcript, but a provider cannot be
+ * given an assistant message with no content. Replaying one poisons every
+ * later request in the session even though the user can otherwise continue.
+ */
+function isReplayableModelMessage(message: ModelMessage): boolean {
+    if (message.role !== "assistant") {
+        return true;
+    }
+    return message.content.some((block) => {
+        if (block.type === "tool_call") {
+            return true;
+        }
+        if (block.type === "thinking") {
+            return block.text.length > 0 || block.signature !== undefined;
+        }
+        return block.text.length > 0;
     });
 }

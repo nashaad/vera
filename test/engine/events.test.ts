@@ -200,6 +200,69 @@ test("prompt prefix drift is logged as a warning", async () => {
     }
 });
 
+test("provider failures keep their structured diagnostics in the event log", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const logPath = join(workspace, "events.jsonl");
+    try {
+        const events = new EngineEventBus();
+        events.subscribe(createJsonlEventLogger({
+            path: logPath,
+            sessionId: "session-test",
+        }));
+        events.emit({
+            type: "model_stream_error",
+            error: "Provider returned error",
+            errorName: "ProviderFailureError",
+            stack: "ProviderFailureError: Provider returned error",
+            cause: {
+                name: "Error",
+                message: "Provider returned error (provider_unavailable)",
+            },
+            failure: {
+                kind: "server",
+                resolution: "retry",
+                message: "Provider returned error (provider_unavailable)",
+                statusCode: 503,
+                providerErrorType: "provider_unavailable",
+                providerCode: "overloaded_error",
+                providerName: "Anthropic",
+                providerMessage: "Service is temporarily overloaded",
+            },
+            message: {
+                role: "assistant",
+                content: [],
+                source: {
+                    provider: "openrouter",
+                    api: "openrouter-chat",
+                    model: "anthropic/claude-sonnet-5",
+                },
+                usage: emptyUsage(),
+                stopReason: "error",
+                errorMessage: "Provider returned error",
+            },
+        });
+
+        expect(JSON.parse(await readFile(logPath, "utf8"))).toEqual(
+            expect.objectContaining({
+                level: "error",
+                errorName: "ProviderFailureError",
+                cause: expect.objectContaining({
+                    message: "Provider returned error (provider_unavailable)",
+                }),
+                failure: expect.objectContaining({
+                    statusCode: 503,
+                    providerErrorType: "provider_unavailable",
+                    providerCode: "overloaded_error",
+                    providerName: "Anthropic",
+                    providerMessage: "Service is temporarily overloaded",
+                }),
+            }),
+        );
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 function eventName(event: EngineEvent): string {
     return event.type === "model_stream"
         ? `${event.type}:${event.event.type}`

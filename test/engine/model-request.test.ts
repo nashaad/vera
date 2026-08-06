@@ -87,6 +87,73 @@ test("model requests strip durable tool presentation metadata", () => {
     expect(JSON.stringify(request)).not.toContain("SECRET DIFF");
 });
 
+test("model requests omit empty assistant failures from durable history", () => {
+    const failed: ModelMessage = {
+        role: "assistant",
+        content: [],
+        source: { provider: "openrouter", api: "chat", model: "test-model" },
+        usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cachedInputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+        },
+        stopReason: "error",
+        errorMessage: "Provider returned error",
+    };
+    const request = buildModelRequest({
+        model: "test-model",
+        maxTokens: 4096,
+        messages: [
+            { role: "user", content: [{ type: "text", text: "first" }] },
+            failed,
+            { role: "user", content: [{ type: "text", text: "try again" }] },
+        ],
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 7, 6),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    });
+
+    expect(request.messages).toEqual([
+        { role: "user", content: [{ type: "text", text: "first" }] },
+        { role: "user", content: [{ type: "text", text: "try again" }] },
+    ]);
+});
+
+test("model requests preserve signed reasoning without visible assistant text", () => {
+    const request = buildModelRequest({
+        model: "test-model",
+        maxTokens: 4096,
+        messages: [{
+            role: "assistant",
+            content: [{
+                type: "thinking",
+                text: "",
+                signature: "signed-reasoning",
+            }],
+            source: { provider: "openrouter", api: "chat", model: "test-model" },
+            usage: {
+                inputTokens: 0,
+                outputTokens: 0,
+                cachedInputTokens: 0,
+                reasoningTokens: 0,
+                totalTokens: 0,
+            },
+            stopReason: "stop",
+        }],
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 7, 6),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    });
+
+    expect(request.messages).toHaveLength(1);
+});
+
 test("equal boundary snapshots produce equal prompts including empty tools", () => {
     const input = {
         model: "test-model",

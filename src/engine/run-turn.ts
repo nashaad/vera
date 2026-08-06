@@ -14,6 +14,9 @@ import {
     type ToolResultMessage,
     type UserMessage,
 } from "../model/types.ts";
+import { ProviderFailureError } from "../model/provider-failure.ts";
+import type { ProviderFailure } from "../model/provider-failure.ts";
+import { sanitizeDiagnosticText } from "../model/diagnostic-text.ts";
 import {
     hydrateImageAttachments,
     readSessionImageContent,
@@ -878,10 +881,45 @@ export async function runTurn(
                 {
                     onEvent(event): void {
                         if (event.type === "error") {
+                            const cause = event.error.cause instanceof Error
+                                ? event.error.cause
+                                : undefined;
                             state.events.emit({
                                 type: "model_stream_error",
-                                error: event.error.message,
-                                message: event.message,
+                                error: sanitizeDiagnosticText(event.error.message),
+                                errorName: sanitizeDiagnosticText(event.error.name),
+                                ...(event.error.stack === undefined
+                                    ? {}
+                                    : {
+                                        stack: sanitizeDiagnosticText(
+                                            event.error.stack,
+                                        ),
+                                    }),
+                                ...(cause === undefined
+                                    ? {}
+                                    : {
+                                        cause: {
+                                            name: sanitizeDiagnosticText(cause.name),
+                                            message: sanitizeDiagnosticText(
+                                                cause.message,
+                                            ),
+                                            ...(cause.stack === undefined
+                                                ? {}
+                                                : {
+                                                    stack: sanitizeDiagnosticText(
+                                                        cause.stack,
+                                                    ),
+                                                }),
+                                        },
+                                    }),
+                                ...(event.error instanceof ProviderFailureError
+                                    ? {
+                                        failure: sanitizedProviderFailure(
+                                            event.error.failure,
+                                        ),
+                                    }
+                                    : {}),
+                                message: sanitizedErrorMessage(event.message),
                             });
                             return;
                         }
@@ -891,6 +929,7 @@ export async function runTurn(
                         state.events.emit({
                             type: "model_retry_scheduled",
                             ...retry,
+                            failure: sanitizedProviderFailure(retry.failure),
                         });
                     },
                     onFallback(fallback): void {
@@ -903,6 +942,7 @@ export async function runTurn(
                         state.events.emit({
                             type: "model_fallback_selected",
                             ...fallback,
+                            failure: sanitizedProviderFailure(fallback.failure),
                         });
                         // The same request is sent again to a model with its
                         // own window, so the share of it that is filled moves
@@ -931,6 +971,7 @@ export async function runTurn(
                         : { wait: state.waitForModelRetry }),
                 },
             );
+            assistantMessage = sanitizedErrorMessage(assistantMessage);
             assistantMessage = requireVisibleTerminalResponse(assistantMessage);
             let preparedToolCalls: readonly PreparedToolCall[] = [];
             if (assistantMessage.stopReason === "tool_use") {
@@ -1067,6 +1108,46 @@ function requireImageReader(
     return state.readImageContent ?? (async (attachmentId) => {
         throw new Error(`Image attachment ${attachmentId} cannot be read`);
     });
+}
+
+function sanitizedProviderFailure(failure: ProviderFailure): ProviderFailure {
+    return {
+        ...failure,
+        message: sanitizeDiagnosticText(failure.message),
+        ...(failure.providerErrorType === undefined
+            ? {}
+            : {
+                providerErrorType: sanitizeDiagnosticText(
+                    failure.providerErrorType,
+                ),
+            }),
+        ...(failure.providerCode === undefined
+            ? {}
+            : {
+                providerCode: sanitizeDiagnosticText(failure.providerCode),
+            }),
+        ...(failure.providerName === undefined
+            ? {}
+            : {
+                providerName: sanitizeDiagnosticText(failure.providerName),
+            }),
+        ...(failure.providerMessage === undefined
+            ? {}
+            : {
+                providerMessage: sanitizeDiagnosticText(
+                    failure.providerMessage,
+                ),
+            }),
+    };
+}
+
+function sanitizedErrorMessage(message: AssistantMessage): AssistantMessage {
+    return message.errorMessage === undefined
+        ? message
+        : {
+            ...message,
+            errorMessage: sanitizeDiagnosticText(message.errorMessage),
+        };
 }
 
 function reviewInterruptedMessage(

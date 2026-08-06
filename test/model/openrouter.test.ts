@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
     ChatFinishReasonEnum,
     ChatStreamChunk,
+    ChatStreamChunkError,
     ChatStreamDelta,
     ChatUsage,
 } from "@openrouter/sdk/models";
@@ -12,8 +13,12 @@ import {
     type SendOpenRouterChat,
 } from "../../src/providers/openrouter.ts";
 import { ProviderFailureError } from "../../src/model/provider-failure.ts";
+import { requestModelWithRecovery } from "../../src/engine/recovery.ts";
 import { normalizeOpenRouterToolCallId } from "../../src/providers/openrouter-wire.ts";
-import type { ModelStreamEvent } from "../../src/model/types.ts";
+import type {
+    AssistantMessage,
+    ModelStreamEvent,
+} from "../../src/model/types.ts";
 
 describe("OpenRouter adapter", () => {
     test("normalizes tool call characters without truncating IDs", () => {
@@ -475,9 +480,9 @@ describe("OpenRouter adapter", () => {
         const adapter = new OpenRouterAdapter(async (request) => {
             expect(request.messages[0]).toMatchObject({
                 role: "assistant",
-                reasoning: "check",
                 reasoningDetails: JSON.parse(signature),
             });
+            expect(request.messages[0]).not.toHaveProperty("reasoning");
             return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
         });
         const stream = adapter.stream({
@@ -508,6 +513,189 @@ describe("OpenRouter adapter", () => {
         }
         expect((await stream.result()).stopReason).toBe("stop");
     });
+
+    test("coalesces streamed fragments before replaying signed reasoning", async () => {
+        let requestNumber = 0;
+        let firstMessage: AssistantMessage | undefined;
+        const adapter = new OpenRouterAdapter(async (request) => {
+            requestNumber += 1;
+            if (requestNumber === 2) {
+                expect(request.messages[1]).toMatchObject({
+                    role: "assistant",
+                    reasoningDetails: [{
+                        type: "reasoning.text",
+                        index: 0,
+                        format: "anthropic-claude-v1",
+                        text: "check",
+                        signature: "signed-check",
+                    }],
+                });
+                return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
+            }
+            return chunks([
+                chatChunk({
+                    delta: {
+                        reasoning: "check",
+                        reasoningDetails: [{
+                            type: "reasoning.text",
+                            index: 0,
+                            format: "anthropic-claude-v1",
+                            text: "ch",
+                        }],
+                    },
+                }),
+                chatChunk({
+                    delta: {
+                        reasoningDetails: [{
+                            type: "reasoning.text",
+                            index: 0,
+                            format: "anthropic-claude-v1",
+                            text: "eck",
+                        }],
+                    },
+                }),
+                chatChunk({
+                    delta: {
+                        reasoningDetails: [{
+                            type: "reasoning.text",
+                            index: 0,
+                            format: "anthropic-claude-v1",
+                            signature: "signed-check",
+                        }],
+                        toolCalls: [{
+                            index: 0,
+                            id: "call_1",
+                            function: { name: "echo", arguments: '{"value":"ok"}' },
+                        }],
+                    },
+                    finishReason: "tool_calls",
+                }),
+            ]);
+        });
+        const first = adapter.stream({
+            model: "test/model",
+            messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+            tools: [{
+                name: "echo",
+                description: "Echo a value.",
+                inputSchema: { type: "object" },
+            }],
+        });
+        for await (const _event of first) {
+            // Drain the stream.
+        }
+        firstMessage = await first.result();
+        const toolCall = firstMessage.content.find((block) => block.type === "tool_call");
+        expect(toolCall?.type).toBe("tool_call");
+        if (toolCall?.type !== "tool_call") {
+            throw new Error("Expected a tool call");
+        }
+
+        const second = adapter.stream({
+            model: "test/model",
+            messages: [
+                { role: "user", content: [{ type: "text", text: "go" }] },
+                firstMessage,
+                {
+                    role: "tool_result",
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.name,
+                    content: [{ type: "text", text: "ok" }],
+                    isError: false,
+                },
+            ],
+        });
+        for await (const _event of second) {
+            // Drain the stream.
+        }
+        expect((await second.result()).stopReason).toBe("stop");
+    });
+
+    test("preserves structured errors delivered inside a stream", async () => {
+        const adapter = new OpenRouterAdapter(async () => chunks([
+            chatChunk({
+                delta: {},
+                error: {
+                    code: 503,
+                    message: "Provider returned error",
+                    metadata: {
+                        errorType: "provider_unavailable",
+                        providerCode: "overloaded_error",
+                    },
+                },
+            }),
+        ]));
+        const stream = adapter.stream({ model: "test/model", messages: [] });
+        const events: ModelStreamEvent[] = [];
+        for await (const event of stream) {
+            events.push(event);
+        }
+
+        const error = events.at(-1);
+        expect(error?.type).toBe("error");
+        if (error?.type === "error") {
+            expect(error.error).toBeInstanceOf(ProviderFailureError);
+            expect(error.error).toMatchObject({
+                failure: {
+                    kind: "server",
+                    resolution: "retry",
+                    statusCode: 503,
+                    providerErrorType: "provider_unavailable",
+                    providerCode: "overloaded_error",
+                },
+            });
+        }
+        expect(await stream.result()).toMatchObject({
+            stopReason: "error",
+            errorMessage: "Provider returned error "
+                + "(provider_unavailable, code 503, provider overloaded_error)",
+        });
+    });
+
+    test("retries when signed metadata arrives before a retryable error", async () => {
+        let attempts = 0;
+        const adapter = new OpenRouterAdapter(async () => {
+            attempts += 1;
+            return attempts === 1
+                ? chunks([
+                    chatChunk({
+                        delta: {
+                            reasoningDetails: [{
+                                type: "reasoning.encrypted",
+                                data: "signed",
+                            }],
+                        },
+                    }),
+                    chatChunk({
+                        delta: {},
+                        error: {
+                            code: 503,
+                            message: "temporarily unavailable",
+                            metadata: {
+                                errorType: "provider_unavailable",
+                            },
+                        },
+                    }),
+                ])
+                : chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
+        });
+        const observed: string[] = [];
+        const result = await requestModelWithRecovery(
+            adapter,
+            { provider: "openrouter", model: "test/model", messages: [] },
+            {
+                policy: { delaysMs: [0] },
+                wait: async () => undefined,
+                onEvent: (event) => observed.push(event.type),
+                onRetry: () => observed.push("retry"),
+                onFallback: () => undefined,
+            },
+        );
+
+        expect(attempts).toBe(2);
+        expect(observed).toEqual(["start", "retry", "done"]);
+        expect(result.stopReason).toBe("stop");
+    });
 });
 
 async function* chunks<T>(values: readonly T[]): AsyncIterable<T> {
@@ -518,6 +706,7 @@ async function* chunks<T>(values: readonly T[]): AsyncIterable<T> {
 
 interface ChatChunkOptions {
     readonly delta: ChatStreamDelta;
+    readonly error?: ChatStreamChunkError;
     readonly finishReason?: ChatFinishReasonEnum | null;
     readonly model?: string;
     readonly usage?: ChatUsage;
@@ -536,6 +725,7 @@ function chatChunk(options: ChatChunkOptions): ChatStreamChunk {
                 finishReason: options.finishReason ?? null,
             },
         ],
+        ...(options.error === undefined ? {} : { error: options.error }),
         ...(options.usage === undefined ? {} : { usage: options.usage }),
     };
 }
