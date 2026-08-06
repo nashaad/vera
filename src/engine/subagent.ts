@@ -32,7 +32,7 @@ import type {
     RegisteredTool,
     ToolEffectContext,
 } from "../tools/types.ts";
-import type { PinnedModel } from "../model/catalog-view.ts";
+import type { PooledModel } from "../model/catalog-view.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
@@ -50,7 +50,7 @@ export interface CreateSubagentEffectApplierOptions {
     readonly maxConcurrentChildren?: number;
     readonly extensionTools?: readonly RegisteredTool[];
     /** Makes the spawn tools' model override resolvable; absent, it is refused. */
-    readonly readPins?: () => readonly PinnedModel[];
+    readonly readPool?: () => readonly PooledModel[];
     /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
 }
@@ -67,15 +67,18 @@ export type SpawnModelResolution =
         readonly provider?: string;
         readonly model: string;
         readonly reasoningEffort?: ModelReasoningEffort;
+        /** A transcript line about a request that fell through the pool. */
+        readonly notice?: string;
     }
     | { readonly ok: false; readonly error: string };
 
 /**
  * Turns a spawn tool's optional model override into runnable settings.
  *
- * An override must name a pinned model: the pin list is the user's curated
- * working set, it carries its own provider, and it is short enough to hand back
- * whole in a refusal, so a wrong guess corrects itself on the next call. With
+ * An override must name a pooled model: the pool is the complete runtime set,
+ * it carries its own provider, and it is short enough to hand back whole. A
+ * request for an unpooled model is not an error: it falls through to what the
+ * child would have run anyway, with one notice saying how to allow it. With
  * no override the child runs the configured subagent default when there is
  * one, and the parent's settings otherwise: inheriting silently multiplies
  * whatever the parent costs across the whole fan-out.
@@ -83,10 +86,10 @@ export type SpawnModelResolution =
 export function resolveSpawnModelChoice(
     effect: { readonly model?: string; readonly reasoningEffort?: string },
     context: ToolEffectContext,
-    readPins?: () => readonly PinnedModel[],
+    readPool?: () => readonly PooledModel[],
     subagentModel?: SpawnModelDefault,
 ): SpawnModelResolution {
-    if (effect.model === undefined) {
+    const inherit = (notice?: string): SpawnModelResolution => {
         const inherited: SpawnModelDefault = subagentModel ?? {
             ...(context.provider === undefined
                 ? {}
@@ -96,8 +99,9 @@ export function resolveSpawnModelChoice(
                 ? {}
                 : { reasoningEffort: context.reasoningEffort }),
         };
-        const reasoningEffort = effect.reasoningEffort
-            ?? inherited.reasoningEffort;
+        const reasoningEffort = notice === undefined
+            ? effect.reasoningEffort ?? inherited.reasoningEffort
+            : inherited.reasoningEffort;
         return {
             ok: true,
             ...(inherited.provider === undefined
@@ -105,45 +109,48 @@ export function resolveSpawnModelChoice(
                 : { provider: inherited.provider }),
             model: inherited.model,
             ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+            ...(notice === undefined ? {} : { notice }),
         };
+    };
+    if (effect.model === undefined) {
+        return inherit();
     }
-    const pins = readPins?.() ?? [];
-    if (pins.length === 0) {
+    const pool = readPool?.() ?? [];
+    const matches = pool.filter((candidate) =>
+        `${candidate.provider}/${candidate.model}` === effect.model
+        || candidate.model === effect.model);
+    const entry = matches.length === 1
+        ? matches[0]
+        : matches.find((candidate) =>
+            `${candidate.provider}/${candidate.model}` === effect.model);
+    if (entry === undefined || entry.status !== "ready") {
+        return inherit(
+            `Requested model "${effect.model}" is not in the pool; `
+                + "the subagent inherits its default model instead. "
+                + "Add the model to the pool to allow this.",
+        );
+    }
+    if (!entry.available) {
         return {
             ok: false,
-            error: "No models are pinned, so a model override cannot be used. Omit model to run this agent's model.",
-        };
-    }
-    const pin = pins.find((candidate) => candidate.model === effect.model);
-    if (pin === undefined) {
-        return {
-            ok: false,
-            error: `Model "${effect.model}" is not pinned. Pinned models: ${
-                pins.map((candidate) => candidate.model).join(", ")
-            }.`,
-        };
-    }
-    if (!pin.available) {
-        return {
-            ok: false,
-            error: `Pinned model "${pin.model}" is not available right now.`,
+            error: `Pooled model "${entry.model}" is not available right now.`,
         };
     }
     if (effect.reasoningEffort !== undefined) {
-        const levels = pin.levels.map((level) => level.id);
+        const levels = entry.levels.map((level) => level.id);
         if (!levels.includes(effect.reasoningEffort)) {
             return {
                 ok: false,
                 error: levels.length === 0
-                    ? `Model "${pin.model}" has no reasoning control; omit reasoning_effort.`
-                    : `Model "${pin.model}" does not support reasoning_effort "${effect.reasoningEffort}". Available: ${levels.join(", ")}.`,
+                    ? `Model "${entry.model}" has no reasoning control; omit reasoning_effort.`
+                    : `Model "${entry.model}" does not support reasoning_effort "${effect.reasoningEffort}". Available: ${levels.join(", ")}.`,
             };
         }
     }
     return {
         ok: true,
-        provider: pin.provider,
-        model: pin.model,
+        provider: entry.provider,
+        model: entry.model,
         ...(effect.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: effect.reasoningEffort }),
@@ -204,12 +211,13 @@ export function createSubagentEffectApplier(
         const resolved = resolveSpawnModelChoice(
             effect,
             context,
-            options.readPins,
+            options.readPool,
             options.subagentModel,
         );
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };
         }
+        const notice = resolved.notice;
         activeChildren += 1;
         const sessionId = randomUUID();
         try {
@@ -247,7 +255,9 @@ export function createSubagentEffectApplier(
             });
             return {
                 kind: "output",
-                output: result.text,
+                output: notice === undefined
+                    ? result.text
+                    : `${notice}\n\n${result.text}`,
                 isError: result.isError,
             };
         } finally {

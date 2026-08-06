@@ -219,8 +219,21 @@ export interface RunHeadlessLoopOptions {
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
-    readonly updatePin?: (
-        action: "add" | "remove",
+    readonly poolAdd?: (
+        entry: { readonly provider: string; readonly model: string },
+        onStep: (step: {
+            readonly step: string;
+            readonly label: string;
+            readonly status: "running" | "passed" | "failed" | "skipped";
+            readonly detail?: string;
+        }) => void,
+    ) => Promise<{
+        readonly verdict: "added" | "incompatible" | "unavailable";
+        readonly reason?: string;
+        readonly statusCode?: number;
+        readonly settings?: ModelTurnSettings;
+    }>;
+    readonly poolRemove?: (
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
@@ -377,9 +390,12 @@ export async function runHeadlessLoop(
         ...(options.updateModelSettings === undefined
             ? {}
             : { updateModelSettings: options.updateModelSettings }),
-        ...(options.updatePin === undefined
+        ...(options.poolAdd === undefined
             ? {}
-            : { updatePin: options.updatePin }),
+            : { poolAdd: options.poolAdd }),
+        ...(options.poolRemove === undefined
+            ? {}
+            : { poolRemove: options.poolRemove }),
         readApprovalMode,
         readPermissionInspection,
         updateApprovalMode,

@@ -10,7 +10,7 @@ import {
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
-import type { PinnedModel } from "../../src/model/catalog-view.ts";
+import type { PooledModel } from "../../src/model/catalog-view.ts";
 import type {
     ReasoningLevel,
     ReasoningLevelId,
@@ -99,15 +99,16 @@ export interface TuiSettingsPickerOption {
     /** How deep under its parent a forked row sits. Absent at the top level. */
     readonly depth?: number;
     /**
-     * Position in the user's pin list, absent on an unpinned row. A rank
-     * rather than a flag because the pin list is ordered by when each model was
-     * pinned and the provider list is ordered by provider: the Pinned tab has to
-     * be able to restore the order the store keeps, which sorting by provider
-     * destroys.
+     * Position in the user's pool, absent on a row outside it. A rank rather
+     * than a flag because the pool is ordered by when each model was added and
+     * the provider list is ordered by provider: the Pool tab has to be able to
+     * restore the order the store keeps, which sorting by provider destroys.
      */
-    readonly pinnedRank?: number;
-    /** True on a pinned row whose model cannot run right now. */
+    readonly pooledRank?: number;
+    /** True on a pool row whose model cannot run right now. */
     readonly unavailable?: boolean;
+    /** True on a pool row that must pass admission before it can run. */
+    readonly needsVerify?: boolean;
     /** Set on a top-pick row: the effort the suggestion bundles in. */
     readonly reasoningEffort?: ModelReasoningEffort;
     /** True on a row that belongs to the Top picks tab. */
@@ -137,13 +138,13 @@ export interface TuiProviderRow {
 }
 
 /**
- * Three questions, three tabs. "All models" is what can run; "Pinned" is the
+ * Three questions, three tabs. "All models" is what can run; "Pool" is the
  * short list the user keeps; "Top picks" is Vera's shipped suggestions, each a
  * model plus a reasoning setting, grayed where the provider is not connected.
- * All and Pinned were one list with a pinned group on top, which showed every
+ * All and Pool were one list with a pooled group on top, which showed every
  * kept model twice and so reduced nothing.
  */
-export type TuiModelPickerTab = "all" | "pinned" | "top";
+export type TuiModelPickerTab = "all" | "pool" | "top";
 
 /** A curated suggestion row, availability already resolved by the caller. */
 export interface TuiTopPickRow {
@@ -251,7 +252,7 @@ export type TuiSettingsPickerSelection =
     }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget };
 
-export interface TuiPinToggle {
+export interface TuiPoolToggle {
     readonly action: "add" | "remove";
     readonly provider: string;
     readonly model: string;
@@ -262,11 +263,11 @@ export interface TuiSettingsPickerTransition {
     readonly selection?: TuiSettingsPickerSelection;
     readonly handled: boolean;
     /**
-     * The pane does not edit the pin list itself. It reports the intent and waits
+     * The pane does not edit the pool itself. It reports the intent and waits
      * for the settings snapshot to come back, so the list the user sees is
      * always the list the host actually stored.
      */
-    readonly pinToggle?: TuiPinToggle;
+    readonly poolToggle?: TuiPoolToggle;
     /**
      * The model pane asking for the connect pane over it. A request rather than
      * a state: which providers are connected is a fact about the disk, and only
@@ -352,7 +353,7 @@ export function startTuiSettingsPicker(
     currentTheme: TuiThemeName = "default",
     currentProvider: string | undefined = undefined,
     availablePermissionModes: readonly string[] | undefined = undefined,
-    pinned: readonly PinnedModel[] | undefined = undefined,
+    pooled: readonly PooledModel[] | undefined = undefined,
     topPicks: readonly TuiTopPickRow[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const allOptions = kind === "theme"
@@ -362,15 +363,15 @@ export function startTuiSettingsPicker(
             availableModels,
             currentProvider,
             currentModel,
-            pinned,
+            pooled,
             topPicks,
         )
         : permissionOptions(availablePermissionModes);
-    // The pane opens on Pinned, which is the short list the user built for
-    // exactly this moment. It falls back to All when nothing is pinned yet,
+    // The pane opens on Pool, which is the short list the user built for
+    // exactly this moment. It falls back to All when the pool is empty,
     // since an empty tab answers no question at all.
     const openingTab: TuiModelPickerTab =
-        modelTabOptions(allOptions, "pinned").length > 0 ? "pinned" : "all";
+        modelTabOptions(allOptions, "pool").length > 0 ? "pool" : "all";
     const options = kind === "model"
         ? modelTabOptions(allOptions, openingTab)
         : allOptions;
@@ -402,7 +403,7 @@ export function startTuiSettingsPicker(
 /**
  * Rebuilds an open model pane from a fresh settings snapshot, keeping the
  * user where they were. The highlighted model is restored by identity rather
- * than by index: adding or removing a pinned row shifts every index below it,
+ * than by index: adding or removing a pool row shifts every index below it,
  * so an index would move the cursor to a different model than the one the
  * user just acted on.
  */
@@ -412,7 +413,7 @@ export function syncTuiModelPicker(
         readonly provider?: string;
         readonly model?: string;
         readonly availableModels?: readonly SuggestedModel[];
-        readonly pinned?: readonly PinnedModel[];
+        readonly pooled?: readonly PooledModel[];
     } | undefined,
     topPicks: readonly TuiTopPickRow[] | undefined = undefined,
 ): TuiSettingsPickerState {
@@ -429,11 +430,11 @@ export function syncTuiModelPicker(
         undefined,
         settings?.provider,
         undefined,
-        settings?.pinned,
+        settings?.pooled,
         topPicks,
     );
     // The tab is the user's own place in the pane, so a snapshot arriving from
-    // the host must not move them out of it. Pinning a model from the Pinned tab
+    // the host must not move them out of it. Adding a model from the Pool tab
     // would otherwise drop them back onto All mid-action.
     const tab = state.tab ?? "all";
     const onTab = { ...rebuilt, tab, options: modelTabOptions(rebuilt.allOptions, tab) };
@@ -449,7 +450,7 @@ export function syncTuiModelPicker(
         query: state.query,
         // The pane it was opened from survives a snapshot. A rebuild is the host
         // answering an edit made inside this pane, not a fresh way in, so
-        // pinning a model must not turn escape into "close everything".
+        // adding a model must not turn escape into "close everything".
         ...(state.parent === undefined ? {} : { parent: state.parent }),
         selectedIndex: selectedIndex === -1
             ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
@@ -975,7 +976,7 @@ export function handleTuiSettingsPickerKey(
     // is a character in most model ids, so no unmodified key is available.
     if (
         state.kind === "model"
-        && tuiBindingId("model_picker", key) === "toggle_pinned"
+        && tuiBindingId("model_picker", key) === "toggle_pooled"
     ) {
         const selected = state.options[state.selectedIndex];
         if (selected?.provider === undefined || selected.model === undefined) {
@@ -984,8 +985,8 @@ export function handleTuiSettingsPickerKey(
         return {
             state,
             handled: true,
-            pinToggle: {
-                action: isPinned(state, selected) ? "remove" : "add",
+            poolToggle: {
+                action: isPooled(state, selected) ? "remove" : "add",
                 provider: selected.provider,
                 model: selected.model,
             },
@@ -1006,7 +1007,7 @@ export function handleTuiSettingsPickerKey(
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
-        const cycle: readonly TuiModelPickerTab[] = ["pinned", "all", "top"];
+        const cycle: readonly TuiModelPickerTab[] = ["pool", "all", "top"];
         const tab: TuiModelPickerTab = cycle[
             (cycle.indexOf(state.tab ?? "all") + 1) % cycle.length
         ]!;
@@ -1416,13 +1417,13 @@ function renderListPickerRows(
 const MODEL_TAB_STRIP_HEIGHT = 3;
 
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
-    ["pinned", "Pinned"],
+    ["pool", "Pool"],
     ["all", "All models"],
     ["top", "Top picks"],
 ];
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
-    pinned: "Models you saved for quick access.",
+    pool: "Models you added to your pool.",
     all: "Every model available from connected providers.",
     top: "Recommended model and reasoning combinations.",
 };
@@ -1492,20 +1493,20 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
-        const pinned = selected === undefined || selected.provider === undefined
+        const pool = selected === undefined || selected.provider === undefined
             ? undefined
-            : isPinned(state, selected)
-                // Unpinning is the same key saying the opposite thing, which is
+            : isPooled(state, selected)
+                // Removal is the same key saying the opposite thing, which is
                 // the one hint the table cannot hold for us.
-                ? tuiKeyHint("toggle_pinned").replace("pin", "unpin")
-                : tuiKeyHint("toggle_pinned");
+                ? tuiKeyHint("toggle_pooled").replace("pool", "remove")
+                : tuiKeyHint("toggle_pooled");
         return [
             // The movement entry carries the half-page keys rather than taking a
             // separate slot: they are the same movement, and this footer is
             // already the longest one in the pane.
             "↑↓ ^d^u move",
-            "⏎ select",
-            ...(pinned === undefined ? [] : [pinned]),
+            selected?.needsVerify === true ? "⏎ verify" : "⏎ select",
+            ...(pool === undefined ? [] : [pool]),
             tuiKeyHint("open_providers"),
             "⇥ tabs",
             "esc close",
@@ -1538,16 +1539,17 @@ function listDisplayRows(
 }
 
 /**
- * The pin mark rides on the model's own row, so the key and the list cannot
- * disagree about what is pinned: both read the same snapshot the host sent.
+ * The pool mark rides on the model's own row, so the key and the list cannot
+ * disagree about what is in the pool: both read the same snapshot the host
+ * sent.
  */
-function isPinned(
+function isPooled(
     state: TuiSettingsPickerState,
     option: TuiSettingsPickerOption,
 ): boolean {
-    return option.pinnedRank !== undefined
+    return option.pooledRank !== undefined
         || state.allOptions.some((candidate) =>
-            candidate.value === option.value && candidate.pinnedRank !== undefined
+            candidate.value === option.value && candidate.pooledRank !== undefined
         );
 }
 
@@ -1557,19 +1559,19 @@ function isPinned(
  * The connect pane always does: it is two runs of rows, the ones most people
  * want and the rest, and that split is the only ordering it has.
  *
- * Everything but the un-searched Pinned tab does, search results included: a
+ * Everything but the un-searched Pool tab does, search results included: a
  * filtered list is still in provider order, so a heading there labels a real run
  * of rows. That is what tells apart a subscription model from an OpenRouter one,
  * and stating it once per group beats repeating it on every row.
  *
- * Pinned is the exception. It is ordered by the user's own use rather than by
+ * Pool is the exception. It is ordered by the user's own use rather than by
  * provider, so headings would label nothing and the provider goes on the row
  * itself instead.
  */
 function isProviderGrouped(state: TuiAnySettingsPickerState): boolean {
     return state.kind === "provider"
         || (state.kind === "model"
-            && (state.query.length > 0 || state.tab !== "pinned"));
+            && (state.query.length > 0 || state.tab !== "pool"));
 }
 
 function groupLabel(
@@ -1693,9 +1695,14 @@ function optionMeta(
     if (state.kind !== "model") {
         return undefined;
     }
-    // A pin whose model the provider no longer lists says so, on every view. It
-    // is the one thing about a row that a provider heading cannot tell you, and
-    // choosing it is a dead end.
+    // A needs-verify row must pass admission before it can run, and selecting
+    // it is what starts that, so the column says what pressing ⏎ will do.
+    if (option.needsVerify === true) {
+        return "needs verify";
+    }
+    // A pool row whose model the provider no longer lists says so, on every
+    // view. It is the one thing about a row that a provider heading cannot
+    // tell you, and choosing it is a dead end.
     if (option.unavailable === true) {
         return option.topPick === true ? "not connected" : "unavailable";
     }
@@ -1836,29 +1843,39 @@ function themePreview(
 }
 
 /**
- * Every model row exactly once, whichever tab it belongs to. A pin is a mark
- * on the model's own row rather than a second row for the same model, so the
- * two tabs are views of one list and no model can appear twice.
+ * Every model row exactly once, whichever tab it belongs to. Pool membership
+ * is a mark on the model's own row rather than a second row for the same
+ * model, so the two tabs are views of one list and no model can appear twice.
  *
- * A pin the runnable list has never heard of still gets a row: the user put it
- * there deliberately, so only the user takes it out. It carries `unavailable`,
- * which is what keeps it off the All tab, where it would be a dead end.
+ * A pool entry the runnable list has never heard of still gets a row: the user
+ * put it there deliberately, so only the user takes it out. It carries
+ * `unavailable`, which is what keeps it off the All tab, where it would be a
+ * dead end. A needs-verify entry additionally carries `needsVerify`: choosing
+ * it starts admission rather than switching to it.
  */
 function modelOptions(
     available: readonly SuggestedModel[] | undefined,
     currentProvider: string | undefined,
     currentModel: string | undefined,
-    pinned: readonly PinnedModel[] = [],
+    pooled: readonly PooledModel[] = [],
     topPicks: readonly TuiTopPickRow[] = [],
 ): readonly TuiSettingsPickerOption[] {
-    const rankOf = new Map(
-        pinned.map((entry, rank) =>
-            [providerModelKey(entry.provider, entry.model), rank] as const
+    const poolEntry = new Map(
+        pooled.map((entry, rank) =>
+            [providerModelKey(entry.provider, entry.model), { entry, rank }] as const
         ),
     );
+    const poolMarks = (value: string): Partial<TuiSettingsPickerOption> => {
+        const held = poolEntry.get(value);
+        return {
+            ...(held === undefined ? {} : { pooledRank: held.rank }),
+            ...(held?.entry.status === "needs_verify"
+                ? { needsVerify: true }
+                : {}),
+        };
+    };
     const runnable = (available ?? []).map((model) => {
         const value = providerModelKey(model.provider, model.model);
-        const rank = rankOf.get(value);
         return {
             value,
             label: model.label,
@@ -1866,7 +1883,7 @@ function modelOptions(
             searchText: `${model.provider} ${model.model}`,
             provider: model.provider,
             model: model.model,
-            ...(rank === undefined ? {} : { pinnedRank: rank }),
+            ...poolMarks(value),
         };
     });
     const currentValue = currentModel === undefined || currentProvider === undefined
@@ -1877,7 +1894,6 @@ function modelOptions(
         && currentModel !== undefined
         && !runnable.some((option) => option.value === currentValue)
     ) {
-        const rank = rankOf.get(currentValue);
         runnable.push({
             value: currentValue,
             label: currentModel,
@@ -1885,10 +1901,10 @@ function modelOptions(
             searchText: `${currentProvider} ${currentModel}`,
             provider: currentProvider,
             model: currentModel,
-            ...(rank === undefined ? {} : { pinnedRank: rank }),
+            ...poolMarks(currentValue),
         });
     }
-    const orphanPins = pinned.flatMap((entry, rank) => {
+    const orphanEntries = pooled.flatMap((entry, rank) => {
         const value = providerModelKey(entry.provider, entry.model);
         return runnable.some((option) => option.value === value) ? [] : [{
             value,
@@ -1897,8 +1913,9 @@ function modelOptions(
             searchText: `${entry.provider} ${entry.model}`,
             provider: entry.provider,
             model: entry.model,
-            pinnedRank: rank,
+            pooledRank: rank,
             unavailable: true,
+            ...(entry.status === "needs_verify" ? { needsVerify: true } : {}),
         }];
     });
     // Top picks are their own rows rather than marks on runnable rows: a pick
@@ -1926,7 +1943,7 @@ function modelOptions(
         ...(pick.available ? {} : { unavailable: true }),
     }));
     return [
-        ...[...runnable, ...orphanPins].toSorted((left, right) =>
+        ...[...runnable, ...orphanEntries].toSorted((left, right) =>
             left.provider.localeCompare(right.provider)
                 || left.label.localeCompare(right.label)
         ),
@@ -1935,11 +1952,11 @@ function modelOptions(
 }
 
 /**
- * The All tab is what can run, in catalog order. The Pinned tab is the pin
- * list in its own order, newest pin first: sorting it by provider would throw
- * away the only ordering the user's own actions produced.
+ * The All tab is what can run, in catalog order. The Pool tab is the pool in
+ * its own order, newest entry first: sorting it by provider would throw away
+ * the only ordering the user's own actions produced.
  *
- * That order is stable. Using a model does not move it, so a pinned row stays
+ * That order is stable. Using a model does not move it, so a pool row stays
  * where the user last left it and stays worth aiming at.
  */
 function modelTabOptions(
@@ -1955,8 +1972,8 @@ function modelTabOptions(
         );
     }
     return allOptions
-        .filter((option) => option.pinnedRank !== undefined)
-        .toSorted((left, right) => left.pinnedRank! - right.pinnedRank!);
+        .filter((option) => option.pooledRank !== undefined)
+        .toSorted((left, right) => left.pooledRank! - right.pooledRank!);
 }
 
 function providerModelKey(provider: string, model: string): string {

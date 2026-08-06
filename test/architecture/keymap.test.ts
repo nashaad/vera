@@ -58,7 +58,7 @@ test("no two reachable bindings claim the same chord", () => {
 
 test("a scope sees its own bindings, the ones it inherits, and the globals", () => {
     expect(tuiBindingId("model_picker", { name: "s", ctrl: true }))
-        .toBe("toggle_pinned");
+        .toBe("toggle_pooled");
     // Inherited from every picker rather than repeated per pane.
     expect(tuiBindingId("session_picker", { name: "d", ctrl: true }))
         .toBe("half_page_down");
@@ -68,6 +68,12 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
     // And a pane's own chord does not leak into a pane that never claimed it.
     expect(tuiBindingId("session_picker", { name: "s", ctrl: true }))
         .toBeUndefined();
+    // Ctrl+E belongs to transcript detail on the conversation surface and to
+    // provider connections inside the model picker; those surfaces never overlap.
+    expect(tuiBindingId("conversation", { name: "e", ctrl: true }))
+        .toBe("toggle_tool_details");
+    expect(tuiBindingId("model_picker", { name: "e", ctrl: true }))
+        .toBe("open_providers");
 });
 
 test("the unfocused keys reach the composer without shadowing its own tab", () => {

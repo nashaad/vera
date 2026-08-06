@@ -128,16 +128,28 @@ export interface UpdateModelSettingsCommand {
 }
 
 /**
- * Keeping a model is not choosing one, so this is its own command rather than
- * a field on `update_model_settings`: pinning a model the user is only
- * looking at must not switch the turn to it. The reply is the same
- * `model_settings_changed` update, because that update already carries the
- * pin list and a client would otherwise have to ask again to see its own edit.
+ * Admitting a model is not choosing one, so this is its own command rather
+ * than a field on `update_model_settings`: adding a model the user is only
+ * looking at must not switch the turn to it. Admission runs live probes, so
+ * the reply arrives in stages: `pool_admission_progress` updates per check,
+ * then a terminal `pool_admission_result` carrying the verdict, then the
+ * ordinary `model_settings` update with the refreshed pool.
  */
-export interface UpdatePinCommand {
-    readonly type: "update_pin";
+export interface PoolAddCommand {
+    readonly type: "pool_add";
     readonly requestId: string;
-    readonly action: "add" | "remove";
+    readonly provider: string;
+    readonly model: string;
+}
+
+/**
+ * Removal is the destructive side and stays a plain command: no probes, one
+ * `model_settings` reply. The response's `references` warning surface lives
+ * client-side for now; the engine just removes.
+ */
+export interface PoolRemoveCommand {
+    readonly type: "pool_remove";
+    readonly requestId: string;
     readonly provider: string;
     readonly model: string;
 }
@@ -231,7 +243,8 @@ export type ClientCommand =
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
-    | UpdatePinCommand
+    | PoolAddCommand
+    | PoolRemoveCommand
     | GetPermissionsCommand
     | UpdatePermissionsCommand
     | AddPermissionPreferenceCommand
@@ -437,6 +450,38 @@ export interface ModelSettingsRejectedUpdate {
     readonly seq: number;
 }
 
+/**
+ * One admission check changed state. Steps arrive in order; a step appears
+ * first as `running` and again with its outcome. The checklist a client shows
+ * is exactly this stream: the engine decides the steps, the client only
+ * renders them.
+ */
+export interface PoolAdmissionProgressUpdate {
+    readonly type: "pool_admission_progress";
+    readonly requestId: string;
+    readonly step: string;
+    readonly label: string;
+    readonly status: "running" | "passed" | "failed" | "skipped";
+    readonly detail?: string;
+    readonly seq: number;
+}
+
+/**
+ * The admission verdict, terminal for one `pool_add`. `added` carries the
+ * verified levels through the ordinary `model_settings` update that follows;
+ * `incompatible` records why; `unavailable` records nothing and invites retry.
+ */
+export interface PoolAdmissionResultUpdate {
+    readonly type: "pool_admission_result";
+    readonly requestId: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly verdict: "added" | "incompatible" | "unavailable";
+    readonly reason?: string;
+    readonly statusCode?: number;
+    readonly seq: number;
+}
+
 export interface PermissionsUpdate {
     readonly type: "permissions";
     readonly requestId: string;
@@ -569,6 +614,8 @@ export type AgentUpdate =
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
     | ModelSettingsRejectedUpdate
+    | PoolAdmissionProgressUpdate
+    | PoolAdmissionResultUpdate
     | PermissionsUpdate
     | PermissionsRejectedUpdate
     | SessionNameReplyUpdate
@@ -713,16 +760,14 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         }
     }
     if (
-        command.type === "update_pin"
+        (command.type === "pool_add" || command.type === "pool_remove")
         && isRequestId(command.requestId)
-        && (command.action === "add" || command.action === "remove")
         && isNonEmptyString(command.provider)
         && isNonEmptyString(command.model)
     ) {
         return {
-            type: "update_pin",
+            type: command.type,
             requestId: command.requestId,
-            action: command.action,
             provider: command.provider,
             model: command.model,
         };
@@ -1068,6 +1113,37 @@ export function createProtocolEncoder(
                 type: "model_settings_rejected",
                 requestId: event.requestId,
                 reason: event.reason,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "pool_admission_progress") {
+            seq += 1;
+            sender.send({
+                type: "pool_admission_progress",
+                requestId: event.requestId,
+                step: event.step,
+                label: event.label,
+                status: event.status,
+                ...(event.detail === undefined ? {} : { detail: event.detail }),
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "pool_admission_result") {
+            seq += 1;
+            sender.send({
+                type: "pool_admission_result",
+                requestId: event.requestId,
+                provider: event.provider,
+                model: event.model,
+                verdict: event.verdict,
+                ...(event.reason === undefined ? {} : { reason: event.reason }),
+                ...(event.statusCode === undefined
+                    ? {}
+                    : { statusCode: event.statusCode }),
                 seq,
             });
             return;

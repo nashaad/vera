@@ -508,10 +508,13 @@ test("accepted settings become defaults for new agents in the live host", async 
             workspace: root,
             sessionPath: join(root, "first.jsonl"),
         });
+        // An effort the target cannot take does not sink the model change:
+        // the switch is the request and the effort coerces to the strongest
+        // level the target offers.
         expect(await registry.updateModelSettings(first.id, {
             model: "z-ai/glm-5.2",
             reasoningEffort: "off",
-        })).toBeUndefined();
+        })).toMatchObject({ model: "z-ai/glm-5.2", reasoningEffort: "max" });
         expect(await registry.updateModelSettings(first.id, {
             model: "second-model",
             reasoningEffort: "high",
@@ -2263,15 +2266,23 @@ async function waitForTaskNotification(
     }
 }
 
-test("editing the pinned keeps the running model and reports the new list", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-agent-pinned-"));
+test("editing the pool keeps the running model and reports the new list", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-pool-"));
     const edits: { action: string; provider: string; model: string }[] = [];
-    let pinned = [
+    let pooled: {
+        provider: string;
+        model: string;
+        label: string;
+        available: boolean;
+        status: "ready" | "needs_verify";
+        levels: never[];
+    }[] = [
         {
             provider: "openai-codex",
             model: "gpt-5.6-sol",
             label: "GPT-5.6-Sol",
             available: true,
+            status: "ready",
             levels: [],
         },
     ];
@@ -2280,12 +2291,26 @@ test("editing the pinned keeps the running model and reports the new list", asyn
         provider: "openrouter",
         model: "moonshotai/kimi-k3",
         approvalMode: "auto",
-        readPins: () => pinned,
-        updatePin: (action, entry) => {
-            edits.push({ action, ...entry });
-            if (action === "remove") {
-                pinned = pinned.filter((item) => item.model !== entry.model);
-            }
+        readPool: () => pooled,
+        admitToPool: async (entry, onStep) => {
+            edits.push({ action: "add", ...entry });
+            onStep({
+                step: "response",
+                label: "Model responds",
+                status: "passed",
+            });
+            pooled = [{
+                ...entry,
+                label: entry.model,
+                available: true,
+                status: "ready",
+                levels: [],
+            }, ...pooled];
+            return { verdict: "added" };
+        },
+        removeFromPool: (entry) => {
+            edits.push({ action: "remove", ...entry });
+            pooled = pooled.filter((item) => item.model !== entry.model);
         },
     });
 
@@ -2295,24 +2320,53 @@ test("editing the pinned keeps the running model and reports the new list", asyn
             sessionPath: join(root, "agent.jsonl"),
         });
 
-        const settings = await registry.updatePin(agent.id, "remove", {
+        const steps: string[] = [];
+        const added = await registry.poolAdd(agent.id, {
+            provider: "openrouter",
+            model: "  moonshotai/kimi-k3  ",
+        }, (step) => steps.push(`${step.step}:${step.status}`));
+
+        expect(added.verdict).toBe("added");
+        expect(steps).toEqual(["response:passed"]);
+        expect(added.settings?.pooled).toMatchObject([
+            { provider: "openrouter", model: "moonshotai/kimi-k3" },
+            { provider: "openai-codex", model: "gpt-5.6-sol" },
+        ]);
+
+        const settings = await registry.poolRemove(agent.id, {
             provider: "openai-codex",
             model: "  gpt-5.6-sol  ",
         });
 
-        expect(edits).toEqual([{
-            action: "remove",
-            provider: "openai-codex",
-            model: "gpt-5.6-sol",
-        }]);
+        expect(edits).toEqual([
+            {
+                action: "add",
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+            },
+            {
+                action: "remove",
+                provider: "openai-codex",
+                model: "gpt-5.6-sol",
+            },
+        ]);
         // Keeping a model is not choosing one: the turn still runs on kimi.
         expect(settings).toMatchObject({
             provider: "openrouter",
             model: "moonshotai/kimi-k3",
         });
-        expect(settings?.pinned).toEqual([]);
+        expect(settings?.pooled).toMatchObject([
+            { provider: "openrouter", model: "moonshotai/kimi-k3" },
+        ]);
 
-        expect(await registry.updatePin("no-such-agent", "add", {
+        expect(await registry.poolAdd("no-such-agent", {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        }, () => {})).toEqual({
+            verdict: "unavailable",
+            reason: "admission unavailable",
+        });
+        expect(await registry.poolRemove("no-such-agent", {
             provider: "openai-codex",
             model: "gpt-5.6-sol",
         })).toBeUndefined();

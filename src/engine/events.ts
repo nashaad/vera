@@ -154,6 +154,25 @@ export interface ModelSettingsRejectedEvent {
     readonly reason: "invalid" | "unavailable";
 }
 
+export interface PoolAdmissionProgressEvent {
+    readonly type: "pool_admission_progress";
+    readonly requestId: string;
+    readonly step: string;
+    readonly label: string;
+    readonly status: "running" | "passed" | "failed" | "skipped";
+    readonly detail?: string;
+}
+
+export interface PoolAdmissionResultEvent {
+    readonly type: "pool_admission_result";
+    readonly requestId: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly verdict: "added" | "incompatible" | "unavailable";
+    readonly reason?: string;
+    readonly statusCode?: number;
+}
+
 export interface PermissionsChangedEvent {
     readonly type: "permissions_changed";
     readonly requestId: string;
@@ -342,6 +361,8 @@ export type EngineEvent =
     | UiRequestClosedEvent
     | ModelSettingsChangedEvent
     | ModelSettingsRejectedEvent
+    | PoolAdmissionProgressEvent
+    | PoolAdmissionResultEvent
     | PermissionsChangedEvent
     | PermissionsRejectedEvent
     | ModelRequestEvent

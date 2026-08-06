@@ -52,7 +52,7 @@ import type {
 import type { SuggestedModel } from "../model/supported-models.ts";
 import {
     availableModelsWithLevels,
-    type PinnedModel,
+    type PooledModel,
 } from "../model/catalog-view.ts";
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
@@ -158,21 +158,34 @@ export interface AgentRegistryOptions {
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
     /**
-     * Read per settings snapshot, not once at startup: the user pins and unpins
-     * while the host runs, so a snapshot taken when it came up would freeze the
+     * Read per settings snapshot, not once at startup: the pool changes while
+     * the host runs, so a snapshot taken when it came up would freeze the
      * list for the life of the host.
      */
-    readonly readPins?: () => readonly PinnedModel[];
+    readonly readPool?: () => readonly PooledModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     /**
-     * Writes the pin list. Separate from `readPins` because the two have
-     * different lifetimes: reads happen on every snapshot, writes only when the
-     * user asks, and only the write touches the user's config file.
+     * Runs admission for one model and, on success, writes the pool entry.
+     * Separate from `readPool` because the two have different lifetimes:
+     * reads happen on every snapshot, admission only when the user asks, and
+     * only admission spends probe calls and touches the user's config file.
      */
-    readonly updatePin?: (
-        action: "add" | "remove",
+    readonly admitToPool?: (
+        entry: { readonly provider: string; readonly model: string },
+        onStep: (step: {
+            readonly step: string;
+            readonly label: string;
+            readonly status: "running" | "passed" | "failed" | "skipped";
+            readonly detail?: string;
+        }) => void,
+    ) => Promise<{
+        readonly verdict: "added" | "incompatible" | "unavailable";
+        readonly reason?: string;
+        readonly statusCode?: number;
+    }>;
+    readonly removeFromPool?: (
         entry: { readonly provider: string; readonly model: string },
     ) => void;
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
@@ -477,6 +490,24 @@ export class AgentRegistry {
             ?? entry.modelSettings.provider
             ?? this.defaultProvider;
         const model = patch.model?.trim() ?? entry.modelSettings.model;
+        // Pool membership is the third named gate: switching to a model that
+        // is not ready in the pool is refused, and the client routes the
+        // request into add-and-verify instead. Hosts without a pool reader
+        // (tests, embedded uses) keep the old behavior.
+        if (
+            (patch.model !== undefined || patch.provider !== undefined)
+            && this.options.readPool !== undefined
+            && !(model === entry.modelSettings.model
+                && provider === (
+                    entry.modelSettings.provider ?? this.defaultProvider
+                ))
+            && !this.options.readPool().some((pooled) =>
+                pooled.status === "ready"
+                && pooled.provider === provider
+                && pooled.model === model)
+        ) {
+            return undefined;
+        }
         try {
             entry.adapter?.prepareProvider(provider);
         } catch {
@@ -492,13 +523,16 @@ export class AgentRegistry {
             model,
             this.catalog,
         );
-        // Carrying the old effort to a new target is the caller's convenience,
-        // not their request, so a target that cannot take it gets coerced
-        // rather than rejected. `strongestReasoningEffort` returns undefined
-        // when the target offers no efforts at all, which drops the dial.
+        // On a model change, any effort the target cannot take is coerced
+        // rather than rejected: whether it was carried over from the old
+        // model or named alongside the switch (a top pick's suggested
+        // effort), the model choice is the request and the effort rides
+        // along. `strongestReasoningEffort` returns undefined when the
+        // target offers no efforts at all, which drops the dial. Only an
+        // effort-only patch still rejects an unsupported level: there the
+        // level is the whole request.
         if (
             (patch.model !== undefined || patch.provider !== undefined)
-            && patch.reasoningEffort === undefined
             && reasoningEffort !== undefined
             && !availableEfforts.includes(reasoningEffort)
         ) {
@@ -528,20 +562,104 @@ export class AgentRegistry {
             entry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
             this.options.availableModels,
-            this.options.readPins?.(),
+            this.options.readPool?.(),
             this.options.subagentModel,
         );
     }
 
     /**
-     * Editing the pin list never changes which model runs, so this returns the
-     * settings unchanged apart from the new pin list. It refuses an unknown agent
-     * for the same reason every other command does: the reply is that agent's
-     * snapshot, and there is none to send.
+     * Editing the pool never changes which model runs, so the settings that
+     * come back are unchanged apart from the new pool. It refuses an unknown
+     * agent for the same reason every other command does: the reply is that
+     * agent's snapshot, and there is none to send.
      */
-    async updatePin(
+    async poolAdd(
         id: string,
-        action: "add" | "remove",
+        entry: { readonly provider: string; readonly model: string },
+        onStep: Parameters<
+            NonNullable<AgentRegistryOptions["admitToPool"]>
+        >[1],
+    ): Promise<{
+        verdict: "added" | "incompatible" | "unavailable";
+        reason?: string;
+        statusCode?: number;
+        settings?: ModelTurnSettings;
+    }> {
+        const agentEntry = this.agents.get(id);
+        if (
+            agentEntry === undefined
+            || agentEntry.agent.closed
+            || agentEntry.agent.failed
+            || this.options.admitToPool === undefined
+        ) {
+            return { verdict: "unavailable", reason: "admission unavailable" };
+        }
+        const outcome = await this.options.admitToPool({
+            provider: entry.provider.trim(),
+            model: entry.model.trim(),
+        }, onStep);
+        if (outcome.verdict !== "added") {
+            return outcome;
+        }
+        return {
+            ...outcome,
+            settings: settingsForClient(
+                agentEntry.modelSettings,
+                agentEntry.modelSettings.provider ?? this.defaultProvider,
+                this.catalog,
+                this.options.availableModels,
+                this.options.readPool?.(),
+                this.options.subagentModel,
+            ),
+        };
+    }
+
+    /**
+     * The `pool_add` tool's effect: the same admission hook the client's
+     * checklist calls, one model at a time, reported back as per-model
+     * verdict lines. Verdicts land in the tool result rather than as
+     * progress updates: the transcript is the surface the agent path owns.
+     */
+    private async applyPoolAddEffect(
+        effect: { readonly models: readonly string[] },
+    ): Promise<ToolOutput> {
+        if (this.options.admitToPool === undefined) {
+            return {
+                kind: "output",
+                output: "Pool admission is not available in this host.",
+                isError: true,
+            };
+        }
+        const lines: string[] = [];
+        let failed = false;
+        for (const identifier of effect.models) {
+            const separator = identifier.indexOf("/");
+            if (separator <= 0 || separator === identifier.length - 1) {
+                lines.push(`${identifier}: not a provider/model identifier`);
+                failed = true;
+                continue;
+            }
+            const outcome = await this.options.admitToPool({
+                provider: identifier.slice(0, separator),
+                model: identifier.slice(separator + 1),
+            }, () => {});
+            if (outcome.verdict === "added") {
+                lines.push(`${identifier}: added to the pool`);
+            } else if (outcome.verdict === "incompatible") {
+                lines.push(`${identifier}: incompatible (${
+                    outcome.reason ?? "no reason recorded"
+                }); it stays out of the pool`);
+            } else {
+                lines.push(`${identifier}: unavailable (${
+                    outcome.reason ?? "provider did not answer"
+                }); nothing recorded, retry later`);
+            }
+        }
+        return { kind: "output", output: lines.join("\n"), isError: failed };
+    }
+
+    async poolRemove(
+        id: string,
         entry: { readonly provider: string; readonly model: string },
     ): Promise<ModelTurnSettings | undefined> {
         const agentEntry = this.agents.get(id);
@@ -549,12 +667,11 @@ export class AgentRegistry {
             agentEntry === undefined
             || agentEntry.agent.closed
             || agentEntry.agent.failed
-            || this.options.updatePin === undefined
+            || this.options.removeFromPool === undefined
         ) {
             return undefined;
         }
-
-        this.options.updatePin(action, {
+        this.options.removeFromPool({
             provider: entry.provider.trim(),
             model: entry.model.trim(),
         });
@@ -563,7 +680,7 @@ export class AgentRegistry {
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
             this.options.availableModels,
-            this.options.readPins?.(),
+            this.options.readPool?.(),
             this.options.subagentModel,
         );
     }
@@ -809,9 +926,9 @@ export class AgentRegistry {
                         this.options.disabledPromptContributions,
                 }),
             extensionTools: this.options.extensionTools,
-            ...(this.options.readPins === undefined
+            ...(this.options.readPool === undefined
                 ? {}
-                : { readPins: this.options.readPins }),
+                : { readPool: this.options.readPool }),
             ...(this.options.subagentModel === undefined
                 ? {}
                 : { subagentModel: this.options.subagentModel }),
@@ -854,6 +971,9 @@ export class AgentRegistry {
             if (effect.type === "notify_parent") {
                 return this.notifyParent(store, effect);
             }
+            if (effect.type === "pool_add") {
+                return this.applyPoolAddEffect(effect);
+            }
             return applySubagentEffect(effect, signal, context);
         };
         entry.run = runHeadlessLoop(
@@ -883,6 +1003,7 @@ export class AgentRegistry {
                         "spawn_subagent",
                         "spawn_async_subagent",
                         "message_subagent",
+                        "pool_add",
                     ]
                     : ["notify_parent"],
                 enableUserInteraction: kind === "interactive",
@@ -895,13 +1016,15 @@ export class AgentRegistry {
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.catalog,
                     this.options.availableModels,
-                    this.options.readPins?.(),
+                    this.options.readPool?.(),
                     this.options.subagentModel,
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
-                updatePin: (action, entry) =>
-                    this.updatePin(agent.id, action, entry),
+                poolAdd: (entry, onStep) =>
+                    this.poolAdd(agent.id, entry, onStep),
+                poolRemove: (entry) =>
+                    this.poolRemove(agent.id, entry),
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
@@ -992,7 +1115,7 @@ export class AgentRegistry {
         const resolved = resolveSpawnModelChoice(
             effect,
             context,
-            this.options.readPins,
+            this.options.readPool,
             this.options.subagentModel,
         );
         if (!resolved.ok) {
@@ -1379,11 +1502,20 @@ function settingsForClient(
     provider: string,
     catalog: EffectiveCatalogOptions = {},
     models: readonly SuggestedModel[] = availableModels(),
-    pinned: readonly PinnedModel[] = [],
+    pooled: readonly PooledModel[] = [],
     subagentModel?: SpawnModelDefault,
 ): ModelTurnSettings {
     const contextWindow = contextWindowForModel(provider, settings.model, models);
-    const efforts = availableReasoningEfforts(provider, settings.model, catalog);
+    // A ready pool entry's verified level list is the authority for the
+    // running model: admission measured what this key can actually send, so
+    // it wins over the optimistic per-provider fallback.
+    const poolEntry = pooled.find((entry) =>
+        entry.provider === provider
+        && entry.model === settings.model
+        && entry.status === "ready");
+    const efforts = poolEntry !== undefined
+        ? poolEntry.levels.map((level) => level.id)
+        : availableReasoningEfforts(provider, settings.model, catalog);
     // A running session's stored effort can outlive discovery deciding the
     // model has no levels at all; serving it anyway shows a dial the model
     // cannot have. Same emptiness rule as `reasoningEffortForModel`.
@@ -1395,7 +1527,7 @@ function settingsForClient(
             : {}),
         availableReasoningEfforts: efforts,
         availableModels: availableModelsWithLevels(models),
-        pinned,
+        pooled,
         subagentDefault: subagentModel === undefined
             ? { mode: "inherit" }
             : {

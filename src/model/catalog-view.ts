@@ -2,15 +2,15 @@
  * The client-facing projections of the model catalog (nash-50).
  *
  * Two lists reach a client, and they answer different questions.
- * `availableModels` is what can run right now, in catalog order. The pin list is
- * what the user chose to keep, newest pin first, and it keeps an entry that
+ * `availableModels` is what discovery describes, in catalog order. The pool is
+ * the runtime set the user admitted, newest first, and it keeps an entry that
  * cannot run right now rather than dropping it: the user put it there
  * deliberately, so only the user takes it out.
  *
  * Both carry the model's reasoning levels, resolved through
- * `effectiveCatalog`, so a client can show the levels of a model the user is
- * only looking at rather than only the one that is running. An empty level
- * list is a fact, not a gap: it means the model has no reasoning control.
+ * `effectiveCatalog`. A ready pool entry narrows those to the levels its
+ * admission record verified. An empty level list is a fact, not a gap: it
+ * means the model has no reasoning control.
  */
 
 import { effectiveCatalog, type EffectiveCatalogOptions } from "./catalog.ts";
@@ -20,10 +20,11 @@ import type {
     ReasoningLevelId,
 } from "./catalog-shape.ts";
 import {
-    readPins,
-    resolvePins,
-    type PinStoreOptions,
-} from "./pin-store.ts";
+    readPool,
+    resolvePool,
+    type PoolStoreOptions,
+    type PoolVerification,
+} from "./pool-store.ts";
 import type { SuggestedModel } from "./supported-models.ts";
 
 export interface AvailableModel {
@@ -37,12 +38,19 @@ export interface AvailableModel {
     readonly defaultLevel?: ReasoningLevelId;
 }
 
-export interface PinnedModel {
+export interface PooledModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
-    /** False when the model cannot run right now, never a reason to omit it. */
+    /**
+     * False when the model cannot run right now, never a reason to omit it.
+     * Only a ready entry whose provider currently lists the model is
+     * available; a needs-verify entry is never available regardless of what
+     * the provider lists.
+     */
     readonly available: boolean;
+    /** Ready means a live admission record; needs_verify means admit first. */
+    readonly status: "ready" | "needs_verify";
     readonly description?: string;
     readonly contextWindow?: number;
     /** Empty means the model has no reasoning control, or is unavailable. */
@@ -51,7 +59,7 @@ export interface PinnedModel {
 }
 
 export interface CatalogViewOptions
-    extends PinStoreOptions, EffectiveCatalogOptions {}
+    extends PoolStoreOptions, EffectiveCatalogOptions {}
 
 /**
  * Adds each model's levels to the host's runnable list. Label and description
@@ -86,12 +94,14 @@ export function availableModelsWithLevels(
  * the catalog still describes a model whose provider has no credentials, and
  * describing a model is not being able to run it. The facts still come from
  * the catalog, so a runnable model the catalog has never heard of falls back
- * to what the runnable list already knows about it.
+ * to what the runnable list already knows about it. A ready entry's level
+ * list is the intersection of the catalog's levels with the ones admission
+ * verified: the record is the authority on what this key can actually send.
  */
-export function pinnedModels(
+export function pooledModels(
     available: readonly SuggestedModel[],
     options: CatalogViewOptions = {},
-): readonly PinnedModel[] {
+): readonly PooledModel[] {
     const lookup = catalogLookup(options);
     const knownModels = new Map<string, CatalogModel>();
     for (const model of available) {
@@ -102,34 +112,49 @@ export function pinnedModels(
         );
     }
 
-    return resolvePins(readPins(options), knownModels).map((entry) => {
-        if (entry.status === "unavailable") {
+    return resolvePool(readPool(options), knownModels).map((entry) => {
+        const model = entry.catalogModel;
+        if (model === undefined) {
             return {
                 provider: entry.provider,
                 model: entry.model,
                 label: entry.model,
                 available: false,
+                status: entry.status,
                 levels: [],
             };
         }
-        const model = entry.catalogModel;
+        const levels = entry.status === "ready"
+            ? verifiedLevels(model, entry.verification)
+            : model.levels;
         return {
             provider: entry.provider,
             model: entry.model,
             label: model.label,
-            available: true,
+            available: entry.status === "ready",
+            status: entry.status,
             ...(model.description === undefined
                 ? {}
                 : { description: model.description }),
             ...(model.context_window === undefined
                 ? {}
                 : { contextWindow: model.context_window }),
-            levels: model.levels,
+            levels,
             ...(model.default_level === undefined
+                    || !levels.some((level) => level.id === model.default_level)
                 ? {}
                 : { defaultLevel: model.default_level }),
         };
     });
+}
+
+function verifiedLevels(
+    model: CatalogModel,
+    verification: PoolVerification,
+): readonly ReasoningLevel[] {
+    return verification.levels.map((verified) =>
+        model.levels.find((level) => level.id === verified.provider_effort)
+            ?? { id: verified.provider_effort, label: verified.vera_effort });
 }
 
 /** One catalog read per provider, however many models are looked up. */

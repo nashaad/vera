@@ -264,30 +264,29 @@ test("host protocol parses messages after attach", () => {
         requestId: "settings-5",
         patch: { reasoningEffort: "" },
     }))).toBeUndefined();
-    expect(parseAttachedClientMessage(JSON.stringify({
-        type: "update_pin",
-        requestId: "pinned-1",
-        action: "add",
-        provider: "openai-codex",
-        model: "gpt-5.6-sol",
-    }))).toEqual({
-        type: "update_pin",
-        requestId: "pinned-1",
-        action: "add",
-        provider: "openai-codex",
-        model: "gpt-5.6-sol",
-    });
-    for (const invalid of [
-        { action: "toggle", provider: "openai-codex", model: "gpt-5.6-sol" },
-        { action: "add", provider: "", model: "gpt-5.6-sol" },
-        { action: "add", provider: "openai-codex", model: "   " },
-        { action: "remove", provider: "openai-codex" },
-    ]) {
+    for (const type of ["pool_add", "pool_remove"] as const) {
         expect(parseAttachedClientMessage(JSON.stringify({
-            type: "update_pin",
-            requestId: "pinned-invalid",
-            ...invalid,
-        }))).toBeUndefined();
+            type,
+            requestId: "pool-1",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        }))).toEqual({
+            type,
+            requestId: "pool-1",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        });
+        for (const invalid of [
+            { provider: "", model: "gpt-5.6-sol" },
+            { provider: "openai-codex", model: "   " },
+            { provider: "openai-codex" },
+        ]) {
+            expect(parseAttachedClientMessage(JSON.stringify({
+                type,
+                requestId: "pool-invalid",
+                ...invalid,
+            }))).toBeUndefined();
+        }
     }
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",

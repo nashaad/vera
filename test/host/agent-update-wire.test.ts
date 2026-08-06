@@ -253,11 +253,12 @@ test("host wire validates model settings results", () => {
         levels: [{ id: "high", label: "High", description: "slow and careful" }],
         defaultLevel: "high",
     }];
-    const pinned = [{
+    const pooled = [{
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         label: "gpt-5.6-sol",
         available: false,
+        status: "needs_verify" as const,
         levels: [],
     }];
     expect(parseAgentUpdate({
@@ -267,7 +268,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
-            pinned,
+            pooled,
         },
         pending: true,
         seq: 8,
@@ -278,7 +279,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
-            pinned,
+            pooled,
         },
         pending: true,
         seq: 8,
@@ -310,10 +311,11 @@ test("host wire validates model settings results", () => {
         requestId: "settings-2",
         settings: {
             model: "next-model",
-            pinned: [{
+            pooled: [{
                 provider: "openai-codex",
                 model: "gpt-5.6-sol",
                 label: "gpt-5.6-sol",
+                available: false,
                 levels: [],
             }],
         },
@@ -331,6 +333,68 @@ test("host wire validates model settings results", () => {
         reason: "invalid",
         seq: 10,
     });
+});
+
+test("host wire validates pool admission updates", () => {
+    expect(parseAgentUpdate({
+        type: "pool_admission_progress",
+        requestId: "pool-1",
+        step: "level:high",
+        label: "Reasoning High",
+        status: "running",
+        seq: 4,
+    })).toEqual({
+        type: "pool_admission_progress",
+        requestId: "pool-1",
+        step: "level:high",
+        label: "Reasoning High",
+        status: "running",
+        seq: 4,
+    });
+    expect(parseAgentUpdate({
+        type: "pool_admission_progress",
+        requestId: "pool-1",
+        step: "tool_call",
+        label: "Calls a tool",
+        status: "failed",
+        detail: "did not call the probe tool",
+        seq: 5,
+    })).toMatchObject({ detail: "did not call the probe tool" });
+    expect(parseAgentUpdate({
+        type: "pool_admission_progress",
+        requestId: "pool-1",
+        step: "tool_call",
+        label: "Calls a tool",
+        status: "exploded",
+        seq: 6,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "pool_admission_result",
+        requestId: "pool-1",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        verdict: "incompatible",
+        reason: "did not call the probe tool",
+        statusCode: 400,
+        seq: 7,
+    })).toEqual({
+        type: "pool_admission_result",
+        requestId: "pool-1",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        verdict: "incompatible",
+        reason: "did not call the probe tool",
+        statusCode: 400,
+        seq: 7,
+    });
+    expect(parseAgentUpdate({
+        type: "pool_admission_result",
+        requestId: "pool-1",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        verdict: "maybe",
+        seq: 8,
+    })).toBeUndefined();
 });
 
 test("host wire validates permission results", () => {

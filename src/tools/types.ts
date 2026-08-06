@@ -38,11 +38,22 @@ export interface NotifyParentEffect {
     readonly message: string;
 }
 
+/**
+ * Runs pool admission for exact `provider/model` identifiers. The engine
+ * owner resolves it through the same admission service the client's checklist
+ * uses; there is no separate agent path into the pool.
+ */
+export interface PoolAddEffect {
+    readonly type: "pool_add";
+    readonly models: readonly string[];
+}
+
 export type ToolEffect =
     | SpawnSubagentEffect
     | SpawnAsyncSubagentEffect
     | MessageSubagentEffect
-    | NotifyParentEffect;
+    | NotifyParentEffect
+    | PoolAddEffect;
 
 export interface AskUserChoice {
     readonly id: string;

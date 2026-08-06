@@ -1,5 +1,6 @@
 import {
     mkdirSync,
+    readdirSync,
     readFileSync,
     renameSync,
     writeFileSync,
@@ -61,6 +62,24 @@ export function readProviderCatalogSnapshot(
         return isProviderCatalog(value) ? value : emptyCatalog(provider);
     } catch {
         return emptyCatalog(provider);
+    }
+}
+
+/**
+ * The providers discovery has ever written a snapshot for. A missing or
+ * unreadable directory is an empty list, not an error: discovery may simply
+ * never have run.
+ */
+export function listDiscoveredProviders(
+    options: ProviderCatalogCacheOptions = {},
+): readonly string[] {
+    const directory = options.cacheDir ?? providerCatalogCacheDir();
+    try {
+        return readdirSync(directory)
+            .filter((name) => name.endsWith(".json") && !name.startsWith("."))
+            .map((name) => name.slice(0, -".json".length));
+    } catch {
+        return [];
     }
 }
 

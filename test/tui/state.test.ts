@@ -4,8 +4,10 @@ import type { StyledText } from "@opentui/core";
 import {
     appendTuiThought,
     toggleTuiThinking,
+    toggleTuiToolDetails,
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
+    beginTuiAdmission,
     beginTuiTurn,
     createTuiState,
     dropTuiThinking,
@@ -581,6 +583,122 @@ test("a refused settings change says so, an unwired engine does not", () => {
     expect(unwired.entries).toEqual([]);
 });
 
+test("admission progress rewrites one checklist entry in place", () => {
+    let state = beginTuiAdmission(
+        createTuiState(),
+        "pool-1",
+        "openrouter/z-ai/glm-5.2",
+    );
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]?.text).toBe("Verifying openrouter/z-ai/glm-5.2…");
+
+    state = applyAgentUpdate(state, {
+        type: "pool_admission_progress",
+        requestId: "pool-1",
+        step: "reach",
+        label: "endpoint reachable",
+        status: "running",
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "pool_admission_progress",
+        requestId: "pool-1",
+        step: "reach",
+        label: "endpoint reachable",
+        status: "passed",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "pool_admission_progress",
+        requestId: "pool-1",
+        step: "tools",
+        label: "tool calls",
+        status: "running",
+        seq: 3,
+    });
+
+    // One entry, rewritten: a step that ran and passed holds one row, not two.
+    expect(state.entries).toHaveLength(1);
+    expect(state.entries[0]?.text).toBe(
+        "Verifying openrouter/z-ai/glm-5.2…\n"
+            + "  ✓ endpoint reachable\n"
+            + "  … tool calls",
+    );
+});
+
+test("an added verdict waits for the snapshot to report verified levels", () => {
+    let state = beginTuiAdmission(createTuiState(), "pool-1", "or/glm");
+    state = applyAgentUpdate(state, {
+        type: "pool_admission_result",
+        requestId: "pool-1",
+        provider: "or",
+        model: "glm",
+        verdict: "added",
+        seq: 1,
+    });
+    expect(state.entries[0]?.text).toContain("Added to the pool");
+
+    state = applyAgentUpdate(state, {
+        type: "model_settings",
+        requestId: "settings-1",
+        settings: {
+            model: "glm",
+            reasoningEffort: "high",
+            pooled: [{
+                provider: "or",
+                model: "glm",
+                label: "GLM",
+                available: true,
+                status: "ready",
+                levels: [
+                    { id: "low", label: "Low" },
+                    { id: "high", label: "High" },
+                ],
+            }],
+        },
+        pending: false,
+        seq: 2,
+    });
+    expect(state.entries[0]?.text)
+        .toContain("Added to the pool (2 levels verified)");
+    // Settled rather than dropped: the dialog showing this verdict still
+    // renders from the record.
+    expect(state.admission?.settled).toBe(true);
+    expect(state.admission?.verifiedLevels).toBe(2);
+});
+
+test("failed admission verdicts carry the reason and invite a retry", () => {
+    let state = beginTuiAdmission(createTuiState(), "pool-1", "or/glm");
+    state = applyAgentUpdate(state, {
+        type: "pool_admission_result",
+        requestId: "pool-1",
+        provider: "or",
+        model: "glm",
+        verdict: "incompatible",
+        reason: "no tool calling",
+        seq: 1,
+    });
+    expect(state.entries[0]?.text)
+        .toContain("Not added, incompatible: no tool calling");
+    expect(state.admission?.settled).toBe(true);
+
+    let retried = beginTuiAdmission(createTuiState(), "pool-2", "or/glm");
+    retried = applyAgentUpdate(retried, {
+        type: "pool_admission_result",
+        requestId: "pool-2",
+        provider: "or",
+        model: "glm",
+        verdict: "unavailable",
+        reason: "provider timeout",
+        statusCode: 503,
+        seq: 1,
+    });
+    expect(retried.entries[0]?.text).toContain(
+        "Provider unavailable (HTTP 503): provider timeout. "
+            + "Select the model again to retry.",
+    );
+});
+
 test("TUI state keeps host-reported permissions", () => {
     const inspection = {
         selected: {
@@ -676,6 +794,91 @@ test("a pathological tool argument is still bounded", () => {
     });
 
     expect(state.entries.at(-1)?.text).toBe(`${"x".repeat(1999)}…`);
+});
+
+test("a long completed tool group folds and the detail toggle reopens it", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "list",
+        args: { path: "/workspace" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "list",
+        output: Array.from(
+            { length: 10 },
+            (_, index) => `file-${index}`,
+        ).join("\n"),
+        seq: 2,
+    });
+
+    expect(state.entries[0]).toMatchObject({
+        kind: "tool_header",
+        text: "+ Explored · 11 lines",
+        detailLines: 11,
+        detailPreview: "List /workspace",
+        expanded: false,
+    });
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe("+ Explored · 11 lines · List /workspace  ctrl+e details");
+    expect(state.entries.slice(1).every((entry) =>
+        entry.kind === "tool" && entry.hidden === true
+    )).toBe(true);
+
+    state = toggleTuiToolDetails(state);
+    expect(state.entries[0]).toMatchObject({
+        text: "- Explored · 11 lines",
+        expanded: true,
+    });
+    expect(state.entries.slice(1).every((entry) =>
+        entry.kind === "tool" && entry.hidden === undefined
+    )).toBe(true);
+
+    state = toggleTuiToolDetails(state);
+    expect(state.entries[0]).toMatchObject({
+        text: "+ Explored · 11 lines",
+        expanded: false,
+    });
+    expect(state.entries.slice(1).every((entry) =>
+        entry.kind === "tool" && entry.hidden === true
+    )).toBe(true);
+});
+
+test("the first detail toggle hides completed activity that is currently visible", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "first.ts" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "pwd" },
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        seq: 4,
+    });
+
+    state = toggleTuiToolDetails(state);
+
+    expect(state.toolDetailsExpanded).toBe(false);
+    expect(state.entries
+        .filter((entry) => entry.kind === "tool")
+        .every((entry) => entry.kind === "tool" && entry.hidden === true))
+        .toBe(true);
+    expect(state.entries.filter((entry) => entry.kind === "tool_header")
+        .map((entry) => entry.text))
+        .toEqual(["+ Explored · 1 line", "+ Ran · 1 line"]);
 });
 
 test("a run of tool calls hangs off the first one", () => {

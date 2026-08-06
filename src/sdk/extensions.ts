@@ -129,8 +129,8 @@ export interface VeraClientModelSettingsSnapshot {
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
     readonly availableModels?: readonly VeraClientAvailableModel[];
-    /** The models the user keeps, most recently used first. */
-    readonly pinned?: readonly VeraClientPinnedModel[];
+    /** The pool: the models the user admitted, newest first. */
+    readonly pooled?: readonly VeraClientPooledModel[];
     readonly contextWindow?: number;
 }
 
@@ -145,12 +145,14 @@ export interface VeraClientAvailableModel {
     readonly defaultLevel?: string;
 }
 
-export interface VeraClientPinnedModel {
+export interface VeraClientPooledModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
     /** False when the model cannot run right now, never a reason to omit it. */
     readonly available: boolean;
+    /** Ready means a live admission record; needs_verify means admit first. */
+    readonly status: "ready" | "needs_verify";
     readonly description?: string;
     readonly contextWindow?: number;
     readonly levels: readonly VeraClientReasoningLevel[];

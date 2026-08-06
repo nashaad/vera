@@ -1378,6 +1378,62 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "long tool output folds and Ctrl-E reveals it",
+    async () => {
+        const socket = `vera-tool-details-${process.pid}-${randomUUID()}`;
+        const session = "tool-details";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-tool-details-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-tool-details-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "show the details");
+            sendKey(socket, session, "Enter");
+
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "TOOL DETAILS COMPLETED",
+            );
+            expect(pane).toContain("+ Ran · 11 lines · printf");
+            expect(pane).toContain("ctrl+e details");
+            expect(pane).not.toContain("TOOL_DETAIL_09");
+
+            sendKey(socket, session, "C-e");
+            pane = await waitForVisiblePane(socket, session, "TOOL_DETAIL_09");
+            expect(pane).toContain("- Ran · 11 lines  ctrl+e details");
+            expect(pane).toContain("TOOL DETAILS COMPLETED");
+
+            sendText(socket, session, "run one short action");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "SHORT TOOL COMPLETED");
+            expect(pane).toContain("SHORT_DETAIL");
+
+            sendKey(socket, session, "C-e");
+            pane = await waitForVisiblePane(socket, session, "+ Ran · 2 lines");
+            expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(1);
+            expect(pane).toContain("SHORT TOOL COMPLETED");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "auto reviews a boundary crossing without asking the user",
     async () => {
         const socket = `vera-auto-review-${process.pid}-${randomUUID()}`;
