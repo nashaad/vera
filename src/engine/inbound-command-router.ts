@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { AsyncQueue } from "./async-queue.ts";
 import type {
     EngineEventBus,
+    PoolAdmissionVerdict,
     ToolApprovalUiResponse,
     UserQuestionChoice,
     UserQuestionUiRequest,
@@ -123,9 +124,10 @@ export interface InboundCommandRouterOptions {
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
     /**
-     * Runs admission for one model and returns the verdict, with the settings
-     * snapshot as it stands afterwards so the reply carries the new pool.
-     * `onStep` fires per admission check for the client's checklist.
+     * Admits one model and returns the verdict, with the settings snapshot as
+     * it stands afterwards so the reply carries the new pool. `verify` asks
+     * for the probes, and only then does `onStep` fire per check for the
+     * client's checklist.
      */
     readonly poolAdd?: (
         entry: { readonly provider: string; readonly model: string },
@@ -135,8 +137,9 @@ export interface InboundCommandRouterOptions {
             readonly status: "running" | "passed" | "failed" | "skipped";
             readonly detail?: string;
         }) => void,
+        options?: { readonly verify?: boolean },
     ) => Promise<{
-        readonly verdict: "added" | "incompatible" | "unavailable";
+        readonly verdict: PoolAdmissionVerdict;
         readonly reason?: string;
         readonly statusCode?: number;
         readonly settings?: ModelTurnSettings;
@@ -471,7 +474,7 @@ export class InboundCommandRouter {
                     await this.poolAdd(command.requestId, {
                         provider: command.provider,
                         model: command.model,
-                    });
+                    }, command.verify === true);
                     continue;
                 }
 
@@ -601,6 +604,7 @@ export class InboundCommandRouter {
     private async poolAdd(
         requestId: string,
         entry: { readonly provider: string; readonly model: string },
+        verify = false,
     ): Promise<void> {
         if (this.options.poolAdd === undefined) {
             this.events.emit({
@@ -619,7 +623,7 @@ export class InboundCommandRouter {
                 status: step.status,
                 ...(step.detail === undefined ? {} : { detail: step.detail }),
             });
-        });
+        }, { verify });
         this.events.emit({
             type: "pool_admission_result",
             requestId,

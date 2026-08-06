@@ -5,7 +5,10 @@ import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
-import { resolveReasoningSelection } from "../model/reasoning-effort.ts";
+import {
+    effortSubstitutionNotice,
+    resolveReasoningSelection,
+} from "../model/reasoning-effort.ts";
 import { ModelEventStream } from "../model/stream.ts";
 import { transformMessages } from "../model/transform.ts";
 import {
@@ -104,6 +107,13 @@ export class OpenRouterAdapter implements ModelAdapter {
                         )
                         : undefined
                     : { providerEffort: verifiedMapping };
+            const substituted = reasoning === undefined
+                    || !("inferred" in reasoning)
+                ? undefined
+                : effortSubstitutionNotice(reasoning);
+            if (substituted !== undefined) {
+                stream.push(substituted);
+            }
             const providerRequest = {
                 model: request.model,
                 ...(request.maxTokens === undefined

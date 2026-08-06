@@ -35,6 +35,14 @@ export interface CatalogModel {
     readonly tool_support?: boolean;
     readonly default_level?: ReasoningLevelId;
     /**
+     * True on a model Vera's shipped curation recommends. A flag on the entry
+     * rather than a separate list, so the picker's Top picks view is a filter
+     * over the one set of model rows and no model can be listed twice.
+     */
+    readonly recommended?: boolean;
+    /** The level the curation recommends this model at. A note, not a gate. */
+    readonly recommended_level?: ReasoningLevelId;
+    /**
      * Ordered most capable first, and every source normalises to that on the
      * way in. There is no way to recover capability order from level ids
      * alone (they are provider words, not a scale), so the order in this list

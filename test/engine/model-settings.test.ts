@@ -134,7 +134,7 @@ test("settings validation accepts the pool and per-model levels", () => {
         model: "kept",
         label: "kept",
         available: false,
-        status: "needs_verify",
+        verified: false,
         levels: [],
     };
 
@@ -167,7 +167,7 @@ test("settings validation rejects entries missing their new fields", () => {
             provider: "test",
             model: "kept",
             label: "kept",
-            status: "ready",
+            verified: true,
             levels: [],
         }],
     })).toBe(false);
@@ -188,7 +188,7 @@ test("settings validation rejects entries missing their new fields", () => {
             model: "kept",
             label: "kept",
             available: true,
-            status: "ready",
+            verified: true,
             levels: [{ label: "High" }],
         }],
     })).toBe(false);

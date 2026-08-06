@@ -5,6 +5,7 @@
 import { stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 
+import { VeraConfigError } from "../../src/config.ts";
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
@@ -220,6 +221,10 @@ export function renderCliFailure(error: unknown): string {
     if (error instanceof HostProtocolMismatchError) {
         return `Vera host upgrade required: ${error.message}\n`
             + "Close the older Vera client and retry, or run 'vera host stop'.";
+    }
+    if (error instanceof VeraConfigError) {
+        return `${error.message}\n`
+            + `Fix or remove ${error.path} and run Vera again.`;
     }
     return `Vera failed: ${
         error instanceof Error ? error.message : String(error)

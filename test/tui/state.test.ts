@@ -10,6 +10,7 @@ import {
     beginTuiAdmission,
     beginTuiTurn,
     createTuiState,
+    tuiPoolListing,
     dropTuiThinking,
     failTuiConnection,
     queueTuiPrompt,
@@ -558,29 +559,18 @@ test("TUI state keeps host-reported model settings", () => {
     expect(state.entries).toEqual([]);
 });
 
-test("a refused settings change says so, an unwired engine does not", () => {
-    // The change was already announced optimistically when it was sent, so an
-    // "invalid" reply that stays silent leaves the transcript claiming it
-    // happened. "unavailable" fires during a normal startup read instead, and
-    // is not something a reader can act on.
-    const refused = applyAgentUpdate(createTuiState(), {
-        type: "model_settings_rejected",
-        requestId: "settings-1",
-        reason: "invalid",
-        seq: 1,
-    });
-    expect(refused.entries).toEqual([{
-        kind: "notice",
-        text: "model settings change rejected: that combination is not supported",
-    }]);
-
-    const unwired = applyAgentUpdate(createTuiState(), {
-        type: "model_settings_rejected",
-        requestId: "settings-2",
-        reason: "unavailable",
-        seq: 1,
-    });
-    expect(unwired.entries).toEqual([]);
+test("a refusal is left to the caller that knows what was asked for", () => {
+    // The notice naming the provider, model and effort is written where the
+    // request was made. A line here could only say that something was refused.
+    for (const reason of ["invalid", "unavailable"] as const) {
+        const state = applyAgentUpdate(createTuiState(), {
+            type: "model_settings_rejected",
+            requestId: `settings-${reason}`,
+            reason,
+            seq: 1,
+        });
+        expect(state.entries).toEqual([]);
+    }
 });
 
 test("admission progress rewrites one checklist entry in place", () => {
@@ -649,7 +639,7 @@ test("an added verdict waits for the snapshot to report verified levels", () => 
                 model: "glm",
                 label: "GLM",
                 available: true,
-                status: "ready",
+                verified: true,
                 levels: [
                     { id: "low", label: "Low" },
                     { id: "high", label: "High" },
@@ -1367,4 +1357,73 @@ test("paths strip the session workspace root, resolved form included", async () 
         setTuiWorkspaceRoot(process.cwd());
         await rm(workspace, { recursive: true, force: true });
     }
+});
+
+test("a substitution gets its own transcript row, live and on replay", () => {
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "model_substitution",
+        model: "openai/gpt-5",
+        requested: "high",
+        using: "medium",
+        reason: "unsupported value for reasoning_effort",
+        scope: "effort",
+        seq: 1,
+    });
+    expect(live.entries).toEqual([{
+        kind: "substitution",
+        text: 'Requested reasoning effort "high" on openai/gpt-5, ran at'
+            + ' "medium" instead, because unsupported value for'
+            + " reasoning_effort.",
+    }]);
+
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 1,
+        entries: [{
+            kind: "model_substitution",
+            substitution: {
+                model: "openai/gpt-5",
+                requested: "high",
+                using: "medium",
+                reason: "unsupported value for reasoning_effort",
+                scope: "effort",
+            },
+        }],
+    });
+    expect(replayed.entries).toEqual(live.entries);
+
+    // Distinct from a plain notice: the marker is what sets it apart.
+    expect(plainText(renderTuiEntry(live.entries[0]!))).toBe(
+        '⇄ Requested reasoning effort "high" on openai/gpt-5, ran at'
+        + ' "medium" instead, because unsupported value for'
+        + " reasoning_effort.",
+    );
+});
+
+test("the pool listing names the effort, the probe state and the provider", () => {
+    expect(tuiPoolListing([
+        {
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            label: "GLM-5.2",
+            available: true,
+            verified: true,
+            levels: [],
+            defaultLevel: "medium",
+        },
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            label: "GPT-5.6-Sol",
+            available: false,
+            verified: false,
+            levels: [],
+        },
+    ])).toBe([
+        "Pool (2):",
+        "  z-ai/glm-5.2 · medium · verified · openrouter",
+        "  gpt-5.6-sol · provider default · unverified · openai-codex,"
+            + " unavailable right now",
+    ].join("\n"));
+    expect(tuiPoolListing([])).toContain("Your pool is empty");
 });

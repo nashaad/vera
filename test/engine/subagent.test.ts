@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
     createSubagentEffectApplier,
+    resolveSpawnModelChoice,
     runSubagent,
 } from "../../src/engine/subagent.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
@@ -192,7 +193,7 @@ test("a pooled model override replaces the parent settings", async () => {
             model: "small-model",
             label: "Small",
             available: true,
-            status: "ready",
+            verified: true,
             levels: [{ id: "low", label: "Low" }],
         }],
     });
@@ -293,7 +294,7 @@ test("an unpooled model override inherits the default, with a notice", async () 
             model: "small-model",
             label: "Small",
             available: true,
-            status: "ready",
+            verified: true,
             levels: [],
         }],
     });
@@ -311,16 +312,17 @@ test("an unpooled model override inherits the default, with a notice", async () 
         expect(result.isError).toBe(false);
         expect(request?.model).toBe("selected");
         expect(result.output).toContain(
-            'Requested model "haiku" is not in the pool',
+            "Requested model haiku, ran selected instead",
         );
-        expect(result.output).toContain("Add the model to the pool");
+        expect(result.output).toContain("haiku is not in the pool");
+        expect(result.output).toContain("this is the session model");
         expect(result.output).toContain("child done");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
 });
 
-test("a needs-verify pool entry falls through like an unpooled model", async () => {
+test("an unavailable pool entry falls through like an unpooled model", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-unverified-"));
     const final: AssistantMessage = {
         role: "assistant",
@@ -346,7 +348,7 @@ test("a needs-verify pool entry falls through like an unpooled model", async () 
             model: "small-model",
             label: "Small",
             available: false,
-            status: "needs_verify",
+            verified: false,
             levels: [],
         }],
     });
@@ -364,7 +366,7 @@ test("a needs-verify pool entry falls through like an unpooled model", async () 
         expect(result.isError).toBe(false);
         expect(request?.model).toBe("selected");
         expect(result.output).toContain(
-            'Requested model "small-model" is not in the pool',
+            "Requested model small-model, ran selected instead",
         );
     } finally {
         await rm(root, { recursive: true, force: true });
@@ -876,4 +878,58 @@ test("a subagent inherits the parent's scratch directory in its prompt", async (
     } finally {
         await rm(root, { recursive: true, force: true });
     }
+});
+
+test("the pool file's subagent default is the rung a spawn with no suggestion lands on", () => {
+    const resolved = resolveSpawnModelChoice(
+        {},
+        { approvalMode: "auto", provider: "openrouter", model: "session" },
+        () => [],
+        undefined,
+        { subagentDefault: "openrouter/worker" },
+    );
+
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.model).toBe("worker");
+    expect(resolved.notice).toBeUndefined();
+});
+
+test("a model nothing knows the levels of is not a substitution", () => {
+    const resolved = resolveSpawnModelChoice(
+        { model: "openrouter/worker", reasoningEffort: "high" },
+        { approvalMode: "auto", provider: "openrouter", model: "session" },
+        () => [],
+        undefined,
+        { subagentDefault: "openrouter/worker" },
+    );
+
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.model).toBe("worker");
+    expect(resolved.reasoningEffort).toBe("high");
+    expect(resolved.notice).toBeUndefined();
+    expect(resolved.substitutions).toBeUndefined();
+});
+
+test("a spawn that fell through the ladder carries typed substitution rows", () => {
+    const resolved = resolveSpawnModelChoice(
+        { model: "openrouter/absent" },
+        { approvalMode: "auto", provider: "openrouter", model: "session" },
+        () => [],
+        undefined,
+        {},
+    );
+
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.substitutions).toEqual([{
+        scope: "model",
+        model: "openrouter/session",
+        requested: "openrouter/absent",
+        using: "openrouter/session",
+        reason: "openrouter/absent is not in the pool, and this is the session"
+            + " model, which the subagent falls back to when no requested or"
+            + " default model can run",
+    }]);
 });

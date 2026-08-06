@@ -9,6 +9,11 @@ import type {
     ModelStreamEvent,
 } from "../model/types.ts";
 import { reasoningEffortForModel } from "./model-settings.ts";
+import {
+    coarsenAfterFailure,
+    type EffortCoarseningOptions,
+    type ModelEffortCoarsened,
+} from "./effort-coarsening.ts";
 
 /**
  * Drops a reasoning effort the fallback model cannot be asked for.
@@ -33,6 +38,20 @@ function withSupportedReasoningEffort(
     }
     const { reasoningEffort: _dropped, ...supported } = request;
     return supported;
+}
+
+/**
+ * An effort the adapter placed differently from what was asked for, named
+ * against the model the request went to. Reported and then forgotten: the
+ * request is already running on the placed level, so there is nothing to
+ * retry.
+ */
+export interface ModelEffortSubstituted {
+    readonly model: string;
+    readonly requested: string;
+    /** Absent means no reasoning level was sent at all. */
+    readonly using?: string;
+    readonly reason: string;
 }
 
 export interface ModelRetryPolicy {
@@ -92,6 +111,15 @@ export interface ModelRecoveryOptions {
     readonly onEvent: (event: ModelStreamEvent) => void;
     readonly onRetry: (retry: ModelRetryScheduled) => void;
     readonly onFallback: (fallback: ModelFallbackSelected) => void;
+    /**
+     * Present only where a pool is wired in. Absent leaves a capability
+     * refusal on the ordinary terminal path, which is what it was before.
+     */
+    readonly coarsening?: EffortCoarseningOptions;
+    readonly onCoarsened?: (coarsened: ModelEffortCoarsened) => void;
+    readonly onEffortSubstituted?: (
+        substituted: ModelEffortSubstituted,
+    ) => void;
 }
 
 interface PendingModelRetry {
@@ -128,15 +156,29 @@ export async function requestModelWithRecovery(
     let retryAttempt = 0;
     let consecutiveOverloadFailures = 0;
     let fallbackSelected = false;
+    const refusedEfforts = new Set<string>();
 
     while (true) {
         const stream = adapter.stream(activeRequest);
         let contentStarted = false;
         let retry: PendingModelRetry | undefined;
         let fallback: ModelFallbackSelected | undefined;
+        let coarsened: ModelEffortCoarsened | undefined;
 
         for await (const event of stream) {
             if (event.type === "start" && requestAttempt > 0) {
+                continue;
+            }
+            if (event.type === "effort_substituted") {
+                // Deliberately ahead of the content flag: a notice is not
+                // content, and letting it set the flag would take the
+                // coarsening path away from a refusal arriving right after.
+                options.onEffortSubstituted?.({
+                    model: activeRequest.model,
+                    requested: event.requested,
+                    ...(event.using === undefined ? {} : { using: event.using }),
+                    reason: event.reason,
+                });
                 continue;
             }
             if (event.type === "error") {
@@ -152,6 +194,27 @@ export async function requestModelWithRecovery(
                     && event.error instanceof ProviderFailureError
                 ) {
                     const failure = event.error.failure;
+                    // A refused level is evidence about the model, so it is
+                    // answered before the overload counters: it is neither an
+                    // overload nor something a plain retry would survive.
+                    if (
+                        options.coarsening !== undefined
+                        && activeRequest.reasoningEffort !== undefined
+                    ) {
+                        coarsened = coarsenAfterFailure(
+                            {
+                                provider: activeRequest.provider ?? "",
+                                model: activeRequest.model,
+                            },
+                            activeRequest.reasoningEffort,
+                            failure,
+                            refusedEfforts,
+                            options.coarsening,
+                        );
+                        if (coarsened !== undefined) {
+                            break;
+                        }
+                    }
                     consecutiveOverloadFailures = isOverloadFailure(failure)
                         ? consecutiveOverloadFailures + 1
                         : 0;
@@ -201,6 +264,19 @@ export async function requestModelWithRecovery(
             if (event.type === "done") {
                 return event.message;
             }
+        }
+
+        if (coarsened !== undefined) {
+            // Non-blocking: the notice goes out and the turn continues on the
+            // coarser level without waiting for an answer.
+            options.onCoarsened?.(coarsened);
+            refusedEfforts.add(coarsened.requested);
+            activeRequest = {
+                ...activeRequest,
+                reasoningEffort: coarsened.using,
+            };
+            requestAttempt += 1;
+            continue;
         }
 
         if (fallback !== undefined) {

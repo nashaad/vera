@@ -4,6 +4,7 @@ import type {
     AssistantMessage,
     ModelAdapter,
     ModelReasoningEffort,
+    ModelSubstitution,
 } from "../model/types.ts";
 import {
     defaultSessionPath,
@@ -34,6 +35,13 @@ import type {
 } from "../tools/types.ts";
 import type { PooledModel } from "../model/catalog-view.ts";
 import {
+    modelRef,
+    resolveSubagentModel,
+    type LadderCandidate,
+    type LadderPool,
+    type RelativeEffort,
+} from "../model/subagent-ladder.ts";
+import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
 } from "./agent-limits.ts";
@@ -53,6 +61,8 @@ export interface CreateSubagentEffectApplierOptions {
     readonly readPool?: () => readonly PooledModel[];
     /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
+    /** Allow/deny, the failsafe list and families; absent, nothing is gated. */
+    readonly readPolicy?: () => SubagentPoolPolicy;
 }
 
 export interface SpawnModelDefault {
@@ -69,92 +79,207 @@ export type SpawnModelResolution =
         readonly reasoningEffort?: ModelReasoningEffort;
         /** A transcript line about a request that fell through the pool. */
         readonly notice?: string;
+        /** The same substitutions the notice reads out, as typed rows. */
+        readonly substitutions?: readonly ModelSubstitution[];
     }
     | { readonly ok: false; readonly error: string };
 
 /**
- * Turns a spawn tool's optional model override into runnable settings.
+ * The policy fields of the pool file that only the ladder reads.
  *
- * An override must name a pooled model: the pool is the complete runtime set,
- * it carries its own provider, and it is short enough to hand back whole. A
- * request for an unpooled model is not an error: it falls through to what the
- * child would have run anyway, with one notice saying how to allow it. With
- * no override the child runs the configured subagent default when there is
- * one, and the parent's settings otherwise: inheriting silently multiplies
- * whatever the parent costs across the whole fan-out.
+ * SEAM: the pool file loader owns parsing and validation and hands this
+ * shape over; nothing here opens a file. `families` maps `provider/model`
+ * to the declared family label used to bound sibling search.
+ */
+export interface SubagentPoolPolicy {
+    readonly allow?: readonly string[];
+    readonly deny?: readonly string[];
+    /** Verified pool entries in file order, the failsafe rung's candidates. */
+    readonly failsafe?: readonly string[];
+    readonly families?: Readonly<Record<string, string>>;
+    /**
+     * Resolved tool-call support per `provider/model`, for the models the
+     * pool failsafe may reach. A model missing from this map is not known
+     * to call tools, which is why the map is not a set of the ones that do.
+     */
+    readonly tools?: Readonly<Record<string, boolean>>;
+    /** `defaults.subagentEffort`, applied to the self rung. */
+    readonly selfEffort?: RelativeEffort;
+    /**
+     * `defaults.subagent`: the model the default rung tries, or `"self"`.
+     * It wins over the host's own configured default, because the pool file
+     * is where the user states this and the host config is the older answer.
+     */
+    readonly subagentDefault?: string;
+}
+
+/**
+ * Turns a spawn tool's optional model suggestion into runnable settings.
+ *
+ * The suggestion is a suggestion, never a contract: a model that cannot run
+ * falls through the ladder in `subagent-ladder.ts` rather than failing the
+ * spawn, because nobody is watching a subagent to retry it. Every
+ * substitution the ladder makes comes back as a notice, which the caller
+ * prefixes to the child's result.
  */
 export function resolveSpawnModelChoice(
     effect: { readonly model?: string; readonly reasoningEffort?: string },
     context: ToolEffectContext,
     readPool?: () => readonly PooledModel[],
     subagentModel?: SpawnModelDefault,
+    policy?: SubagentPoolPolicy,
 ): SpawnModelResolution {
-    const inherit = (notice?: string): SpawnModelResolution => {
-        const inherited: SpawnModelDefault = subagentModel ?? {
-            ...(context.provider === undefined
+    const sessionProvider = context.provider ?? "";
+    const configuredDefault = policy?.subagentDefault
+        ?? (subagentModel === undefined
+            ? undefined
+            : modelRef(
+                subagentModel.provider ?? sessionProvider,
+                subagentModel.model,
+            ));
+    const outcome = resolveSubagentModel(
+        {
+            ...(effect.model === undefined ? {} : { suggested: effect.model }),
+            ...(effect.reasoningEffort === undefined
                 ? {}
-                : { provider: context.provider }),
-            model: context.model,
+                : { suggestedEffort: effect.reasoningEffort }),
+            sessionProvider,
+            sessionModel: context.model,
             ...(context.reasoningEffort === undefined
                 ? {}
-                : { reasoningEffort: context.reasoningEffort }),
-        };
-        const reasoningEffort = notice === undefined
-            ? effect.reasoningEffort ?? inherited.reasoningEffort
-            : inherited.reasoningEffort;
-        return {
-            ok: true,
-            ...(inherited.provider === undefined
+                : { sessionEffort: context.reasoningEffort }),
+            ...(configuredDefault === undefined
                 ? {}
-                : { provider: inherited.provider }),
-            model: inherited.model,
-            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-            ...(notice === undefined ? {} : { notice }),
-        };
-    };
-    if (effect.model === undefined) {
-        return inherit();
-    }
-    const pool = readPool?.() ?? [];
-    const matches = pool.filter((candidate) =>
-        `${candidate.provider}/${candidate.model}` === effect.model
-        || candidate.model === effect.model);
-    const entry = matches.length === 1
-        ? matches[0]
-        : matches.find((candidate) =>
-            `${candidate.provider}/${candidate.model}` === effect.model);
-    if (entry === undefined || entry.status !== "ready") {
-        return inherit(
-            `Requested model "${effect.model}" is not in the pool; `
-                + "the subagent inherits its default model instead. "
-                + "Add the model to the pool to allow this.",
-        );
-    }
-    if (!entry.available) {
-        return {
-            ok: false,
-            error: `Pooled model "${entry.model}" is not available right now.`,
-        };
-    }
-    if (effect.reasoningEffort !== undefined) {
-        const levels = entry.levels.map((level) => level.id);
-        if (!levels.includes(effect.reasoningEffort)) {
-            return {
-                ok: false,
-                error: levels.length === 0
-                    ? `Model "${entry.model}" has no reasoning control; omit reasoning_effort.`
-                    : `Model "${entry.model}" does not support reasoning_effort "${effect.reasoningEffort}". Available: ${levels.join(", ")}.`,
-            };
-        }
+                : { configuredDefault }),
+            ...(policy?.subagentDefault !== undefined
+                    || subagentModel?.reasoningEffort === undefined
+                ? {}
+                : { configuredDefaultEffort: subagentModel.reasoningEffort }),
+            ...(policy?.selfEffort === undefined
+                ? {}
+                : { selfEffort: policy.selfEffort }),
+        },
+        ladderPool(context, readPool?.() ?? [], subagentModel, policy),
+    );
+    if (!outcome.ok) {
+        return { ok: false, error: outcome.error };
     }
     return {
         ok: true,
-        provider: entry.provider,
-        model: entry.model,
-        ...(effect.reasoningEffort === undefined
+        ...(outcome.provider === "" ? {} : { provider: outcome.provider }),
+        model: outcome.model,
+        ...(outcome.effort === undefined
             ? {}
-            : { reasoningEffort: effect.reasoningEffort }),
+            : { reasoningEffort: outcome.effort }),
+        ...(outcome.notice === undefined ? {} : { notice: outcome.notice }),
+        ...(outcome.substitutions.length === 0
+            ? {}
+            : { substitutions: outcome.substitutions }),
     };
+}
+
+/**
+ * Projects the runtime pool into the ladder's view, plus the two models that
+ * are runnable without being pooled: the session's own model, which is
+ * running right now by definition, and the configured subagent default,
+ * which the user declared by hand.
+ */
+function ladderPool(
+    context: ToolEffectContext,
+    pool: readonly PooledModel[],
+    subagentModel: SpawnModelDefault | undefined,
+    policy: SubagentPoolPolicy | undefined,
+): LadderPool {
+    const families = policy?.families ?? {};
+    const tools = policy?.tools ?? {};
+    const models: LadderCandidate[] = pool
+        .filter((entry) => entry.available)
+        .map((entry) => {
+            const ref = modelRef(entry.provider, entry.model);
+            return {
+                provider: entry.provider,
+                model: entry.model,
+                ...(families[ref] === undefined
+                    ? {}
+                    : { family: families[ref] }),
+                ...(tools[ref] === undefined ? {} : { tools: tools[ref] }),
+                available: entry.available,
+                levels: entry.levels.map((level) => level.id),
+                ...(entry.defaultLevel === undefined
+                    ? {}
+                    : { defaultLevel: entry.defaultLevel }),
+            };
+        });
+    const sessionProvider = context.provider ?? "";
+    const poolDefault = policy?.subagentDefault;
+    const declared: readonly {
+        provider: string;
+        model: string;
+        effort?: string;
+    }[] = [
+        {
+            provider: sessionProvider,
+            model: context.model,
+            ...(context.reasoningEffort === undefined
+                ? {}
+                : { effort: context.reasoningEffort }),
+        },
+        ...(subagentModel === undefined ? [] : [{
+            provider: subagentModel.provider ?? sessionProvider,
+            model: subagentModel.model,
+            ...(subagentModel.reasoningEffort === undefined
+                ? {}
+                : { effort: subagentModel.reasoningEffort }),
+        }]),
+        ...(poolDefault === undefined || poolDefault === "self"
+            ? []
+            : [splitModelRef(poolDefault, sessionProvider)]),
+    ];
+    for (const entry of declared) {
+        const ref = modelRef(entry.provider, entry.model);
+        if (models.some((known) => modelRef(known.provider, known.model) === ref)) {
+            continue;
+        }
+        // No `levels`: nothing here knows this model's ladder. A synthesized
+        // one-element list would make every other level look unsupported and
+        // report a substitution the user never had done to them.
+        models.push({
+            provider: entry.provider,
+            model: entry.model,
+            ...(families[ref] === undefined ? {} : { family: families[ref] }),
+            ...(tools[ref] === undefined ? {} : { tools: tools[ref] }),
+            available: true,
+            ...(entry.effort === undefined
+                ? {}
+                : { defaultLevel: entry.effort }),
+        });
+    }
+    return {
+        models,
+        ...(policy?.allow === undefined ? {} : { allow: policy.allow }),
+        ...(policy?.deny === undefined ? {} : { deny: policy.deny }),
+        ...(policy?.failsafe === undefined
+            ? {}
+            : { failsafe: policy.failsafe }),
+    };
+}
+
+/**
+ * Splits `provider/model` at the first separator only: an aggregator model id
+ * carries its own slashes, so `openrouter/deepseek/deepseek-chat` is one model
+ * on one provider. A bare name belongs to the session's provider.
+ */
+function splitModelRef(
+    ref: string,
+    sessionProvider: string,
+): { readonly provider: string; readonly model: string } {
+    const separator = ref.indexOf("/");
+    return separator <= 0 || separator === ref.length - 1
+        ? { provider: sessionProvider, model: ref }
+        : {
+            provider: ref.slice(0, separator),
+            model: ref.slice(separator + 1),
+        };
 }
 
 export interface RunSubagentOptions {
@@ -213,11 +338,13 @@ export function createSubagentEffectApplier(
             context,
             options.readPool,
             options.subagentModel,
+            options.readPolicy?.(),
         );
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };
         }
         const notice = resolved.notice;
+        const substitutions = resolved.substitutions ?? [];
         activeChildren += 1;
         const sessionId = randomUUID();
         try {
@@ -259,6 +386,7 @@ export function createSubagentEffectApplier(
                     ? result.text
                     : `${notice}\n\n${result.text}`,
                 isError: result.isError,
+                ...(substitutions.length === 0 ? {} : { substitutions }),
             };
         } finally {
             activeChildren -= 1;

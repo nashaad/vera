@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
+import { projectTranscript } from "../../src/engine/protocol.ts";
+import type { EffortPool } from "../../src/model/effort-pool.ts";
 import {
     EngineEventBus,
     createJsonlEventLogger,
@@ -972,35 +974,43 @@ test("model fallback stays selected through the tool loop", async () => {
     const turn = runTurn(adapter, "primary", state);
     await expectUserPrompt(channel, "use fallback", 1);
     await expectContextMeasured(channel, 2);
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_substitution",
+        model: "primary",
+        requested: "primary",
+        using: "backup",
+        scope: "model",
+        seq: 3,
+    });
     // The fallback re-measures: the same request now runs against the backup
     // model's window, so the share of it that is filled has moved.
-    await expectContextMeasured(channel, 3);
+    await expectContextMeasured(channel, 4);
 
     expect(await channel.client.receive()).toEqual({
         type: "tool_started",
         tool: "write",
         args: { path: "fallback.txt", content: "used backup" },
-        seq: 4,
+        seq: 5,
     });
     expect(await channel.client.receive()).toMatchObject({
         type: "tool_finished",
         tool: "write",
-        seq: 5,
+        seq: 6,
     });
     expect(await channel.client.receive()).toMatchObject({
         type: "tool_presentation",
         tool: "write",
-        seq: 6,
+        seq: 7,
     });
-    await expectContextMeasured(channel, 7);
+    await expectContextMeasured(channel, 8);
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "finished on backup",
-        seq: 8,
+        seq: 9,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 9,
+        seq: 10,
     });
     expect(await turn).toEqual(finalResponse);
     expect(models).toEqual(["primary", "backup", "backup"]);
@@ -1009,16 +1019,16 @@ test("model fallback stays selected through the tool loop", async () => {
 
     channel.client.send({ type: "prompt", content: "new turn" });
     const nextTurn = runTurn(adapter, "primary", state);
-    await expectUserPrompt(channel, "new turn", 10);
-    await expectContextMeasured(channel, 11);
+    await expectUserPrompt(channel, "new turn", 11);
+    await expectContextMeasured(channel, 12);
     expect(await channel.client.receive()).toEqual({
         type: "assistant_delta",
         text: "primary again",
-        seq: 12,
+        seq: 13,
     });
     expect(await channel.client.receive()).toEqual({
         type: "turn_finished",
-        seq: 13,
+        seq: 14,
     });
     expect(await nextTurn).toEqual(nextTurnResponse);
     expect(models).toEqual(["primary", "backup", "backup", "primary"]);
@@ -2791,5 +2801,193 @@ test("a model that returns nothing at all ends the turn without an error", async
     expect(state.messages.at(-1)).toMatchObject({
         role: "assistant",
         stopReason: "stop",
+    });
+});
+
+test("a refused reasoning effort coarsens the turn and is written down", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-coarsening-"));
+    temporaryWorkspaces.push(workspace);
+    const answer: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "ran lower" }],
+        source: { provider: "faux", api: "scripted", model: "thinker" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const success = new FauxAdapter([answer]);
+    const efforts: string[] = [];
+    const adapter: ModelAdapter = {
+        stream(request): ModelEventStream {
+            efforts.push(request.reasoningEffort ?? "none");
+            if (efforts.length > 1) {
+                return success.stream(request);
+            }
+            const failure: ProviderFailure = {
+                kind: "invalid_request",
+                resolution: "none",
+                message: "Unsupported value for reasoning_effort: high",
+                statusCode: 400,
+            };
+            const error = new ProviderFailureError(
+                failure,
+                new Error(failure.message),
+            );
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...answer,
+                    content: [],
+                    stopReason: "error",
+                    errorMessage: error.message,
+                },
+            });
+            return stream;
+        },
+    };
+    const learned: string[] = [];
+    const forbidden = new Set<string>();
+    const pool: EffortPool = {
+        resolveEffort(_ref, requested) {
+            const resolved: Record<string, string | null> = {};
+            for (const level of ["low", "medium", "high"]) {
+                resolved[level] = forbidden.has(level) ? null : level;
+            }
+            return { requested, efforts: resolved };
+        },
+        recordLearned(_ref, key, _fact) {
+            learned.push(key);
+            if (key.startsWith("efforts.")) {
+                forbidden.add(key.slice("efforts.".length));
+            }
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const store = new InMemorySessionStore();
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        effortPool: pool,
+        readModelSettings: () => ({
+            provider: "faux",
+            model: "thinker",
+            reasoningEffort: "high",
+        }),
+    };
+
+    channel.client.send({ type: "prompt", content: "think hard" });
+    const turn = runTurn(adapter, "thinker", state);
+    await expectUserPrompt(channel, "think hard", 1);
+    await expectContextMeasured(channel, 2);
+    expect(await channel.client.receive()).toEqual({
+        type: "model_substitution",
+        model: "thinker",
+        requested: "high",
+        using: "medium",
+        reason: "Unsupported value for reasoning_effort: high",
+        scope: "effort",
+        seq: 3,
+    });
+    await turn;
+
+    expect(efforts).toEqual(["high", "medium"]);
+    expect(learned).toEqual(["efforts.high"]);
+    // Durable, not only live: the projection is what a reconnecting client
+    // and an export both read.
+    expect(projectTranscript(state.messages)).toContainEqual({
+        kind: "model_substitution",
+        substitution: {
+            model: "thinker",
+            requested: "high",
+            using: "medium",
+            reason: "Unsupported value for reasoning_effort: high",
+            scope: "effort",
+        },
+    });
+});
+
+test("a level the pool already forbids never reaches the provider", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-preflight-"));
+    temporaryWorkspaces.push(workspace);
+    const answer: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "ran lower" }],
+        source: { provider: "faux", api: "scripted", model: "thinker" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const success = new FauxAdapter([answer]);
+    const efforts: string[] = [];
+    const adapter: ModelAdapter = {
+        stream(request): ModelEventStream {
+            efforts.push(request.reasoningEffort ?? "none");
+            return success.stream(request);
+        },
+    };
+    const pool: EffortPool = {
+        resolveEffort(_ref, requested) {
+            return {
+                requested,
+                efforts: { low: "low", medium: "medium", high: null },
+                ...(requested === "high"
+                    ? { reason: "the provider rejected it on 2026-08-06" }
+                    : {}),
+            };
+        },
+        recordLearned(): void {},
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const store = new InMemorySessionStore();
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        effortPool: pool,
+        readModelSettings: () => ({
+            provider: "faux",
+            model: "thinker",
+            reasoningEffort: "high",
+        }),
+    };
+
+    channel.client.send({ type: "prompt", content: "think hard" });
+    const turn = runTurn(adapter, "thinker", state);
+    await expectUserPrompt(channel, "think hard", 1);
+    expect(await channel.client.receive()).toEqual({
+        type: "model_substitution",
+        model: "thinker",
+        requested: "high",
+        using: "medium",
+        reason: "the provider rejected it on 2026-08-06",
+        scope: "effort",
+        seq: 2,
+    });
+    await turn;
+
+    // One request, and never on the forbidden level: the pool answered before
+    // anything went out.
+    expect(efforts).toEqual(["medium"]);
+    expect(projectTranscript(state.messages)).toContainEqual({
+        kind: "model_substitution",
+        substitution: {
+            model: "thinker",
+            requested: "high",
+            using: "medium",
+            reason: "the provider rejected it on 2026-08-06",
+            scope: "effort",
+        },
     });
 });

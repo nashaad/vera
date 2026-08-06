@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     createProtocolEncoder,
+    formatModelSubstitution,
     parseClientCommand,
     projectTranscript,
     type AgentUpdate,
@@ -658,4 +659,44 @@ test("timeline commands parse only complete rewind requests", () => {
         type: "list_timeline",
         requestId: "",
     })).toBeUndefined();
+});
+
+test("a substitution with no level sent names no level at all", () => {
+    expect(formatModelSubstitution({
+        model: "codex-model",
+        requested: "medium",
+        reason: "the model has no reasoning levels",
+        scope: "effort",
+    })).toBe(
+        'Requested reasoning effort "medium" on codex-model, ran with no'
+        + " reasoning level at all, because the model has no reasoning"
+        + " levels.",
+    );
+});
+
+test("no substitution sentence ever prints the word undefined", () => {
+    const cases = [
+        { model: "", requested: "high", reason: "r", scope: "effort" as const },
+        {
+            model: "m",
+            requested: "high",
+            using: "low",
+            reason: "r",
+            scope: "effort" as const,
+        },
+        { model: "m", requested: "a/b", reason: "r", scope: "model" as const },
+        {
+            model: "m",
+            requested: "a/b",
+            using: "a/c",
+            reason: "r",
+            scope: "model" as const,
+        },
+    ];
+
+    for (const substitution of cases) {
+        const sentence = formatModelSubstitution(substitution);
+        expect(sentence).not.toContain("undefined");
+        expect(sentence.endsWith(".")).toBe(true);
+    }
 });

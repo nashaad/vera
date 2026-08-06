@@ -4,9 +4,9 @@ const MAX_MODELS = 8;
 
 /**
  * The one agent path into the pool. The effect resolves through the same
- * engine admission service the client's checklist uses, so admission is never
- * bypassed; the tool only carries the request. Add-only on purpose: removal
- * is the destructive action and stays a human action in the client.
+ * admission the client's own add goes through, so both paths write the entry
+ * the same way; the tool only carries the request. Add-only on purpose:
+ * removal is the destructive action and stays a human action in the client.
  */
 export const poolAddTool: RegisteredTool = {
     effectType: "pool_add",
@@ -16,11 +16,11 @@ export const poolAddTool: RegisteredTool = {
         description: [
             "Ask to admit models to the runtime pool by exact",
             "provider/model identifier (as returned by catalog_search).",
-            "Each model is verified with live probe calls on the user's own",
-            "key before it is added; the result reports a per-model verdict:",
-            "added with its verified reasoning levels, incompatible with the",
-            "reason, or unavailable with a retry hint. Only pooled models",
-            "can be selected or used for subagents.",
+            "Admission is immediate and makes no provider call: the model",
+            "enters with whatever the catalog knows about it and is usable",
+            "straight away. The result reports a per-model verdict: added,",
+            "incompatible with the reason, or unavailable with a retry hint.",
+            "Only pooled models can be selected or used for subagents.",
         ].join(" "),
         inputSchema: {
             type: "object",
@@ -50,7 +50,7 @@ export const poolAddTool: RegisteredTool = {
         }
         if (models.length > MAX_MODELS) {
             throw new Error(
-                `pool_add verifies at most ${MAX_MODELS} models per call`,
+                `pool_add admits at most ${MAX_MODELS} models per call`,
             );
         }
         return {

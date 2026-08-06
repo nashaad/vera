@@ -15,15 +15,22 @@
  */
 
 import type { CatalogModel } from "./catalog-shape.ts";
-import type {
-    PoolVerification,
-    VerifiedPoolLevel,
-} from "./pool-store.ts";
+import {
+    EFFORT_LADDER,
+    isEffortLevel,
+    type EffortLevel,
+} from "./effort-ladder.ts";
+import {
+    PROBE_LEARNED_KEY,
+    TOOLS_LEARNED_KEY,
+    type LearnedFact,
+    type LearnedFacts,
+    effortLearnedKey,
+} from "./pool-file.ts";
 import { ProviderFailureError } from "./provider-failure.ts";
 import type {
     AssistantMessage,
     ModelAdapter,
-    ModelReasoningEffort,
     ModelRequest,
     ModelStream,
 } from "./types.ts";
@@ -61,7 +68,12 @@ export interface AdmissionRequest {
 export type AdmissionVerdict =
     | {
         readonly status: "added";
-        readonly verification: PoolVerification;
+        /**
+         * Machine-concluded facts, keyed for the pool's `learned` map. The
+         * probe is Vera's own conclusion, so nothing it finds is written as a
+         * declared value.
+         */
+        readonly learned: LearnedFacts;
         /** Levels the catalog offered that this key could not use. */
         readonly droppedLevels: readonly string[];
     }
@@ -93,9 +105,12 @@ export async function admitModel(
 async function runAdmission(
     request: AdmissionRequest,
 ): Promise<AdmissionVerdict> {
-    const candidates = request.catalogModel?.levels ?? [];
-    const verified: VerifiedPoolLevel[] = [];
+    const candidates = probeCandidates(request.catalogModel);
+    const learned: Record<string, LearnedFact> = {};
+    const verified: string[] = [];
     const dropped: string[] = [];
+    const seen = (request.now?.() ?? new Date()).toISOString();
+    const checked = request.checked ?? "user_key";
     let responseModel: string | undefined;
 
     if (candidates.length === 0) {
@@ -109,23 +124,32 @@ async function runAdmission(
         step("passed");
     }
 
-    for (const level of candidates) {
+    for (const candidate of candidates) {
         const step = stepReporter(
             request,
-            `level:${level.id}`,
-            `Reasoning ${level.label}`,
+            `level:${candidate.wire}`,
+            `Reasoning ${candidate.level}`,
         );
-        const outcome = await probeText(request, level.id);
+        const outcome = await probeText(request, candidate.wire);
         if (outcome.kind === "incompatible") {
             step("failed", outcome.reason);
-            dropped.push(level.id);
+            dropped.push(candidate.wire);
+            learned[effortLearnedKey(candidate.level)] = {
+                ok: false,
+                seen,
+                error: outcome.reason,
+                checked,
+            };
             continue;
         }
         responseModel ??= outcome.responseModel;
-        verified.push({
-            vera_effort: veraEffortForLevel(level.id),
-            provider_effort: level.id,
-        });
+        verified.push(candidate.wire);
+        learned[effortLearnedKey(candidate.level)] = {
+            ok: true,
+            seen,
+            wire: candidate.wire,
+            checked,
+        };
         step("passed");
     }
 
@@ -145,7 +169,7 @@ async function runAdmission(
     const toolStep = stepReporter(request, "tool_call", "Calls a tool");
     const toolOutcome = await probeToolCall(
         request,
-        verified[0]?.provider_effort,
+        verified[0],
     );
     if (toolOutcome !== undefined) {
         toolStep("failed", toolOutcome.reason);
@@ -155,11 +179,15 @@ async function runAdmission(
 
     return {
         status: "added",
-        verification: {
-            verified_at: (request.now?.() ?? new Date()).toISOString(),
-            response_model: responseModel ?? request.model,
-            levels: verified,
-            checked: request.checked ?? "user_key",
+        learned: {
+            ...learned,
+            [PROBE_LEARNED_KEY]: {
+                ok: true,
+                seen,
+                checked,
+                ...(responseModel === undefined ? {} : { wire: responseModel }),
+            },
+            [TOOLS_LEARNED_KEY]: { ok: true, seen, checked },
         },
         droppedLevels: dropped,
     };
@@ -355,13 +383,54 @@ function stepReporter(
     };
 }
 
+interface ProbeCandidate {
+    /** The ladder level this probe establishes. */
+    readonly level: EffortLevel;
+    /** The exact string sent to the provider for it. */
+    readonly wire: string;
+}
+
 /**
- * Maps a provider's level name onto Vera's effort ladder where the name is
- * recognizable, and otherwise keeps the provider's own word: the level list is
- * a fact about the model, not a fixed vocabulary.
+ * Which levels the probe spends a call on.
+ *
+ * Where the catalog names levels, those are the only ones probed: a catalog
+ * word that maps to no rung is skipped, because sending it earns a 400 that
+ * says nothing about the model.
+ *
+ * Where the catalog names none, whether the model is missing entirely or
+ * listed without levels, the whole ladder is probed. Probes fill gaps, and an
+ * empty level list is a gap rather than a claim that the model has no ladder.
+ * The rejections are worth as much as the passes: each one is a learned fact
+ * that stops a level being sent again.
+ *
+ * `off` is never probed either way; it means sending no level at all, which
+ * the response probe already covers.
  */
-function veraEffortForLevel(providerEffort: string): ModelReasoningEffort {
-    if (providerEffort === "none") return "off";
-    if (providerEffort === "max" || providerEffort === "xhigh") return "max";
-    return providerEffort;
+function probeCandidates(
+    catalogModel: CatalogModel | undefined,
+): readonly ProbeCandidate[] {
+    const declared = (catalogModel?.levels ?? []).flatMap((level) => {
+        const rung = ladderLevelForWire(level.id);
+        return rung === undefined || rung === "off"
+            ? []
+            : [{ level: rung, wire: level.id }];
+    });
+    if (declared.length > 0) {
+        return declared;
+    }
+    return EFFORT_LADDER
+        .filter((level) => level !== "off")
+        .map((level) => ({ level, wire: level }));
+}
+
+/**
+ * Maps a provider's level name onto Vera's effort ladder. A word with no rung
+ * is dropped rather than carried through: an unrecognized level cannot be
+ * recorded as a fact about a ladder rung.
+ */
+function ladderLevelForWire(providerEffort: string): EffortLevel | undefined {
+    if (providerEffort === "none") {
+        return "off";
+    }
+    return isEffortLevel(providerEffort) ? providerEffort : undefined;
 }

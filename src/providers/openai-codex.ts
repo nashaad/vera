@@ -2,6 +2,7 @@ import { platform, release, arch } from "node:os";
 
 import { OpenAICodexStreamDecoder } from "./openai-codex-stream.ts";
 import {
+    effortSubstitutionNotice,
     resolveReasoningSelection,
     type ResolveReasoningOptions,
 } from "../model/reasoning-effort.ts";
@@ -80,6 +81,12 @@ export class OpenAICodexAdapter implements ModelAdapter {
                     request.reasoningEffort,
                     codexReasoningLevels(request.model, this.catalogCacheDir),
                 );
+            const substituted = reasoning === undefined
+                ? undefined
+                : effortSubstitutionNotice(reasoning);
+            if (substituted !== undefined) {
+                stream.push(substituted);
+            }
             const providerRequest: OpenAICodexRequest = {
                 model: request.model,
                 // request.maxTokens is dropped rather than sent: this backend

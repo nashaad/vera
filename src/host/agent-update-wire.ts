@@ -49,6 +49,16 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (update.type === "model_activity") {
         return parseModelActivity(value, update);
     }
+    if (update.type === "model_substitution") {
+        return typeof update.model === "string"
+                && typeof update.requested === "string"
+                && (update.using === undefined
+                    || typeof update.using === "string")
+                && typeof update.reason === "string"
+                && (update.scope === "effort" || update.scope === "model")
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "compaction") {
         return (update.phase === "started" || update.phase === "finished")
                 && typeof update.strategy === "string"
@@ -178,7 +188,8 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.model === "string"
                 && (update.verdict === "added"
                     || update.verdict === "incompatible"
-                    || update.verdict === "unavailable")
+                    || update.verdict === "unavailable"
+                    || update.verdict === "pool_write_refused")
                 && (update.reason === undefined
                     || typeof update.reason === "string")
                 && (update.statusCode === undefined
@@ -607,6 +618,9 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     if (entry?.kind === "empty") {
         return true;
     }
+    if (entry?.kind === "model_substitution") {
+        return isModelSubstitution(entry.substitution);
+    }
     if (entry?.kind === "presentation") {
         return isToolPresentation(entry.presentation);
     }
@@ -618,6 +632,17 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     return entry?.kind === "tool"
         && typeof entry.tool === "string"
         && asRecord(entry.args) !== undefined;
+}
+
+function isModelSubstitution(value: unknown): boolean {
+    const substitution = asRecord(value);
+    return substitution !== undefined
+        && typeof substitution.model === "string"
+        && typeof substitution.requested === "string"
+        && (substitution.using === undefined
+            || typeof substitution.using === "string")
+        && typeof substitution.reason === "string"
+        && (substitution.scope === "effort" || substitution.scope === "model");
 }
 
 function isOptionalAttachments(value: unknown): boolean {
@@ -659,7 +684,7 @@ function isPooledModel(value: unknown): boolean {
         && typeof model.model === "string"
         && typeof model.label === "string"
         && typeof model.available === "boolean"
-        && (model.status === "ready" || model.status === "needs_verify")
+        && typeof model.verified === "boolean"
         && (model.description === undefined
             || typeof model.description === "string")
         && (model.contextWindow === undefined

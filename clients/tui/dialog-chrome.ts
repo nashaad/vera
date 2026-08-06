@@ -15,6 +15,7 @@ import {
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_PANEL,
+    TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
 
@@ -138,6 +139,29 @@ export function dialogGroupHeaderNode(
     });
 }
 
+/**
+ * One run of the meta column. A tone rather than a color: rows do not pick
+ * palette entries, so an affirmative fact reads the same here as everywhere
+ * else and still flips for contrast on the highlighted row.
+ */
+export interface DialogMetaPart {
+    readonly text: string;
+    readonly tone?: "detail" | "positive";
+}
+
+/** A plain meta string is the whole column in the detail tone. */
+export type DialogMeta = string | readonly DialogMetaPart[];
+
+function metaParts(meta: DialogMeta): readonly DialogMetaPart[] {
+    return typeof meta === "string" ? [{ text: meta }] : meta;
+}
+
+function metaLength(meta: DialogMeta): number {
+    return typeof meta === "string"
+        ? meta.length
+        : meta.reduce((total, part) => total + part.text.length, 0);
+}
+
 export interface DialogRowContent {
     readonly label: string;
     // Fixed gutter text before the label (a current-choice dot, a choice
@@ -146,7 +170,8 @@ export interface DialogRowContent {
     // Follows the label inline in the muted tone.
     readonly description?: string;
     // Right-aligned trailing column in the muted tone (e.g. a provider name).
-    readonly meta?: string;
+    // A list of parts lets one fact in the column carry its own tone.
+    readonly meta?: DialogMeta;
     readonly active: boolean;
     readonly current?: boolean;
     // Alternating band, for lists long enough that blank separators would cost
@@ -290,7 +315,9 @@ export function dialogOptionRows(
     );
     const metaWidth = Math.max(
         0,
-        ...contents.map((content) => content.meta?.length ?? 0),
+        ...contents.map((content) =>
+            content.meta === undefined ? 0 : metaLength(content.meta)
+        ),
     );
     // Without a width the description simply runs until the layout clips it,
     // which is what it did before rows carried a meta column: the two met with
@@ -308,9 +335,16 @@ export function dialogOptionRows(
             : { description: clipped(content.description, budget) }),
         // The column is padded to one width so it reads as a column. Rows
         // without a meta value keep none, since a blank column is not a fact.
-        ...(content.meta === undefined
-            ? {}
-            : { meta: `${" ".repeat(META_GAP)}${content.meta.padStart(metaWidth)}` }),
+        ...(content.meta === undefined ? {} : {
+            meta: [
+                {
+                    text: " ".repeat(
+                        META_GAP + metaWidth - metaLength(content.meta),
+                    ),
+                },
+                ...metaParts(content.meta),
+            ],
+        }),
     }));
 }
 
@@ -379,8 +413,14 @@ export function dialogOptionRow(
             : { wrapMode: "none" as const, overflow: "hidden" as const }),
     }));
     if (content.meta !== undefined) {
+        // The active row paints its whole width in the accent, so every tone
+        // collapses to the background color there: a green on accent is the
+        // one combination in this column that cannot be read.
+        const positive = content.active ? TUI_BACKGROUND : TUI_SUCCESS;
         row.add(new TextRenderable(renderer, {
-            content: new StyledText([fg(detail)(content.meta)]),
+            content: new StyledText(metaParts(content.meta).map((part) =>
+                fg(part.tone === "positive" ? positive : detail)(part.text)
+            )),
             bg: background,
             flexShrink: 0,
         }));

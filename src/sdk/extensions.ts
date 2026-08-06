@@ -151,8 +151,8 @@ export interface VeraClientPooledModel {
     readonly label: string;
     /** False when the model cannot run right now, never a reason to omit it. */
     readonly available: boolean;
-    /** Ready means a live admission record; needs_verify means admit first. */
-    readonly status: "ready" | "needs_verify";
+    /** True once probe or rejection evidence exists for this model. */
+    readonly verified: boolean;
     readonly description?: string;
     readonly contextWindow?: number;
     readonly levels: readonly VeraClientReasoningLevel[];

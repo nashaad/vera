@@ -1,5 +1,6 @@
 import type {
     EngineEventSubscriber,
+    PoolAdmissionVerdict,
     ToolApprovalUiRequest,
     UiResponse,
     UserQuestionUiRequest,
@@ -7,6 +8,7 @@ import type {
 import type {
     ModelMessage,
     ModelReasoningEffort,
+    ModelSubstitution,
     ToolPresentation,
 } from "../model/types.ts";
 import type {
@@ -67,6 +69,16 @@ export interface ToolResultTranscriptEntry {
     readonly isError: boolean;
 }
 
+export interface ModelSubstitutionTranscriptEntry {
+    readonly kind: "model_substitution";
+    readonly substitution: ModelSubstitution;
+}
+
+// Re-exported from where `ModelSubstitution` itself lives, so the ladder in
+// `src/model` and every client reach the same sentence without a client
+// importing the engine.
+export { formatModelSubstitution } from "../model/types.ts";
+
 export interface PresentationTranscriptEntry {
     readonly kind: "presentation";
     readonly presentation: ToolPresentation;
@@ -91,6 +103,7 @@ export type TranscriptEntry =
     | ToolTranscriptEntry
     | ToolResultTranscriptEntry
     | PresentationTranscriptEntry
+    | ModelSubstitutionTranscriptEntry
     | ErrorTranscriptEntry
     | EmptyTranscriptEntry;
 
@@ -130,16 +143,22 @@ export interface UpdateModelSettingsCommand {
 /**
  * Admitting a model is not choosing one, so this is its own command rather
  * than a field on `update_model_settings`: adding a model the user is only
- * looking at must not switch the turn to it. Admission runs live probes, so
- * the reply arrives in stages: `pool_admission_progress` updates per check,
- * then a terminal `pool_admission_result` carrying the verdict, then the
- * ordinary `model_settings` update with the refreshed pool.
+ * looking at must not switch the turn to it.
+ *
+ * Plain admission never reaches the provider: the model enters the pool with
+ * whatever the catalog knows about it, unverified and usable. `verify` is the
+ * separate, deliberate request to spend probe calls on it, and it is the only
+ * form that answers in stages: `pool_admission_progress` per check, then a
+ * terminal `pool_admission_result`. Both forms end in the ordinary
+ * `model_settings` update with the refreshed pool.
  */
 export interface PoolAddCommand {
     readonly type: "pool_add";
     readonly requestId: string;
     readonly provider: string;
     readonly model: string;
+    /** Runs the probes and records what they find. Absent means admit only. */
+    readonly verify?: boolean;
 }
 
 /**
@@ -288,6 +307,22 @@ export interface ModelRetryActivityUpdate {
 }
 
 export type ModelActivityUpdate = ModelRetryActivityUpdate;
+
+/**
+ * The turn ran on something other than what was asked for. Covers both a
+ * coarsened reasoning effort and a fallback to a different model, because a
+ * client shows the same thing either way: this is not what you requested.
+ */
+export interface ModelSubstitutionUpdate {
+    readonly type: "model_substitution";
+    readonly model: string;
+    readonly requested: string;
+    /** Absent means no reasoning level was sent at all. */
+    readonly using?: string;
+    readonly reason: string;
+    readonly scope: "effort" | "model";
+    readonly seq: number;
+}
 
 /**
  * Compaction starting and ending. The transcript is unchanged either way, so
@@ -469,14 +504,16 @@ export interface PoolAdmissionProgressUpdate {
 /**
  * The admission verdict, terminal for one `pool_add`. `added` carries the
  * verified levels through the ordinary `model_settings` update that follows;
- * `incompatible` records why; `unavailable` records nothing and invites retry.
+ * `incompatible` records why; `unavailable` records nothing and invites retry;
+ * `pool_write_refused` means the pool file, not the provider, turned the
+ * entry away.
  */
 export interface PoolAdmissionResultUpdate {
     readonly type: "pool_admission_result";
     readonly requestId: string;
     readonly provider: string;
     readonly model: string;
-    readonly verdict: "added" | "incompatible" | "unavailable";
+    readonly verdict: PoolAdmissionVerdict;
     readonly reason?: string;
     readonly statusCode?: number;
     readonly seq: number;
@@ -607,6 +644,7 @@ export type AgentUpdate =
     | AgentFailedUpdate
     | ContextUpdate
     | ModelActivityUpdate
+    | ModelSubstitutionUpdate
     | CompactionUpdate
     | StatusUpdate
     | TaskNotificationUpdate
@@ -770,6 +808,9 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             requestId: command.requestId,
             provider: command.provider,
             model: command.model,
+            ...(command.type === "pool_add" && command.verify === true
+                ? { verify: true }
+                : {}),
         };
     }
     if (command.type === "get_permissions" && isRequestId(command.requestId)) {
@@ -1206,6 +1247,41 @@ export function createProtocolEncoder(
             });
         }
 
+        if (event.type === "model_fallback_selected") {
+            seq += 1;
+            sender.send({
+                type: "model_substitution",
+                model: event.fromModel,
+                requested: event.fromModel,
+                using: event.toModel,
+                reason: event.failure.message,
+                scope: "model",
+                seq,
+            });
+        }
+
+        if (event.type === "model_effort_coarsened") {
+            seq += 1;
+            sender.send({
+                type: "model_substitution",
+                model: event.model,
+                requested: event.requested,
+                ...(event.using === undefined ? {} : { using: event.using }),
+                reason: event.reason,
+                scope: "effort",
+                seq,
+            });
+        }
+
+        if (event.type === "model_substituted") {
+            seq += 1;
+            sender.send({
+                type: "model_substitution",
+                ...event.substitution,
+                seq,
+            });
+        }
+
         if (event.type === "compaction_started") {
             seq += 1;
             sender.send({
@@ -1370,6 +1446,14 @@ export function projectTranscript(
                 });
             }
             continue;
+        }
+        // Ahead of the message's own content: the substitution is the reason
+        // this content came from where it did.
+        for (const substitution of message.substitutions ?? []) {
+            entries.push({
+                kind: "model_substitution",
+                substitution: { ...substitution },
+            });
         }
         if (isEmptyAssistantMessage(message)) {
             entries.push({ kind: "empty" });

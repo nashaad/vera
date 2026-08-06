@@ -379,9 +379,9 @@ describe("OpenRouter adapter", () => {
         expect(attempts).toBe(1);
     });
 
-    test("returns partial content as an error when the stream ends without a finish reason", async () => {
+    test("a stream that ends without a finish reason still stops normally", async () => {
         const adapter = new OpenRouterAdapter(async () => {
-            return chunks([chatChunk({ delta: { content: "partial" } })]);
+            return chunks([chatChunk({ delta: { content: "answer" } })]);
         });
         const stream = adapter.stream({
             model: "test/model",
@@ -397,19 +397,46 @@ describe("OpenRouter adapter", () => {
             "start",
             "text_start",
             "text_delta",
-            "error",
+            "text_end",
+            "done",
         ]);
         expect(await stream.result()).toMatchObject({
-            content: [{ type: "text", text: "partial" }],
-            stopReason: "error",
-            errorMessage: "OpenRouter stream ended without finish_reason",
+            content: [{ type: "text", text: "answer" }],
+            stopReason: "stop",
         });
     });
 
-    test("returns partial content as an error for an unknown finish reason", async () => {
+    test("a stream that ends on tool calls without a finish reason stops for tool use", async () => {
+        const adapter = new OpenRouterAdapter(async () => {
+            return chunks([chatChunk({
+                delta: {
+                    toolCalls: [{
+                        index: 0,
+                        id: "call-1",
+                        function: { name: "read", arguments: "{}" },
+                    }],
+                },
+            })]);
+        });
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+        });
+
+        for await (const _event of stream) {
+            // Drained so the decoder reaches its finish path.
+        }
+
+        expect(await stream.result()).toMatchObject({
+            content: [{ type: "tool_call", name: "read" }],
+            stopReason: "tool_use",
+        });
+    });
+
+    test("an unknown finish reason falls back to the content instead of failing", async () => {
         const adapter = new OpenRouterAdapter(async () => {
             return chunks([
-                chatChunk({ delta: { content: "partial" } }),
+                chatChunk({ delta: { content: "answer" } }),
                 chatChunk({
                     delta: {},
                     finishReason: "vendor_reason" as ChatFinishReasonEnum,
@@ -426,16 +453,10 @@ describe("OpenRouter adapter", () => {
             events.push(event);
         }
 
-        expect(events.map((event) => event.type)).toEqual([
-            "start",
-            "text_start",
-            "text_delta",
-            "error",
-        ]);
+        expect(events.map((event) => event.type)).not.toContain("error");
         expect(await stream.result()).toMatchObject({
-            content: [{ type: "text", text: "partial" }],
-            stopReason: "error",
-            errorMessage: "OpenRouter returned unknown finish_reason: vendor_reason",
+            content: [{ type: "text", text: "answer" }],
+            stopReason: "stop",
         });
     });
 

@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { runCli, runCliMain } from "../clients/cli/main.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
+import { VeraConfigError } from "../src/config.ts";
 import { HostProtocolMismatchError } from "../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 
@@ -319,4 +320,26 @@ test("vera host stop --yes skips confirmation", async () => {
     expect(exitCode).toBe(0);
     expect(confirmed).toBe(false);
     expect(stopped).toBe(true);
+});
+
+test("vera reports a damaged config without a runtime stack trace", async () => {
+    let errorOutput = "";
+    const exitCode = await runCliMain([], {
+        runTui: () =>
+            Promise.reject(
+                new VeraConfigError(
+                    "/home/u/.vera/config.json",
+                    "it is not valid JSON (Unexpected end of JSON input)",
+                ),
+            ),
+        stderr: { write: (text) => errorOutput += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toBe(
+        "Vera config at /home/u/.vera/config.json could not be read: it is not"
+        + " valid JSON (Unexpected end of JSON input)\n"
+        + "Fix or remove /home/u/.vera/config.json and run Vera again.\n",
+    );
+    expect(errorOutput).not.toContain("    at ");
 });

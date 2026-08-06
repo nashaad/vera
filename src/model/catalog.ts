@@ -9,6 +9,10 @@ import type {
     ProviderCatalog,
     ReasoningLevel,
 } from "./catalog-shape.ts";
+import {
+    loadRecommendedModels,
+    type RecommendedModel,
+} from "./recommended-models.ts";
 
 interface SourceModel {
     readonly id: string;
@@ -30,6 +34,11 @@ interface SourceCatalog {
 
 export interface EffectiveCatalogOptions {
     readonly cacheDir?: string;
+    /**
+     * The curation that stamps `recommended` onto matching entries. Defaults to
+     * the file Vera ships; passing a list keeps a caller (and a test) off disk.
+     */
+    readonly recommended?: readonly RecommendedModel[];
 }
 
 export function loadDiscoveryCatalog(
@@ -52,13 +61,64 @@ export function effectiveCatalog(
     options: EffectiveCatalogOptions = {},
 ): ProviderCatalog {
     const discovery = loadDiscoverySource(provider, options.cacheDir);
+    const recommended = recommendationsFor(
+        provider,
+        options.recommended ?? shippedRecommendations(),
+    );
     return {
         schema_version: 2,
         provider,
         models: (discovery?.models ?? [])
             .map(toCatalogModel)
             .filter((model): model is CatalogModel => model !== undefined)
+            .map((model) => withRecommendation(model, recommended))
             .sort(compareModels),
+    };
+}
+
+/**
+ * The shipped curation, read once. A missing or damaged file leaves every entry
+ * unflagged: a recommendation is a note, so losing it must not cost the user
+ * the model list itself.
+ */
+let shipped: readonly RecommendedModel[] | undefined;
+
+function shippedRecommendations(): readonly RecommendedModel[] {
+    if (shipped === undefined) {
+        try {
+            shipped = loadRecommendedModels();
+        } catch {
+            shipped = [];
+        }
+    }
+    return shipped;
+}
+
+function recommendationsFor(
+    provider: string,
+    recommended: readonly RecommendedModel[],
+): Map<string, RecommendedModel> {
+    return new Map(
+        recommended
+            .filter((entry) => entry.provider === provider)
+            .map((entry) => [entry.model, entry] as const),
+    );
+}
+
+function withRecommendation(
+    model: CatalogModel,
+    recommended: Map<string, RecommendedModel>,
+): CatalogModel {
+    const entry = recommended.get(model.id);
+    if (entry === undefined) {
+        return model;
+    }
+    return {
+        ...model,
+        recommended: true,
+        ...(entry.reasoning_effort === undefined
+            ? {}
+            : { recommended_level: entry.reasoning_effort }),
     };
 }
 

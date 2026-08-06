@@ -74,14 +74,12 @@ export class OpenRouterStreamDecoder {
             this.appendToolCall(delta);
         }
         if (choice.finishReason) {
-            this.finishReason = openRouterStopReason(choice.finishReason);
+            this.finishReason = openRouterStopReason(choice.finishReason)
+                ?? this.finishReason;
         }
     }
 
     finish(): AssistantMessage {
-        if (this.finishReason === undefined) {
-            throw new Error("OpenRouter stream ended without finish_reason");
-        }
         if (this.thinkingIndex === undefined && this.reasoningDetails.length > 0) {
             this.ensureThinking();
         }
@@ -99,7 +97,18 @@ export class OpenRouterStreamDecoder {
             this.output.push({ type: "thinking_end", contentIndex: this.thinkingIndex });
         }
         this.finishToolCalls();
-        return this.message(this.finishReason);
+        return this.message(this.finishReason ?? this.inferredStopReason());
+    }
+
+    /**
+     * The stop reason for a stream that ended without naming one. Some
+     * OpenAI-compatible servers, local runtimes among them, close the stream
+     * instead of sending a final `finish_reason`. Tool calls mean the turn
+     * stopped to run them; anything else reads as a normal stop. Guessing
+     * "error" here would teach the pool that a working model is broken.
+     */
+    private inferredStopReason(): ModelStopReason {
+        return this.toolCalls.size > 0 ? "tool_use" : "stop";
     }
 
     partial(stopReason: "aborted" | "error", errorMessage: string): AssistantMessage {

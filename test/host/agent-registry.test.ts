@@ -2274,7 +2274,7 @@ test("editing the pool keeps the running model and reports the new list", async 
         model: string;
         label: string;
         available: boolean;
-        status: "ready" | "needs_verify";
+        verified: boolean;
         levels: never[];
     }[] = [
         {
@@ -2282,7 +2282,7 @@ test("editing the pool keeps the running model and reports the new list", async 
             model: "gpt-5.6-sol",
             label: "GPT-5.6-Sol",
             available: true,
-            status: "ready",
+            verified: true,
             levels: [],
         },
     ];
@@ -2303,7 +2303,7 @@ test("editing the pool keeps the running model and reports the new list", async 
                 ...entry,
                 label: entry.model,
                 available: true,
-                status: "ready",
+                verified: true,
                 levels: [],
             }, ...pooled];
             return { verdict: "added" };
@@ -2370,6 +2370,40 @@ test("editing the pool keeps the running model and reports the new list", async 
             provider: "openai-codex",
             model: "gpt-5.6-sol",
         })).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("adding is not verifying, and the verify flag rides through", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-verify-"));
+    const asked: (boolean | undefined)[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        approvalMode: "auto",
+        readPool: () => [],
+        admitToPool: async (_entry, _onStep, options) => {
+            asked.push(options?.verify);
+            return { verdict: "added" };
+        },
+        removeFromPool: () => {},
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const entry = { provider: "openrouter", model: "z-ai/glm-5.2" };
+
+        await registry.poolAdd(agent.id, entry, () => {});
+        await registry.poolAdd(agent.id, entry, () => {}, { verify: true });
+
+        // Plain add asks for no probes at all; only the verify path does.
+        expect(asked).toEqual([undefined, true]);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -2470,6 +2504,40 @@ test("an agent starts even when the configured provider has no credential", asyn
         });
 
         expect(agent.id).toBe("fresh");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("the pool is built from the agent's own workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-registry-pool-"));
+    const workspace = join(root, "checkout");
+    await mkdir(workspace);
+    const roots: string[] = [];
+
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("done")]),
+        model: "faux/test",
+        approvalMode: "auto",
+        createEffortPool: (projectRoot) => {
+            roots.push(projectRoot);
+            return {
+                resolveEffort: (_ref, requested) => ({ requested, efforts: {} }),
+                recordLearned: () => {},
+            };
+        },
+    });
+
+    try {
+        await registry.create({
+            id: "scoped",
+            workspace,
+            sessionPath: join(root, "scoped.jsonl"),
+            eventLogPath: join(root, "scoped-events.jsonl"),
+        });
+
+        expect(roots).toEqual([await realpath(workspace)]);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

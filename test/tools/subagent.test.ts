@@ -42,14 +42,53 @@ test("subagent carries a model and effort override into the effect", async () =>
     });
 });
 
-test("subagent refuses a blank model override", async () => {
-    expect(subagentTool.execute(
+test("subagent reads a blank override as no override", async () => {
+    const result = await subagentTool.execute(
         { description: "Trace the request path", model: "  " },
         new ToolRuntime("/workspace"),
         new AbortController().signal,
-    )).rejects.toThrow(
-        "subagent tool requires model to be a non-empty string",
     );
+
+    expect(result).toEqual({
+        kind: "effect",
+        effect: {
+            type: "spawn_subagent",
+            description: "Trace the request path",
+        },
+    });
+});
+
+test("subagent spawns with no effort, leaving the defaults to decide", async () => {
+    const result = await subagentTool.execute(
+        { description: "Trace the request path", model: "small-model" },
+        new ToolRuntime("/workspace"),
+        new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+        kind: "effect",
+        effect: {
+            type: "spawn_subagent",
+            description: "Trace the request path",
+            model: "small-model",
+        },
+    });
+});
+
+test("subagent reads a null effort as no effort", async () => {
+    const result = await subagentTool.execute(
+        { description: "Trace the request path", reasoning_effort: null },
+        new ToolRuntime("/workspace"),
+        new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+        kind: "effect",
+        effect: {
+            type: "spawn_subagent",
+            description: "Trace the request path",
+        },
+    });
 });
 
 test("subagent requires a description", async () => {
@@ -58,4 +97,23 @@ test("subagent requires a description", async () => {
         new ToolRuntime("/workspace"),
         new AbortController().signal,
     )).rejects.toThrow("subagent tool requires a string description");
+});
+
+test("a spawn with no model named is not an error", async () => {
+    const result = await subagentTool.execute(
+        { description: "Trace the request path", model: "" },
+        new ToolRuntime("/workspace"),
+        new AbortController().signal,
+    );
+
+    expect(result).toEqual({
+        kind: "effect",
+        effect: {
+            type: "spawn_subagent",
+            description: "Trace the request path",
+        },
+    });
+    expect(subagentTool.definition.inputSchema.required).toEqual([
+        "description",
+    ]);
 });

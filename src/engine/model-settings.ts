@@ -262,7 +262,7 @@ function isPooledModel(value: unknown): boolean {
         && typeof model.model === "string"
         && typeof model.label === "string"
         && typeof model.available === "boolean"
-        && (model.status === "ready" || model.status === "needs_verify")
+        && typeof model.verified === "boolean"
         && (model.description === undefined
             || typeof model.description === "string")
         && (model.contextWindow === undefined

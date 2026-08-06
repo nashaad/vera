@@ -2,11 +2,23 @@
 
 import { fileURLToPath } from "node:url";
 
-import { loadVeraConfig } from "../../src/config.ts";
+import { renderCliFailure } from "../cli/main.ts";
+import { loadVeraConfig, VeraConfigError } from "../../src/config.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 
+let config;
+try {
+    config = loadVeraConfig();
+} catch (error) {
+    if (error instanceof VeraConfigError) {
+        process.stderr.write(`${renderCliFailure(error)}\n`);
+        process.exit(1);
+    }
+    throw error;
+}
+
 const host = await startResidentHost({
-    config: loadVeraConfig(),
+    config,
     entrypoint: fileURLToPath(import.meta.url),
 });
 

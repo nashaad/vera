@@ -37,6 +37,10 @@ import {
     type VeraExtensionConfig,
 } from "../../src/config.ts";
 import {
+    loadPoolFile,
+    poolFileIssueNotices,
+} from "../../src/model/pool-file-loader.ts";
+import {
     bundledClientExtensionConfigs,
     bundledClientExtensions,
 } from "../../src/extensions/bundled-client.ts";
@@ -132,7 +136,6 @@ import {
     createTuiAdmissionDialogView,
     handleTuiAdmissionDialogKey,
     startTuiAdmissionDialog,
-    type TuiAdmissionApply,
     type TuiAdmissionDialogState,
 } from "./admission-dialog.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
@@ -154,9 +157,8 @@ import {
     startTuiSessionPicker,
     startTuiExtensionPicker,
     startTuiProviderPicker,
-    tuiPickerMenuAncestor,
+    tuiPickerAfterSelection,
     withTuiPickerParent,
-    type TuiTopPickRow,
     type TuiSettingsMenuTarget,
     type TuiAnySettingsPickerState,
     type TuiSettingsPickerState,
@@ -164,7 +166,6 @@ import {
     type TuiExtensionPickerAction,
     type TuiExtensionPickerTransition,
 } from "./settings-picker.ts";
-import { loadTopPicks, type TopPick } from "../../src/model/top-picks.ts";
 import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
@@ -246,6 +247,7 @@ import {
     queueTuiPrompt,
     renderTuiEntry,
     renderTuiQueuedPrompt,
+    tuiPoolListing,
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
@@ -453,11 +455,18 @@ export async function startConfiguredTui(
     try {
         const listAgents = () => listAgentsThroughHost(host.socket_path);
         const mismatchNotice = hostEntrypointMismatchNotice(host);
+        // A pool file the parser had to reduce still produced a pool, so this
+        // says so instead of failing: the entries that were dropped are the
+        // ones the user thinks are in force.
+        const startupNotices = [
+            ...(mismatchNotice === undefined ? [] : [mismatchNotice]),
+            ...poolFileIssueNotices(
+                loadPoolFile({ projectRoot: process.cwd() }).issues,
+            ),
+        ];
         const exit = await startTui({
             client,
-            ...(mismatchNotice === undefined
-                ? {}
-                : { startupNotices: [mismatchNotice] }),
+            ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
             getRunningBackgroundAgentCount: async () =>
                 countRunningBackgroundAgents(await listAgents()),
@@ -640,7 +649,6 @@ export async function startTui(
      * applied when its "added" verdict lands. Keyed by requestId rather than
      * held on the dialog: hiding the dialog must not lose the switch.
      */
-    const pendingAdmissionApply = new Map<string, TuiAdmissionApply>();
     let sessionTrashCandidate: {
         readonly sessionId: string;
         readonly label: string;
@@ -1329,21 +1337,19 @@ export async function startTui(
             if (action === undefined) {
                 return;
             }
-            if (action === "start" || action === "retry") {
+            if (action === "retry") {
                 const requestId = requestPoolAdmission(
                     admissionDialog.provider,
                     admissionDialog.model,
+                    true,
                 );
-                if (admissionDialog.apply !== undefined) {
-                    pendingAdmissionApply.set(requestId, admissionDialog.apply);
-                }
                 admissionDialog = { ...admissionDialog, requestId };
                 renderState();
                 return;
             }
-            if (action === "cancel" || action === "hide") {
-                // Cancel means nothing was sent; hide leaves the probes
-                // running with the transcript notice as their surface.
+            if (action === "hide") {
+                // The probes keep running; the transcript notice is their
+                // surface from here.
                 closeAdmissionDialog(false);
                 return;
             }
@@ -1782,6 +1788,36 @@ export async function startTui(
             renderState();
             return;
         }
+        if (commandAction?.type === "show_pool") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            state = appendTuiNotice(
+                state,
+                tuiPoolListing(state.modelSettings?.pooled),
+            );
+            renderState();
+            return;
+        }
+        if (commandAction?.type === "pool_current_model") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            const provider = state.modelSettings?.provider;
+            const model = state.modelSettings?.model;
+            if (provider === undefined || model === undefined) {
+                state = appendTuiNotice(
+                    state,
+                    "No model is running yet, so there is nothing to pool",
+                );
+                renderState();
+                return;
+            }
+            // The same request the picker's pool key sends, so the write, the
+            // refusal wording and the transcript notice are one path.
+            requestPoolAdmission(provider, model);
+            return;
+        }
         if (commandAction?.type === "run_extension") {
             const directExtension = directClientExtensions.find(
                 (extension) =>
@@ -1893,42 +1929,25 @@ export async function startTui(
         }
         if (commandAction?.type === "update_model") {
             composer.clearComposer();
-            // A typed model that is not ready in the pool routes into
-            // add-and-verify rather than running directly: admission is the
-            // gate, and the checklist doubles as the reply. A host that
-            // serves no pool at all keeps the direct path, mirroring the
-            // engine's own gate.
+            // A typed model runs as typed. The pool is a shortlist, not a
+            // gate, so nothing is added here; `provider/model` names a
+            // provider, a bare name keeps the running one.
             const typed = commandAction.model.trim();
-            const pooled = state.modelSettings?.pooled;
-            const ready = pooled?.find((candidate) =>
-                candidate.status === "ready"
-                && (candidate.model === typed
-                    || `${candidate.provider}/${candidate.model}` === typed));
-            if (pooled !== undefined && ready === undefined) {
-                const separator = typed.indexOf("/");
-                const provider = separator > 0
-                    ? typed.slice(0, separator)
-                    : state.modelSettings?.provider;
-                const model = separator > 0
-                    ? typed.slice(separator + 1)
-                    : typed;
-                if (provider === undefined || model.length === 0) {
-                    state = appendTuiNotice(
-                        state,
-                        `"${typed}" is not in the pool; use provider/model to add and verify it`,
-                    );
-                } else {
-                    openAdmissionDialog(provider, model, { provider, model });
-                }
+            const separator = typed.indexOf("/");
+            const provider = separator > 0 ? typed.slice(0, separator) : undefined;
+            const model = separator > 0 ? typed.slice(separator + 1) : typed;
+            if (model.length === 0) {
+                state = appendTuiNotice(state, `"${typed}" is not a model name`);
                 renderState();
                 return;
             }
             requestModelSettingsChange(
-                ready === undefined
-                    ? { model: typed }
-                    : { provider: ready.provider, model: ready.model },
-                `model → ${ready?.model ?? typed}`,
-                `the model to ${ready?.model ?? typed}`,
+                {
+                    model,
+                    ...(provider === undefined ? {} : { provider }),
+                },
+                `model → ${typed}`,
+                `the model to ${typed}`,
             );
             renderState();
             return;
@@ -2616,31 +2635,6 @@ export async function startTui(
                 }
                 observeActivity(update);
                 state = applyAgentUpdate(state, update);
-                if (update.type === "pool_admission_result") {
-                    // The switch the admission was started for. Applied on the
-                    // verdict rather than on dialog dismissal, so hiding the
-                    // dialog does not swallow the change the user asked for.
-                    const apply = pendingAdmissionApply.get(update.requestId);
-                    pendingAdmissionApply.delete(update.requestId);
-                    if (apply !== undefined && update.verdict === "added") {
-                        const chosen = apply.reasoningEffort === undefined
-                            ? `${apply.provider}/${apply.model}`
-                            : `${apply.provider}/${apply.model} (${apply.reasoningEffort})`;
-                        requestModelSettingsChange(
-                            {
-                                provider: apply.provider,
-                                model: apply.model,
-                                ...(apply.reasoningEffort === undefined
-                                    ? {}
-                                    : {
-                                        reasoningEffort: apply.reasoningEffort,
-                                    }),
-                            },
-                            `model → ${chosen}`,
-                            `the model to ${chosen}`,
-                        );
-                    }
-                }
                 if (
                     update.type === "model_settings"
                     && state.modelSettings !== undefined
@@ -2663,7 +2657,6 @@ export async function startTui(
                     settingsPicker = syncTuiModelPicker(
                         settingsPicker,
                         state.modelSettings,
-                        topPickRows(),
                     );
                 }
                 if (update.type === "permissions" && preferencesList !== undefined) {
@@ -2776,6 +2769,12 @@ export async function startTui(
                 reject(signal.reason);
             };
             signal.addEventListener("abort", onAbort, { once: true });
+            // An extension edit is a settings edit like any other: it says what
+            // it asked for while it is in flight, and a refusal names the same
+            // thing rather than leaving the user to guess what was tried.
+            const subject = modelPatchSubject(patch);
+            requestedModelChanges.set(requestId, subject);
+            showStatusNotice(`model → ${describeModelPatch(patch)}`);
             pendingExtensionSettings.set(requestId, {
                 resolve,
                 reject,
@@ -3093,7 +3092,6 @@ export async function startTui(
         confirmingFullAccess = false;
         admissionDialog = undefined;
         admissionReturnPicker = undefined;
-        pendingAdmissionApply.clear();
         sessionTrashCandidate = undefined;
         sessionTrashPending = false;
         abortRequested = false;
@@ -3381,40 +3379,9 @@ export async function startTui(
             state.modelSettings?.provider,
             undefined,
             state.modelSettings?.pooled,
-            topPickRows(),
         ), parent);
         renderState();
         focusActiveSurface();
-    }
-
-    /**
-     * The shipped suggestions with availability resolved against the runnable
-     * list, which is credential-gated at discovery: a pick whose model the
-     * host cannot reach right now shows grayed rather than vanishing. Read
-     * per open rather than cached, since connecting a provider mid-session
-     * changes the answer.
-     */
-    function topPickRows(): readonly TuiTopPickRow[] {
-        let picks: readonly TopPick[];
-        try {
-            picks = loadTopPicks();
-        } catch {
-            return [];
-        }
-        const runnable = state.modelSettings?.availableModels ?? [];
-        return picks.map((pick) => ({
-            provider: pick.provider,
-            model: pick.model,
-            label: pick.label,
-            description: pick.description,
-            ...(pick.reasoning_effort === undefined
-                ? {}
-                : { reasoningEffort: pick.reasoning_effort }),
-            available: runnable.some((candidate) =>
-                candidate.provider === pick.provider
-                    && candidate.model === pick.model
-            ),
-        }));
     }
 
     /**
@@ -3438,7 +3405,7 @@ export async function startTui(
         const pooledEntry = state.modelSettings?.pooled?.find((candidate) =>
             candidate.provider === provider && candidate.model === model
         );
-        if (pooledEntry?.status === "ready") {
+        if (pooledEntry?.available === true) {
             return pooledEntry;
         }
         return state.modelSettings?.availableModels?.find((candidate) =>
@@ -3463,7 +3430,11 @@ export async function startTui(
         if (levels.length === 0) {
             state = appendTuiNotice(
                 state,
-                `${state.modelSettings?.model ?? "this model"} has no reasoning effort setting`,
+                `${
+                    state.modelSettings === undefined
+                        ? "this model"
+                        : `${state.modelSettings.provider}/${state.modelSettings.model}`
+                } has no reasoning effort setting`,
             );
             renderState();
             return;
@@ -3615,7 +3586,12 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
-        settingsPicker = pane;
+        // Everything below this point answers in the transcript, so the pane
+        // goes away first. A notice written behind an open card is a notice the
+        // user has to dismiss a modal to discover, and the sign-in URL is the
+        // one line they cannot afford to miss.
+        settingsPicker = undefined;
+        closeSettingsPickerSurface();
         if (provider.credential === "none") {
             state = appendTuiNotice(
                 state,
@@ -3628,11 +3604,9 @@ export async function startTui(
             renderState();
             return;
         }
-        // The browser hand-off runs while the pane stays open, so the URL and
-        // the outcome both arrive as notices behind it rather than as a modal
-        // that has nothing to offer but waiting. The pane staying open also
-        // means Enter can land twice, and the callback listener binds a fixed
-        // port, so a second run would fail on the first one's own server.
+        // Enter can still land twice, from two trips into the pane, and the
+        // callback listener binds a fixed port: a second run would fail on the
+        // first one's own server.
         if (connectingProviders.has(provider.id)) {
             return;
         }
@@ -3648,10 +3622,6 @@ export async function startTui(
         ).then(() => {
             connectingProviders.delete(provider.id);
             state = appendTuiNotice(state, `connected to ${provider.label}`);
-            if (settingsPicker?.kind === "provider") {
-                openProviderPicker(settingsPicker.parent);
-                return;
-            }
             renderState();
         }, (error: unknown) => {
             connectingProviders.delete(provider.id);
@@ -3977,13 +3947,20 @@ export async function startTui(
             );
             return;
         }
+        if ("poolVerify" in transition && transition.poolVerify !== undefined) {
+            openVerifyDialog(
+                transition.poolVerify.provider,
+                transition.poolVerify.model,
+            );
+            return;
+        }
         if ("poolToggle" in transition && transition.poolToggle !== undefined) {
             // The pane stays open and stays on the same row. It is not updated
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             const toggle = transition.poolToggle;
             if (toggle.action === "add") {
-                openAdmissionDialog(toggle.provider, toggle.model);
+                requestPoolAdmission(toggle.provider, toggle.model);
                 return;
             }
             sendCommand({
@@ -3999,34 +3976,9 @@ export async function startTui(
                 return;
             }
             if (selection.kind === "model") {
-                // A model that is not ready in the pool cannot be switched
-                // to, whichever tab it was chosen from: the engine's pool
-                // gate would refuse it. Choosing one opens the admission
-                // dialog instead, and the chosen model (with a top pick's
-                // bundled effort) is applied once the verdict is "added". A
-                // host that serves no pool keeps the direct path.
-                const pooled = state.modelSettings?.pooled;
-                const pooledEntry = pooled?.find(
-                    (candidate) =>
-                        candidate.provider === selection.provider
-                        && candidate.model === selection.model,
-                );
-                if (
-                    pooled !== undefined
-                    && pooledEntry?.status !== "ready"
-                ) {
-                    settingsPicker = previousPicker?.kind === "extension"
-                        ? undefined
-                        : previousPicker;
-                    openAdmissionDialog(selection.provider, selection.model, {
-                        provider: selection.provider,
-                        model: selection.model,
-                        ...(selection.reasoningEffort === undefined
-                            ? {}
-                            : { reasoningEffort: selection.reasoningEffort }),
-                    });
-                    return;
-                }
+                // Choosing a model runs it and nothing else. The pool is the
+                // user's own shortlist, so it is only ever written by the key
+                // that says so.
                 const chosenLevels = selection.reasoningEffort === undefined
                     ? modelLevelFacts(selection.provider, selection.model)
                     : undefined;
@@ -4106,31 +4058,41 @@ export async function startTui(
                 beginSessionResume(selection.sessionPath, selection.sessionId);
                 return;
             }
-            // An answered pane returns to the menu it was opened from, so
-            // changing the model and then the theme is one trip through
-            // /settings rather than two. A confirmation is the exception: it
-            // is its own modal level, and the menu would sit open behind it.
+            // Where the stack goes next is `tuiPickerAfterSelection`'s rule.
+            // A confirmation overrides it: it is its own modal level, and the
+            // menu would sit open behind it.
             settingsPicker = confirmingFullAccess
-                || previousPicker === undefined
-                || previousPicker.kind === "extension"
+                    || previousPicker?.kind === "extension"
                 ? undefined
-                : tuiPickerMenuAncestor(previousPicker);
+                : tuiPickerAfterSelection(selection, previousPicker);
         }
         if (sessionTrashCandidate !== undefined) {
             composer.blur();
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
             sessionTrashConfirmView.box.focus();
         } else if (settingsPicker === undefined) {
-            settingsPickerView.box.visible = false;
-            if (pendingUiRequest === undefined) {
-                composer.focus();
-            }
+            closeSettingsPickerSurface();
         } else {
             composer.blur();
             settingsPickerView.update(settingsPicker);
             settingsPickerView.box.focus();
         }
         renderState();
+    }
+
+    /**
+     * Take the picker card off the screen and give the composer the cursor back.
+     *
+     * Clearing `settingsPicker` is not enough on its own: the card is a
+     * renderable that stays visible until it is hidden, so a path that closes
+     * the pane and returns early has to come through here or it leaves a dead
+     * card over the transcript it just started writing to.
+     */
+    function closeSettingsPickerSurface(): void {
+        settingsPickerView.box.visible = false;
+        if (pendingUiRequest === undefined) {
+            composer.focus();
+        }
     }
 
     /**
@@ -4183,7 +4145,6 @@ export async function startTui(
         confirmingFullAccess = false;
         admissionDialog = undefined;
         admissionReturnPicker = undefined;
-        pendingAdmissionApply.clear();
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
         sessionTitle = undefined;
@@ -4383,10 +4344,20 @@ export async function startTui(
      * transcript entry is written whether or not the dialog is showing: it is
      * the durable record, and the only surface a reattached client gets.
      */
-    function requestPoolAdmission(provider: string, model: string): string {
+    function requestPoolAdmission(
+        provider: string,
+        model: string,
+        verify = false,
+    ): string {
         const requestId = randomUUID();
         state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
-        sendCommand({ type: "pool_add", requestId, provider, model });
+        sendCommand({
+            type: "pool_add",
+            requestId,
+            provider,
+            model,
+            ...(verify ? { verify: true } : {}),
+        });
         renderState();
         return requestId;
     }
@@ -4400,21 +4371,18 @@ export async function startTui(
     }
 
     /**
-     * The confirmation gate every admission entry path goes through: nothing
-     * probes the provider until the user answers this dialog. The model pane,
-     * when one is open, is set aside rather than closed so leaving the dialog
-     * can put the user back where they were.
+     * Verification on demand: the probes go out immediately, and the dialog
+     * is the checklist they report into. The model pane, when one is open, is
+     * set aside rather than closed so leaving the dialog can put the user back
+     * where they were.
      */
-    function openAdmissionDialog(
-        provider: string,
-        model: string,
-        apply?: TuiAdmissionApply,
-    ): void {
+    function openVerifyDialog(provider: string, model: string): void {
         admissionReturnPicker = settingsPicker?.kind === "model"
             ? settingsPicker
             : undefined;
         settingsPicker = undefined;
-        admissionDialog = startTuiAdmissionDialog(provider, model, apply);
+        const requestId = requestPoolAdmission(provider, model, true);
+        admissionDialog = startTuiAdmissionDialog(provider, model, requestId);
         composer.blur();
         renderState();
         focusActiveSurface();
@@ -4845,6 +4813,29 @@ export async function startTui(
 function recentSessionSaveFailure(error: unknown): string {
     const detail = error instanceof Error ? error.message : String(error);
     return `Could not remember this session for vera -c: ${detail}`;
+}
+
+/** What a patch asks for, as `provider/model at effort`. */
+function describeModelPatch(patch: ModelSettingsPatch): string {
+    const model = patch.model === undefined
+        ? undefined
+        : patch.provider === undefined
+        ? patch.model
+        : `${patch.provider}/${patch.model}`;
+    const effort = patch.reasoningEffort;
+    const parts = [
+        model,
+        effort === undefined
+            ? undefined
+            : model === undefined ? effort : `at ${effort}`,
+    ];
+    return parts.filter((part) => part !== undefined).join(" ");
+}
+
+function modelPatchSubject(patch: ModelSettingsPatch): string {
+    return patch.model === undefined
+        ? `the reasoning effort to ${describeModelPatch(patch)}`
+        : `the model to ${describeModelPatch(patch)}`;
 }
 
 function rejectionNotice(

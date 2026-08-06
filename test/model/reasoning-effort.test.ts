@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
-import { resolveReasoningSelection } from "../../src/model/reasoning-effort.ts";
+import {
+    effortSubstitutionNotice,
+    inferReasoningSelection,
+    resolveReasoningSelection,
+} from "../../src/model/reasoning-effort.ts";
 
 test("a model's own level ids resolve directly, beyond Vera's five-word scale", async () => {
     // gpt-5.6-sol offers six levels on the provider side. "ultra" is not one
@@ -173,4 +177,35 @@ test("an unmapped model runs with no level specified instead of throwing", async
         requested: "medium",
         inferred: false,
     });
+});
+
+test("a placed level that differs from the request owes a notice", () => {
+    expect(effortSubstitutionNotice(
+        inferReasoningSelection("xhigh", ["low", "medium", "high"]),
+    )).toEqual({
+        type: "effort_substituted",
+        requested: "xhigh",
+        using: "medium",
+        reason: 'the model does not offer effort "xhigh"',
+    });
+});
+
+test("a level placed on itself owes nothing", () => {
+    expect(effortSubstitutionNotice(
+        inferReasoningSelection("high", ["low", "medium", "high"]),
+    )).toBeUndefined();
+});
+
+test("dropping the level entirely still says so", () => {
+    expect(effortSubstitutionNotice(
+        inferReasoningSelection("high", ["none"]),
+    )).toMatchObject({ type: "effort_substituted", requested: "high" });
+});
+
+test("a verbatim send is not a substitution", () => {
+    expect(effortSubstitutionNotice({
+        requested: "high",
+        providerEffort: "medium",
+        inferred: false,
+    })).toBeUndefined();
 });

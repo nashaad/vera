@@ -115,6 +115,15 @@ export interface ShowDiagnosticsTuiCommandAction {
     readonly type: "show_diagnostics";
 }
 
+export interface ShowPoolTuiCommandAction {
+    readonly type: "show_pool";
+}
+
+/** `/pool add`: pools the running model, the same write ^s makes. */
+export interface AddCurrentModelToPoolTuiCommandAction {
+    readonly type: "pool_current_model";
+}
+
 export interface TuiCommandErrorAction {
     readonly type: "command_error";
     readonly message: string;
@@ -151,6 +160,8 @@ export type TuiCommandAction =
     | CloneSessionTuiCommandAction
     | CompactSessionTuiCommandAction
     | ShowDiagnosticsTuiCommandAction
+    | ShowPoolTuiCommandAction
+    | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
 
@@ -301,6 +312,12 @@ const COMPACT_COMMAND = {
     usage: "/compact",
 } as const satisfies TuiCommandCatalogEntry;
 
+const POOL_COMMAND = {
+    name: "pool",
+    description: "Show the model pool, or add the running model to it",
+    usage: "/pool [add]",
+} as const satisfies TuiCommandCatalogEntry;
+
 const DIAGNOSTICS_COMMAND = {
     name: "diagnostics",
     description: "Show live turn and model activity",
@@ -324,6 +341,7 @@ export const BUILTIN_COMMANDS = [
     CLONE_COMMAND,
     COMPACT_COMMAND,
     DIAGNOSTICS_COMMAND,
+    POOL_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -747,6 +765,30 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "diagnostics",
             action: { type: "show_diagnostics" },
+        },
+    });
+    registry.registerCommand({
+        ...POOL_COMMAND,
+        parse: (argumentsText) => {
+            const argument = argumentsText.trim();
+            if (argument.length === 0) {
+                return { type: "show_pool" };
+            }
+            if (argument === "add") {
+                return { type: "pool_current_model" };
+            }
+            return {
+                type: "command_error",
+                message: `/pool takes no argument or "add", not "${argument}"`,
+            };
+        },
+        palette: {
+            name: "pool",
+            label: "Show the model pool",
+            description: "the shortlist you curated",
+            group: "Settings",
+            slashName: "pool",
+            action: { type: "show_pool" },
         },
     });
     // The palette does not list itself: you are already looking at it.

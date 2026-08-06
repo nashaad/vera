@@ -1,5 +1,6 @@
 import type {
     ModelReasoningEffort,
+    ModelSubstitution,
     ModelTool,
     ToolPresentation,
 } from "../model/types.ts";
@@ -11,6 +12,13 @@ export interface ToolOutput {
     readonly output: string;
     readonly isError: boolean;
     readonly presentation?: ToolPresentation;
+    /**
+     * Models the tool's own work ran on instead of the ones it was asked for.
+     * The prose already sits in `output` so it survives replay; these rows are
+     * what a client reads to render the substitution the same way it renders a
+     * substitution on the session's own model.
+     */
+    readonly substitutions?: readonly ModelSubstitution[];
 }
 
 export interface SpawnSubagentEffect {

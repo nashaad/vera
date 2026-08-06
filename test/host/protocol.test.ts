@@ -264,6 +264,19 @@ test("host protocol parses messages after attach", () => {
         requestId: "settings-5",
         patch: { reasoningEffort: "" },
     }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "pool_add",
+        requestId: "pool-verify",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        verify: true,
+    }))).toEqual({
+        type: "pool_add",
+        requestId: "pool-verify",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        verify: true,
+    });
     for (const type of ["pool_add", "pool_remove"] as const) {
         expect(parseAttachedClientMessage(JSON.stringify({
             type,

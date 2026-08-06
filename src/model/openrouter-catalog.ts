@@ -140,16 +140,19 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         ...(description === undefined ? {} : { description }),
         ...(contextWindow === undefined ? {} : { context_window: contextWindow }),
         tool_support: true,
-        levels: parameters.includes("reasoning_effort")
+        levels: parameters.includes("reasoning")
+                || parameters.includes("reasoning_effort")
             ? REASONING_LEVELS
             : [],
     };
 }
 
 /**
- * OpenRouter publishes which models take a `reasoning_effort` but not which
- * values each one accepts, so every reasoning-capable model gets the same three
- * levels: they are the values OpenRouter documents for the parameter, and it
+ * OpenRouter's `supported_parameters` names `reasoning` (the object the
+ * adapter sends) on some models and `reasoning_effort` (the shorthand) on
+ * others; either one means the model takes an effort. OpenRouter does not
+ * publish which values each model accepts, so every reasoning-capable model
+ * gets the same three levels: they are the values OpenRouter documents, and it
  * maps an effort a model does not implement onto one that model does. Levels
  * are strongest-first, as `CatalogModel.levels` requires.
  *
