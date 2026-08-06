@@ -21,10 +21,14 @@
  * `picker` is the shared behaviour of every settings pane, and the panes that
  * name themselves carry it too, which is how ctrl+d reaches all of them while
  * ctrl+s reaches only the model pane.
+ *
+ * `unfocused` is the state where no overlay is open and the composer does not
+ * hold focus, so its keys cannot collide with the composer's own.
  */
 export type TuiKeyScope =
     | "global"
     | "composer"
+    | "unfocused"
     | "picker"
     | "model_picker"
     | "session_picker"
@@ -116,6 +120,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["tab"],
         scope: "composer",
         description: "Complete the slash command being typed",
+    },
+    {
+        id: "focus_composer",
+        keys: ["i", "tab"],
+        scope: "unfocused",
+        description: "Put the cursor back in the composer",
     },
     {
         id: "half_page_down",

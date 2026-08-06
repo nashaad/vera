@@ -70,6 +70,15 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
         .toBeUndefined();
 });
 
+test("the unfocused keys reach the composer without shadowing its own tab", () => {
+    expect(tuiBindingId("unfocused", { name: "i" })).toBe("focus_composer");
+    expect(tuiBindingId("unfocused", { name: "tab" })).toBe("focus_composer");
+    // Tab still completes a slash command once the composer holds focus, and a
+    // typed "i" is text there rather than a binding.
+    expect(tuiBindingId("composer", { name: "tab" })).toBe("complete_command");
+    expect(tuiBindingId("composer", { name: "i" })).toBeUndefined();
+});
+
 test("the escape hatches survive the modifiers a terminal invents", () => {
     // A terminal that delivers ESC immediately before ctrl+c reports the pair
     // as meta+ctrl+c. Quitting must not depend on how fast the bytes arrived.
