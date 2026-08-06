@@ -14,6 +14,9 @@ export interface OllamaAdapterOptions {
         input: string | URL | Request,
         init?: RequestInit,
     ) => Promise<Response>;
+    readonly log?: (
+        entry: { readonly type: string } & Record<string, unknown>,
+    ) => void;
 }
 
 const OLLAMA_PROFILE: ChatProviderProfile = {
@@ -31,6 +34,7 @@ export function createOllamaAdapter(
     const host = normalizeHost(options.host ?? "http://127.0.0.1:11434");
     const endpoint = `${host}/v1/chat/completions`;
     const thinking = new Map<string, boolean>();
+    const log = options.log ?? (() => {});
     return new OpenRouterAdapter(
         async (request, signal) => {
             const supportsThinking = await resolveThinkingSupport(
@@ -38,7 +42,15 @@ export function createOllamaAdapter(
                 fetchImplementation,
                 host,
                 request.model,
+                log,
             );
+            if (request.reasoning !== undefined && !supportsThinking) {
+                log({
+                    type: "ollama_reasoning_effort_dropped",
+                    model: request.model,
+                    effort: request.reasoning.effort,
+                });
+            }
             const response = await fetchImplementation(endpoint, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -77,6 +89,9 @@ async function resolveThinkingSupport(
     ) => Promise<Response>,
     host: string,
     model: string,
+    log: (
+        entry: { readonly type: string } & Record<string, unknown>,
+    ) => void,
 ): Promise<boolean> {
     const cached = cache.get(model);
     if (cached !== undefined) return cached;
@@ -88,20 +103,46 @@ async function resolveThinkingSupport(
             body: JSON.stringify({ model }),
             signal: AbortSignal.timeout(750),
         });
-        if (!response.ok) return true;
+        if (!response.ok) {
+            log({
+                type: "ollama_thinking_probe",
+                model,
+                thinking: "unknown",
+                reason: `HTTP ${response.status}`,
+            });
+            return true;
+        }
         const body = await response.json() as { capabilities?: unknown };
         if (!Array.isArray(body.capabilities)) {
             // The daemon answered and named no capabilities: a stable fact
             // about this model, unlike a daemon that was not reachable.
             cache.set(model, true);
+            log({
+                type: "ollama_thinking_probe",
+                model,
+                thinking: "unknown",
+                reason: "no capabilities field",
+            });
             return true;
         }
         capabilities = body.capabilities;
-    } catch {
+    } catch (error) {
+        log({
+            type: "ollama_thinking_probe",
+            model,
+            thinking: "unknown",
+            reason: error instanceof Error ? error.message : String(error),
+        });
         return true;
     }
     const supported = capabilities.includes("thinking");
     cache.set(model, supported);
+    log({
+        type: "ollama_thinking_probe",
+        model,
+        thinking: supported,
+        capabilities,
+    });
     return supported;
 }
 

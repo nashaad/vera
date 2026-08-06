@@ -19,6 +19,9 @@ import type {
     ReasoningLevel,
 } from "../model/catalog-shape.ts";
 import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
+import { createHostLogger, type HostLog } from "./host-log.ts";
+
+const hostLog = createHostLogger();
 import { addPin, removePin } from "../model/pin-store.ts";
 import {
     refreshCodexCatalog,
@@ -115,7 +118,7 @@ export async function startResidentHost(
             ?? ((provider) => createConfiguredModelAdapter({
                 ...options.config,
                 provider: (provider ?? options.config.provider) as VeraConfig["provider"],
-            }, { authStorage })),
+            }, { authStorage, log: hostLog })),
         provider: options.config.provider,
         model: options.config.model,
         approvalMode: options.config.approval_mode,
@@ -244,7 +247,7 @@ async function discoverAvailableModels(
     authStorage: AuthStorage,
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
-    catalog.push(...await discoveredOllamaModels());
+    catalog.push(...await discoveredOllamaModels({ log: hostLog }));
     const openrouter = await discoveredOpenRouterModels(config);
     if (openrouter.length > 0) {
         // The fetched list supersedes the shipped entries, which name the same
@@ -400,6 +403,7 @@ export interface OllamaDiscoveryOptions {
         input: string | URL | Request,
         init?: RequestInit,
     ) => Promise<Response>;
+    readonly log?: HostLog;
 }
 
 const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
@@ -428,22 +432,36 @@ export async function discoveredOllamaModels(
         ? configuredHost
         : `http://${configuredHost}`).replace(/\/+$/, "");
     const fetchImplementation = options.fetch ?? globalThis.fetch;
+    const log = options.log ?? (() => {});
 
     let ids: readonly string[];
     try {
         const response = await fetchImplementation(`${host}/v1/models`, {
             signal: AbortSignal.timeout(750),
         });
-        if (!response.ok) return [];
+        if (!response.ok) {
+            log({
+                type: "ollama_discovery_unavailable",
+                host,
+                reason: `HTTP ${response.status}`,
+            });
+            return [];
+        }
         const body = await response.json() as {
             data?: readonly { id?: unknown }[];
         };
         ids = (body.data ?? [])
             .map((item) => item.id)
             .filter((id): id is string => typeof id === "string" && id !== "");
-    } catch {
+    } catch (error) {
+        log({
+            type: "ollama_discovery_unavailable",
+            host,
+            reason: error instanceof Error ? error.message : String(error),
+        });
         return [];
     }
+    log({ type: "ollama_discovery_listed", host, models: ids });
 
     const described = await Promise.allSettled(ids.map(async (id) => {
         const response = await fetchImplementation(`${host}/api/show`, {
@@ -469,11 +487,36 @@ export async function discoveredOllamaModels(
             ? outcome.value
             : { id, capabilities: undefined, contextWindow: undefined };
         const { capabilities, contextWindow } = detail;
+        if (outcome.status === "rejected") {
+            log({
+                type: "ollama_model_probe_failed",
+                model: id,
+                reason: outcome.reason instanceof Error
+                    ? outcome.reason.message
+                    : String(outcome.reason),
+            });
+        } else {
+            log({
+                type: "ollama_model_described",
+                model: id,
+                ...(capabilities === undefined ? {} : { capabilities }),
+                ...(contextWindow === undefined
+                    ? {}
+                    : { context_window: contextWindow }),
+            });
+        }
         if (capabilities !== undefined) {
             if (
                 capabilities.includes("embedding")
                 || !capabilities.includes("completion")
             ) {
+                log({
+                    type: "ollama_model_excluded",
+                    model: id,
+                    reason: capabilities.includes("embedding")
+                        ? "embedding model"
+                        : "no completion capability",
+                });
                 continue;
             }
         }
@@ -505,9 +548,17 @@ export async function discoveredOllamaModels(
             provider: "ollama",
             models: entries,
         }, options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir });
-    } catch {
+        log({
+            type: "ollama_catalog_written",
+            models: entries.map((entry) => entry.id),
+        });
+    } catch (error) {
         // The snapshot enriches the picker; failing to record it must not
         // block startup.
+        log({
+            type: "ollama_catalog_write_failed",
+            reason: error instanceof Error ? error.message : String(error),
+        });
     }
     return models;
 }

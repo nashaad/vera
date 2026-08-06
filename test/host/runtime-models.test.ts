@@ -141,10 +141,12 @@ function stubOllamaHost(
 test("Ollama discovery records declared capabilities as catalog levels", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-runtime-ollama-"));
     try {
+        const logged: Record<string, unknown>[] = [];
         const models = await discoveredOllamaModels({
             host: "127.0.0.1:11434/",
             cacheDir: directory,
             fetch: stubOllamaHost(OLLAMA_SHOW),
+            log: (entry) => logged.push(entry),
         });
 
         expect(models.map((model) => model.model)).toEqual([
@@ -180,6 +182,32 @@ test("Ollama discovery records declared capabilities as catalog levels", async (
             "qwen4:8b",
         ]);
         expect(snapshot.models[1]?.tool_support).toBe(true);
+
+        expect(logged.map((entry) => entry.type)).toEqual([
+            "ollama_discovery_listed",
+            "ollama_model_described",
+            "ollama_model_described",
+            "ollama_model_described",
+            "ollama_model_excluded",
+            "ollama_model_described",
+            "ollama_catalog_written",
+        ]);
+        expect(logged[0]).toMatchObject({
+            host: "http://127.0.0.1:11434",
+            models: Object.keys(OLLAMA_SHOW),
+        });
+        expect(logged[1]).toMatchObject({
+            model: "granite4.1:8b",
+            capabilities: ["completion", "tools"],
+            context_window: 131_072,
+        });
+        expect(logged[4]).toMatchObject({
+            model: "nomic-embed:v2",
+            reason: "embedding model",
+        });
+        expect(logged[6]).toMatchObject({
+            models: ["granite4.1:8b", "qwen4:8b"],
+        });
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }
@@ -188,9 +216,11 @@ test("Ollama discovery records declared capabilities as catalog levels", async (
 test("one unreachable Ollama model does not drop the others", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-runtime-ollama-"));
     try {
+        const logged: Record<string, unknown>[] = [];
         const models = await discoveredOllamaModels({
             cacheDir: directory,
             fetch: stubOllamaHost(OLLAMA_SHOW, ["qwen4:8b"]),
+            log: (entry) => logged.push(entry),
         });
 
         expect(models.map((model) => model.model)).toEqual([
@@ -200,6 +230,9 @@ test("one unreachable Ollama model does not drop the others", async () => {
         ]);
         expect(readProviderCatalogSnapshot("ollama", { cacheDir: directory })
             .models.map((model) => model.id)).toEqual(["granite4.1:8b"]);
+        expect(logged.find((entry) =>
+            entry.type === "ollama_model_probe_failed"
+        )).toMatchObject({ model: "qwen4:8b", reason: "HTTP 500" });
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }
