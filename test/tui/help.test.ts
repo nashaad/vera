@@ -29,6 +29,9 @@ test("help tabs browse slash commands without producing an action", () => {
     expect(state.tab).toBe("general");
 
     state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
+    expect(state.tab).toBe("keys");
+
+    state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
     expect(state.tab).toBe("slash_commands");
     expect(handleTuiHelpKey(state, { name: "enter" })).toEqual({
         state,
@@ -68,9 +71,18 @@ test("help renders general guidance and extension attribution", async () => {
         expect(frame).toContain("General");
         expect(frame).toContain("Slash commands");
         expect(frame).toContain("Shift+Enter newline");
-        // The palette chord has no other durable home: the status line hint is
-        // replaced while a turn runs, so Help is where it stays findable.
-        expect(frame).toContain("Ctrl+P");
+
+        // Every chord is the Keys tab's job, and it is generated from the
+        // keymap, so a binding added to the table shows up here without anyone
+        // writing prose about it.
+        state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
+        view.update(state);
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("ctrl+p");
+        expect(frame).toContain("Open the command palette");
+        expect(frame).toContain("ctrl+end");
+        expect(frame).toContain("Transcript");
 
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;

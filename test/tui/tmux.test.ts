@@ -43,6 +43,12 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
+                "Open the command palette",
+            );
+            sendKey(socket, session, "Right");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
                 "Learn Vera controls and commands",
             );
             sendKey(socket, session, "Enter");
@@ -300,6 +306,7 @@ test.skipIf(!tmuxAvailable)(
             // lifecycle hint, then the model details. Waiting for them joined
             // was waiting for a line that no longer renders.
             await waitForVisiblePane(socket, session, "ready · ctrl+p commands");
+            sendKey(socket, session, "Right");
             sendKey(socket, session, "Right");
             sendText(socket, session, "themes");
             pane = await waitForVisiblePane(socket, session, "⌕  themes");
