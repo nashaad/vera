@@ -1,6 +1,6 @@
 // Cycles the current model's own reasoning levels in place: no pane, no
 // confirmation, just one step up the model's own ladder, wrapping back to the
-// bottom past the top. This is the same dial `/reasoning <level>` turns, moved
+// bottom past the top. This is the same dial `/effort <level>` turns, moved
 // by one step instead of named, so applying it is a plain model-settings
 // update.
 //

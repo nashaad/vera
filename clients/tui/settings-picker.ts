@@ -194,7 +194,7 @@ export interface TuiSettingsPickerState {
     /**
      * Set only on a level pane opened from the model pane. Its presence is
      * what tells this pane it is pane two of a chain rather than the
-     * standalone `/reasoning` picker: Escape steps back to `modelPaneState`
+     * standalone `/effort` picker: Escape steps back to `modelPaneState`
      * instead of closing, and Enter folds the level into the model
      * selection instead of returning a bare reasoning selection.
      */
@@ -471,7 +471,7 @@ export function syncTuiModelPicker(
  *
  * `pendingModel` is set only when this pane was opened from the model pane:
  * its presence is what tells `pickerSelection` and Escape-handling that this
- * is pane two of a chain, not the standalone `/reasoning` picker.
+ * is pane two of a chain, not the standalone `/effort` picker.
  */
 export function startTuiReasoningPicker(
     levels: readonly ReasoningLevel[],

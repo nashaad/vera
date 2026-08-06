@@ -223,10 +223,10 @@ const MODEL_COMMAND = {
     usage: "/model <model-id>",
 } as const satisfies TuiCommandCatalogEntry;
 
-const REASONING_COMMAND = {
-    name: "reasoning",
+const EFFORT_COMMAND = {
+    name: "effort",
     description: "Change reasoning effort for the next turn",
-    usage: "/reasoning <off|low|medium|high|max>",
+    usage: "/effort <off|low|medium|high|max>",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PERMISSIONS_COMMAND = {
@@ -311,7 +311,7 @@ export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     FORK_COMMAND,
     MODEL_COMMAND,
-    REASONING_COMMAND,
+    EFFORT_COMMAND,
     PERMISSIONS_COMMAND,
     SETTINGS_COMMAND,
     THEMES_COMMAND,
@@ -576,14 +576,14 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
     });
     registry.registerCommand({
-        ...REASONING_COMMAND,
+        ...EFFORT_COMMAND,
         parse: (argumentsText) => isReasoningEffort(argumentsText)
             ? { type: "update_reasoning", reasoningEffort: argumentsText }
             : argumentsText.length === 0
                 ? { type: "open_reasoning_picker" }
-                : { type: "command_error", message: `Usage: ${REASONING_COMMAND.usage}` },
+                : { type: "command_error", message: `Usage: ${EFFORT_COMMAND.usage}` },
         palette: {
-            name: "reasoning",
+            name: "effort",
             label: "Change reasoning effort",
             description: "how much the model thinks before answering",
             group: "Settings",
@@ -592,7 +592,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             // command of its own has nowhere else to appear, and a binding
             // nobody can find is a binding nobody has.
             keyHint: tuiKeyHint("cycle-reasoning"),
-            slashName: "reasoning",
+            slashName: "effort",
             action: { type: "open_reasoning_picker" },
         },
     });

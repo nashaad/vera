@@ -1,6 +1,6 @@
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 
-// A preset is one saved position of the dials `/model` and `/reasoning` already
+// A preset is one saved position of the dials `/model` and `/effort` already
 // set. Nothing here is new capability: a slot can only ever hold a combination
 // those two commands could reach on their own, so saving one records a state
 // the session was already in, and applying one returns to it in a single key.
