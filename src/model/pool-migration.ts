@@ -1,10 +1,9 @@
 /**
  * Lifting the pool out of `~/.vera/config.json` and into `~/.vera/pool.json`.
  *
- * The pool used to live in `config.json` under `pool`, and before that under
- * `pinned`. Neither key is modelled by the pool file, so without this the
- * first write to `pool.json` would leave those entries stranded in a file
- * nothing reads any more.
+ * The pool used to live in `config.json` under `pool`. That key is not
+ * modelled by the pool file, so without this the first write to `pool.json`
+ * would leave those entries stranded in a file nothing reads any more.
  *
  * Two rules make this safe to run at every startup:
  *
@@ -112,28 +111,17 @@ function readConfig(path: string): Record<string, unknown> | undefined {
     }
 }
 
-/**
- * `pool` supersedes `pinned` when both are present, matching what the old
- * reader did: `pinned` was the shape `pool` replaced, and an installation that
- * has both has already migrated once.
- */
+/** The `pool` key of the old config, which is the only shape lifted. */
 function legacyEntries(
     config: Record<string, unknown>,
 ): readonly LegacyEntry[] {
-    if (Array.isArray(config.pool)) {
-        return config.pool.flatMap((value) => {
-            const entry = poolEntry(value);
-            return entry === undefined ? [] : [entry];
-        });
-    }
-    if (!Array.isArray(config.pinned)) {
+    if (!Array.isArray(config.pool)) {
         return [];
     }
-    return config.pinned.flatMap((value) => (
-        typeof value === "string" && value.includes("/")
-            ? [{ id: value, declared: {}, learned: {} }]
-            : []
-    ));
+    return config.pool.flatMap((value) => {
+        const entry = poolEntry(value);
+        return entry === undefined ? [] : [entry];
+    });
 }
 
 function poolEntry(value: unknown): LegacyEntry | undefined {

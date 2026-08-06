@@ -23,6 +23,7 @@ import {
     startClientExtensionRegistry,
     type ClientExtensionConfig,
     type ClientExtensionModelSettingsAdapter,
+    type ClientExtensionNoticeAdapter,
     type ClientExtensionPickerAdapter,
     type ClientExtensionPreferencesAdapter,
     type ClientExtensionRegistryFailure,
@@ -470,6 +471,7 @@ test("bundled preset uses the same public seams as a user extension", async () =
     let pickerIndex = 0;
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
+        notice: { post() {} },
         preferences: {
             async get(namespace, key) {
                 return preferences.get(`${namespace}:${key}`);
@@ -606,6 +608,7 @@ test("modelSettings.currentLevels finds the current model's own levels off avail
     ];
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
+        notice: { post() {} },
         preferences: {
             async get() { return undefined; },
             async set() {},
@@ -668,6 +671,7 @@ test("modelSettings.currentLevels is empty for a model missing from availableMod
     `);
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
+        notice: { post() {} },
         preferences: {
             async get() { return undefined; },
             async set() {},
@@ -743,6 +747,7 @@ test("bundled reasoning cycle uses the same public seams as a user extension", a
     const updates: unknown[] = [];
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
+        notice: { post() {} },
         preferences: {
             async get() { return undefined; },
             async set() {},
@@ -820,16 +825,19 @@ function createHarness(): {
         readonly preferences: ClientExtensionPreferencesAdapter;
         readonly modelSettings: ClientExtensionModelSettingsAdapter;
         readonly picker: ClientExtensionPickerAdapter;
+        readonly notice: ClientExtensionNoticeAdapter;
     };
     readonly preferences: Map<string, JsonValue>;
     readonly updates: unknown[];
     readonly pickers: unknown[];
+    readonly notices: unknown[];
     emitSettings(settings: VeraClientModelSettingsSnapshot): void;
     listenerCount(): number;
 } {
     const preferences = new Map<string, JsonValue>();
     const updates: unknown[] = [];
     const pickers: unknown[] = [];
+    const notices: unknown[] = [];
     const listeners = new Set<VeraClientModelSettingsListener>();
     const preferencesAdapter: ClientExtensionPreferencesAdapter = {
         async get(namespace, key) {
@@ -878,15 +886,22 @@ function createHarness(): {
             };
         },
     };
+    const notice: ClientExtensionNoticeAdapter = {
+        post(extensionId, text) {
+            notices.push({ extensionId, text });
+        },
+    };
     return {
         adapters: {
             preferences: preferencesAdapter,
             modelSettings,
             picker,
+            notice,
         },
         preferences,
         updates,
         pickers,
+        notices,
         emitSettings(settings) {
             for (const listener of listeners) {
                 listener(settings);
@@ -988,6 +1003,7 @@ test("preset cycling walks slots, not models, so a duplicate does not stick", as
 
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
+        notice: { post() {} },
         preferences: {
             async get(namespace, key) {
                 return preferences.get(`${namespace}:${key}`);
@@ -1055,6 +1071,7 @@ test("cycling with nothing to cycle to shows the slots instead of doing nothing"
 
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
+        notice: { post() {} },
         preferences: {
             async get(namespace, key) {
                 return preferences.get(`${namespace}:${key}`);
@@ -1088,5 +1105,248 @@ test("cycling with nothing to cycle to shows the slots instead of doing nothing"
     preferences.set("vera.model-presets:slots", [null, null, null, null]);
     await registry.invokeKeybinding("cycle-preset", workspace);
     expect(pickerRequests).toBe(2);
+    await registry.close();
+});
+
+test("ui.notice posts one transcript line, and refuses an empty one", async () => {
+    const workspace = createDirectory();
+    const extension = createExtension("client.talker", [
+        "client.commands.register",
+        "client.ui.notice",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "say",
+                description: "Say",
+                usage: "/say",
+                run({ argumentsText }) {
+                    vera.ui.notice(argumentsText);
+                    return { kind: "text", text: "said" };
+                },
+            });
+        }
+    `);
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+    });
+
+    await registry.invokeCommand("say", "  preset 1: kimi-k3 · medium  ", workspace);
+    expect(harness.notices).toEqual([{
+        extensionId: "client.talker",
+        text: "preset 1: kimi-k3 · medium",
+    }]);
+    await expect(registry.invokeCommand("say", "", workspace))
+        .rejects.toThrow("notice text must not be empty");
+
+    await registry.close();
+});
+
+test("ui.notice needs its own capability", async () => {
+    const workspace = createDirectory();
+    const extension = createExtension("client.quiet", [
+        "client.commands.register",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "say",
+                description: "Say",
+                usage: "/say",
+                run() {
+                    vera.ui.notice("hello");
+                    return { kind: "text", text: "said" };
+                },
+            });
+        }
+    `);
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+    });
+
+    await expect(registry.invokeCommand("say", "", workspace))
+        .rejects.toThrow("client.ui.notice");
+    expect(harness.notices).toEqual([]);
+    await registry.close();
+});
+
+test("modelSettings.availability answers runnable, pooled and verified", async () => {
+    const workspace = createDirectory();
+    const extension = createExtension("client.availability", [
+        "client.commands.register",
+        "client.model_settings",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "check",
+                description: "Check",
+                usage: "/check",
+                run() {
+                    return {
+                        kind: "text",
+                        text: JSON.stringify({
+                            offered: vera.modelSettings.availability({
+                                provider: "openrouter",
+                                model: "moonshotai/kimi-k3",
+                            }),
+                            pooledOnly: vera.modelSettings.availability({
+                                provider: "openai-codex",
+                                model: "gpt-5.6-sol",
+                            }),
+                            gone: vera.modelSettings.availability({
+                                model: "nothing/here",
+                            }),
+                        }),
+                    };
+                },
+            });
+        }
+    `);
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        notice: { post() {} },
+        preferences: {
+            async get() { return undefined; },
+            async set() {},
+            async delete() {},
+        },
+        modelSettings: {
+            current: () => ({
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                availableModels: [{
+                    provider: "openrouter",
+                    model: "moonshotai/kimi-k3",
+                    label: "Kimi K3",
+                    description: "",
+                    levels: [],
+                }],
+                pooled: [{
+                    provider: "openai-codex",
+                    model: "gpt-5.6-sol",
+                    label: "GPT-5.6-Sol",
+                    available: false,
+                    verified: true,
+                    levels: [],
+                }],
+            }),
+            async update() {
+                return { status: "rejected", reason: "invalid" };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    const result = await registry.invokeCommand("check", "", workspace);
+    expect(JSON.parse((result?.body as { text: string }).text)).toEqual({
+        offered: { runnable: true, pooled: false, verified: false },
+        // In the pool, probed, and still not runnable: the provider is not
+        // offering it right now, so a switch to it would not land.
+        pooledOnly: { runnable: false, pooled: true, verified: true },
+        gone: { runnable: false, pooled: false, verified: false },
+    });
+
+    await registry.close();
+});
+
+test("the preset cycle names the slot it lands on and steps over dead slots", async () => {
+    const extension = join(
+        import.meta.dir,
+        "../../extensions/model-presets",
+    );
+    const preferences = new Map<string, JsonValue>([[
+        "vera.model-presets:slots",
+        [
+            { provider: "openrouter", model: "kimi-k3", reasoningEffort: "low" },
+            { provider: "openrouter", model: "gone", reasoningEffort: "high" },
+            { provider: "openrouter", model: "glm-5.2", reasoningEffort: "medium" },
+            null,
+        ],
+    ]]);
+    const updates: unknown[] = [];
+    const notices: string[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        notice: {
+            post(_extensionId, text) {
+                notices.push(text);
+            },
+        },
+        preferences: {
+            async get(namespace, key) {
+                return preferences.get(`${namespace}:${key}`);
+            },
+            async set(namespace, key, value) {
+                preferences.set(`${namespace}:${key}`, value);
+            },
+            async delete(namespace, key) {
+                preferences.delete(`${namespace}:${key}`);
+            },
+        },
+        modelSettings: {
+            current: () => ({
+                provider: "openrouter",
+                model: "kimi-k3",
+                reasoningEffort: "low",
+                availableModels: [
+                    {
+                        provider: "openrouter",
+                        model: "kimi-k3",
+                        label: "Kimi K3",
+                        description: "",
+                        levels: [],
+                    },
+                    {
+                        provider: "openrouter",
+                        model: "glm-5.2",
+                        label: "GLM-5.2",
+                        description: "",
+                        levels: [],
+                    },
+                ],
+            }),
+            async update(patch) {
+                updates.push(patch);
+                return {
+                    status: "accepted",
+                    settings: {
+                        provider: "openrouter",
+                        model: patch.model ?? "kimi-k3",
+                        reasoningEffort: patch.reasoningEffort ?? "low",
+                    },
+                };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    // Slot 2 holds a model no provider is offering, so the cycle goes past it
+    // to slot 3. Slot 2 keeps its preset: the provider may come back.
+    await registry.invokeKeybinding("cycle-preset", createDirectory());
+    expect(updates).toEqual([{
+        provider: "openrouter",
+        model: "glm-5.2",
+        reasoningEffort: "medium",
+    }]);
+    expect(notices).toEqual(["preset 3: glm-5.2 · medium"]);
+    expect((preferences.get("vera.model-presets:slots") as unknown[])[1])
+        .toEqual({
+            provider: "openrouter",
+            model: "gone",
+            reasoningEffort: "high",
+        });
+
     await registry.close();
 });

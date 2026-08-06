@@ -8,6 +8,7 @@
     "client.keybindings.register",
     "client.preferences",
     "client.model_settings",
-    "client.ui.picker"
+    "client.ui.picker",
+    "client.ui.notice"
   ]
 }
