@@ -178,6 +178,54 @@ test("an unavailable capability probe leaves the request unchanged", async () =>
     expect(silent.bodies()[0]).toMatchObject({ reasoning_effort: "low" });
 });
 
+test("a gated request logs the probe and the dropped effort", async () => {
+    const probe = stubOllama(() => capabilities("completion", "tools"));
+    const logged: Record<string, unknown>[] = [];
+    await createOllamaAdapter({
+        fetch: probe.fetch,
+        log: (entry) => logged.push(entry),
+    }).stream({
+        model: "granite4.1:8b",
+        reasoningEffort: "low",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    }).result();
+
+    expect(logged).toEqual([
+        {
+            type: "ollama_thinking_probe",
+            model: "granite4.1:8b",
+            thinking: false,
+            capabilities: ["completion", "tools"],
+        },
+        {
+            type: "ollama_reasoning_effort_dropped",
+            model: "granite4.1:8b",
+            effort: "low",
+        },
+    ]);
+});
+
+test("an unanswered probe is logged as unknown and drops nothing", async () => {
+    const probe = stubOllama(() => new Response("", { status: 404 }));
+    const logged: Record<string, unknown>[] = [];
+    await createOllamaAdapter({
+        fetch: probe.fetch,
+        log: (entry) => logged.push(entry),
+    }).stream({
+        model: "granite4.1:8b",
+        reasoningEffort: "low",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    }).result();
+
+    expect(logged).toEqual([{
+        type: "ollama_thinking_probe",
+        model: "granite4.1:8b",
+        thinking: "unknown",
+        reason: "HTTP 404",
+    }]);
+    expect(probe.bodies()[0]).toMatchObject({ reasoning_effort: "low" });
+});
+
 test("capabilities are probed once per model for an adapter's lifetime", async () => {
     const probe = stubOllama(() => capabilities("completion"));
     const adapter = createOllamaAdapter({ fetch: probe.fetch });
