@@ -1216,7 +1216,7 @@ test.skipIf(!tmuxAvailable)(
                     animation: "conveyor",
                 });
 
-            sendText(socket, session, "/reasoning");
+            sendText(socket, session, "/effort");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Reasoning");
             expect(pane).toContain("High");

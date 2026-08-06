@@ -128,7 +128,7 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_model",
         model: "moonshotai/kimi-k3",
     });
-    expect(registry.dispatch("/reasoning max")).toEqual({
+    expect(registry.dispatch("/effort max")).toEqual({
         type: "update_reasoning",
         reasoningEffort: "max",
     });
@@ -140,7 +140,7 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_permissions",
         mode: "unattended",
     });
-    expect(registry.dispatch("/reas")).toEqual({
+    expect(registry.dispatch("/eff")).toEqual({
         type: "open_reasoning_picker",
     });
     expect(registry.dispatch("/mod")).toEqual({
@@ -151,14 +151,14 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     });
     // A provider-native level is not policed against Vera's own
     // off/low/medium/high/max words: it flows through as typed.
-    expect(registry.dispatch("/reasoning turbo")).toEqual({
+    expect(registry.dispatch("/effort turbo")).toEqual({
         type: "update_reasoning",
         reasoningEffort: "turbo",
     });
     expect(registry.dispatch("/model")).toEqual({
         type: "open_model_picker",
     });
-    expect(registry.dispatch("/reasoning")).toEqual({
+    expect(registry.dispatch("/effort")).toEqual({
         type: "open_reasoning_picker",
     });
     expect(registry.dispatch("/permissions")).toEqual({
