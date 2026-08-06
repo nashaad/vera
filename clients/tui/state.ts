@@ -90,6 +90,21 @@ export type TuiTranscriptEntry =
     | TuiTextTranscriptEntry
     | TuiDiffTranscriptEntry;
 
+/**
+ * The reasoning level a turn actually ran at, when that is not the level the
+ * user asked for.
+ *
+ * The requested level stays the user's own setting: a provider refusing it once
+ * is not a reason to rewrite their dial. This is the evidence beside it, which
+ * is what lets the status line say both at once.
+ */
+export interface TuiEffortSubstitution {
+    readonly model: string;
+    readonly requested: string;
+    /** Absent when the turn ran with no reasoning level at all. */
+    readonly effective?: string;
+}
+
 export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
     readonly working: boolean;
@@ -105,6 +120,17 @@ export interface TuiState {
      * from having to preserve a row that has no backing message.
      */
     readonly pendingThinking?: string;
+    /**
+     * The substitution the status line reports beside the requested level. It
+     * lasts as long as the evidence does: a new model, a new requested level,
+     * or a turn that ran at the requested level clears it.
+     */
+    readonly effortSubstitution?: TuiEffortSubstitution;
+    /**
+     * Whether the running turn has already substituted. A turn that finishes
+     * without one is what says the requested level works again.
+     */
+    readonly turnSubstituted?: boolean;
     /** Whether new `thought` summaries open showing their reasoning. */
     readonly thinkingExpanded?: boolean;
     /** Whether completed tool groups are forced open or closed. */
@@ -285,7 +311,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return appendPresentation(state, update.presentation);
     }
     if (update.type === "turn_finished") {
-        const finished = {
+        const finished = clearedSubstitution({
             ...state,
             entries: applyToolDetailPreference(
                 settleToolEntries(state.entries),
@@ -293,7 +319,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ),
             working: false,
             modelActivity: undefined,
-        };
+        });
         if (update.empty === true) {
             return appendEntry(finished, emptyTurnEntry());
         }
@@ -384,7 +410,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "model_settings") {
         return finishAdmissionFromSnapshot({
-            ...state,
+            // A model or a requested level the evidence does not cover leaves
+            // the status line with nothing to report.
+            ...(appliesToSettings(state.effortSubstitution, update.settings)
+                ? state
+                : { ...state, effortSubstitution: undefined }),
             modelSettings: update.settings,
         }, update.settings);
     }
@@ -436,7 +466,25 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return applyCompaction(state, update);
     }
     if (update.type === "model_substitution") {
-        return appendEntry(state, substitutionEntry(update));
+        if (update.scope !== "effort") {
+            return appendEntry(state, substitutionEntry(update));
+        }
+        const substitution: TuiEffortSubstitution = {
+            model: update.model,
+            requested: update.requested,
+            ...(update.using === undefined ? {} : { effective: update.using }),
+        };
+        const next = {
+            ...state,
+            effortSubstitution: substitution,
+            turnSubstituted: true,
+        };
+        // The same substitution, turn after turn, is one fact rather than news
+        // each time. The status line carries it for as long as it holds; the
+        // transcript says it once, and again when it changes.
+        return sameSubstitution(state.effortSubstitution, substitution)
+            ? next
+            : appendEntry(next, substitutionEntry(update));
     }
     return assertNever(update);
 }
@@ -717,6 +765,53 @@ function withAdmissionEntry(
                 at === index ? entry : candidate
             ),
         };
+}
+
+function sameSubstitution(
+    left: TuiEffortSubstitution | undefined,
+    right: TuiEffortSubstitution,
+): boolean {
+    return left !== undefined
+        && left.model === right.model
+        && left.requested === right.requested
+        && left.effective === right.effective;
+}
+
+/** Whether the recorded substitution still describes what a turn would do. */
+function appliesToSettings(
+    substitution: TuiEffortSubstitution | undefined,
+    settings: ModelTurnSettings | undefined,
+): boolean {
+    return substitution !== undefined
+        && settings?.model === substitution.model
+        && (settings.reasoningEffort ?? "default") === substitution.requested;
+}
+
+/**
+ * What a finished turn does to the substitution beside the requested level. A
+ * turn that ran without substituting is the evidence that the level works
+ * again, and it is said once, in the same place the substitution was.
+ */
+function clearedSubstitution(state: TuiState): TuiState {
+    const substitution = state.effortSubstitution;
+    if (substitution === undefined) {
+        return state;
+    }
+    if (state.turnSubstituted === true) {
+        return { ...state, turnSubstituted: false };
+    }
+    const cleared = {
+        ...state,
+        effortSubstitution: undefined,
+        turnSubstituted: false,
+    };
+    return appliesToSettings(substitution, state.modelSettings)
+        ? appendTuiNotice(
+            cleared,
+            `Reasoning effort "${substitution.requested}" is available again`
+                + ` on ${substitution.model}.`,
+        )
+        : cleared;
 }
 
 /** The row a substitution gets, live and on replay alike. */

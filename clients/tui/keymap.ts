@@ -219,13 +219,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "tab switch",
     },
     {
-        id: "filter_recommended",
-        keys: ["ctrl+f"],
-        scope: "model_picker",
-        description: "Narrow the list to the models Vera recommends",
-        hint: "^f top picks",
-    },
-    {
         id: "rename_session",
         keys: ["ctrl+r"],
         scope: "session_picker",

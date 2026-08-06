@@ -34,7 +34,7 @@ import {
 } from "./list-window.ts";
 import {
     DIALOG_CHROME_HEIGHT,
-    DIALOG_GUTTER_WIDTH,
+    DIALOG_GUTTER,
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
@@ -127,6 +127,20 @@ export interface TuiSettingsPickerOption {
     readonly group?: string;
     /** Set only on provider rows: whether Vera already holds a credential. */
     readonly connected?: boolean;
+    /**
+     * Set only on a section header row: the section it opens and closes. A
+     * header is an option like any other so the cursor reaches it by moving,
+     * and ⏎ on it collapses the run of rows underneath.
+     */
+    readonly section?: string;
+    /** Set on a header whose rows are hidden. */
+    readonly sectionCollapsed?: boolean;
+    /**
+     * A copy of a model row listed in the Top picks section. The section mixes
+     * providers, so its rows name theirs even though a row under a provider
+     * heading does not.
+     */
+    readonly inTopPicks?: boolean;
 }
 
 /**
@@ -148,9 +162,9 @@ export interface TuiProviderRow {
  * the short list the user keeps. Both filter the same rows, so a model has
  * exactly one row however many views it appears on.
  *
- * Vera's own recommendations are not a third view. They narrow All models, and
- * a narrowing the user turns on and off is a filter rather than a place to be:
- * a tab would have made the same rows reachable two ways.
+ * Vera's own recommendations are not a third view. They open All models as its
+ * first section, above the providers, and the same models keep their rows in
+ * the provider sections below.
  */
 export type TuiModelPickerTab = "all" | "pool";
 
@@ -184,12 +198,12 @@ export interface TuiSettingsPickerState {
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
     /**
-     * The All models tab narrowed to Vera's recommendations. It rides on the
-     * pane rather than on the tab so that leaving All models and coming back
-     * finds the list the user left, and it composes with search: a query while
-     * the filter is on searches the recommended models.
+     * The sections the user has closed, by heading. It rides on the pane so a
+     * tab switch and back finds the list the way it was left, and it lasts as
+     * long as the pane does: which providers are worth hiding is a question
+     * about this visit to the picker rather than a setting.
      */
-    readonly recommendedOnly?: boolean;
+    readonly collapsed?: readonly string[];
     /**
      * The pane this one was opened from, absent when a slash command or a
      * palette row opened it directly. Escape steps back to it rather than
@@ -385,12 +399,12 @@ export function startTuiSettingsPicker(
     // and pooling it is then one key away. Pool otherwise, which is the short
     // list built for exactly this moment, and All when the pool is empty,
     // since an empty tab answers no question at all.
-    const pooledOptions = modelTabOptions(allOptions, "pool");
+    const pooledOptions = modelTabRows(allOptions, "pool");
     const openingTab: TuiModelPickerTab =
         pooledOptions.some((option) => option.value === currentValue)
             ? "pool"
             : currentValue !== undefined
-                && modelTabOptions(allOptions, "all").some((option) =>
+                && modelTabRows(allOptions, "all").some((option) =>
                     option.value === currentValue
                 )
             ? "all"
@@ -398,7 +412,7 @@ export function startTuiSettingsPicker(
             ? "pool"
             : "all";
     const options = kind === "model"
-        ? modelTabOptions(allOptions, openingTab)
+        ? modelPickerOptions(allOptions, openingTab, [], "")
         : allOptions;
     const selectedIndex = Math.max(
         0,
@@ -453,15 +467,15 @@ export function syncTuiModelPicker(
     // the host must not move them out of it. Adding a model from the Pool tab
     // would otherwise drop them back onto All mid-action.
     const tab = state.tab ?? "all";
-    // The filter is the user's own place in the pane too, for the same reason
-    // the tab is: a snapshot arriving from the host must not turn it off under
-    // them mid-action.
-    const recommendedOnly = state.recommendedOnly === true;
+    // Closed sections are the user's own place in the pane too, for the same
+    // reason the tab is: a snapshot arriving from the host must not reopen
+    // them under the user mid-action.
+    const collapsed = state.collapsed ?? [];
     const onTab = {
         ...rebuilt,
         tab,
-        ...(recommendedOnly ? { recommendedOnly } : {}),
-        options: modelTabOptions(rebuilt.allOptions, tab, recommendedOnly),
+        ...(collapsed.length === 0 ? {} : { collapsed }),
+        options: modelPickerOptions(rebuilt.allOptions, tab, collapsed, ""),
     };
     const options = state.query.length === 0
         ? onTab.options
@@ -1076,40 +1090,6 @@ export function handleTuiSettingsPickerKey(
     ) {
         return { state, handled: true, openProviders: true };
     }
-    // The recommendation filter, and modified for the same reason as the keys
-    // above. It narrows All models rather than moving anywhere, so on the Pool
-    // tab there is nothing for it to narrow and it is left unclaimed.
-    if (
-        state.kind === "model"
-        && (state.tab ?? "all") === "all"
-        && tuiBindingId("model_picker", key) === "filter_recommended"
-    ) {
-        const recommendedOnly = state.recommendedOnly !== true;
-        const options = modelTabOptions(
-            state.allOptions,
-            "all",
-            recommendedOnly,
-        );
-        // The cursor follows the highlighted model. Turning the filter on
-        // usually drops the row it was on, so the fallback is the running
-        // model, which is where the user is in every other sense.
-        const selectedValue = state.options[state.selectedIndex]?.value;
-        return {
-            state: {
-                ...state,
-                recommendedOnly,
-                options: state.query.length === 0
-                    ? options
-                    : matching(options, state.query),
-                selectedIndex: restoredCursor(
-                    options,
-                    selectedValue,
-                    state.initialModel,
-                ),
-            },
-            handled: true,
-        };
-    }
     // Tab cycles the views of the same list. Shift is tolerated rather than
     // given its own direction: the cycle is short enough that forward always
     // gets there.
@@ -1122,10 +1102,11 @@ export function handleTuiSettingsPickerKey(
             (cycle.indexOf(state.tab ?? "all") + 1) % cycle.length
         ]!;
         const selectedValue = state.options[state.selectedIndex]?.value;
-        const options = modelTabOptions(
+        const options = modelPickerOptions(
             state.allOptions,
             tab,
-            state.recommendedOnly === true,
+            state.collapsed ?? [],
+            "",
         );
         // The query is dropped on the way across. A search is a question about
         // one list, and carrying it over would land the user on an empty pane
@@ -1205,6 +1186,20 @@ export function handleTuiSettingsPickerKey(
     ) {
         return searched(state, state.query + key.name);
     }
+    // Left and right open and close a section, the shape a tree has everywhere
+    // else. They do nothing on a model row: the list is one column, so there is
+    // no sideways move for them to take.
+    if (key.name === "left" || key.name === "right") {
+        const selected = state.options[state.selectedIndex];
+        if (state.kind !== "model" || selected?.section === undefined) {
+            return unchanged(state, false);
+        }
+        const closed = selected.sectionCollapsed === true;
+        if (closed === (key.name === "left")) {
+            return unchanged(state, true);
+        }
+        return toggledSection(state, selected.section);
+    }
     if (key.name === "up") {
         const next = {
                 ...state,
@@ -1234,6 +1229,9 @@ export function handleTuiSettingsPickerKey(
         const selected = state.options[state.selectedIndex];
         if (selected === undefined) {
             return unchanged(state, true);
+        }
+        if (state.kind === "model" && selected.section !== undefined) {
+            return toggledSection(state, selected.section);
         }
         return {
             selection: pickerSelection(state, selected),
@@ -1425,11 +1423,7 @@ function renderListPickerRows(
     }
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     if (tab !== undefined) {
-        const strip = modelTabStripNode(
-            renderer,
-            tab,
-            (state as TuiSettingsPickerState).recommendedOnly === true,
-        );
+        const strip = modelTabStripNode(renderer, tab);
         box.add(strip);
         nodes.push(strip);
     }
@@ -1445,11 +1439,10 @@ function renderListPickerRows(
     let lines = 0;
     if (rows.length === 0) {
         const empty = new TextRenderable(renderer, {
-            content: emptyPickerMessage(state),
+            content: `${DIALOG_GUTTER}${emptyPickerMessage(state)}`,
             fg: TUI_MUTED,
             width: "100%",
             height: 1,
-            paddingLeft: DIALOG_GUTTER_WIDTH,
         });
         box.add(empty);
         nodes.push(empty);
@@ -1496,7 +1489,8 @@ function renderListPickerRows(
                     : { description: row.option.description }),
                 meta: optionMeta(state, row.option),
                 active: row.index === state.selectedIndex,
-                current: isCurrentOption(state, row.option),
+                current: row.option.section !== undefined
+                    || isCurrentOption(state, row.option),
                 ...dialogRowPointer(pointer, row.index),
             }]
             : []
@@ -1536,13 +1530,6 @@ const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
 };
 
 /**
- * The All models tab under the recommendation filter. Both the label and the
- * line under it say so: a list that is short for a reason the user turned on
- * two keystrokes ago still has to say why it is short.
- */
-const MODEL_TOP_PICKS_LABEL = "All models [recommended]";
-
-/**
  * The tabs, drawn as one line of labels with the active one accented, followed
  * by one line that explains the active collection. No borders or brackets: the
  * pane already has a card edge, and a second frame inside it reads as two panes
@@ -1551,34 +1538,21 @@ const MODEL_TOP_PICKS_LABEL = "All models [recommended]";
 function modelTabStripNode(
     renderer: RenderContext,
     tab: TuiModelPickerTab,
-    recommendedOnly: boolean,
 ): TextRenderable {
-    const filtered = tab === "all" && recommendedOnly;
-    const chunks: TextChunk[] = [];
+    const chunks: TextChunk[] = [fg(TUI_MUTED)(DIALOG_GUTTER)];
     MODEL_TAB_LABELS.forEach(([id, label], index) => {
         if (index > 0) {
             chunks.push(fg(TUI_MUTED)("   "));
         }
-        const text = id === "all" && filtered ? MODEL_TOP_PICKS_LABEL : label;
         chunks.push(
-            id === tab ? fg(TUI_ACCENT)(text) : fg(TUI_MUTED)(text),
+            id === tab ? fg(TUI_ACCENT)(label) : fg(TUI_MUTED)(label),
         );
     });
-    // The filter is a mode the user turned on, so its line is accented rather
-    // than in the detail tone the other descriptions use: a list that is short
-    // has to say why at a glance, not only in the footer.
-    chunks.push(filtered
-        ? fg(TUI_ACCENT)(
-            `\nRecommended picks only. ${
-                tuiKeyHint("filter_recommended")
-            } shows all models.`,
-        )
-        : fg(TUI_MUTED)(`\n${MODEL_TAB_DESCRIPTIONS[tab]}`));
+    chunks.push(fg(TUI_MUTED)(`\n${DIALOG_GUTTER}${MODEL_TAB_DESCRIPTIONS[tab]}`));
     return new TextRenderable(renderer, {
         content: new StyledText(chunks),
         width: "100%",
         height: MODEL_TAB_STRIP_HEIGHT,
-        paddingLeft: DIALOG_GUTTER_WIDTH,
     });
 }
 
@@ -1667,21 +1641,11 @@ export function pickerFooter(
             ...(selected?.provider === undefined
                 ? []
                 : [{ text: tuiKeyHint("verify_model"), drop: 4 }]),
-            // Only on the tab it narrows, and saying the opposite thing once it
-            // is on: the filter is the reason the list is short, so the way out
-            // of it has to be on screen. That is also why it outlives the
-            // hints around it while the filter is on.
-            ...((state.tab ?? "all") !== "all" ? [] : [
-                state.recommendedOnly === true
-                    ? {
-                        text: tuiKeyHint("filter_recommended").replace(
-                            "top picks",
-                            "all models",
-                        ),
-                        drop: 1,
-                    }
-                    : { text: tuiKeyHint("filter_recommended"), drop: 2 },
-            ]),
+            // Only while the cursor is on a heading: the keys do nothing on a
+            // model row, and a hint for them there would be a lie.
+            ...(selected?.section === undefined
+                ? []
+                : [{ text: "←→ fold", drop: 1 }]),
             { text: tuiKeyHint("open_providers"), drop: 5 },
             { text: "⇥ tabs", drop: 3 },
             { text: "esc close", drop: 0 },
@@ -1702,7 +1666,10 @@ function extensionPickerKeyLabel(
 function listDisplayRows(
     state: TuiAnySettingsPickerState,
 ): readonly PickerDisplayRow[] {
-    const grouped = isProviderGrouped(state);
+    // The model pane carries its headings as rows of its own, so that the
+    // cursor can reach one and fold the section under it. Everything else has
+    // its headings derived here.
+    const grouped = state.kind === "provider";
     const rows: PickerDisplayRow[] = [];
     state.options.forEach((option, index) => {
         if (grouped && groupLabel(state.options[index - 1]) !== groupLabel(option)) {
@@ -1786,16 +1753,21 @@ function windowedDisplayRows(
         : [stuck, ...window.slice(0, -1)];
 }
 
+function isHeadingRow(row: PickerDisplayRow | undefined): boolean {
+    return row !== undefined
+        && (row.kind === "group" || row.option.section !== undefined);
+}
+
 function stickyGroupRow(
     rows: readonly PickerDisplayRow[],
     start: number,
 ): PickerDisplayRow | undefined {
-    if (start === 0 || rows[start]?.kind !== "option") {
+    if (start === 0 || isHeadingRow(rows[start])) {
         return undefined;
     }
     for (let index = start - 1; index >= 0; index -= 1) {
         const row = rows[index]!;
-        if (row.kind === "group") {
+        if (isHeadingRow(row)) {
             return row;
         }
     }
@@ -1844,6 +1816,11 @@ function optionLeading(
     activityWidth = 0,
     threaded = false,
 ): string {
+    // A heading carries the fold arrow where a row carries its marker, so the
+    // two read as one column.
+    if (option.section !== undefined) {
+        return option.sectionCollapsed === true ? "▸ " : "▾ ";
+    }
     if (state.kind === "provider") {
         return option.connected === true ? "✓ " : "  ";
     }
@@ -1879,8 +1856,19 @@ function optionMeta(
         }
         parts.push(part);
     };
-    if (!isProviderGrouped(state) && option.provider !== undefined) {
+    // The Top picks section mixes providers, so its rows name theirs even
+    // though the same row under a provider heading does not.
+    if (
+        option.provider !== undefined
+        && (option.inTopPicks === true || !isProviderGrouped(state))
+    ) {
         separated({ text: option.provider });
+    }
+    // Vera's own curation, as a fact among the others rather than a view the
+    // user has to know about: a row that is a top pick says so wherever it is
+    // listed, the provider sections and search results included.
+    if (option.recommended === true) {
+        separated({ text: "top pick", tone: "positive" });
     }
     // A pool row whose model the provider no longer lists says so, on every
     // view. It is the one thing about a row that a provider heading cannot
@@ -1911,11 +1899,6 @@ function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     }
     if (state.kind === "model" && state.tab === "pool") {
         return "No pooled models match. Tab switches to All models.";
-    }
-    if (state.kind === "model" && state.recommendedOnly === true) {
-        return `No recommended models match. ${
-            tuiKeyHint("filter_recommended")
-        } shows all models.`;
     }
     if (state.kind !== "session") {
         return "No matches found";
@@ -2048,14 +2031,17 @@ function searched(
     // Search stays inside the active tab. The tab is a claim about what the
     // list is showing, and a search that reached past it would leave the
     // heading and the rows saying different things.
-    const searchable = state.kind !== "model"
-        ? state.allOptions
-        : modelTabOptions(
+    const options = state.kind !== "model"
+        ? matching(state.allOptions, query)
+        // A query opens every section: a heading with its rows hidden is a
+        // claim that the search found nothing there, which is not what a
+        // closed section means.
+        : modelPickerOptions(
             state.allOptions,
             state.tab ?? "all",
-            state.recommendedOnly === true,
+            state.collapsed ?? [],
+            query,
         );
-    const options = matching(searchable, query);
     const next = { ...state, options, selectedIndex: 0, query };
     return {
         state: next,
@@ -2185,20 +2171,128 @@ function recommendationMarks(model: {
  * That order is stable. Using a model does not move it, so a pool row stays
  * where the user last left it and stays worth aiming at.
  */
-function modelTabOptions(
+function modelTabRows(
     allOptions: readonly TuiSettingsPickerOption[],
     tab: TuiModelPickerTab,
-    recommendedOnly = false,
 ): readonly TuiSettingsPickerOption[] {
     if (tab === "all") {
-        return allOptions.filter((option) =>
-            option.unavailable !== true
-            && (!recommendedOnly || option.recommended === true)
-        );
+        return allOptions.filter((option) => option.unavailable !== true);
     }
     return allOptions
         .filter((option) => option.pooledRank !== undefined)
         .toSorted((left, right) => left.pooledRank! - right.pooledRank!);
+}
+
+/** The heading the recommended models are listed under. */
+export const TUI_TOP_PICKS_SECTION = "Top picks";
+
+/**
+ * The rows one view of the model list shows, headings included.
+ *
+ * The un-searched Pool tab is the one flat list: it is ordered by the user's
+ * own use rather than by provider, so a heading there would label nothing.
+ */
+function modelPickerOptions(
+    allOptions: readonly TuiSettingsPickerOption[],
+    tab: TuiModelPickerTab,
+    collapsed: readonly string[],
+    query: string,
+): readonly TuiSettingsPickerOption[] {
+    const rows = modelTabRows(allOptions, tab);
+    const matched = query === "" ? rows : matching(rows, query);
+    if (tab === "pool" && query === "") {
+        return matched;
+    }
+    return sectionedOptions(
+        matched,
+        query === "" ? collapsed : [],
+        tab === "all",
+    );
+}
+
+function sectionHeader(
+    label: string,
+    rows: readonly TuiSettingsPickerOption[],
+    collapsed: readonly string[],
+): TuiSettingsPickerOption {
+    const closed = collapsed.includes(label);
+    return {
+        value: sectionValue(label),
+        label: closed ? `${label} (${rows.length})` : label,
+        description: "",
+        section: label,
+        ...(closed ? { sectionCollapsed: true } : {}),
+    };
+}
+
+function sectionValue(label: string): string {
+    return `section:${label}`;
+}
+
+function sectionedOptions(
+    rows: readonly TuiSettingsPickerOption[],
+    collapsed: readonly string[],
+    topPicks: boolean,
+): readonly TuiSettingsPickerOption[] {
+    const options: TuiSettingsPickerOption[] = [];
+    const picks = topPicks
+        ? rows.filter((row) => row.recommended === true)
+        : [];
+    if (picks.length > 0) {
+        options.push(sectionHeader(TUI_TOP_PICKS_SECTION, picks, collapsed));
+        if (!collapsed.includes(TUI_TOP_PICKS_SECTION)) {
+            options.push(...picks.map((row) => ({
+                ...row,
+                value: `${TUI_TOP_PICKS_SECTION}:${row.value}`,
+                inTopPicks: true,
+            })));
+        }
+    }
+    const providers = new Map<string, TuiSettingsPickerOption[]>();
+    rows.forEach((row) => {
+        const label = row.group ?? row.provider ?? "Other";
+        const existing = providers.get(label);
+        if (existing === undefined) {
+            providers.set(label, [row]);
+            return;
+        }
+        existing.push(row);
+    });
+    providers.forEach((group, label) => {
+        options.push(sectionHeader(label, group, collapsed));
+        if (!collapsed.includes(label)) {
+            options.push(...group);
+        }
+    });
+    return options;
+}
+
+/** The pane with one section opened or closed, cursor left on its heading. */
+function toggledSection(
+    state: TuiSettingsPickerState,
+    label: string,
+): TuiSettingsPickerTransition {
+    const collapsed = (state.collapsed ?? []).includes(label)
+        ? (state.collapsed ?? []).filter((entry) => entry !== label)
+        : [...(state.collapsed ?? []), label];
+    const options = modelPickerOptions(
+        state.allOptions,
+        state.tab ?? "all",
+        collapsed,
+        state.query,
+    );
+    return {
+        state: {
+            ...state,
+            collapsed,
+            options,
+            selectedIndex: Math.max(
+                0,
+                options.findIndex((option) => option.value === sectionValue(label)),
+            ),
+        },
+        handled: true,
+    };
 }
 
 function providerModelKey(provider: string, model: string): string {

@@ -4621,6 +4621,7 @@ export async function startTui(
             state.context,
             process.cwd(),
             0,
+            state.effortSubstitution,
         );
         const runningNames = runningBackgroundAgentNames === ""
             ? []

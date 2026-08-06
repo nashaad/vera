@@ -13,7 +13,7 @@ import {
 } from "./list-window.ts";
 import {
     DIALOG_CHROME_HEIGHT,
-    DIALOG_GUTTER_WIDTH,
+    DIALOG_GUTTER,
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
@@ -174,11 +174,10 @@ export function createTuiCommandPaletteView(
             let lines = 0;
             if (rows.length === 0) {
                 const empty = new TextRenderable(renderer, {
-                    content: "No commands found",
+                    content: `${DIALOG_GUTTER}No commands found`,
                     fg: TUI_MUTED,
                     width: "100%",
                     height: 1,
-                    paddingLeft: DIALOG_GUTTER_WIDTH,
                 });
                 box.add(empty);
                 nodes.push(empty);

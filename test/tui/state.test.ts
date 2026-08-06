@@ -23,6 +23,7 @@ import {
 } from "../../clients/tui/state.ts";
 import type { TuiTranscriptEntry } from "../../clients/tui/state.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import { renderTuiStatusDetailsLine } from "../../clients/tui/status.ts";
 
 /** A transcript row as one line, gutter included. */
 function entryLine(entry: TuiTranscriptEntry): string {
@@ -1357,6 +1358,124 @@ test("paths strip the session workspace root, resolved form included", async () 
         setTuiWorkspaceRoot(process.cwd());
         await rm(workspace, { recursive: true, force: true });
     }
+});
+
+const EFFORT_SUBSTITUTION = {
+    type: "model_substitution",
+    model: "deepseek-v4-flash",
+    requested: "low",
+    using: "high",
+    reason: "the provider refuses low on this model",
+    scope: "effort",
+    seq: 1,
+} as const satisfies AgentUpdate;
+
+const LOW_ON_FLASH = {
+    model: "deepseek-v4-flash",
+    reasoningEffort: "low",
+} as const;
+
+function settingsUpdate(
+    settings: { readonly model: string; readonly reasoningEffort: string },
+): AgentUpdate {
+    return {
+        type: "model_settings",
+        seq: 2,
+        requestId: "req",
+        pending: false,
+        settings,
+    } as unknown as AgentUpdate;
+}
+
+function turnFinished(seq: number): AgentUpdate {
+    return { type: "turn_finished", seq } as AgentUpdate;
+}
+
+test("the status line reports the level a turn ran at beside the one asked for", () => {
+    const state = applyAgentUpdate(
+        applyAgentUpdate(createTuiState(), settingsUpdate(LOW_ON_FLASH)),
+        EFFORT_SUBSTITUTION,
+    );
+
+    expect(state.effortSubstitution).toEqual({
+        model: "deepseek-v4-flash",
+        requested: "low",
+        effective: "high",
+    });
+    expect(renderTuiStatusDetailsLine(
+        state.modelSettings,
+        "auto",
+        undefined,
+        "/workspace",
+        0,
+        state.effortSubstitution,
+    )).toContain("reasoning low → high");
+
+    // The stored setting is untouched: the arrow is the report, not a change.
+    expect(state.modelSettings?.reasoningEffort).toBe("low");
+
+    // A different model is a different question, so the evidence is dropped.
+    const moved = applyAgentUpdate(state, settingsUpdate({
+        model: "gpt-5.6-sol",
+        reasoningEffort: "low",
+    }));
+    expect(moved.effortSubstitution).toBeUndefined();
+    expect(renderTuiStatusDetailsLine(
+        moved.modelSettings,
+        "auto",
+        undefined,
+        "/workspace",
+        0,
+        moved.effortSubstitution,
+    )).toContain("reasoning low ·");
+});
+
+test("the same substitution is announced once, and again when it changes", () => {
+    const started = applyAgentUpdate(
+        createTuiState(),
+        settingsUpdate(LOW_ON_FLASH),
+    );
+    const first = applyAgentUpdate(started, EFFORT_SUBSTITUTION);
+    const afterTurn = applyAgentUpdate(first, turnFinished(3));
+    const second = applyAgentUpdate(afterTurn, EFFORT_SUBSTITUTION);
+
+    const substitutions = (state: typeof second) =>
+        state.entries.filter((entry) => entry.kind === "substitution");
+    expect(substitutions(second)).toHaveLength(1);
+
+    // A different model is a different fact, and it is announced.
+    const elsewhere = applyAgentUpdate(second, {
+        ...EFFORT_SUBSTITUTION,
+        model: "gpt-5.6-sol",
+    });
+    expect(substitutions(elsewhere)).toHaveLength(2);
+    // And so is coming back to the first one.
+    const back = applyAgentUpdate(
+        applyAgentUpdate(elsewhere, turnFinished(4)),
+        EFFORT_SUBSTITUTION,
+    );
+    expect(substitutions(back)).toHaveLength(3);
+});
+
+test("a turn that runs at the requested level says so once", () => {
+    const substituted = applyAgentUpdate(
+        applyAgentUpdate(createTuiState(), settingsUpdate(LOW_ON_FLASH)),
+        EFFORT_SUBSTITUTION,
+    );
+    const recovered = applyAgentUpdate(
+        applyAgentUpdate(substituted, turnFinished(3)),
+        turnFinished(4),
+    );
+
+    expect(recovered.effortSubstitution).toBeUndefined();
+    const notices = recovered.entries.filter((entry) =>
+        entry.kind === "notice"
+        && entry.text.includes("is available again")
+    );
+    expect(notices).toHaveLength(1);
+    // And nothing more is said while it keeps working.
+    expect(applyAgentUpdate(recovered, turnFinished(5)).entries)
+        .toEqual(recovered.entries);
 });
 
 test("a substitution gets its own transcript row, live and on replay", () => {

@@ -18,6 +18,7 @@ import {
     tuiPickerMenuAncestor,
     withTuiPickerParent,
     type TuiAnySettingsPickerState,
+    type TuiSettingsPickerOption,
     type TuiSettingsPickerState,
 } from "../../clients/tui/settings-picker.ts";
 
@@ -500,7 +501,7 @@ test("model picker keeps the current model selected", async () => {
     // The provider is a group heading above its models, and the persisted
     // choice carries the current-dot.
     expect(frame).toMatch(/openrouter\s+\n/);
-    expect(frame).toContain("● GLM-5.2");
+    expect(frame).toContain("●  GLM-5.2");
     expect(frame).not.toContain("Recent");
 });
 
@@ -518,7 +519,7 @@ test("model picker filters its choices as the user types", async () => {
     const second = handleTuiSettingsPickerKey(first.state ?? state, { name: "l" });
 
     expect(second.state?.query).toBe("gl");
-    expect(second.state?.options.map((option) => option.model)).toEqual([
+    expect(modelRows(second.state!).map((option) => option.model)).toEqual([
         "z-ai/glm-5.2",
     ]);
     // A search result is still in provider order, so it keeps the headings
@@ -1065,7 +1066,7 @@ test("⇥ moves to All models, which lists what can run", async () => {
     expect(allTab?.tab).toBe("all");
     // A pool model that cannot run right now is not offered here: choosing it
     // would be a dead end. It keeps its row on the Pool tab.
-    expect(allTab?.options.map((option) => option.model)).toEqual([
+    expect(modelRows(allTab!).map((option) => option.model)).toEqual([
         "z-ai/glm-5.2",
         "moonshotai/kimi-k3",
     ]);
@@ -1093,6 +1094,13 @@ const RECOMMENDED_FIXTURE = [
     },
 ];
 
+/** The model rows of a sectioned list, headings dropped. */
+function modelRows(
+    state: TuiSettingsPickerState,
+): readonly TuiSettingsPickerOption[] {
+    return state.options.filter((option) => option.section === undefined);
+}
+
 function allTabWithRecommendations(): TuiSettingsPickerState {
     const state = startTuiSettingsPicker(
         "model",
@@ -1105,88 +1113,125 @@ function allTabWithRecommendations(): TuiSettingsPickerState {
     return state;
 }
 
-/** The recommendation filter key, as the model pane's own scope reads it. */
-const FILTER_KEY = { name: "f", ctrl: true } as const;
+/** The heading rows a sectioned list carries, with their fold state. */
+function sectionRows(
+    state: TuiSettingsPickerState,
+): readonly (readonly [string, boolean])[] {
+    return state.options
+        .filter((option) => option.section !== undefined)
+        .map((option) => [option.section!, option.sectionCollapsed === true]);
+}
 
-test("the top-picks filter narrows All models to the same rows, and back", () => {
+test("All models opens on a Top picks section above the providers", () => {
     const state = allTabWithRecommendations();
-    expect(state.options.map((option) => option.label))
-        .toEqual(["GLM-5.2", "Kimi K3"]);
 
-    const filtered = handleTuiSettingsPickerKey(state, FILTER_KEY).state!;
-    expect(filtered.recommendedOnly).toBe(true);
-    expect(filtered.tab).toBe("all");
-    expect(filtered.options.map((option) => option.label)).toEqual(["Kimi K3"]);
-    // The same object, not a second row standing for the same model.
-    expect(filtered.options[0]).toBe(state.options[1]!);
+    expect(state.options.map((option) => option.label)).toEqual([
+        "Top picks",
+        "Kimi K3",
+        "openrouter",
+        "GLM-5.2",
+        "Kimi K3",
+    ]);
+    // The section is a second listing of the same model, not a second model:
+    // the pane still holds one row per model behind the views.
     expect(state.allOptions.filter((option) =>
         option.model === "moonshotai/kimi-k3"
     )).toHaveLength(1);
-
-    // The same key turns it off and the full list comes back.
-    const restored = handleTuiSettingsPickerKey(filtered, FILTER_KEY).state!;
-    expect(restored.recommendedOnly).toBe(false);
-    expect(restored.options.map((option) => option.label))
-        .toEqual(["GLM-5.2", "Kimi K3"]);
 });
 
-test("the active filter is written on the strip and in the key hints", async () => {
+test("a top pick says so on its own row, wherever it is listed", async () => {
+    const frame = await pickerFrame(allTabWithRecommendations());
+
+    // In the section, where the row names its provider because the section
+    // mixes them, and again under the provider heading, where it does not.
+    expect(frame).toContain("openrouter · top pick · medium");
+    expect(frame).toMatch(/Kimi K3\s+top pick · medium/);
+});
+
+test("⏎ on a heading folds its section, and ⏎ again opens it", () => {
     const state = allTabWithRecommendations();
-    const filtered = handleTuiSettingsPickerKey(state, FILTER_KEY).state!;
-    const frame = await pickerFrame(filtered);
+    const onHeading = { ...state, selectedIndex: 2 };
 
-    // A list that is short because of a filter has to say so.
-    expect(frame).toContain("All models [recommended]");
-    expect(frame).toContain("Recommended picks only.");
-    // And the way out of it stays on screen.
-    expect(frame).toContain("^f all models");
-    expect(await pickerFrame(state)).toContain("^f top picks");
+    const folded = handleTuiSettingsPickerKey(onHeading, { name: "return" })
+        .state!;
+    expect(folded.collapsed).toEqual(["openrouter"]);
+    expect(sectionRows(folded)).toEqual([
+        ["Top picks", false],
+        ["openrouter", true],
+    ]);
+    // The count is what a closed section says instead of its rows.
+    expect(folded.options.at(-1)?.label).toBe("openrouter (2)");
+    // The cursor stays on the heading it just closed.
+    expect(folded.options[folded.selectedIndex]?.section).toBe("openrouter");
+
+    const opened = handleTuiSettingsPickerKey(folded, { name: "return" }).state!;
+    expect(opened.collapsed).toEqual([]);
+    expect(opened.options.map((option) => option.label)).toEqual(
+        allTabWithRecommendations().options.map((option) => option.label),
+    );
 });
 
-test("the filter survives a tab away and back, and is not offered on Pool", () => {
-    const state = handleTuiSettingsPickerKey(
-        allTabWithRecommendations(),
-        FILTER_KEY,
+test("← closes a section and → opens it, and neither moves on a model row", () => {
+    const state = { ...allTabWithRecommendations(), selectedIndex: 0 };
+
+    const closed = handleTuiSettingsPickerKey(state, { name: "left" }).state!;
+    expect(closed.collapsed).toEqual(["Top picks"]);
+    // Already closed: the key is claimed, and nothing else happens.
+    expect(handleTuiSettingsPickerKey(closed, { name: "left" }).state)
+        .toBe(closed);
+
+    const open = handleTuiSettingsPickerKey(closed, { name: "right" }).state!;
+    expect(open.collapsed).toEqual([]);
+
+    const onModel = { ...state, selectedIndex: 1 };
+    expect(handleTuiSettingsPickerKey(onModel, { name: "left" }).handled)
+        .toBe(false);
+});
+
+test("a fold survives a tab away and back, and a search opens everything", () => {
+    const folded = handleTuiSettingsPickerKey(
+        { ...allTabWithRecommendations(), selectedIndex: 2 },
+        { name: "return" },
     ).state!;
 
-    const pool = handleTuiSettingsPickerKey(state, { name: "tab" }).state!;
+    const pool = handleTuiSettingsPickerKey(folded, { name: "tab" }).state!;
     expect(pool.tab).toBe("pool");
-    // Pool is the user's own list, which the filter has no claim on.
-    expect(handleTuiSettingsPickerKey(pool, FILTER_KEY).state?.recommendedOnly)
-        .toBe(true);
-    expect(handleTuiSettingsPickerKey(pool, FILTER_KEY).handled).toBe(false);
-
     const back = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
     expect(back.tab).toBe("all");
-    expect(back.recommendedOnly).toBe(true);
-    expect(back.options.map((option) => option.label)).toEqual(["Kimi K3"]);
-});
+    expect(sectionRows(back)).toEqual([
+        ["Top picks", false],
+        ["openrouter", true],
+    ]);
 
-test("search composes with the filter rather than escaping it", () => {
-    const state = handleTuiSettingsPickerKey(
-        allTabWithRecommendations(),
-        FILTER_KEY,
-    ).state!;
+    // A heading over hidden rows would claim the search found nothing there.
+    const searched = handleTuiSettingsPickerKey(folded, { name: "g" }).state!;
+    expect(modelRows(searched).map((option) => option.label)).toEqual([
+        "GLM-5.2",
+    ]);
+    expect(sectionRows(searched)).toEqual([["openrouter", false]]);
 
-    // GLM is runnable and would match, but it is not recommended and the user
-    // can see on the strip that the list is narrowed.
-    const searched = handleTuiSettingsPickerKey(state, { name: "g" }).state!;
-    expect(searched.options.map((option) => option.label)).toEqual([]);
-
-    // Clearing the query drops back to the filtered list, not to everything.
+    // Clearing the query puts the fold back.
     const cleared = handleTuiSettingsPickerKey(searched, { name: "backspace" })
         .state!;
-    expect(cleared.options.map((option) => option.label)).toEqual(["Kimi K3"]);
+    expect(sectionRows(cleared)).toEqual([
+        ["Top picks", false],
+        ["openrouter", true],
+    ]);
+});
+
+test("the fold hint is offered only while the cursor is on a heading", async () => {
+    const state = allTabWithRecommendations();
+
+    expect(await pickerFrame(state)).toContain("←→ fold");
+    expect(await pickerFrame({ ...state, selectedIndex: 1 }))
+        .not.toContain("←→ fold");
 });
 
 test("a recommended level is a note on the row, not part of the choice", async () => {
-    const state = handleTuiSettingsPickerKey(
-        allTabWithRecommendations(),
-        FILTER_KEY,
-    ).state!;
+    const state = { ...allTabWithRecommendations(), selectedIndex: 1 };
 
     // Selecting it names the model only. The level pane still follows, which is
-    // what makes the row behave the same filtered or not.
+    // what makes the row behave the same in either section.
     expect(handleTuiSettingsPickerKey(state, { name: "return" }).selection)
         .toEqual({
             kind: "model",
@@ -1412,7 +1457,7 @@ test("a snapshot leaves the user on the tab they moved to", () => {
     });
 
     expect(synced.tab).toBe("all");
-    expect(synced.options.map((option) => option.model)).toEqual([
+    expect(modelRows(synced).map((option) => option.model)).toEqual([
         "z-ai/glm-5.2",
         "moonshotai/kimi-k3",
     ]);

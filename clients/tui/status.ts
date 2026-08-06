@@ -4,6 +4,7 @@ import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import type { TuiEffortSubstitution } from "./state.ts";
 import { findProvider } from "../../src/providers/registry.ts";
 
 export function renderTuiStatusDetailsLine(
@@ -12,6 +13,7 @@ export function renderTuiStatusDetailsLine(
     context: ContextMeasurement | undefined,
     workspace: string,
     runningBackgroundAgents = 0,
+    substitution: TuiEffortSubstitution | undefined = undefined,
 ): string {
     const providerLabel = settings?.provider === undefined
         ? undefined
@@ -21,9 +23,18 @@ export function renderTuiStatusDetailsLine(
         : providerLabel === undefined
             ? settings.model
             : `${providerLabel}/${settings.model}`;
+    const requested = settings?.reasoningEffort ?? "default";
+    // Requested → effective, and only while the evidence covers the model and
+    // the level in effect. The setting itself is untouched: the arrow is what
+    // says the two disagree, rather than the dial quietly moving.
+    const substituted = substitution !== undefined
+        && settings?.model === substitution.model
+        && requested === substitution.requested;
     const thinking = settings === undefined
         ? "loading"
-        : settings.reasoningEffort ?? "default";
+        : substituted
+            ? `${requested} → ${substitution!.effective ?? "none"}`
+            : requested;
     const permissions = approvalMode === "full_access"
         ? "FULL ACCESS · RED ZONE"
         : approvalMode === "auto"
