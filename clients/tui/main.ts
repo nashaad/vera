@@ -1152,6 +1152,18 @@ export async function startTui(
         }
 
         if (
+            !composer.focused
+            && activeOverlayFocus() === undefined
+            && tuiBindingId("unfocused", key) === "focus_composer"
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            composer.focus();
+            renderState();
+            return;
+        }
+
+        if (
             pendingUiRequest !== undefined
             && isUserQuestionUiRequestUpdate(pendingUiRequest)
         ) {
@@ -1327,6 +1339,11 @@ export async function startTui(
                     const selected = transition.selection;
                     commandPalette = undefined;
                     runPaletteAction(selected);
+                    // The palette closed under the action, and every early
+                    // return inside it would otherwise leave nothing focused.
+                    // Re-reading the surface here means an action that opened a
+                    // pane still lands on the pane.
+                    focusActiveSurface();
                 } else {
                     renderState();
                     focusActiveSurface();
@@ -2688,56 +2705,61 @@ export async function startTui(
         }
     }
 
-    function focusActiveSurface(): void {
-        composer.blur();
+    /**
+     * How to focus the overlay in front, or nothing when the composer is it.
+     *
+     * Held as a lookup rather than folded into `focusActiveSurface` so the same
+     * answer serves the question "is the composer the surface this key belongs
+     * to", which is what the unfocused-state keys ask.
+     */
+    function activeOverlayFocus(): (() => void) | undefined {
         if (
             pendingUiRequest !== undefined
             && isToolApprovalUiRequestUpdate(pendingUiRequest)
         ) {
-            approvalView.focus();
-            return;
+            return () => approvalView.focus();
         }
         if (
             pendingUiRequest !== undefined
             && isUserQuestionUiRequestUpdate(pendingUiRequest)
         ) {
-            questionView.focus();
-            return;
+            return () => questionView.focus();
         }
         if (timelinePicker !== undefined) {
-            timelinePickerView.box.focus();
-            return;
+            return () => timelinePickerView.box.focus();
         }
         if (commandPalette !== undefined) {
-            commandPaletteView.box.focus();
-            return;
+            return () => commandPaletteView.box.focus();
         }
         if (help !== undefined) {
-            helpView.box.focus();
-            return;
+            return () => helpView.box.focus();
         }
         if (confirmingFullAccess) {
-            permissionsConfirmView.box.focus();
-            return;
+            return () => permissionsConfirmView.box.focus();
         }
         if (sessionTrashCandidate !== undefined) {
-            sessionTrashConfirmView.box.focus();
-            return;
+            return () => sessionTrashConfirmView.box.focus();
         }
         if (sessionRenamePrompt !== undefined) {
-            sessionRenamePromptView.box.focus();
-            return;
+            return () => sessionRenamePromptView.box.focus();
         }
         if (secretPrompt !== undefined) {
-            secretPromptView.box.focus();
-            return;
+            return () => secretPromptView.box.focus();
         }
         if (settingsPicker !== undefined) {
-            settingsPickerView.box.focus();
-            return;
+            return () => settingsPickerView.box.focus();
         }
         if (preferencesList !== undefined) {
-            preferencesListView.box.focus();
+            return () => preferencesListView.box.focus();
+        }
+        return undefined;
+    }
+
+    function focusActiveSurface(): void {
+        composer.blur();
+        const overlay = activeOverlayFocus();
+        if (overlay !== undefined) {
+            overlay();
             return;
         }
         composer.focus();
