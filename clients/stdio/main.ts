@@ -54,7 +54,7 @@ const adapter = new ProviderRoutingAdapter(
     (provider) => createConfiguredModelAdapter({
         ...config,
         provider: provider as VeraConfig["provider"],
-    }),
+    }, { projectRoot: process.cwd() }),
     defaultProvider,
 );
 const channel = createInProcessChannel();

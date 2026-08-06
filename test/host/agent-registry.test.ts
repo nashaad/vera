@@ -2543,3 +2543,39 @@ test("the pool is built from the agent's own workspace", async () => {
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("an adapter is built for the agent's own workspace", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "vera-agent-cwd-")));
+    const workspaces: (string | undefined)[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: (_provider, projectRoot) => {
+            workspaces.push(projectRoot);
+            return new FauxAdapter([]);
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "scoped-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "hello" });
+        let update = await attachment.receive();
+        while (update.type !== "turn_finished") {
+            update = await attachment.receive();
+        }
+
+        // The workspace decides which project pool overlays the user's, so an
+        // adapter built without it can send a level the project never named.
+        expect(workspaces).toEqual([root]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});

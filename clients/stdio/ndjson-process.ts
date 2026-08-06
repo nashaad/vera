@@ -31,7 +31,7 @@ export async function runNdjsonProcess(): Promise<void> {
         (provider) => createConfiguredModelAdapter({
             ...config,
             provider: provider as VeraConfig["provider"],
-        }),
+        }, { projectRoot: process.cwd() }),
         config.provider ?? "openrouter",
     );
     await runNdjsonBridge(

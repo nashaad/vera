@@ -22,10 +22,12 @@ export interface ConfiguredProviderOptions {
     ) => void;
     /**
      * The model's levels for a provider that sends one on the wire. Defaults
-     * to the user-scope pool over the cached catalog, which is the same order
-     * the picker and request-time coarsening read.
+     * to the pool over the cached catalog, which is the same order the picker
+     * and request-time coarsening read.
      */
     readonly effortLevels?: EffortLevelsLookup;
+    /** The workspace whose pool overlays the user's, when there is one. */
+    readonly projectRoot?: string;
 }
 
 /**
@@ -58,7 +60,11 @@ const ADAPTERS: Readonly<Record<
         apiKey: requiredApiKey("openrouter", options),
         effortLevels: options.effortLevels ?? poolEffortLevels({
             provider: "openrouter",
-            pool: createPoolEffortPool(),
+            pool: createPoolEffortPool(
+                options.projectRoot === undefined
+                    ? {}
+                    : { projectRoot: options.projectRoot },
+            ),
         }),
     }),
 };

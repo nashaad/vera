@@ -131,10 +131,16 @@ export async function startResidentHost(
             : { onFailure: options.onExtensionFailure }),
     });
     const createAdapter = options.createAdapter
-        ?? ((provider?: string) => createConfiguredModelAdapter({
-            ...options.config,
-            provider: (provider ?? options.config.provider) as VeraConfig["provider"],
-        }, { authStorage, log: hostLog }));
+        ?? ((provider?: string, projectRoot?: string) =>
+            createConfiguredModelAdapter({
+                ...options.config,
+                provider: (provider ?? options.config.provider) as
+                    VeraConfig["provider"],
+            }, {
+                authStorage,
+                log: hostLog,
+                ...scoped(projectRoot),
+            }));
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
