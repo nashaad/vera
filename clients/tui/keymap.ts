@@ -137,7 +137,11 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "jump_to_bottom",
-        keys: ["ctrl+end"],
+        // ctrl+shift+g reads as vim's G, and carries the same kitty-protocol
+        // caveat as the half-page chords above. ctrl+end is the chord an
+        // external keyboard has a key for, and the hint names it because it is
+        // the one that works everywhere.
+        keys: ["ctrl+end", "ctrl+shift+g"],
         scope: "conversation",
         description: "Follow the transcript from the bottom again",
         hint: "ctrl+end",
