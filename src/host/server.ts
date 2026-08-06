@@ -42,6 +42,8 @@ export interface StartHostServerOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
+    /** Absolute path of the entrypoint this host was started from. */
+    readonly entrypoint?: string;
     readonly startupClaimPath?: string;
     readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
@@ -188,6 +190,9 @@ export async function startHostServer(
             socketPath,
             pid: identity.pid,
             startedAt: identity.started_at,
+            ...(options.entrypoint === undefined
+                ? {}
+                : { entrypoint: options.entrypoint }),
         }).publish();
         await startupClaim.release();
 

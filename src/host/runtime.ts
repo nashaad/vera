@@ -57,6 +57,8 @@ export interface StartResidentHostOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
+    /** Absolute path of the entrypoint this host was started from. */
+    readonly entrypoint?: string;
     readonly sessionDirectory?: string;
     /** Overrides `~/.vera/preferences.json`, so tests do not read the
      * developer's real preferences. */
@@ -196,6 +198,9 @@ export async function startResidentHost(
             ...(options.startedAt === undefined
                 ? {}
                 : { startedAt: options.startedAt }),
+            ...(options.entrypoint === undefined
+                ? {}
+                : { entrypoint: options.entrypoint }),
             findAgent: (agentId) => registry.find(agentId),
             listAgents: () => registry.list(),
             createAgent: (workspace) => registry.create({ workspace }),

@@ -16,13 +16,19 @@ import {
     type HostIdentity,
 } from "./protocol.ts";
 
-export const HOST_LOCK_SCHEMA_VERSION = 1;
+export const HOST_LOCK_SCHEMA_VERSION = 2;
 
 export interface HostLockRecord {
-    readonly schema_version: typeof HOST_LOCK_SCHEMA_VERSION;
+    readonly schema_version: 1 | 2;
     readonly pid: number;
     readonly started_at: string;
     readonly socket_path: string;
+    /**
+     * Absolute path of the entrypoint the running host was started from.
+     * Absent on a version-1 record or a host that did not report one; absent
+     * means unknown, not mismatched.
+     */
+    readonly entrypoint?: string;
 }
 
 export interface HostLockfile {
@@ -35,6 +41,7 @@ export interface HostLockfileOptions {
     readonly socketPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
+    readonly entrypoint?: string;
     readonly inspectSocket?: (
         socketPath: string,
     ) => Promise<HostIdentity | undefined>;
@@ -87,6 +94,14 @@ export function createHostLockfile(
                 pid,
                 started_at: startedAt,
                 socket_path: nonEmpty(socketPath, "host socket path"),
+                ...(options.entrypoint === undefined
+                    ? {}
+                    : {
+                        entrypoint: nonEmpty(
+                            options.entrypoint,
+                            "host entrypoint",
+                        ),
+                    }),
             };
             const serialized = `${JSON.stringify(record, null, 2)}\n`;
 
@@ -181,13 +196,17 @@ function parseHostLock(source: string): HostLockRecord | undefined {
     }
     const record = value as Record<string, unknown>;
     if (
-        record.schema_version !== HOST_LOCK_SCHEMA_VERSION
+        (record.schema_version !== 1
+            && record.schema_version !== HOST_LOCK_SCHEMA_VERSION)
         || !Number.isInteger(record.pid)
         || (record.pid as number) <= 0
         || typeof record.started_at !== "string"
         || Number.isNaN(Date.parse(record.started_at))
         || typeof record.socket_path !== "string"
         || record.socket_path.length === 0
+        || (record.entrypoint !== undefined
+            && (typeof record.entrypoint !== "string"
+                || record.entrypoint.length === 0))
     ) {
         return undefined;
     }
