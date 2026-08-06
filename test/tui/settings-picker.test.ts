@@ -587,6 +587,41 @@ test("every settings picker filters as the user types", async () => {
     expect(await pickerFrame(filteredPermissions)).toContain("⌕  full");
 });
 
+test("digits quick-select on the short panes and stay search input elsewhere", async () => {
+    const reasoning = startTuiReasoningPicker(REASONING_LEVELS, undefined, "high");
+    expect(await pickerFrame(reasoning)).toContain("2. High");
+    expect(handleTuiSettingsPickerKey(reasoning, { name: "3" }).selection)
+        .toEqual({ kind: "reasoning", reasoningEffort: "medium" });
+    // A digit past the list swallows rather than searches: there is no row 9,
+    // and "9" is not a level name being typed.
+    expect(handleTuiSettingsPickerKey(reasoning, { name: "9" }))
+        .toMatchObject({ handled: true });
+
+    // Once a query filters the list, digits are search input again and the
+    // numbers leave the rows.
+    const filtered = handleTuiSettingsPickerKey(reasoning, { name: "m" });
+    expect(await pickerFrame(filtered.state!)).not.toContain("1. Max");
+    expect(handleTuiSettingsPickerKey(filtered.state!, { name: "1" })
+        .selection).toBeUndefined();
+
+    // Model names carry digits, so the model pane keeps them for search.
+    const model = startTuiSettingsPicker(
+        "model",
+        "z-ai/glm-5.2",
+        "high",
+        "auto",
+        [{
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            label: "GLM 5.2",
+            description: "",
+        }],
+    );
+    const typed = handleTuiSettingsPickerKey(model, { name: "5" });
+    expect(typed.selection).toBeUndefined();
+    expect(typed.state?.query).toBe("5");
+});
+
 test("Kimi reasoning picker renders exactly the model's own levels", () => {
     const reasoning = startTuiReasoningPicker(
         [{ id: "max", label: "Max", description: "maximum available reasoning" }],
