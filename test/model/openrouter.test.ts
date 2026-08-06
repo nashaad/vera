@@ -717,6 +717,68 @@ describe("OpenRouter adapter", () => {
         expect(observed).toEqual(["start", "retry", "done"]);
         expect(result.stopReason).toBe("stop");
     });
+
+    test("sends the level the resolved data supports, without a lookup", async () => {
+        let sent: unknown;
+        const sendChat: SendOpenRouterChat = async (request) => {
+            sent = request.reasoning;
+            return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
+        };
+        const adapter = new OpenRouterAdapter(
+            sendChat,
+            undefined,
+            undefined,
+            () => ({
+                supportedEfforts: ["high", "medium", "low"],
+                providerEfforts: { high: "high", medium: "medium", low: "low" },
+            }),
+        );
+
+        await adapter.stream({
+            model: "anthropic/claude-haiku-4.5",
+            reasoningEffort: "medium",
+            messages: [],
+        }).result();
+
+        expect(sent).toEqual({ effort: "medium" });
+    });
+
+    test("coarsens one step when the resolved data omits the level", async () => {
+        let sent: unknown;
+        const substitutions: unknown[] = [];
+        const sendChat: SendOpenRouterChat = async (request) => {
+            sent = request.reasoning;
+            return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
+        };
+        const adapter = new OpenRouterAdapter(
+            sendChat,
+            undefined,
+            undefined,
+            () => ({
+                supportedEfforts: ["high", "medium", "low"],
+                providerEfforts: { high: "high", medium: "medium", low: "low" },
+            }),
+        );
+
+        const stream = adapter.stream({
+            model: "anthropic/claude-haiku-4.5",
+            reasoningEffort: "max",
+            messages: [],
+        });
+        for await (const event of stream) {
+            if (event.type === "effort_substituted") {
+                substitutions.push(event);
+            }
+        }
+
+        expect(sent).toEqual({ effort: "high" });
+        expect(substitutions).toEqual([{
+            type: "effort_substituted",
+            requested: "max",
+            using: "high",
+            reason: 'the model does not offer effort "max"',
+        }]);
+    });
 });
 
 async function* chunks<T>(values: readonly T[]): AsyncIterable<T> {

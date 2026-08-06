@@ -9,6 +9,7 @@ import {
     effortSubstitutionNotice,
     resolveReasoningSelection,
 } from "../model/reasoning-effort.ts";
+import type { EffortLevelsLookup } from "../model/effort-levels.ts";
 import { ModelEventStream } from "../model/stream.ts";
 import { transformMessages } from "../model/transform.ts";
 import {
@@ -32,6 +33,13 @@ export interface OpenRouterAdapterOptions {
         string,
         ReadonlyMap<ModelReasoningEffort, string>
     >;
+    /**
+     * The model's levels, as resolved by whoever owns that data. Supplied as a
+     * callback so this layer never reads a pool file or a catalog itself. When
+     * it answers, its answer is the one the request uses; only a model it has
+     * nothing for falls back to a live lookup.
+     */
+    readonly effortLevels?: EffortLevelsLookup;
 }
 
 export interface ChatProviderProfile {
@@ -60,6 +68,7 @@ export class OpenRouterAdapter implements ModelAdapter {
             ReadonlyMap<ModelReasoningEffort, string>
         >,
         private readonly profile: ChatProviderProfile = OPENROUTER_PROFILE,
+        private readonly effortLevels?: EffortLevelsLookup,
     ) {
         this.supportsImageInput = profile.supportsImageInput ?? false;
     }
@@ -104,6 +113,10 @@ export class OpenRouterAdapter implements ModelAdapter {
                             "openrouter",
                             request.model,
                             request.reasoningEffort,
+                            this.effortLevels?.(
+                                request.model,
+                                request.reasoningEffort,
+                            ) ?? {},
                         )
                         : undefined
                     : { providerEffort: verifiedMapping };
@@ -198,7 +211,7 @@ export function createOpenRouterAdapter(
             },
             { signal },
         );
-    }, options.reasoningMappings, OPENROUTER_PROFILE);
+    }, options.reasoningMappings, OPENROUTER_PROFILE, options.effortLevels);
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {

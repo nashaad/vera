@@ -3,6 +3,11 @@ import { createOpenAICodexAdapter } from "./openai-codex.ts";
 import { createOpenRouterAdapter } from "./openrouter.ts";
 import { createOllamaAdapter } from "./ollama-openai.ts";
 import { createCerebrasAdapter } from "./cerebras-openai.ts";
+import {
+    poolEffortLevels,
+    type EffortLevelsLookup,
+} from "../model/effort-levels.ts";
+import { createPoolEffortPool } from "../model/effort-pool.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
 import { findProvider } from "./registry.ts";
@@ -15,6 +20,12 @@ export interface ConfiguredProviderOptions {
     readonly log?: (
         entry: { readonly type: string } & Record<string, unknown>,
     ) => void;
+    /**
+     * The model's levels for a provider that sends one on the wire. Defaults
+     * to the user-scope pool over the cached catalog, which is the same order
+     * the picker and request-time coarsening read.
+     */
+    readonly effortLevels?: EffortLevelsLookup;
 }
 
 /**
@@ -45,6 +56,10 @@ const ADAPTERS: Readonly<Record<
     }),
     openrouter: (options) => createOpenRouterAdapter({
         apiKey: requiredApiKey("openrouter", options),
+        effortLevels: options.effortLevels ?? poolEffortLevels({
+            provider: "openrouter",
+            pool: createPoolEffortPool(),
+        }),
     }),
 };
 
