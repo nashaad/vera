@@ -135,7 +135,15 @@ export interface RegisteredAgentSummary {
 }
 
 export interface AgentRegistryOptions {
-    readonly createAdapter: (provider?: string) => ModelAdapter;
+    /**
+     * The workspace is passed alongside the provider because a project pool
+     * can name levels the user pool does not, and an adapter built without it
+     * would send a request the project's own settings do not describe.
+     */
+    readonly createAdapter: (
+        provider?: string,
+        projectRoot?: string,
+    ) => ModelAdapter;
     /**
      * Tells a running agent that a provider's credentials changed, so it stops
      * spending the key it started with. Absent in tests that never sign in.
@@ -860,7 +868,8 @@ export class AgentRegistry {
         const storedFailure = store.agentFailure();
         const adapter = storedFailure === undefined
             ? new ProviderRoutingAdapter(
-                (provider) => this.options.createAdapter(provider),
+                (provider) =>
+                    this.options.createAdapter(provider, store.header.cwd),
                 this.defaultProvider,
                 this.options.credentialFingerprint,
             )
