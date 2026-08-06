@@ -29,9 +29,13 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { tuiBindingId } from "./keymap.ts";
+import { TUI_KEYMAP, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
 
-export type TuiHelpTab = "general" | "slash_commands" | "extensions";
+export type TuiHelpTab =
+    | "general"
+    | "keys"
+    | "slash_commands"
+    | "extensions";
 
 export interface TuiHelpState {
     readonly tab: TuiHelpTab;
@@ -63,9 +67,79 @@ export interface TuiHelpView {
 
 const HELP_TABS: readonly TuiHelpTab[] = [
     "general",
+    "keys",
     "slash_commands",
     "extensions",
 ];
+
+/** The scopes worth naming to a user, in the order the tab lists them. */
+const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
+    { scope: "global", title: "Anywhere" },
+    { scope: "conversation", title: "Transcript" },
+    { scope: "composer", title: "Composer" },
+    { scope: "unfocused", title: "Composer unfocused" },
+    { scope: "picker", title: "Settings panes" },
+    { scope: "model_picker", title: "Model picker" },
+    { scope: "session_picker", title: "Session picker" },
+    { scope: "approval", title: "Approvals" },
+    { scope: "question", title: "Questions" },
+    { scope: "secret_prompt", title: "Key entry" },
+    { scope: "preferences_list", title: "Preferences" },
+    { scope: "help", title: "This card" },
+];
+
+const CHORD_SYMBOLS: Readonly<Record<string, string>> = {
+    up: "↑",
+    down: "↓",
+    left: "←",
+    right: "→",
+};
+
+/**
+ * A chord as the help card writes it.
+ *
+ * Arrow names become arrows because that is what the key is labelled, and
+ * nothing else is rewritten: a chord a user cannot find in the table by
+ * searching for what they read is worse than an unpretty one.
+ */
+function chordLabel(chord: string): string {
+    return chord
+        .split("+")
+        .map((part) => CHORD_SYMBOLS[part] ?? part)
+        .join("+");
+}
+
+/**
+ * Whether a terminal can be relied on to deliver the chord at all.
+ *
+ * Shift on a ctrl+letter chord is only reported under the kitty keyboard
+ * protocol; elsewhere ctrl+shift+u is indistinguishable from ctrl+u and the
+ * binding never matches. Saying so beside the row is the difference between a
+ * key that looks broken and one the user knows to swap for its alias.
+ */
+function needsKittyKeyboard(chord: string): boolean {
+    const parts = chord.split("+");
+    return parts.includes("ctrl") && parts.includes("shift")
+        && parts.at(-1)!.length === 1;
+}
+
+function keyRows(): readonly {
+    readonly label: string;
+    readonly description: string;
+    readonly meta: string;
+}[] {
+    return HELP_KEY_SCOPES.flatMap(({ scope, title }) =>
+        TUI_KEYMAP.filter((binding) => binding.scope === scope).map((
+            binding,
+        ) => ({
+            label: binding.keys.map(chordLabel).join(" / "),
+            description: binding.description,
+            meta: binding.keys.every(needsKittyKeyboard)
+                ? `${title} · some terminals`
+                : title,
+        }))
+    );
+}
 
 export function startTuiHelp(
     commands: readonly TuiCommandCatalogEntry[],
@@ -134,7 +208,7 @@ export function handleTuiHelpKey(
             state: {
                 ...state,
                 selectedIndex: Math.min(
-                    filteredCommands(state).length - 1,
+                    filteredRows(state).length - 1,
                     state.selectedIndex + 1,
                 ),
             },
@@ -203,7 +277,9 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                 const commands = windowedCommands(renderer, state);
                 if (commands.length === 0) {
                     const empty = new TextRenderable(renderer, {
-                        content: state.tab === "extensions"
+                        content: state.tab === "keys"
+                            ? "No keys found"
+                            : state.tab === "extensions"
                             ? "No extension commands found"
                             : "No slash commands found",
                         fg: TUI_MUTED,
@@ -215,11 +291,9 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                     nodes.push(empty);
                 } else {
                     const rows = dialogOptionRows(renderer, commands.map(({ command, index }) => ({
-                            label: `/${command.name}`,
+                            label: command.label,
                             description: command.description,
-                            meta: "source" in command
-                                ? command.source
-                                : command.usage,
+                            meta: command.meta,
                             active: index === state.selectedIndex,
                             current: false,
                             ...dialogRowPointer(view.pointer, index),
@@ -257,15 +331,27 @@ function switchedTab(
     };
 }
 
-function filteredCommands(
-    state: TuiHelpState,
-): readonly (TuiCommandCatalogEntry | ExtensionCommandDescriptor)[] {
-    const commands = state.tab === "extensions"
-        ? state.extensionCommands
-        : state.commands;
+interface TuiHelpRow {
+    readonly label: string;
+    readonly description: string;
+    readonly meta: string;
+}
+
+function filteredRows(state: TuiHelpState): readonly TuiHelpRow[] {
+    const commands: readonly (
+        | TuiCommandCatalogEntry
+        | ExtensionCommandDescriptor
+    )[] = state.tab === "extensions" ? state.extensionCommands : state.commands;
+    const rows: readonly TuiHelpRow[] = state.tab === "keys"
+        ? keyRows()
+        : commands.map((command) => ({
+            label: `/${command.name}`,
+            description: command.description,
+            meta: "source" in command ? command.source : command.usage,
+        }));
     const query = state.query.toLowerCase();
-    return commands.filter((command) =>
-        `${command.name} ${command.description} ${command.usage}`
+    return rows.filter((row) =>
+        `${row.label} ${row.description} ${row.meta}`
             .toLowerCase()
             .includes(query)
     );
@@ -280,11 +366,8 @@ const HELP_CHROME = 8;
 function windowedCommands(
     renderer: RenderContext,
     state: TuiHelpState,
-): readonly {
-    readonly command: TuiCommandCatalogEntry | ExtensionCommandDescriptor;
-    readonly index: number;
-}[] {
-    const commands = filteredCommands(state)
+): readonly { readonly command: TuiHelpRow; readonly index: number }[] {
+    const commands = filteredRows(state)
         .map((command, index) => ({ command, index }));
     return listWindowSlice(
         commands,
@@ -311,7 +394,7 @@ export function handleTuiHelpScroll(
     }
     const selectedIndex = wheelCursor(
         state.selectedIndex,
-        filteredCommands(state).length,
+        filteredRows(state).length,
         scroll,
     );
     return selectedIndex === undefined
@@ -341,17 +424,17 @@ function tabLabel(tab: TuiHelpTab): string {
 function generalHelp(): StyledText {
     return new StyledText([
         fg(TUI_ACCENT)("Vera keeps agent sessions resident so clients can attach, leave, and return.\n\n"),
-        fg(TUI_TEXT)("Anywhere\n"),
-        // Ctrl+P is otherwise advertised only by the idle status line, which is
-        // replaced while a turn is running. A chord nobody can rediscover is a
-        // chord nobody uses.
+        fg(TUI_TEXT)("Keys\n"),
+        // The Keys tab is generated from the keymap, so naming chords here as
+        // well is the drift the table exists to stop. What stays is the input
+        // the table deliberately omits: enter, escape, and typing.
         fg(TUI_MUTED)(
-            "Ctrl+P search every action by name or description\n\n",
+            "The Keys tab lists every chord, grouped by where it applies.\n\n",
         ),
         fg(TUI_TEXT)("Composer\n"),
         fg(TUI_MUTED)(
             "Enter send   Shift+Enter newline   Up recall last submission\n"
-            + "/ browse commands   Tab complete a slash command\n\n",
+            + "/ browse commands\n\n",
         ),
         fg(TUI_TEXT)("While Vera is working\n"),
         fg(TUI_MUTED)(
