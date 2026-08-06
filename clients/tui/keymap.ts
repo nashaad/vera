@@ -264,6 +264,20 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "[del] remove",
     },
     {
+        id: "collapse_all",
+        keys: ["shift+left"],
+        scope: "model_picker",
+        description: "Close every section in the list",
+        hint: "⇧← fold all",
+    },
+    {
+        id: "expand_all",
+        keys: ["shift+right"],
+        scope: "model_picker",
+        description: "Open every section in the list",
+        hint: "⇧→ open all",
+    },
+    {
         id: "next_help_tab",
         keys: ["tab", "right"],
         scope: "help",

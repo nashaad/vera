@@ -30,10 +30,13 @@ export function renderTuiStatusDetailsLine(
     const substituted = substitution !== undefined
         && settings?.model === substitution.model
         && requested === substitution.requested;
+    // What is running now, with what was asked for behind it: this line
+    // reports the session as it stands, so the effective level leads and the
+    // request is the annotation on it.
     const thinking = settings === undefined
         ? "loading"
         : substituted
-            ? `${requested} → ${substitution!.effective ?? "none"}`
+            ? `${substitution!.effective ?? "none"} (asked ${requested})`
             : requested;
     const permissions = approvalMode === "full_access"
         ? "FULL ACCESS · RED ZONE"

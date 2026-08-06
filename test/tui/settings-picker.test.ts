@@ -562,8 +562,10 @@ test("model picker distinguishes the same model id across providers", async () =
             model: "moonshotai/kimi-k3",
         });
     const rendered = await pickerFrame(state);
+    // The running model's own section is the one that opens; the rest are
+    // headings with their counts.
     expect(rendered).toMatch(/ollama\s+\n/);
-    expect(rendered).toMatch(/openrouter\s+\n/);
+    expect(rendered).toContain("openrouter (2)");
 });
 
 test("every settings picker filters as the user types", async () => {
@@ -1122,16 +1124,15 @@ function sectionRows(
         .map((option) => [option.section!, option.sectionCollapsed === true]);
 }
 
-test("All models opens on a Top picks section above the providers", () => {
+test("All models opens on Top picks, with the providers folded", () => {
     const state = allTabWithRecommendations();
 
     expect(state.options.map((option) => option.label)).toEqual([
         "Top picks",
         "Kimi K3",
-        "openrouter",
-        "GLM-5.2",
-        "Kimi K3",
+        "openrouter (2)",
     ]);
+    expect(state.collapsed).toEqual(["openrouter"]);
     // The section is a second listing of the same model, not a second model:
     // the pane still holds one row per model behind the views.
     expect(state.allOptions.filter((option) =>
@@ -1145,54 +1146,91 @@ test("a top pick says so on its own row, wherever it is listed", async () => {
     // In the section, where the row names its provider because the section
     // mixes them, and again under the provider heading, where it does not.
     expect(frame).toContain("openrouter · top pick · medium");
-    expect(frame).toMatch(/Kimi K3\s+top pick · medium/);
+    const opened = await pickerFrame(
+        handleTuiSettingsPickerKey(
+            { ...allTabWithRecommendations(), selectedIndex: 2 },
+            { name: "return" },
+        ).state!,
+    );
+    expect(opened).toMatch(/Kimi K3\s+top pick · medium/);
 });
 
-test("⏎ on a heading folds its section, and ⏎ again opens it", () => {
+test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
     const state = allTabWithRecommendations();
     const onHeading = { ...state, selectedIndex: 2 };
 
-    const folded = handleTuiSettingsPickerKey(onHeading, { name: "return" })
+    const opened = handleTuiSettingsPickerKey(onHeading, { name: "return" })
         .state!;
-    expect(folded.collapsed).toEqual(["openrouter"]);
+    expect(opened.collapsed).toEqual([]);
+    expect(opened.options.map((option) => option.label)).toEqual([
+        "Top picks",
+        "Kimi K3",
+        "openrouter",
+        "GLM-5.2",
+        "Kimi K3",
+    ]);
+    // The cursor stays on the heading it just opened.
+    expect(opened.options[opened.selectedIndex]?.section).toBe("openrouter");
+
+    const folded = handleTuiSettingsPickerKey(opened, { name: "return" }).state!;
     expect(sectionRows(folded)).toEqual([
         ["Top picks", false],
         ["openrouter", true],
     ]);
     // The count is what a closed section says instead of its rows.
     expect(folded.options.at(-1)?.label).toBe("openrouter (2)");
-    // The cursor stays on the heading it just closed.
-    expect(folded.options[folded.selectedIndex]?.section).toBe("openrouter");
-
-    const opened = handleTuiSettingsPickerKey(folded, { name: "return" }).state!;
-    expect(opened.collapsed).toEqual([]);
-    expect(opened.options.map((option) => option.label)).toEqual(
-        allTabWithRecommendations().options.map((option) => option.label),
-    );
 });
 
 test("← closes a section and → opens it, and neither moves on a model row", () => {
     const state = { ...allTabWithRecommendations(), selectedIndex: 0 };
 
     const closed = handleTuiSettingsPickerKey(state, { name: "left" }).state!;
-    expect(closed.collapsed).toEqual(["Top picks"]);
+    expect(closed.collapsed).toEqual(["openrouter", "Top picks"]);
     // Already closed: the key is claimed, and nothing else happens.
     expect(handleTuiSettingsPickerKey(closed, { name: "left" }).state)
         .toBe(closed);
 
     const open = handleTuiSettingsPickerKey(closed, { name: "right" }).state!;
-    expect(open.collapsed).toEqual([]);
+    expect(open.collapsed).toEqual(["openrouter"]);
 
     const onModel = { ...state, selectedIndex: 1 };
     expect(handleTuiSettingsPickerKey(onModel, { name: "left" }).handled)
         .toBe(false);
 });
 
+test("⇧← folds every section and ⇧→ opens every one", () => {
+    const state = allTabWithRecommendations();
+
+    const folded = handleTuiSettingsPickerKey(state, {
+        name: "left",
+        shift: true,
+    }).state!;
+    expect(sectionRows(folded)).toEqual([
+        ["Top picks", true],
+        ["openrouter", true],
+    ]);
+
+    // Either key answers for the whole list, whatever the sections were.
+    const opened = handleTuiSettingsPickerKey(folded, {
+        name: "right",
+        shift: true,
+    }).state!;
+    expect(opened.collapsed).toEqual([]);
+    expect(sectionRows(opened)).toEqual([
+        ["Top picks", false],
+        ["openrouter", false],
+    ]);
+    expect(opened.options.map((option) => option.label)).toEqual([
+        "Top picks",
+        "Kimi K3",
+        "openrouter",
+        "GLM-5.2",
+        "Kimi K3",
+    ]);
+});
+
 test("a fold survives a tab away and back, and a search opens everything", () => {
-    const folded = handleTuiSettingsPickerKey(
-        { ...allTabWithRecommendations(), selectedIndex: 2 },
-        { name: "return" },
-    ).state!;
+    const folded = allTabWithRecommendations();
 
     const pool = handleTuiSettingsPickerKey(folded, { name: "tab" }).state!;
     expect(pool.tab).toBe("pool");
@@ -1219,12 +1257,16 @@ test("a fold survives a tab away and back, and a search opens everything", () =>
     ]);
 });
 
-test("the fold hint is offered only while the cursor is on a heading", async () => {
+test("the footer names the fold keys the highlighted row answers to", async () => {
     const state = allTabWithRecommendations();
 
-    expect(await pickerFrame(state)).toContain("←→ fold");
-    expect(await pickerFrame({ ...state, selectedIndex: 1 }))
-        .not.toContain("←→ fold");
+    expect(await pickerFrame(state)).toContain("←→ ⇧←→ fold");
+    // On a model row only the whole-list keys do anything, and they yield the
+    // slot to the row's own keys when the footer runs short.
+    expect(await pickerFrame({ ...state, selectedIndex: 1 }, 130))
+        .toContain("⇧←→ fold all");
+    expect(await pickerFrame({ ...state, selectedIndex: 1 }, 100))
+        .not.toContain("⇧←→ fold all");
 });
 
 test("a recommended level is a note on the row, not part of the choice", async () => {
@@ -1411,7 +1453,10 @@ test("the model picker footer names the action the highlighted row would take", 
     expect(await pickerFrame(onPoolRow)).toContain("^s remove");
 
     // On a row nobody pooled the same key says the opposite thing.
-    const onAll = handleTuiSettingsPickerKey(onPoolRow, { name: "tab" }).state!;
+    const onAll = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(onPoolRow, { name: "tab" }).state!,
+        { name: "right", shift: true },
+    ).state!;
     const onUnpooledRow = {
         ...onAll,
         selectedIndex: onAll.options.findIndex((option) =>
