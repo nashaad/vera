@@ -823,6 +823,31 @@ export async function startTui(
         },
     });
 
+    const JUMP_TO_BOTTOM_LABEL =
+        ` ↓ Jump to bottom · ${tuiKeyHint("jump_to_bottom")} `;
+    const jumpToBottomText = new TextRenderable(renderer, {
+        id: "jump-to-bottom-text",
+        content: JUMP_TO_BOTTOM_LABEL,
+        fg: theme.background,
+        bg: theme.accent,
+        width: "100%",
+        height: 1,
+    });
+    const jumpToBottom = new BoxRenderable(renderer, {
+        id: "jump-to-bottom",
+        position: "absolute",
+        width: JUMP_TO_BOTTOM_LABEL.length,
+        height: 1,
+        backgroundColor: theme.accent,
+        zIndex: 4,
+        visible: false,
+        onMouseDown: () => {
+            transcript.scrollTo(transcript.scrollHeight);
+            renderJumpToBottom();
+        },
+    });
+    jumpToBottom.add(jumpToBottomText);
+
     const placeholder = new TextRenderable(renderer, {
         id: "placeholder",
         content: "Start a conversation with Vera.",
@@ -942,6 +967,7 @@ export async function startTui(
         },
     });
     app.add(transcript);
+    app.add(jumpToBottom);
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
@@ -1564,6 +1590,17 @@ export async function startTui(
                     transcript.scrollChildIntoView(`entry-${lastToolGroup}`);
                 }
             }
+            return;
+        }
+
+        if (
+            tuiBindingId("conversation", key) === "jump_to_bottom"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            transcript.scrollTo(transcript.scrollHeight);
+            renderJumpToBottom();
             return;
         }
 
@@ -4411,6 +4448,9 @@ export async function startTui(
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
+        jumpToBottomText.fg = theme.background;
+        jumpToBottomText.bg = theme.accent;
+        jumpToBottom.backgroundColor = theme.accent;
         commandSuggestionsText.fg = theme.text;
         composerBox.backgroundColor = theme.panel;
         composerBox.borderColor = theme.accent;
@@ -4513,10 +4553,36 @@ export async function startTui(
         }, COPY_NOTICE_DURATION_MS);
     }
 
+    /**
+     * Shows the jump-to-bottom pill whenever the transcript is not pinned to
+     * the bottom.
+     *
+     * Streaming grows the transcript rather than being held in a fixed live
+     * area, so the cost of scrolling up mid-turn is losing the stream, not a
+     * moving viewport. The pill is the way back. It is positioned absolutely
+     * over the transcript's last row so showing and hiding it never reflows
+     * anything, which is the whole point.
+     */
+    function renderJumpToBottom(): void {
+        const following = transcript.scrollTop
+            >= transcript.scrollHeight - transcript.viewport.height;
+        const visible = !following && !anyOverlayOpen();
+        jumpToBottom.visible = visible;
+        if (!visible) {
+            return;
+        }
+        jumpToBottom.top = transcript.y + transcript.height - 1;
+        jumpToBottom.left = Math.max(
+            0,
+            transcript.x + transcript.width - JUMP_TO_BOTTOM_LABEL.length - 2,
+        );
+    }
+
     function renderStatus(): void {
         if (shuttingDown) {
             return;
         }
+        renderJumpToBottom();
 
         let lifecycleHint = READY_HINT;
         if (connectionFailed) {

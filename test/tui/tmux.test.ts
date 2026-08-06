@@ -1902,12 +1902,92 @@ test.skipIf(!tmuxAvailable)(
     15_000,
 );
 
+test.skipIf(!tmuxAvailable)(
+    "scrolling away from the stream offers a way back to the bottom",
+    async () => {
+        const socket = `vera-jump-bottom-${process.pid}-${randomUUID()}`;
+        const session = "jump-bottom";
+        const home = mkdtempSync(join(tmpdir(), "vera-jump-bottom-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+                100,
+                14,
+            );
+            await waitForPane(socket, session, "Start a conversation");
+            expect(pane).not.toContain("Jump to bottom");
+
+            sendText(socket, session, "start streaming");
+            sendKey(socket, session, "Enter");
+            pane = await waitForPane(socket, session, "PARTIAL xxxxx");
+
+            sendMouseWheel(socket, session, "up", 20, 4, 10);
+            pane = await waitForPane(socket, session, "Jump to bottom");
+
+            sendKey(socket, session, "C-g");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => !current.includes("Jump to bottom"),
+                "pill hidden after the keyboard jump",
+            );
+
+            // The wheel is the other way back, and it has to re-engage the
+            // same follow the key does.
+            sendMouseWheel(socket, session, "up", 20, 4, 10);
+            pane = await waitForPane(socket, session, "Jump to bottom");
+            sendMouseWheel(socket, session, "down", 20, 4, 40);
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => !current.includes("Jump to bottom"),
+                "pill hidden at the bottom",
+            );
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
 function sendText(socket: string, session: string, value: string): void {
     runTmux(socket, ["send-keys", "-t", session, "-l", value]);
 }
 
 function sendKey(socket: string, session: string, key: string): void {
     runTmux(socket, ["send-keys", "-t", session, key]);
+}
+
+function sendMouseWheel(
+    socket: string,
+    session: string,
+    direction: "up" | "down",
+    x: number,
+    y: number,
+    times = 1,
+): void {
+    const button = direction === "up" ? 64 : 65;
+    const sequence = `\x1b[<${button};${x};${y}M`.repeat(times);
+    runTmux(socket, [
+        "send-keys",
+        "-t",
+        session,
+        "-H",
+        ...Array.from(Buffer.from(sequence), (byte) =>
+            byte.toString(16).padStart(2, "0")
+        ),
+    ]);
 }
 
 function sendMouseDrag(
