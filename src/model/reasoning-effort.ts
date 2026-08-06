@@ -1,3 +1,4 @@
+import { coarsenOneStep } from "./effort-ladder.ts";
 import type {
     EffortSubstitutedEvent,
     ModelReasoningEffort,
@@ -12,6 +13,12 @@ export interface ReasoningSelection {
     // Absent means the model has no known levels: the turn runs with no
     // level specified rather than guessing one.
     readonly providerEffort?: ProviderReasoningEffort;
+    /**
+     * The vera-side level `providerEffort` stands for, when the wire string
+     * for it is a different word. Notices speak in levels, the wire speaks in
+     * provider strings.
+     */
+    readonly level?: string;
     readonly inferred: boolean;
 }
 
@@ -24,6 +31,9 @@ export interface ResolveReasoningOptions {
     // The model's own default level, used when the requested level is not
     // one of its own. Matches `CatalogModel.default_level`.
     readonly defaultLevel?: string;
+    // The wire string for a level, when it differs from the level id. Only
+    // levels listed here are rewritten; anything else goes out as its own id.
+    readonly providerEfforts?: Readonly<Record<string, string>>;
 }
 
 export interface FetchRequest {
@@ -76,7 +86,48 @@ export async function resolveReasoningSelection(
         return { requested, inferred: false };
     }
 
-    return inferReasoningSelection(requested, supportedEfforts, options.defaultLevel);
+    // A caller that supplied the model's resolved effort map gets the same
+    // one-step rule request-time coarsening uses: the nearest supported
+    // neighbour, preferring less thinking. Placement's moderate fallback is
+    // for a level list with no map behind it, where there is no ladder
+    // position to step from.
+    const efforts = options.providerEfforts;
+    if (efforts !== undefined && !supportedEfforts.includes(requested)) {
+        const next = coarsenOneStep(requested, efforts);
+        if (next !== undefined) {
+            return {
+                requested,
+                providerEffort: next.providerEffort,
+                ...(next.level === next.providerEffort
+                    ? {}
+                    : { level: next.level }),
+                inferred: true,
+            };
+        }
+    }
+
+    const selection = inferReasoningSelection(
+        requested,
+        supportedEfforts,
+        options.defaultLevel,
+    );
+    return onWire(selection, options.providerEfforts);
+}
+
+function onWire(
+    selection: ReasoningSelection,
+    providerEfforts: Readonly<Record<string, string>> | undefined,
+): ReasoningSelection {
+    const wire = selection.providerEffort === undefined
+        ? undefined
+        : providerEfforts?.[selection.providerEffort];
+    return wire === undefined || wire === selection.providerEffort
+        ? selection
+        : {
+            ...selection,
+            providerEffort: wire,
+            level: selection.providerEffort as string,
+        };
 }
 
 /**
@@ -140,15 +191,14 @@ export function inferReasoningSelection(
 export function effortSubstitutionNotice(
     selection: ReasoningSelection,
 ): EffortSubstitutedEvent | undefined {
-    if (!selection.inferred || selection.providerEffort === selection.requested) {
+    const using = selection.level ?? selection.providerEffort;
+    if (!selection.inferred || using === selection.requested) {
         return undefined;
     }
     return {
         type: "effort_substituted",
         requested: selection.requested,
-        ...(selection.providerEffort === undefined
-            ? {}
-            : { using: selection.providerEffort }),
+        ...(using === undefined ? {} : { using }),
         reason: `the model does not offer effort "${selection.requested}"`,
     };
 }
@@ -199,20 +249,36 @@ async function fetchOpenRouterEfforts(
         && candidate !== null
         && (candidate as Record<string, unknown>).id === model
     ));
-    const reasoning = entry === undefined
+    const record = entry === undefined
         ? undefined
-        : (entry as Record<string, unknown>).reasoning;
+        : entry as Record<string, unknown>;
+    const reasoning = record?.reasoning;
     const supportedEfforts = typeof reasoning === "object" && reasoning !== null
         ? (reasoning as Record<string, unknown>).supported_efforts
         : undefined;
+    if (Array.isArray(supportedEfforts)) {
+        return uniqueNonEmptyStrings(supportedEfforts);
+    }
+    // The same signal the catalog fetcher reads: OpenRouter names the effort
+    // parameter in `supported_parameters` on models whose entry carries no
+    // per-model effort vocabulary, and maps a level such a model does not
+    // implement onto one it does. The levels here match that fetcher's, so the
+    // two never disagree about which models take an effort.
+    const parameters = Array.isArray(record?.supported_parameters)
+        ? uniqueNonEmptyStrings(record.supported_parameters)
+        : [];
+    if (
+        parameters.includes("reasoning")
+        || parameters.includes("reasoning_effort")
+    ) {
+        return ["high", "medium", "low"];
+    }
     // A model that announces no efforts has no reasoning control, which is a
     // fact about the model rather than a failure to look it up: most of
     // OpenRouter's list is in exactly this position. It runs with no level
     // specified. Only the lookup itself failing is an error, and those throw
     // above.
-    return Array.isArray(supportedEfforts)
-        ? uniqueNonEmptyStrings(supportedEfforts)
-        : [];
+    return [];
 }
 
 function uniqueNonEmptyStrings(values: readonly unknown[]): string[] {

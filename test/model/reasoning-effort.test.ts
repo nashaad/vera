@@ -209,3 +209,97 @@ test("a verbatim send is not a substitution", () => {
         inferred: false,
     })).toBeUndefined();
 });
+
+test("a resolved effort map coarsens one step instead of settling on a moderate level", async () => {
+    // The map is what the pool resolves for this model, so the request follows
+    // the same one-step rule a live refusal does: the nearest supported
+    // neighbour, preferring less thinking.
+    expect(await resolveReasoningSelection(
+        "openrouter",
+        "provider/model",
+        "max",
+        {
+            supportedEfforts: ["xhigh", "high", "medium", "low"],
+            providerEfforts: {
+                xhigh: "xhigh",
+                high: "high",
+                medium: "medium",
+                low: "low",
+            },
+        },
+    )).toEqual({
+        requested: "max",
+        providerEffort: "xhigh",
+        inferred: true,
+    });
+});
+
+test("a resolved effort map keeps the request off the network", async () => {
+    const fetchRequest = async (): Promise<Response> => {
+        throw new Error("no lookup should happen");
+    };
+
+    expect(await resolveReasoningSelection(
+        "openrouter",
+        "anthropic/claude-haiku-4.5",
+        "medium",
+        {
+            fetch: fetchRequest,
+            supportedEfforts: ["high", "medium", "low"],
+            providerEfforts: { high: "high", medium: "medium", low: "low" },
+        },
+    )).toEqual({
+        requested: "medium",
+        providerEffort: "medium",
+        inferred: true,
+    });
+});
+
+test("a level whose wire string differs is named by its level in the notice", async () => {
+    const selection = await resolveReasoningSelection(
+        "openrouter",
+        "provider/model",
+        "max",
+        {
+            supportedEfforts: ["high", "low"],
+            providerEfforts: { high: "think-hard", low: "think-a-bit" },
+        },
+    );
+
+    expect(selection).toEqual({
+        requested: "max",
+        providerEffort: "think-hard",
+        level: "high",
+        inferred: true,
+    });
+    expect(effortSubstitutionNotice(selection)).toMatchObject({
+        requested: "max",
+        using: "high",
+    });
+});
+
+test("a model naming the effort parameter but no vocabulary still gets levels", async () => {
+    // The same signal the catalog fetcher reads, so the two never disagree
+    // about which models take an effort.
+    const fetchRequest = async () => new Response(
+        JSON.stringify({
+            data: [{
+                id: "anthropic/claude-haiku-4.5",
+                reasoning: { mandatory: false },
+                supported_parameters: ["tools", "reasoning"],
+            }],
+        }),
+        { status: 200 },
+    );
+
+    expect(await resolveReasoningSelection(
+        "openrouter",
+        "anthropic/claude-haiku-4.5",
+        "medium",
+        { fetch: fetchRequest },
+    )).toEqual({
+        requested: "medium",
+        providerEffort: "medium",
+        inferred: true,
+    });
+});
