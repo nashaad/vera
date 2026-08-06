@@ -13,9 +13,12 @@ import {
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
     syncTuiModelPicker,
+    pickerFooter,
+    tuiPickerAfterSelection,
     tuiPickerMenuAncestor,
     withTuiPickerParent,
     type TuiAnySettingsPickerState,
+    type TuiSettingsPickerState,
 } from "../../clients/tui/settings-picker.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
@@ -992,7 +995,7 @@ const pooledModels = [
         model: "gpt-5.6-sol",
         label: "GPT-5.6-Sol",
         available: true,
-        status: "ready",
+        verified: true,
         description: "frontier coding model",
         levels: [],
     },
@@ -1001,22 +1004,24 @@ const pooledModels = [
         model: "z-ai/glm-5.2",
         label: "GLM-5.2",
         available: false,
-        status: "ready",
+        verified: true,
         levels: [],
     },
 ] as const;
 
 function modelPickerWithPool(
     pooled: readonly PooledModel[] = pooledModels,
+    currentModel = "z-ai/glm-5.2",
+    currentProvider = "openrouter",
 ) {
     return startTuiSettingsPicker(
         "model",
-        "moonshotai/kimi-k3",
+        currentModel,
         "max",
         "auto",
         availableModels,
         "default",
-        "openrouter",
+        currentProvider,
         undefined,
         pooled,
     );
@@ -1040,7 +1045,7 @@ test("the model pane opens on Pool, in the order the user's own use produced", a
     expect(frame).toContain("unavailable");
     expect(frame).toContain("All models");
     expect(frame).toContain("Pool");
-    expect(frame).toContain("Models you added to your pool.");
+    expect(frame).toContain("Your curated shortlist.");
 });
 
 test("with an empty pool the pane opens on explained All models", async () => {
@@ -1049,7 +1054,7 @@ test("with an empty pool the pane opens on explained All models", async () => {
     const state = modelPickerWithPool([]);
     expect(state.tab).toBe("all");
     expect(await pickerFrame(state)).toContain(
-        "Every model available from connected providers.",
+        "Everything your providers offer.",
     );
 });
 
@@ -1066,79 +1071,129 @@ test("⇥ moves to All models, which lists what can run", async () => {
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // The cycle continues through Top picks and returns to Pool.
-    const topTab = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state;
-    expect(topTab?.tab).toBe("top");
-    expect(await pickerFrame(topTab!)).toContain(
-        "Recommended model and reasoning combinations.",
-    );
-    expect(handleTuiSettingsPickerKey(topTab!, { name: "tab" }).state?.tab)
+    // Two tabs, so the next ⇥ is already back on Pool.
+    expect(handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state?.tab)
         .toBe("pool");
 });
 
-test("top picks bundle an effort and gray out unconnected providers", () => {
+const RECOMMENDED_FIXTURE = [
+    {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        label: "Kimi K3",
+        description: "runnable",
+        recommended: true,
+        recommendedLevel: "medium",
+    },
+    {
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        description: "runnable",
+    },
+];
+
+function allTabWithRecommendations(): TuiSettingsPickerState {
     const state = startTuiSettingsPicker(
         "model",
         undefined,
         undefined,
         undefined,
-        [{
-            provider: "openrouter",
-            model: "moonshotai/kimi-k3",
-            label: "Kimi K3",
-            description: "runnable",
-        }],
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        [
-            {
-                provider: "openrouter",
-                model: "moonshotai/kimi-k3",
-                label: "Kimi K3",
-                description: "verified generalist",
-                reasoningEffort: "medium",
-                available: true,
-            },
-            {
-                provider: "cerebras",
-                model: "gpt-oss-120b",
-                label: "GPT-OSS 120B",
-                description: "fast inference",
-                reasoningEffort: "medium",
-                available: false,
-            },
-        ],
+        RECOMMENDED_FIXTURE,
     );
-    const topTab = handleTuiSettingsPickerKey(
-        { ...state, tab: "all" },
-        { name: "tab" },
+    expect(state.tab).toBe("all");
+    return state;
+}
+
+/** The recommendation filter key, as the model pane's own scope reads it. */
+const FILTER_KEY = { name: "f", ctrl: true } as const;
+
+test("the top-picks filter narrows All models to the same rows, and back", () => {
+    const state = allTabWithRecommendations();
+    expect(state.options.map((option) => option.label))
+        .toEqual(["GLM-5.2", "Kimi K3"]);
+
+    const filtered = handleTuiSettingsPickerKey(state, FILTER_KEY).state!;
+    expect(filtered.recommendedOnly).toBe(true);
+    expect(filtered.tab).toBe("all");
+    expect(filtered.options.map((option) => option.label)).toEqual(["Kimi K3"]);
+    // The same object, not a second row standing for the same model.
+    expect(filtered.options[0]).toBe(state.options[1]!);
+    expect(state.allOptions.filter((option) =>
+        option.model === "moonshotai/kimi-k3"
+    )).toHaveLength(1);
+
+    // The same key turns it off and the full list comes back.
+    const restored = handleTuiSettingsPickerKey(filtered, FILTER_KEY).state!;
+    expect(restored.recommendedOnly).toBe(false);
+    expect(restored.options.map((option) => option.label))
+        .toEqual(["GLM-5.2", "Kimi K3"]);
+});
+
+test("the active filter is written on the strip and in the key hints", async () => {
+    const state = allTabWithRecommendations();
+    const filtered = handleTuiSettingsPickerKey(state, FILTER_KEY).state!;
+    const frame = await pickerFrame(filtered);
+
+    // A list that is short because of a filter has to say so.
+    expect(frame).toContain("All models [recommended]");
+    expect(frame).toContain("Recommended picks only.");
+    // And the way out of it stays on screen.
+    expect(frame).toContain("^f all models");
+    expect(await pickerFrame(state)).toContain("^f top picks");
+});
+
+test("the filter survives a tab away and back, and is not offered on Pool", () => {
+    const state = handleTuiSettingsPickerKey(
+        allTabWithRecommendations(),
+        FILTER_KEY,
     ).state!;
 
-    expect(topTab.tab).toBe("top");
-    expect(topTab.options.map((option) => option.label))
-        .toEqual(["Kimi K3", "GPT-OSS 120B"]);
-    // The runnable pick selects as a whole choice, model plus effort.
-    const chosen = handleTuiSettingsPickerKey(topTab, { name: "return" });
-    expect(chosen.selection).toEqual({
-        kind: "model",
-        provider: "openrouter",
-        model: "moonshotai/kimi-k3",
-        reasoningEffort: "medium",
-    });
-    // The grayed pick does not answer Enter: its provider is not connected.
-    const onGrayed = { ...topTab, selectedIndex: 1 };
-    expect(handleTuiSettingsPickerKey(onGrayed, { name: "return" }).selection)
-        .toBeUndefined();
-    // Top-pick rows stay off the All tab, which lists what can run.
-    const allTab = handleTuiSettingsPickerKey(
-        { ...state, tab: "pool" },
-        { name: "tab" },
+    const pool = handleTuiSettingsPickerKey(state, { name: "tab" }).state!;
+    expect(pool.tab).toBe("pool");
+    // Pool is the user's own list, which the filter has no claim on.
+    expect(handleTuiSettingsPickerKey(pool, FILTER_KEY).state?.recommendedOnly)
+        .toBe(true);
+    expect(handleTuiSettingsPickerKey(pool, FILTER_KEY).handled).toBe(false);
+
+    const back = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
+    expect(back.tab).toBe("all");
+    expect(back.recommendedOnly).toBe(true);
+    expect(back.options.map((option) => option.label)).toEqual(["Kimi K3"]);
+});
+
+test("search composes with the filter rather than escaping it", () => {
+    const state = handleTuiSettingsPickerKey(
+        allTabWithRecommendations(),
+        FILTER_KEY,
     ).state!;
-    expect(allTab.tab).toBe("all");
-    expect(allTab.options.map((option) => option.label))
-        .not.toContain("GPT-OSS 120B");
+
+    // GLM is runnable and would match, but it is not recommended and the user
+    // can see on the strip that the list is narrowed.
+    const searched = handleTuiSettingsPickerKey(state, { name: "g" }).state!;
+    expect(searched.options.map((option) => option.label)).toEqual([]);
+
+    // Clearing the query drops back to the filtered list, not to everything.
+    const cleared = handleTuiSettingsPickerKey(searched, { name: "backspace" })
+        .state!;
+    expect(cleared.options.map((option) => option.label)).toEqual(["Kimi K3"]);
+});
+
+test("a recommended level is a note on the row, not part of the choice", async () => {
+    const state = handleTuiSettingsPickerKey(
+        allTabWithRecommendations(),
+        FILTER_KEY,
+    ).state!;
+
+    // Selecting it names the model only. The level pane still follows, which is
+    // what makes the row behave the same filtered or not.
+    expect(handleTuiSettingsPickerKey(state, { name: "return" }).selection)
+        .toEqual({
+            kind: "model",
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+        });
+    expect(await pickerFrame(state)).toContain("medium");
 });
 
 test("no model appears twice, because pool membership is a mark on its own row", () => {
@@ -1154,32 +1209,69 @@ test("no model appears twice, because pool membership is a mark on its own row",
     expect(glm?.pooledRank).toBe(1);
 });
 
-test("a needs-verify pool row says so and offers ⏎ verify", async () => {
+test("an unverified pool row says so and offers the verify key", async () => {
     const state = modelPickerWithPool([{
         provider: "openrouter",
         model: "z-ai/glm-5.2",
         label: "GLM-5.2",
-        available: false,
-        status: "needs_verify",
+        available: true,
+        verified: false,
         levels: [],
     }]);
     const frame = await pickerFrame(state);
 
     expect(state.tab).toBe("pool");
-    // The row is kept but marked: it cannot run until admission passes, and
-    // the column that would carry "unavailable" says what ⏎ will do instead.
-    expect(frame).toContain("needs verify");
-    expect(frame).toContain("⏎ verify");
+    // The row runs like any other. The column carries the absence of
+    // evidence, and the footer offers the probe as a deliberate act.
+    expect(frame).toContain("openrouter · unverified");
+    expect(frame).toContain("verify");
     const row = state.options[state.selectedIndex];
-    expect(row?.needsVerify).toBe(true);
-    // Enter still reports the model choice; the caller routes a needs-verify
-    // choice to admission rather than to a settings change.
+    expect(row?.unverified).toBe(true);
+    // Enter still applies the model: nothing about the row is a gate.
     expect(handleTuiSettingsPickerKey(state, { name: "return" }).selection)
         .toEqual({
             kind: "model",
             provider: "openrouter",
             model: "z-ai/glm-5.2",
         });
+});
+
+test("a verified pool row says so beside its provider", async () => {
+    const state = modelPickerWithPool([{
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        available: true,
+        verified: true,
+        levels: [],
+    }]);
+    const frame = await pickerFrame(state);
+
+    // Verification and provider are separate facts; probing a row visibly
+    // changes it instead of trading one word for the other.
+    expect(frame).toContain("openrouter · verified");
+});
+
+test("the verify key asks for a probe of the selected pool row", () => {
+    const state = modelPickerWithPool([{
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        available: true,
+        verified: false,
+        levels: [],
+    }]);
+
+    expect(
+        handleTuiSettingsPickerKey(state, { name: "r", ctrl: true, shift: true })
+            .poolVerify,
+    ).toEqual({
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+    });
+    // Without the shift the chord means nothing here, so nothing is probed.
+    expect(handleTuiSettingsPickerKey(state, { name: "r", ctrl: true })
+        .poolVerify).toBeUndefined();
 });
 
 test("a model row is the name alone, with no description beside it", async () => {
@@ -1210,18 +1302,15 @@ test("a model row is the name alone, with no description beside it", async () =>
     expect(frame).not.toContain("…");
 });
 
-test("a search reaches models on the other tab", () => {
+test("a search stays inside the tab it was typed on", () => {
     const onPool = modelPickerWithPool();
     const searched = handleTuiSettingsPickerKey(onPool, { name: "k" });
 
-    // kimi is runnable but not pooled, so it has no row on this tab. Typing its
-    // name still finds it: the user is asking whether the model exists, not
-    // whether it exists on the tab they happen to be standing on.
+    // kimi is runnable but not pooled, so it has no row on this tab, and a
+    // search must not conjure one: the heading says Pool, so the rows under it
+    // are the pool.
     expect(searched.state?.options.map((option) => option.model))
-        .toContain("moonshotai/kimi-k3");
-    expect(searched.state?.options.filter((option) =>
-        option.model === "moonshotai/kimi-k3"
-    )).toHaveLength(1);
+        .not.toContain("moonshotai/kimi-k3");
 
     // Clearing the query drops back to the tab's own list.
     const cleared = handleTuiSettingsPickerKey(
@@ -1235,7 +1324,7 @@ test("a search reaches models on the other tab", () => {
 });
 
 test("ctrl+s asks to pool the highlighted model, and to remove a pooled one", () => {
-    const state = modelPickerWithPool([]);
+    const state = modelPickerWithPool([], "moonshotai/kimi-k3");
     const kimi = handleTuiSettingsPickerKey(state, { name: "s", ctrl: true });
 
     expect(kimi.poolToggle).toEqual({
@@ -1247,8 +1336,13 @@ test("ctrl+s asks to pool the highlighted model, and to remove a pooled one", ()
     // answers with a new snapshot.
     expect(kimi.state).toBe(state);
 
-    // The pane opens on Pool, whose first row is the most recently used entry.
-    const cursor = modelPickerWithPool();
+    // The pane opens with the cursor on the running model, so pooling or
+    // unpooling it is one key with nothing to aim first.
+    const cursor = modelPickerWithPool(
+        pooledModels,
+        "gpt-5.6-sol",
+        "openai-codex",
+    );
 
     expect(cursor.options[cursor.selectedIndex]?.model).toBe("gpt-5.6-sol");
     expect(
@@ -1262,18 +1356,26 @@ test("ctrl+s asks to pool the highlighted model, and to remove a pooled one", ()
 });
 
 test("the model picker footer names the action the highlighted row would take", async () => {
-    const onPoolRow = modelPickerWithPool();
+    const onPoolRow = modelPickerWithPool(
+        pooledModels,
+        "gpt-5.6-sol",
+        "openai-codex",
+    );
     expect(onPoolRow.options[onPoolRow.selectedIndex]?.model)
         .toBe("gpt-5.6-sol");
     expect(await pickerFrame(onPoolRow)).toContain("^s remove");
 
-    const onRunningModel = handleTuiSettingsPickerKey(
-        onPoolRow,
-        { name: "tab" },
-    ).state!;
-    expect(onRunningModel.options[onRunningModel.selectedIndex]?.model)
+    // On a row nobody pooled the same key says the opposite thing.
+    const onAll = handleTuiSettingsPickerKey(onPoolRow, { name: "tab" }).state!;
+    const onUnpooledRow = {
+        ...onAll,
+        selectedIndex: onAll.options.findIndex((option) =>
+            option.model === "moonshotai/kimi-k3"
+        ),
+    };
+    expect(onUnpooledRow.options[onUnpooledRow.selectedIndex]?.model)
         .toBe("moonshotai/kimi-k3");
-    expect(await pickerFrame(onRunningModel)).toContain("^s pool");
+    expect(await pickerFrame(onUnpooledRow)).toContain("^s pool");
 });
 
 test("a settings snapshot rebuilds the open pane without moving the cursor", () => {
@@ -1435,7 +1537,9 @@ test("the wheel moves the cursor, so enter still means the row on screen", () =>
     expect(handleTuiSettingsPickerScroll(down.state!, {
         direction: "up",
         delta: 3,
-    }).state?.selectedIndex).toBe(state.selectedIndex);
+    }).state?.selectedIndex).toBe(
+        Math.max(0, down.state!.selectedIndex - 3),
+    );
 });
 
 test("the wheel stops at both ends and ignores a sideways scroll", () => {
@@ -1467,4 +1571,94 @@ test("the pane names the half-page keys where it names the others", async () => 
     // ctrl+d and ctrl+u are unfindable otherwise: nothing on screen says a
     // pane responds to them.
     expect(await pickerFrame(modelPickerWithPool())).toContain("^d^u move");
+});
+
+test("a level listed twice is offered once", () => {
+    const state = startTuiReasoningPicker(
+        [
+            { id: "high", label: "Extra High" },
+            { id: "high", label: "High" },
+            { id: "low", label: "Low" },
+        ],
+        undefined,
+        "high",
+    );
+
+    expect(state.options.map((option) => option.value)).toEqual([
+        "high",
+        "low",
+    ]);
+    expect(state.options[0]?.label).toBe("Extra High");
+});
+
+test("choosing a model closes the pane, choosing a theme goes back to the menu", () => {
+    const menu = startTuiSettingsMenu("settings");
+    const modelPane = withTuiPickerParent(
+        startTuiSettingsPicker("model", undefined, undefined, undefined),
+        menu,
+    );
+
+    // Applying a model starts work that streams into the transcript, and a
+    // modal left open would sit in front of it.
+    expect(tuiPickerAfterSelection(
+        { kind: "model", provider: "openrouter", model: "moonshotai/kimi-k3" },
+        modelPane,
+    )).toBeUndefined();
+    const themePane = withTuiPickerParent(
+        startTuiSettingsPicker("theme", undefined, undefined, "default"),
+        menu,
+    );
+    expect(tuiPickerAfterSelection({ kind: "theme", theme: "orng" }, themePane))
+        .toBe(menu);
+});
+
+test("pooling a row refreshes the open pane from the snapshot that comes back", () => {
+    const state = handleTuiSettingsPickerKey(
+        modelPickerWithPool([]),
+        { name: "s", ctrl: true },
+    );
+
+    expect(state.state?.tab).toBe("all");
+    expect(state.poolToggle).toEqual({
+        action: "add",
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+    });
+
+    const pooled = [{
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        label: "GLM-5.2",
+        available: true,
+        verified: false,
+        levels: [],
+    }] as const;
+    const synced = syncTuiModelPicker(state.state!, {
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        availableModels,
+        pooled,
+    });
+
+    // The row is pooled now, so ^s on it offers to take it back out.
+    expect(synced.options[synced.selectedIndex]).toMatchObject({
+        model: "z-ai/glm-5.2",
+        pooledRank: 0,
+    });
+    expect(pickerFooter(synced)).toContain("remove");
+});
+
+test("the footer sheds whole hints rather than splitting a chord from its label", () => {
+    const state = modelPickerWithPool();
+    const full = pickerFooter(state);
+    const narrow = pickerFooter(state, 46);
+
+    expect(full.length).toBeGreaterThan(narrow.length);
+    expect(narrow.length).toBeLessThanOrEqual(46);
+    for (const hint of narrow.split(" · ")) {
+        expect(full).toContain(hint);
+    }
+    // Moving, choosing and leaving are what the pane is for, so they are the
+    // last hints to go.
+    expect(narrow).toContain("close");
 });

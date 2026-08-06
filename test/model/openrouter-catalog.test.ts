@@ -103,11 +103,20 @@ describe("normalizeOpenRouterModels", () => {
                 supported_parameters: ["tools", "reasoning_effort"],
             })],
         });
+        // Anthropic models list the `reasoning` object without the
+        // `reasoning_effort` shorthand; either word means an effort is taken.
+        const reasoningObject = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning"],
+            })],
+        });
         const plain = normalizeOpenRouterModels({ data: [model()] });
 
         // The order is the only thing that says which way is up, since level
         // ids are provider words rather than a scale.
         expect(reasoning.models[0]?.levels.map((level) => level.id))
+            .toEqual(["high", "medium", "low"]);
+        expect(reasoningObject.models[0]?.levels.map((level) => level.id))
             .toEqual(["high", "medium", "low"]);
         // Empty means no reasoning control at all, which is the truth here.
         expect(plain.models[0]?.levels).toEqual([]);

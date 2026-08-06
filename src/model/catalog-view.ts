@@ -8,9 +8,9 @@
  * deliberately, so only the user takes it out.
  *
  * Both carry the model's reasoning levels, resolved through
- * `effectiveCatalog`. A ready pool entry narrows those to the levels its
- * admission record verified. An empty level list is a fact, not a gap: it
- * means the model has no reasoning control.
+ * `effectiveCatalog`, narrowed by whatever the pool entry declares or has
+ * learned. An empty level list is a fact, not a gap: it means the model has
+ * no reasoning control.
  */
 
 import { effectiveCatalog, type EffectiveCatalogOptions } from "./catalog.ts";
@@ -20,11 +20,16 @@ import type {
     ReasoningLevelId,
 } from "./catalog-shape.ts";
 import {
-    readPool,
-    resolvePool,
-    type PoolStoreOptions,
-    type PoolVerification,
-} from "./pool-store.ts";
+    loadPoolFile,
+    type LoadPoolFileOptions,
+} from "./pool-file-loader.ts";
+import {
+    isCuratedPoolEntry,
+    isVerifiedPoolEntry,
+    type PoolFileModel,
+    providerOf,
+} from "./pool-file.ts";
+import { isSelectable, supportedEfforts } from "./pool-policy.ts";
 import type { SuggestedModel } from "./supported-models.ts";
 
 export interface AvailableModel {
@@ -36,6 +41,10 @@ export interface AvailableModel {
     /** Empty means the model has no reasoning control at all. */
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
+    /** True on a model Vera's shipped curation recommends. */
+    readonly recommended?: boolean;
+    /** The level the curation recommends it at. A note, not a gate. */
+    readonly recommendedLevel?: ReasoningLevelId;
 }
 
 export interface PooledModel {
@@ -44,22 +53,43 @@ export interface PooledModel {
     readonly label: string;
     /**
      * False when the model cannot run right now, never a reason to omit it.
-     * Only a ready entry whose provider currently lists the model is
-     * available; a needs-verify entry is never available regardless of what
-     * the provider lists.
+     * Availability is about the provider still listing the model, not about
+     * evidence: an unverified entry is usable the moment it is admitted.
      */
     readonly available: boolean;
-    /** Ready means a live admission record; needs_verify means admit first. */
-    readonly status: "ready" | "needs_verify";
+    /**
+     * True once a probe or a live rejection has established facts about this
+     * model on this key. False is not a warning, only an absence of evidence.
+     */
+    readonly verified: boolean;
     readonly description?: string;
     readonly contextWindow?: number;
     /** Empty means the model has no reasoning control, or is unavailable. */
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
+    /** True on a model Vera's shipped curation recommends. */
+    readonly recommended?: boolean;
+    /** The level the curation recommends it at. A note, not a gate. */
+    readonly recommendedLevel?: ReasoningLevelId;
+}
+
+/** The recommendation an entry carries, in the client-facing spelling. */
+function recommendation(
+    model: CatalogModel | undefined,
+): Pick<AvailableModel, "recommended" | "recommendedLevel"> {
+    if (model?.recommended !== true) {
+        return {};
+    }
+    return {
+        recommended: true,
+        ...(model.recommended_level === undefined
+            ? {}
+            : { recommendedLevel: model.recommended_level }),
+    };
 }
 
 export interface CatalogViewOptions
-    extends PoolStoreOptions, EffectiveCatalogOptions {}
+    extends LoadPoolFileOptions, EffectiveCatalogOptions {}
 
 /**
  * Adds each model's levels to the host's runnable list. Label and description
@@ -85,6 +115,7 @@ export function availableModelsWithLevels(
             ...(catalogModel?.default_level === undefined
                 ? {}
                 : { defaultLevel: catalogModel.default_level }),
+            ...recommendation(catalogModel),
         };
     });
 }
@@ -94,9 +125,9 @@ export function availableModelsWithLevels(
  * the catalog still describes a model whose provider has no credentials, and
  * describing a model is not being able to run it. The facts still come from
  * the catalog, so a runnable model the catalog has never heard of falls back
- * to what the runnable list already knows about it. A ready entry's level
- * list is the intersection of the catalog's levels with the ones admission
- * verified: the record is the authority on what this key can actually send.
+ * to what the runnable list already knows about it. An entry's level list is
+ * the catalog's levels resolved through the pool's own precedence, so a level
+ * a probe or a live rejection ruled out drops away.
  */
 export function pooledModels(
     available: readonly SuggestedModel[],
@@ -112,27 +143,36 @@ export function pooledModels(
         );
     }
 
-    return resolvePool(readPool(options), knownModels).map((entry) => {
-        const model = entry.catalogModel;
-        if (model === undefined) {
-            return {
-                provider: entry.provider,
-                model: entry.model,
-                label: entry.model,
-                available: false,
-                status: entry.status,
-                levels: [],
-            };
+    const file = loadPoolFile(options).merged;
+
+    return Object.entries(file.models).flatMap(([id, entry]): PooledModel[] => {
+        const provider = providerOf(id);
+        if (
+            provider === undefined || !isSelectable(id, file)
+            || !isCuratedPoolEntry(entry)
+        ) {
+            return [];
         }
-        const levels = entry.status === "ready"
-            ? verifiedLevels(model, entry.verification)
-            : model.levels;
-        return {
-            provider: entry.provider,
-            model: entry.model,
+        const name = id.slice(provider.length + 1);
+        const verified = isVerifiedPoolEntry(entry);
+        const model = knownModels.get(id);
+        if (model === undefined) {
+            return [{
+                provider,
+                model: name,
+                label: name,
+                available: false,
+                verified,
+                levels: [],
+            }];
+        }
+        const levels = resolvedLevels(model, entry);
+        return [{
+            provider,
+            model: name,
             label: model.label,
-            available: entry.status === "ready",
-            status: entry.status,
+            available: true,
+            verified,
             ...(model.description === undefined
                 ? {}
                 : { description: model.description }),
@@ -144,17 +184,38 @@ export function pooledModels(
                     || !levels.some((level) => level.id === model.default_level)
                 ? {}
                 : { defaultLevel: model.default_level }),
-        };
+            ...recommendation(model),
+        }];
     });
 }
 
-function verifiedLevels(
+/**
+ * The levels an entry may actually be asked for, resolved through the
+ * pool's own precedence. The catalog supplies each level's presentation where
+ * it knows the level; a level only the pool knows shows its wire string.
+ *
+ * Two ladder levels can resolve to one wire string, which is one choice for
+ * the user however many ladder rungs reach it, so the first wins and the
+ * repeat is dropped.
+ */
+function resolvedLevels(
     model: CatalogModel,
-    verification: PoolVerification,
+    entry: PoolFileModel,
 ): readonly ReasoningLevel[] {
-    return verification.levels.map((verified) =>
-        model.levels.find((level) => level.id === verified.provider_effort)
-            ?? { id: verified.provider_effort, label: verified.vera_effort });
+    const seen = new Set<string>();
+    return supportedEfforts({ entry, catalogModel: model }).flatMap(
+        (resolution) => {
+            const wire = resolution.wire;
+            if (wire === undefined || seen.has(wire)) {
+                return [];
+            }
+            seen.add(wire);
+            return [
+                model.levels.find((level) => level.id === wire)
+                    ?? { id: wire, label: resolution.level },
+            ];
+        },
+    );
 }
 
 /** One catalog read per provider, however many models are looked up. */

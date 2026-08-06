@@ -43,6 +43,8 @@ import {
     dialogRowPointer,
     type DialogRowPointer,
     dialogSearchNode,
+    type DialogMeta,
+    type DialogMetaPart,
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
@@ -107,12 +109,16 @@ export interface TuiSettingsPickerOption {
     readonly pooledRank?: number;
     /** True on a pool row whose model cannot run right now. */
     readonly unavailable?: boolean;
-    /** True on a pool row that must pass admission before it can run. */
-    readonly needsVerify?: boolean;
-    /** Set on a top-pick row: the effort the suggestion bundles in. */
-    readonly reasoningEffort?: ModelReasoningEffort;
-    /** True on a row that belongs to the Top picks tab. */
-    readonly topPick?: boolean;
+    /** True on a pool row with no probe or rejection evidence behind it. */
+    readonly unverified?: boolean;
+    /** True on a model Vera's shipped curation recommends. */
+    readonly recommended?: boolean;
+    /**
+     * The level the curation recommends this model at. Shown in the meta
+     * column and nothing more: the row selects the same way on every tab, so
+     * the level is still chosen on the level pane that follows.
+     */
+    readonly recommendedLevel?: string;
     /**
      * The heading this row belongs under. Model rows leave it unset and are
      * grouped by their provider instead, which is the same idea: a heading is
@@ -138,23 +144,15 @@ export interface TuiProviderRow {
 }
 
 /**
- * Three questions, three tabs. "All models" is what can run; "Pool" is the
- * short list the user keeps; "Top picks" is Vera's shipped suggestions, each a
- * model plus a reasoning setting, grayed where the provider is not connected.
- * All and Pool were one list with a pooled group on top, which showed every
- * kept model twice and so reduced nothing.
+ * Two questions, two views of one list. "All models" is what can run; "Pool" is
+ * the short list the user keeps. Both filter the same rows, so a model has
+ * exactly one row however many views it appears on.
+ *
+ * Vera's own recommendations are not a third view. They narrow All models, and
+ * a narrowing the user turns on and off is a filter rather than a place to be:
+ * a tab would have made the same rows reachable two ways.
  */
-export type TuiModelPickerTab = "all" | "pool" | "top";
-
-/** A curated suggestion row, availability already resolved by the caller. */
-export interface TuiTopPickRow {
-    readonly provider: string;
-    readonly model: string;
-    readonly label: string;
-    readonly description: string;
-    readonly reasoningEffort?: ModelReasoningEffort;
-    readonly available: boolean;
-}
+export type TuiModelPickerTab = "all" | "pool";
 
 export interface TuiExtensionPickerRow {
     readonly id: string;
@@ -185,6 +183,13 @@ export interface TuiSettingsPickerState {
     readonly loading?: boolean;
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
+    /**
+     * The All models tab narrowed to Vera's recommendations. It rides on the
+     * pane rather than on the tab so that leaving All models and coming back
+     * finds the list the user left, and it composes with search: a query while
+     * the filter is on searches the recommended models.
+     */
+    readonly recommendedOnly?: boolean;
     /**
      * The pane this one was opened from, absent when a slash command or a
      * palette row opened it directly. Escape steps back to it rather than
@@ -258,6 +263,12 @@ export interface TuiPoolToggle {
     readonly model: string;
 }
 
+/** The selected pool row, sent off to be probed on the user's say-so. */
+export interface TuiPoolVerify {
+    readonly provider: string;
+    readonly model: string;
+}
+
 export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
     readonly selection?: TuiSettingsPickerSelection;
@@ -268,6 +279,8 @@ export interface TuiSettingsPickerTransition {
      * always the list the host actually stored.
      */
     readonly poolToggle?: TuiPoolToggle;
+    /** Same contract as `poolToggle`: reported, not applied here. */
+    readonly poolVerify?: TuiPoolVerify;
     /**
      * The model pane asking for the connect pane over it. A request rather than
      * a state: which providers are connected is a fact about the disk, and only
@@ -354,27 +367,12 @@ export function startTuiSettingsPicker(
     currentProvider: string | undefined = undefined,
     availablePermissionModes: readonly string[] | undefined = undefined,
     pooled: readonly PooledModel[] | undefined = undefined,
-    topPicks: readonly TuiTopPickRow[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const allOptions = kind === "theme"
         ? THEME_OPTIONS
         : kind === "model"
-        ? modelOptions(
-            availableModels,
-            currentProvider,
-            currentModel,
-            pooled,
-            topPicks,
-        )
+        ? modelOptions(availableModels, currentProvider, currentModel, pooled)
         : permissionOptions(availablePermissionModes);
-    // The pane opens on Pool, which is the short list the user built for
-    // exactly this moment. It falls back to All when the pool is empty,
-    // since an empty tab answers no question at all.
-    const openingTab: TuiModelPickerTab =
-        modelTabOptions(allOptions, "pool").length > 0 ? "pool" : "all";
-    const options = kind === "model"
-        ? modelTabOptions(allOptions, openingTab)
-        : allOptions;
     const currentValue = kind === "theme"
         ? currentTheme
         : kind === "model"
@@ -382,6 +380,26 @@ export function startTuiSettingsPicker(
             ? undefined
             : providerModelKey(currentProvider, currentModel)
         : currentPermissions;
+    // The pane opens on the tab holding the running model, cursor on its row:
+    // the thing the user is most likely to act on is the model they are on,
+    // and pooling it is then one key away. Pool otherwise, which is the short
+    // list built for exactly this moment, and All when the pool is empty,
+    // since an empty tab answers no question at all.
+    const pooledOptions = modelTabOptions(allOptions, "pool");
+    const openingTab: TuiModelPickerTab =
+        pooledOptions.some((option) => option.value === currentValue)
+            ? "pool"
+            : currentValue !== undefined
+                && modelTabOptions(allOptions, "all").some((option) =>
+                    option.value === currentValue
+                )
+            ? "all"
+            : pooledOptions.length > 0
+            ? "pool"
+            : "all";
+    const options = kind === "model"
+        ? modelTabOptions(allOptions, openingTab)
+        : allOptions;
     const selectedIndex = Math.max(
         0,
         options.findIndex((option) => option.value === currentValue),
@@ -415,7 +433,6 @@ export function syncTuiModelPicker(
         readonly availableModels?: readonly SuggestedModel[];
         readonly pooled?: readonly PooledModel[];
     } | undefined,
-    topPicks: readonly TuiTopPickRow[] | undefined = undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
         return state;
@@ -431,13 +448,21 @@ export function syncTuiModelPicker(
         settings?.provider,
         undefined,
         settings?.pooled,
-        topPicks,
     );
     // The tab is the user's own place in the pane, so a snapshot arriving from
     // the host must not move them out of it. Adding a model from the Pool tab
     // would otherwise drop them back onto All mid-action.
     const tab = state.tab ?? "all";
-    const onTab = { ...rebuilt, tab, options: modelTabOptions(rebuilt.allOptions, tab) };
+    // The filter is the user's own place in the pane too, for the same reason
+    // the tab is: a snapshot arriving from the host must not turn it off under
+    // them mid-action.
+    const recommendedOnly = state.recommendedOnly === true;
+    const onTab = {
+        ...rebuilt,
+        tab,
+        ...(recommendedOnly ? { recommendedOnly } : {}),
+        options: modelTabOptions(rebuilt.allOptions, tab, recommendedOnly),
+    };
     const options = state.query.length === 0
         ? onTab.options
         : searched(onTab, state.query).state?.options ?? onTab.options;
@@ -480,7 +505,18 @@ export function startTuiReasoningPicker(
     currentReasoningEffort: ModelReasoningEffort | undefined,
     pendingModel: TuiPendingModelChoice | undefined = undefined,
 ): TuiSettingsPickerState {
-    const options = levels.map(levelOption);
+    // One row per level a request can actually name. A repeated id is one
+    // choice listed twice, and picking either row sends the same string.
+    const seen = new Set<ReasoningLevelId>();
+    const options = levels
+        .filter((level) => {
+            if (seen.has(level.id)) {
+                return false;
+            }
+            seen.add(level.id);
+            return true;
+        })
+        .map(levelOption);
     const highlighted = inferReasoningSelection(
         currentReasoningEffort ?? "",
         levels.map((level) => level.id),
@@ -625,6 +661,27 @@ export function tuiPickerMenuAncestor(
         current = current.parent;
     }
     return undefined;
+}
+
+/**
+ * Which pane, if any, is left on screen once a selection has been applied.
+ *
+ * Most answered panes step back to the menu they were opened from, so changing
+ * the theme and then the permissions is one trip through `/settings`.
+ *
+ * A model choice is the exception. Applying it reports into the transcript, and
+ * work started by it keeps reporting after the keypress: admitting the model,
+ * then whatever verifying it turns up. A card left over that transcript hides
+ * exactly the feedback the keypress asked for, so the whole chain closes.
+ */
+export function tuiPickerAfterSelection(
+    selection: TuiSettingsPickerSelection,
+    previous: TuiSettingsPickerState | undefined,
+): TuiSettingsPickerState | undefined {
+    if (selection.kind === "model" || previous === undefined) {
+        return undefined;
+    }
+    return tuiPickerMenuAncestor(previous);
 }
 
 export function startTuiSettingsMenu(
@@ -992,6 +1049,25 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
+    // Verification is on demand and never on the way in: adding a model is
+    // instant, and this is the key that spends probe calls deliberately.
+    if (
+        state.kind === "model"
+        && tuiBindingId("model_picker", key) === "verify_model"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (selected?.provider === undefined || selected.model === undefined) {
+            return unchanged(state, true);
+        }
+        return {
+            state,
+            handled: true,
+            poolVerify: {
+                provider: selected.provider,
+                model: selected.model,
+            },
+        };
+    }
     // Also ahead of the modifier bail-out, and modified for the same reason as
     // ctrl+s above: every bare key on the model pane belongs to its search box.
     if (
@@ -1000,6 +1076,40 @@ export function handleTuiSettingsPickerKey(
     ) {
         return { state, handled: true, openProviders: true };
     }
+    // The recommendation filter, and modified for the same reason as the keys
+    // above. It narrows All models rather than moving anywhere, so on the Pool
+    // tab there is nothing for it to narrow and it is left unclaimed.
+    if (
+        state.kind === "model"
+        && (state.tab ?? "all") === "all"
+        && tuiBindingId("model_picker", key) === "filter_recommended"
+    ) {
+        const recommendedOnly = state.recommendedOnly !== true;
+        const options = modelTabOptions(
+            state.allOptions,
+            "all",
+            recommendedOnly,
+        );
+        // The cursor follows the highlighted model. Turning the filter on
+        // usually drops the row it was on, so the fallback is the running
+        // model, which is where the user is in every other sense.
+        const selectedValue = state.options[state.selectedIndex]?.value;
+        return {
+            state: {
+                ...state,
+                recommendedOnly,
+                options: state.query.length === 0
+                    ? options
+                    : matching(options, state.query),
+                selectedIndex: restoredCursor(
+                    options,
+                    selectedValue,
+                    state.initialModel,
+                ),
+            },
+            handled: true,
+        };
+    }
     // Tab cycles the views of the same list. Shift is tolerated rather than
     // given its own direction: the cycle is short enough that forward always
     // gets there.
@@ -1007,33 +1117,30 @@ export function handleTuiSettingsPickerKey(
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
-        const cycle: readonly TuiModelPickerTab[] = ["pool", "all", "top"];
+        const cycle: readonly TuiModelPickerTab[] = ["pool", "all"];
         const tab: TuiModelPickerTab = cycle[
             (cycle.indexOf(state.tab ?? "all") + 1) % cycle.length
         ]!;
         const selectedValue = state.options[state.selectedIndex]?.value;
-        const options = modelTabOptions(state.allOptions, tab);
+        const options = modelTabOptions(
+            state.allOptions,
+            tab,
+            state.recommendedOnly === true,
+        );
         // The query is dropped on the way across. A search is a question about
         // one list, and carrying it over would land the user on an empty pane
         // with no sign of why.
-        // The cursor follows the highlighted model across. When that model has
-        // no row on the far tab it falls back to the running model rather than
-        // to row one, which is where the user is in every other sense.
-        const selectedIndex = options.findIndex(
-            (option) => option.value === selectedValue,
-        );
-        const running = options.findIndex(
-            (option) => option.value === state.initialModel,
-        );
         return {
             state: {
                 ...state,
                 tab,
                 options,
                 query: "",
-                selectedIndex: selectedIndex !== -1
-                    ? selectedIndex
-                    : Math.max(0, running),
+                selectedIndex: restoredCursor(
+                    options,
+                    selectedValue,
+                    state.initialModel,
+                ),
             },
             handled: true,
         };
@@ -1126,11 +1233,6 @@ export function handleTuiSettingsPickerKey(
     if (key.name === "return" || key.name === "enter") {
         const selected = state.options[state.selectedIndex];
         if (selected === undefined) {
-            return unchanged(state, true);
-        }
-        // A grayed top pick is a suggestion the user cannot run yet; choosing
-        // it would fail at the provider, so the row does not answer Enter.
-        if (selected.topPick === true && selected.unavailable === true) {
             return unchanged(state, true);
         }
         return {
@@ -1323,7 +1425,11 @@ function renderListPickerRows(
     }
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     if (tab !== undefined) {
-        const strip = modelTabStripNode(renderer, tab);
+        const strip = modelTabStripNode(
+            renderer,
+            tab,
+            (state as TuiSettingsPickerState).recommendedOnly === true,
+        );
         box.add(strip);
         nodes.push(strip);
     }
@@ -1405,7 +1511,10 @@ function renderListPickerRows(
         nodes.push(node);
     });
 
-    const footer = dialogFooterNode(renderer, pickerFooter(state));
+    const footer = dialogFooterNode(
+        renderer,
+        pickerFooter(state, pickerContentWidth(renderer, state)),
+    );
     box.add(footer);
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
@@ -1419,37 +1528,52 @@ const MODEL_TAB_STRIP_HEIGHT = 3;
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Pool"],
     ["all", "All models"],
-    ["top", "Top picks"],
 ];
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
-    pool: "Models you added to your pool.",
-    all: "Every model available from connected providers.",
-    top: "Recommended model and reasoning combinations.",
+    pool: "Your curated shortlist. ^s adds or removes models here.",
+    all: "Everything your providers offer. Enter runs one without pooling it.",
 };
+
+/**
+ * The All models tab under the recommendation filter. Both the label and the
+ * line under it say so: a list that is short for a reason the user turned on
+ * two keystrokes ago still has to say why it is short.
+ */
+const MODEL_TOP_PICKS_LABEL = "All models [recommended]";
 
 /**
  * The tabs, drawn as one line of labels with the active one accented, followed
  * by one line that explains the active collection. No borders or brackets: the
  * pane already has a card edge, and a second frame inside it reads as two panes
- * rather than three views of one list.
+ * rather than two views of one list.
  */
 function modelTabStripNode(
     renderer: RenderContext,
     tab: TuiModelPickerTab,
+    recommendedOnly: boolean,
 ): TextRenderable {
+    const filtered = tab === "all" && recommendedOnly;
     const chunks: TextChunk[] = [];
     MODEL_TAB_LABELS.forEach(([id, label], index) => {
         if (index > 0) {
             chunks.push(fg(TUI_MUTED)("   "));
         }
+        const text = id === "all" && filtered ? MODEL_TOP_PICKS_LABEL : label;
         chunks.push(
-            id === tab ? fg(TUI_ACCENT)(label) : fg(TUI_MUTED)(label),
+            id === tab ? fg(TUI_ACCENT)(text) : fg(TUI_MUTED)(text),
         );
     });
-    chunks.push(
-        fg(TUI_MUTED)(`\n${MODEL_TAB_DESCRIPTIONS[tab]}`),
-    );
+    // The filter is a mode the user turned on, so its line is accented rather
+    // than in the detail tone the other descriptions use: a list that is short
+    // has to say why at a glance, not only in the footer.
+    chunks.push(filtered
+        ? fg(TUI_ACCENT)(
+            `\nRecommended picks only. ${
+                tuiKeyHint("filter_recommended")
+            } shows all models.`,
+        )
+        : fg(TUI_MUTED)(`\n${MODEL_TAB_DESCRIPTIONS[tab]}`));
     return new TextRenderable(renderer, {
         content: new StyledText(chunks),
         width: "100%",
@@ -1458,7 +1582,40 @@ function modelTabStripNode(
     });
 }
 
-function pickerFooter(state: TuiAnySettingsPickerState): string {
+/**
+ * One hint per entry, in reading order, each with the order it is dropped in
+ * when the row will not fit: 0 is kept longest. A hint that wrapped would split
+ * a chord from its label, so the row sheds whole hints instead.
+ */
+interface PickerHint {
+    readonly text: string;
+    readonly drop: number;
+}
+
+function fittedHints(hints: readonly PickerHint[], width: number): string {
+    const kept = [...hints];
+    for (;;) {
+        const line = kept.map((hint) => hint.text).join(" · ");
+        if (width <= 0 || Bun.stringWidth(line) <= width || kept.length <= 1) {
+            return line;
+        }
+        let last = 0;
+        kept.forEach((hint, index) => {
+            if (hint.drop >= kept[last]!.drop) {
+                last = index;
+            }
+        });
+        if (kept[last]!.drop === 0) {
+            return line;
+        }
+        kept.splice(last, 1);
+    }
+}
+
+export function pickerFooter(
+    state: TuiAnySettingsPickerState,
+    width = 0,
+): string {
     if (state.kind === "session") {
         return [
             "↑↓ ^d^u move",
@@ -1500,17 +1657,35 @@ function pickerFooter(state: TuiAnySettingsPickerState): string {
                 // the one hint the table cannot hold for us.
                 ? tuiKeyHint("toggle_pooled").replace("pool", "remove")
                 : tuiKeyHint("toggle_pooled");
-        return [
-            // The movement entry carries the half-page keys rather than taking a
-            // separate slot: they are the same movement, and this footer is
+        return fittedHints([
+            // The movement entry carries the half-page keys rather than taking
+            // a separate slot: they are the same movement, and this footer is
             // already the longest one in the pane.
-            "↑↓ ^d^u move",
-            selected?.needsVerify === true ? "⏎ verify" : "⏎ select",
-            ...(pool === undefined ? [] : [pool]),
-            tuiKeyHint("open_providers"),
-            "⇥ tabs",
-            "esc close",
-        ].join(" · ");
+            { text: "↑↓ ^d^u move", drop: 0 },
+            { text: "⏎ select", drop: 0 },
+            ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
+            ...(selected?.provider === undefined
+                ? []
+                : [{ text: tuiKeyHint("verify_model"), drop: 4 }]),
+            // Only on the tab it narrows, and saying the opposite thing once it
+            // is on: the filter is the reason the list is short, so the way out
+            // of it has to be on screen. That is also why it outlives the
+            // hints around it while the filter is on.
+            ...((state.tab ?? "all") !== "all" ? [] : [
+                state.recommendedOnly === true
+                    ? {
+                        text: tuiKeyHint("filter_recommended").replace(
+                            "top picks",
+                            "all models",
+                        ),
+                        drop: 1,
+                    }
+                    : { text: tuiKeyHint("filter_recommended"), drop: 2 },
+            ]),
+            { text: tuiKeyHint("open_providers"), drop: 5 },
+            { text: "⇥ tabs", drop: 3 },
+            { text: "esc close", drop: 0 },
+        ], width);
     }
     return "↑↓ move · ⏎ select · esc close";
 }
@@ -1688,35 +1863,59 @@ function optionLeading(
 function optionMeta(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
-): string | undefined {
+): DialogMeta | undefined {
     if (state.kind === "session") {
         return option.workspace;
     }
     if (state.kind !== "model") {
         return undefined;
     }
-    // A needs-verify row must pass admission before it can run, and selecting
-    // it is what starts that, so the column says what pressing ⏎ will do.
-    if (option.needsVerify === true) {
-        return "needs verify";
+    // The column is facts, not one fact: a row can carry its provider, its
+    // availability, its recommended level, and its verification state at once.
+    const parts: DialogMetaPart[] = [];
+    const separated = (part: DialogMetaPart): void => {
+        if (parts.length > 0) {
+            parts.push({ text: " · " });
+        }
+        parts.push(part);
+    };
+    if (!isProviderGrouped(state) && option.provider !== undefined) {
+        separated({ text: option.provider });
     }
     // A pool row whose model the provider no longer lists says so, on every
     // view. It is the one thing about a row that a provider heading cannot
     // tell you, and choosing it is a dead end.
     if (option.unavailable === true) {
-        return option.topPick === true ? "not connected" : "unavailable";
+        separated({ text: "unavailable" });
     }
-    if (option.topPick === true) {
-        return option.reasoningEffort === undefined
-            ? option.provider
-            : `${option.provider} · ${option.reasoningEffort}`;
+    // The curation's level, on the model's own row rather than on a row of its
+    // own. It is a suggestion for the level pane that follows, not part of
+    // what selecting the row does.
+    if (option.recommendedLevel !== undefined) {
+        separated({ text: option.recommendedLevel });
     }
-    return isProviderGrouped(state) ? undefined : option.provider;
+    // An unverified row runs like any other. The word says only that no probe
+    // has established what the model can do yet; a probed pool row says so
+    // too, so verifying visibly changes the row.
+    if (option.pooledRank !== undefined) {
+        separated(option.unverified === true
+            ? { text: "unverified" }
+            : { text: "verified", tone: "positive" });
+    }
+    return parts.length === 0 ? undefined : parts;
 }
 
 function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     if (state.kind === "extension") {
         return "No options available";
+    }
+    if (state.kind === "model" && state.tab === "pool") {
+        return "No pooled models match. Tab switches to All models.";
+    }
+    if (state.kind === "model" && state.recommendedOnly === true) {
+        return `No recommended models match. ${
+            tuiKeyHint("filter_recommended")
+        } shows all models.`;
     }
     if (state.kind !== "session") {
         return "No matches found";
@@ -1805,25 +2004,58 @@ function themeSwatchChunks(name: TuiThemeName, matched: boolean): TextChunk[] {
     ]);
 }
 
-function searched(
-    state: TuiSettingsPickerState,
+/**
+ * Where the cursor lands on a list the user did not scroll: on the model they
+ * were highlighting if it survived, else on the running model, else row one.
+ * Shared by the tab keys and the filter key, which move the same cursor over
+ * the same rows for the same reason.
+ */
+function restoredCursor(
+    options: readonly TuiSettingsPickerOption[],
+    selectedValue: string | undefined,
+    initialModel: string | undefined,
+): number {
+    const selected = options.findIndex(
+        (option) => option.value === selectedValue,
+    );
+    if (selected !== -1) {
+        return selected;
+    }
+    return Math.max(
+        0,
+        options.findIndex((option) => option.value === initialModel),
+    );
+}
+
+function matching(
+    options: readonly TuiSettingsPickerOption[],
     query: string,
-): TuiSettingsPickerTransition {
+): readonly TuiSettingsPickerOption[] {
     const normalized = query.toLowerCase();
-    // Search spans both tabs. A user typing a model name is asking whether the
-    // model exists, not whether it exists on the tab they happen to be on, and
-    // a hit that stayed hidden behind the other tab would read as "not there".
-    // Clearing the query drops back to the tab's own list.
-    const searchable = state.kind === "model" && query.length === 0
-        ? modelTabOptions(state.allOptions, state.tab ?? "all")
-        : state.allOptions;
-    const options = searchable.filter((option) =>
+    return options.filter((option) =>
         `${option.label} ${option.value} ${option.description} ${
             option.searchText ?? ""
         }`
             .toLowerCase()
             .includes(normalized)
     );
+}
+
+function searched(
+    state: TuiSettingsPickerState,
+    query: string,
+): TuiSettingsPickerTransition {
+    // Search stays inside the active tab. The tab is a claim about what the
+    // list is showing, and a search that reached past it would leave the
+    // heading and the rows saying different things.
+    const searchable = state.kind !== "model"
+        ? state.allOptions
+        : modelTabOptions(
+            state.allOptions,
+            state.tab ?? "all",
+            state.recommendedOnly === true,
+        );
+    const options = matching(searchable, query);
     const next = { ...state, options, selectedIndex: 0, query };
     return {
         state: next,
@@ -1850,15 +2082,14 @@ function themePreview(
  * A pool entry the runnable list has never heard of still gets a row: the user
  * put it there deliberately, so only the user takes it out. It carries
  * `unavailable`, which is what keeps it off the All tab, where it would be a
- * dead end. A needs-verify entry additionally carries `needsVerify`: choosing
- * it starts admission rather than switching to it.
+ * dead end. An entry with no evidence behind it carries `unverified`, which is
+ * a note on the row rather than a gate: it can still be selected.
  */
 function modelOptions(
     available: readonly SuggestedModel[] | undefined,
     currentProvider: string | undefined,
     currentModel: string | undefined,
     pooled: readonly PooledModel[] = [],
-    topPicks: readonly TuiTopPickRow[] = [],
 ): readonly TuiSettingsPickerOption[] {
     const poolEntry = new Map(
         pooled.map((entry, rank) =>
@@ -1869,8 +2100,8 @@ function modelOptions(
         const held = poolEntry.get(value);
         return {
             ...(held === undefined ? {} : { pooledRank: held.rank }),
-            ...(held?.entry.status === "needs_verify"
-                ? { needsVerify: true }
+            ...(held !== undefined && !held.entry.verified
+                ? { unverified: true }
                 : {}),
         };
     };
@@ -1883,6 +2114,7 @@ function modelOptions(
             searchText: `${model.provider} ${model.model}`,
             provider: model.provider,
             model: model.model,
+            ...recommendationMarks(model),
             ...poolMarks(value),
         };
     });
@@ -1915,40 +2147,34 @@ function modelOptions(
             model: entry.model,
             pooledRank: rank,
             unavailable: true,
-            ...(entry.status === "needs_verify" ? { needsVerify: true } : {}),
+            ...recommendationMarks(entry),
+            ...(entry.verified ? {} : { unverified: true }),
         }];
     });
-    // Top picks are their own rows rather than marks on runnable rows: a pick
-    // bundles an effort, so the same model can be a pick and an All row with
-    // different meanings. They keep the catalog's own order, which is the
-    // curation, and sort after the runnable list so nothing above shifts.
-    // The effort is part of the row's identity: the same model can be
-    // suggested twice at different settings, and those are different picks.
-    const picks = topPicks.map((pick) => ({
-        value: JSON.stringify([
-            pick.provider,
-            pick.model,
-            "top",
-            pick.reasoningEffort ?? "",
-        ]),
-        label: pick.label,
-        description: pick.description,
-        searchText: `${pick.provider} ${pick.model}`,
-        provider: pick.provider,
-        model: pick.model,
-        topPick: true,
-        ...(pick.reasoningEffort === undefined
+    return [...runnable, ...orphanEntries].toSorted((left, right) =>
+        left.provider.localeCompare(right.provider)
+            || left.label.localeCompare(right.label)
+    );
+}
+
+/**
+ * The curation's marks on a model row. A recommendation is two notes on the
+ * one row rather than a row of its own, so the Top picks tab can filter the
+ * same list every other tab shows.
+ */
+function recommendationMarks(model: {
+    readonly recommended?: boolean;
+    readonly recommendedLevel?: string;
+}): Partial<TuiSettingsPickerOption> {
+    if (model.recommended !== true) {
+        return {};
+    }
+    return {
+        recommended: true,
+        ...(model.recommendedLevel === undefined
             ? {}
-            : { reasoningEffort: pick.reasoningEffort }),
-        ...(pick.available ? {} : { unavailable: true }),
-    }));
-    return [
-        ...[...runnable, ...orphanEntries].toSorted((left, right) =>
-            left.provider.localeCompare(right.provider)
-                || left.label.localeCompare(right.label)
-        ),
-        ...picks,
-    ];
+            : { recommendedLevel: model.recommendedLevel }),
+    };
 }
 
 /**
@@ -1962,13 +2188,12 @@ function modelOptions(
 function modelTabOptions(
     allOptions: readonly TuiSettingsPickerOption[],
     tab: TuiModelPickerTab,
+    recommendedOnly = false,
 ): readonly TuiSettingsPickerOption[] {
-    if (tab === "top") {
-        return allOptions.filter((option) => option.topPick === true);
-    }
     if (tab === "all") {
         return allOptions.filter((option) =>
-            option.unavailable !== true && option.topPick !== true
+            option.unavailable !== true
+            && (!recommendedOnly || option.recommended === true)
         );
     }
     return allOptions
@@ -1989,16 +2214,10 @@ function pickerSelection(
         if (option.provider === undefined || option.model === undefined) {
             throw new Error("model picker option is missing provider identity");
         }
-        return {
-            kind,
-            provider: option.provider,
-            model: option.model,
-            // A top pick is a whole choice, model and effort together, so
-            // selecting one skips the chained level pane.
-            ...(option.reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: option.reasoningEffort }),
-        };
+        // Model only. A recommended level is a note on the row, not part of
+        // the choice: the row has to select the same way on every tab, or the
+        // tabs stop being views of one list.
+        return { kind, provider: option.provider, model: option.model };
     }
     const value = option.value;
     if (kind === "provider") {

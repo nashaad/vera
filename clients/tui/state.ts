@@ -4,6 +4,7 @@ import { bg, bold, fg, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
+import { formatModelSubstitution } from "../../src/engine/protocol.ts";
 import type {
     CompactionUpdate,
     ModelActivityUpdate,
@@ -11,6 +12,8 @@ import type {
     PoolAdmissionResultUpdate,
     TranscriptEntry,
 } from "../../src/engine/protocol.ts";
+import type { PoolAdmissionVerdict } from "../../src/engine/events.ts";
+import type { PooledModel } from "../../src/model/catalog-view.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
@@ -19,7 +22,11 @@ import type {
     PermissionInspection,
 } from "../../src/engine/permissions.ts";
 import type { TuiTheme } from "./theme.ts";
+import type { ModelSubstitution } from "../../src/model/types.ts";
 import { tuiKeyHint } from "./keymap.ts";
+
+/** Marks the rows where the turn ran on something other than what was asked. */
+const SUBSTITUTION_MARKER = "\u21c4";
 import { VERA_TUI_THEME } from "./theme.ts";
 
 export type TuiTranscriptEntryKind =
@@ -32,6 +39,7 @@ export type TuiTranscriptEntryKind =
     | "review"
     | "notice"
     | "notification"
+    | "substitution"
     | "diff";
 
 export interface TuiTextTranscriptEntry {
@@ -122,7 +130,7 @@ export interface TuiAdmissionState {
     readonly requestId: string;
     readonly subject: string;
     readonly steps: readonly TuiAdmissionStep[];
-    readonly verdict?: "added" | "incompatible" | "unavailable";
+    readonly verdict?: PoolAdmissionVerdict;
     readonly provider?: string;
     readonly model?: string;
     readonly reason?: string;
@@ -387,18 +395,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return applyAdmissionResult(state, update);
     }
     if (update.type === "model_settings_rejected") {
-        // Every settings change is announced optimistically the moment it is
-        // sent, so swallowing the refusal leaves the transcript claiming a
-        // change that never happened. Only "invalid" is a refusal of what was
-        // asked for: "unavailable" means the engine is not wired to answer
-        // yet, which a reader can do nothing about and which fires during a
-        // normal startup read.
-        return update.reason === "invalid"
-            ? appendTuiNotice(
-                state,
-                "model settings change rejected: that combination is not supported",
-            )
-            : state;
+        // The refusal is written where the request is known, which is the only
+        // place that can name what was asked for. A line here could say no more
+        // than that something was refused.
+        return state;
     }
     if (update.type === "permissions") {
         return {
@@ -434,6 +434,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "compaction") {
         return applyCompaction(state, update);
+    }
+    if (update.type === "model_substitution") {
+        return appendEntry(state, substitutionEntry(update));
     }
     return assertNever(update);
 }
@@ -618,6 +621,25 @@ export function tuiAdmissionStepLines(
 }
 
 /**
+ * The pool as prose, one line per entry: what it is, at what effort, whether a
+ * probe has confirmed it, and where it runs.
+ */
+export function tuiPoolListing(
+    pooled: readonly PooledModel[] | undefined,
+): string {
+    if (pooled === undefined || pooled.length === 0) {
+        return "Your pool is empty. ^s in the model picker adds a model to it.";
+    }
+    const lines = pooled.map((entry) => {
+        const effort = entry.defaultLevel ?? "provider default";
+        const state = entry.verified ? "verified" : "unverified";
+        const availability = entry.available ? "" : ", unavailable right now";
+        return `  ${entry.model} · ${effort} · ${state} · ${entry.provider}${availability}`;
+    });
+    return [`Pool (${pooled.length}):`, ...lines].join("\n");
+}
+
+/**
  * The verdict as one factual line, or undefined while the run is live. What
  * to do next (retry, dismiss) belongs to the surface showing it: the dialog
  * says it in its footer, the transcript appends its own sentence.
@@ -634,6 +656,11 @@ export function tuiAdmissionVerdictLine(
     }
     if (admission.verdict === "incompatible") {
         return `Not added, incompatible${
+            admission.reason === undefined ? "" : `: ${admission.reason}`
+        }`;
+    }
+    if (admission.verdict === "pool_write_refused") {
+        return `Not added, the pool file was left untouched${
             admission.reason === undefined ? "" : `: ${admission.reason}`
         }`;
     }
@@ -690,6 +717,16 @@ function withAdmissionEntry(
                 at === index ? entry : candidate
             ),
         };
+}
+
+/** The row a substitution gets, live and on replay alike. */
+function substitutionEntry(
+    substitution: ModelSubstitution,
+): TuiTranscriptEntry {
+    return {
+        kind: "substitution",
+        text: formatModelSubstitution(substitution),
+    };
 }
 
 export function appendTuiNotice(state: TuiState, message: string): TuiState {
@@ -811,6 +848,14 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     if (entry.kind === "tool") {
         return new StyledText([
             fg(TUI_MUTED)(`${entry.prefix ?? ""}${tuiToolRowText(entry)}`),
+        ]);
+    }
+    if (entry.kind === "substitution") {
+        // Its own marker rather than a plain notice: a substitution says the
+        // turn did not run on what was asked for, which outlives the run.
+        return new StyledText([
+            bold(fg(TUI_NOTICE)(`${SUBSTITUTION_MARKER} `)),
+            fg(TUI_NOTICE)(entry.text),
         ]);
     }
     if (entry.kind === "notice" || entry.kind === "review") {
@@ -1292,6 +1337,9 @@ function toSingleTuiTranscriptEntry(
     }
     if (entry.kind === "presentation") {
         return presentationEntry(entry.presentation);
+    }
+    if (entry.kind === "model_substitution") {
+        return substitutionEntry(entry.substitution);
     }
     if (entry.kind === "empty") {
         return emptyTurnEntry();

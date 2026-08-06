@@ -5,8 +5,10 @@ import {
     configuredModelFallback,
     configuredReviewer,
     loadVeraConfig,
+    VeraConfigError,
     type VeraConfig,
 } from "../../src/config.ts";
+import { renderCliFailure } from "../cli/main.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
@@ -34,7 +36,16 @@ interface StdioEndInput {
 
 type StdioInput = StdioLineInput | StdioEndInput;
 
-const config = loadVeraConfig();
+let config: VeraConfig;
+try {
+    config = loadVeraConfig();
+} catch (error) {
+    if (error instanceof VeraConfigError) {
+        process.stderr.write(`${renderCliFailure(error)}\n`);
+        process.exit(1);
+    }
+    throw error;
+}
 const defaultProvider = config.provider ?? "openrouter";
 // Routed, matching the resident host. The reviewer can be configured on a
 // different provider than the agent, and a fixed adapter would silently send

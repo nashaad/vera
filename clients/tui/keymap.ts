@@ -194,6 +194,17 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^s pool",
     },
     {
+        // Reported as ctrl+shift+r only under the kitty keyboard protocol, the
+        // same caveat the half-page chords above carry. Elsewhere it arrives
+        // as plain ctrl+r, which this scope binds to nothing, so the chord
+        // goes unmatched rather than firing a probe nobody asked for.
+        id: "verify_model",
+        keys: ["ctrl+shift+r"],
+        scope: "model_picker",
+        description: "Probe the selected model and record what it can do",
+        hint: "^⇧r verify",
+    },
+    {
         id: "open_providers",
         keys: ["ctrl+e"],
         scope: "model_picker",
@@ -206,6 +217,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Switch between pool and all models",
         hint: "tab switch",
+    },
+    {
+        id: "filter_recommended",
+        keys: ["ctrl+f"],
+        scope: "model_picker",
+        description: "Narrow the list to the models Vera recommends",
+        hint: "^f top picks",
     },
     {
         id: "rename_session",

@@ -1,4 +1,8 @@
-import { projectTranscript, type TranscriptEntry } from "./engine/protocol.ts";
+import {
+    formatModelSubstitution,
+    projectTranscript,
+    type TranscriptEntry,
+} from "./engine/protocol.ts";
 import { readSessionSnapshot } from "./store/session-store.ts";
 
 export type SessionExportFormat = "markdown" | "json";
@@ -107,8 +111,14 @@ function markdownFence(content: string): string {
 }
 
 function renderTranscriptText(
-    entry: Extract<TranscriptEntry, { kind: "user" | "assistant" }>,
+    entry: Extract<
+        TranscriptEntry,
+        { kind: "user" | "assistant" | "model_substitution" }
+    >,
 ): string {
+    if (entry.kind === "model_substitution") {
+        return formatModelSubstitution(entry.substitution);
+    }
     if (entry.kind !== "user" || entry.attachments === undefined) return entry.text;
     const images = entry.attachments.map(
         (attachment) => `[Image attachment: ${attachment.name ?? attachment.id}]`,
@@ -117,17 +127,22 @@ function renderTranscriptText(
 }
 
 function transcriptHeading(entry: TranscriptEntry): string {
-    return entry.kind === "user"
-        ? "## You"
-        : entry.kind === "assistant"
-            ? "## Vera"
-            : entry.kind === "error"
-                ? "## Model error"
-                : entry.kind === "presentation"
-                    ? "## Tool result"
-                    : entry.kind === "empty"
-                        ? "## Vera"
-                        : `## Tool · ${escapeHeading(entry.tool)}`;
+    if (entry.kind === "user") {
+        return "## You";
+    }
+    if (entry.kind === "assistant" || entry.kind === "empty") {
+        return "## Vera";
+    }
+    if (entry.kind === "error") {
+        return "## Model error";
+    }
+    if (entry.kind === "model_substitution") {
+        return "## Model substitution";
+    }
+    if (entry.kind === "presentation") {
+        return "## Tool result";
+    }
+    return `## Tool · ${escapeHeading(entry.tool)}`;
 }
 
 function quoteMarkdown(text: string): string {

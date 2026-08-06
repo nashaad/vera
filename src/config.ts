@@ -121,6 +121,20 @@ export function defaultVeraConfigPath(): string {
 }
 
 /**
+ * A config file that exists but cannot be used. Carries the path so a client
+ * can tell the user which file to fix instead of printing a stack.
+ */
+export class VeraConfigError extends Error {
+    readonly path: string;
+
+    constructor(path: string, problem: string) {
+        super(`Vera config at ${path} could not be read: ${problem}`);
+        this.name = "VeraConfigError";
+        this.path = path;
+    }
+}
+
+/**
  * For callers that only want the optional fields (a client reading its own
  * extension list, say). A host cannot run without a config, but a client
  * attaching to a host that is already running should not die over a file it
@@ -157,13 +171,19 @@ export function loadVeraConfig(
         value = JSON.parse(source);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Invalid JSON in Vera config at ${path}: ${message}`);
+        throw new VeraConfigError(path, `it is not valid JSON (${message})`);
     }
 
     const config = parseVeraConfig(value);
     if (config === undefined) {
-        throw new Error(
-            `Invalid Vera config at ${path}: expected schema_version 1, provider openrouter, openai-codex, ollama, or cerebras, a non-empty model string, an optional non-empty reasoning_effort string, optional approval_mode ask, auto, or full_access, and optional fallback with a different model and after_failures from 1 to 3.`,
+        throw new VeraConfigError(
+            path,
+            "it is valid JSON but not a Vera config. It expected"
+                + " schema_version 1, provider openrouter, openai-codex,"
+                + " ollama, or cerebras, a non-empty model string, an optional"
+                + " non-empty reasoning_effort string, optional approval_mode"
+                + " ask, auto, or full_access, and optional fallback with a"
+                + " different model and after_failures from 1 to 3.",
         );
     }
     const extensionDirectory = options.extensionDirectory
@@ -231,15 +251,15 @@ export function updateVeraConfigDefaults(
 /**
  * Keys in `~/.vera/config.json` that belong to some other writer. `VeraConfig`
  * cannot represent them, so updating the defaults would round-trip the file
- * through a type that drops them: a `/model` change used to silently erase the
- * user's whole pin list. They are read back raw and carried across instead.
+ * through a type that drops them. They are read back raw and carried across
+ * instead. Nothing shares this file today; the model pool has its own.
  *
  * This is a list rather than "preserve everything unknown" on purpose. A key
  * this file no longer models is not automatically foreign; it may be one this
  * file deliberately migrated away from, and carrying those across would
  * resurrect them. Add a key here when a new owner starts writing to this file.
  */
-const FOREIGN_CONFIG_KEYS = ["pinned", "pool"] as const;
+const FOREIGN_CONFIG_KEYS: readonly string[] = [];
 
 function foreignConfigEntries(path: string): Record<string, unknown> {
     let raw: Record<string, unknown>;

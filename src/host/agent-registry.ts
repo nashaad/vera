@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
 import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
+import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import {
     builtInPermissionMode,
     isApprovalMode,
@@ -11,6 +12,7 @@ import {
 import type { ToolHooks } from "../engine/hooks.ts";
 import type { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
+import type { EffortPool } from "../model/effort-pool.ts";
 import {
     availableModels,
     availableReasoningEfforts,
@@ -34,6 +36,7 @@ import {
     createSubagentEffectApplier,
     resolveSpawnModelChoice,
     type SpawnModelDefault,
+    type SubagentPoolPolicy,
 } from "../engine/subagent.ts";
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
@@ -144,6 +147,16 @@ export interface AgentRegistryOptions {
     readonly approvalMode: ApprovalMode;
     readonly maxConcurrentBackgroundAgents?: number;
     readonly modelFallback?: ModelFallbackPolicy;
+    /**
+     * Reads and writes the declarative model pool. The host owns the file; the
+     * engine only ever sees this interface.
+     *
+     * Built per agent from that agent's workspace, because the pool has a
+     * project scope: one host serves agents in different checkouts, and a
+     * single pool built at startup would apply one project's overlay to all
+     * of them.
+     */
+    readonly createEffortPool?: (projectRoot: string) => EffortPool;
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
@@ -162,15 +175,16 @@ export interface AgentRegistryOptions {
      * the host runs, so a snapshot taken when it came up would freeze the
      * list for the life of the host.
      */
-    readonly readPool?: () => readonly PooledModel[];
+    readonly readPool?: (projectRoot?: string) => readonly PooledModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     /**
-     * Runs admission for one model and, on success, writes the pool entry.
+     * Writes the pool entry for one model, and probes it first when asked.
      * Separate from `readPool` because the two have different lifetimes:
-     * reads happen on every snapshot, admission only when the user asks, and
-     * only admission spends probe calls and touches the user's config file.
+     * reads happen on every snapshot, admission only when the user asks.
+     * Only a verifying admission reaches the provider; a plain one is the
+     * catalog copy and never blocks on a call.
      */
     readonly admitToPool?: (
         entry: { readonly provider: string; readonly model: string },
@@ -180,8 +194,9 @@ export interface AgentRegistryOptions {
             readonly status: "running" | "passed" | "failed" | "skipped";
             readonly detail?: string;
         }) => void,
+        options?: { readonly verify?: boolean },
     ) => Promise<{
-        readonly verdict: "added" | "incompatible" | "unavailable";
+        readonly verdict: PoolAdmissionVerdict;
         readonly reason?: string;
         readonly statusCode?: number;
     }>;
@@ -196,6 +211,12 @@ export interface AgentRegistryOptions {
     readonly createToolHooks?: () => ToolHooks;
     /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
+    /**
+     * Allow/deny, the failsafe list and declared families for the subagent
+     * ladder. Read per spawn for the same reason as `readPool`: the user
+     * edits the pool file while the host runs.
+     */
+    readonly readPolicy?: (projectRoot?: string) => SubagentPoolPolicy;
     /**
      * Where discovery snapshots are read from when resolving a model's
      * reasoning levels; absent, the per-user cache directory.
@@ -285,6 +306,8 @@ export class AgentRegistry {
     private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
     private readonly maxConcurrentBackgroundAgents: number;
     private readonly startingBackgroundAgents = new Map<string, number>();
+    /** Child id to the ladder notice its spawn produced, if any. */
+    private readonly spawnNotices = new Map<string, string>();
     private readonly catalog: EffectiveCatalogOptions;
 
     constructor(private readonly options: AgentRegistryOptions) {
@@ -440,6 +463,7 @@ export class AgentRegistry {
         entry.agent.close();
         await entry.run;
         this.agents.delete(targetId);
+        this.spawnNotices.delete(targetId);
         try {
             await this.trashArtifacts({
                 sessionPath: entry.store.path,
@@ -490,24 +514,9 @@ export class AgentRegistry {
             ?? entry.modelSettings.provider
             ?? this.defaultProvider;
         const model = patch.model?.trim() ?? entry.modelSettings.model;
-        // Pool membership is the third named gate: switching to a model that
-        // is not ready in the pool is refused, and the client routes the
-        // request into add-and-verify instead. Hosts without a pool reader
-        // (tests, embedded uses) keep the old behavior.
-        if (
-            (patch.model !== undefined || patch.provider !== undefined)
-            && this.options.readPool !== undefined
-            && !(model === entry.modelSettings.model
-                && provider === (
-                    entry.modelSettings.provider ?? this.defaultProvider
-                ))
-            && !this.options.readPool().some((pooled) =>
-                pooled.status === "ready"
-                && pooled.provider === provider
-                && pooled.model === model)
-        ) {
-            return undefined;
-        }
+        // Pool membership does not gate this. The pool is the user's curated
+        // shortlist, not the set of models they are allowed to run: choosing a
+        // model from the catalog runs it and adds nothing.
         try {
             entry.adapter?.prepareProvider(provider);
         } catch {
@@ -562,7 +571,7 @@ export class AgentRegistry {
             entry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
             this.options.availableModels,
-            this.options.readPool?.(),
+            this.options.readPool?.(entry.store.header.cwd),
             this.options.subagentModel,
         );
     }
@@ -579,8 +588,9 @@ export class AgentRegistry {
         onStep: Parameters<
             NonNullable<AgentRegistryOptions["admitToPool"]>
         >[1],
+        options?: { readonly verify?: boolean },
     ): Promise<{
-        verdict: "added" | "incompatible" | "unavailable";
+        verdict: PoolAdmissionVerdict;
         reason?: string;
         statusCode?: number;
         settings?: ModelTurnSettings;
@@ -597,7 +607,7 @@ export class AgentRegistry {
         const outcome = await this.options.admitToPool({
             provider: entry.provider.trim(),
             model: entry.model.trim(),
-        }, onStep);
+        }, onStep, options);
         if (outcome.verdict !== "added") {
             return outcome;
         }
@@ -608,7 +618,7 @@ export class AgentRegistry {
                 agentEntry.modelSettings.provider ?? this.defaultProvider,
                 this.catalog,
                 this.options.availableModels,
-                this.options.readPool?.(),
+                this.options.readPool?.(agentEntry.store.header.cwd),
                 this.options.subagentModel,
             ),
         };
@@ -680,7 +690,7 @@ export class AgentRegistry {
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
             this.options.availableModels,
-            this.options.readPool?.(),
+            this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
         );
     }
@@ -928,10 +938,20 @@ export class AgentRegistry {
             extensionTools: this.options.extensionTools,
             ...(this.options.readPool === undefined
                 ? {}
-                : { readPool: this.options.readPool }),
+                : {
+                    readPool: () =>
+                        this.options.readPool?.(store.header.cwd) ?? [],
+                }),
             ...(this.options.subagentModel === undefined
                 ? {}
                 : { subagentModel: this.options.subagentModel }),
+            ...(this.options.readPolicy === undefined
+                ? {}
+                : {
+                    readPolicy: () =>
+                        this.options.readPolicy?.(store.header.cwd)
+                            ?? {},
+                }),
             relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
                 this.relayChildToolApproval(
                     entry,
@@ -987,6 +1007,13 @@ export class AgentRegistry {
                 eventBus: events,
                 approvalMode: entry.approvalMode,
                 modelFallback: this.options.modelFallback,
+                ...(this.options.createEffortPool === undefined
+                    ? {}
+                    : {
+                        effortPool: this.options.createEffortPool(
+                            store.header.cwd,
+                        ),
+                    }),
                 ...(this.options.reviewer === undefined
                     ? {}
                     : { reviewer: this.options.reviewer }),
@@ -1016,13 +1043,13 @@ export class AgentRegistry {
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.catalog,
                     this.options.availableModels,
-                    this.options.readPool?.(),
+                    this.options.readPool?.(store.header.cwd),
                     this.options.subagentModel,
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
-                poolAdd: (entry, onStep) =>
-                    this.poolAdd(agent.id, entry, onStep),
+                poolAdd: (entry, onStep, options) =>
+                    this.poolAdd(agent.id, entry, onStep, options),
                 poolRemove: (entry) =>
                     this.poolRemove(agent.id, entry),
                 readApprovalMode: () => entry.approvalMode,
@@ -1115,8 +1142,11 @@ export class AgentRegistry {
         const resolved = resolveSpawnModelChoice(
             effect,
             context,
-            this.options.readPool,
+            this.options.readPool === undefined
+                ? undefined
+                : () => this.options.readPool?.(parentStore.header.cwd) ?? [],
             this.options.subagentModel,
+            this.options.readPolicy?.(parentStore.header.cwd),
         );
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };
@@ -1167,10 +1197,21 @@ export class AgentRegistry {
             throw error;
         }
         this.trackAsyncSubagentTurn(child.id);
+        if (resolved.notice !== undefined) {
+            this.spawnNotices.set(child.id, resolved.notice);
+        }
+        const started =
+            `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`;
         return {
             kind: "output",
-            output: `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`,
+            output: resolved.notice === undefined
+                ? started
+                : `${resolved.notice}\n\n${started}`,
             isError: false,
+            ...(resolved.substitutions === undefined
+                    || resolved.substitutions.length === 0
+                ? {}
+                : { substitutions: resolved.substitutions }),
         };
     }
 
@@ -1381,6 +1422,13 @@ export class AgentRegistry {
         } finally {
             attachment.detach();
         }
+        // A substitution the parent cannot see is a silent success on the
+        // wrong model, so it rides the completion the parent actually reads,
+        // not only the spawn call it made turns ago.
+        const substitution = this.spawnNotices.get(childId);
+        if (substitution !== undefined) {
+            content = `${substitution}\n\n${content}`;
+        }
         const delivery = {
             id: completionSequence === 1
                 ? `completion:${childId}`
@@ -1506,13 +1554,13 @@ function settingsForClient(
     subagentModel?: SpawnModelDefault,
 ): ModelTurnSettings {
     const contextWindow = contextWindowForModel(provider, settings.model, models);
-    // A ready pool entry's verified level list is the authority for the
-    // running model: admission measured what this key can actually send, so
+    // A pool entry's resolved level list is the authority for the running
+    // model: it is what the user declared and what evidence has narrowed, so
     // it wins over the optimistic per-provider fallback.
     const poolEntry = pooled.find((entry) =>
         entry.provider === provider
         && entry.model === settings.model
-        && entry.status === "ready");
+        && entry.available);
     const efforts = poolEntry !== undefined
         ? poolEntry.levels.map((level) => level.id)
         : availableReasoningEfforts(provider, settings.model, catalog);

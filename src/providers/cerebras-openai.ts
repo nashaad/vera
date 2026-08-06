@@ -88,8 +88,11 @@ function cerebrasReasoningEffort(
     effort: ModelReasoningEffort,
     model: string,
 ): string | undefined {
+    // `none` is this endpoint's wire word for `off`, the same level under
+    // another name. Every other level goes out verbatim: a level the endpoint
+    // refuses is coarsened on the refusal, never folded before the request.
     if (model === "gpt-oss-120b") {
-        return effort === "off" ? "none" : effort === "max" ? "high" : effort;
+        return effort === "off" ? "none" : effort;
     }
     if (model.startsWith("zai-glm-")) {
         return effort === "off" ? "none" : undefined;

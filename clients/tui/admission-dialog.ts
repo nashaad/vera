@@ -4,7 +4,6 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
-import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import {
     TUI_MUTED,
     TUI_NOTICE,
@@ -16,38 +15,27 @@ import {
 } from "./state.ts";
 
 /**
- * The settings change that motivated this admission, applied only after an
- * "added" verdict. Absent when the user asked to add a model without choosing
- * it (the ctrl+s pool toggle).
+ * The verification run this dialog reports on. It exists only once the probes
+ * are on the wire: adding a model never opens it, because adding never waits
+ * on a provider.
  */
-export interface TuiAdmissionApply {
-    readonly provider: string;
-    readonly model: string;
-    readonly reasoningEffort?: ModelReasoningEffort;
-}
-
 export interface TuiAdmissionDialogState {
     readonly provider: string;
     readonly model: string;
-    /** Set once the user confirmed and `pool_add` went out. */
-    readonly requestId?: string;
-    readonly apply?: TuiAdmissionApply;
+    readonly requestId: string;
 }
 
 /**
  * What each phase means for the keys:
  *
- * `confirm`: nothing has been sent. Enter starts the probes, esc walks away.
  * `running`: probes are on the wire and cannot be aborted, so esc hides the
  * dialog and lets the transcript notice carry the outcome.
  * `done`: the verdict is on screen. Enter retries an unavailable run and
  * dismisses the other two; esc always dismisses.
  */
-export type TuiAdmissionDialogPhase = "confirm" | "running" | "done";
+export type TuiAdmissionDialogPhase = "running" | "done";
 
 export type TuiAdmissionDialogAction =
-    | "start"
-    | "cancel"
     | "hide"
     | "retry"
     | "dismiss";
@@ -55,22 +43,15 @@ export type TuiAdmissionDialogAction =
 export function startTuiAdmissionDialog(
     provider: string,
     model: string,
-    apply?: TuiAdmissionApply,
+    requestId: string,
 ): TuiAdmissionDialogState {
-    return {
-        provider,
-        model,
-        ...(apply === undefined ? {} : { apply }),
-    };
+    return { provider, model, requestId };
 }
 
 export function tuiAdmissionDialogPhase(
     dialog: TuiAdmissionDialogState,
     admission: TuiAdmissionState | undefined,
 ): TuiAdmissionDialogPhase {
-    if (dialog.requestId === undefined) {
-        return "confirm";
-    }
     return admission?.requestId === dialog.requestId
             && admission.verdict !== undefined
         ? "done"
@@ -84,13 +65,7 @@ export function handleTuiAdmissionDialogKey(
 ): TuiAdmissionDialogAction | undefined {
     const enter = key.name === "return" || key.name === "enter";
     const escape = key.name === "escape";
-    const phase = tuiAdmissionDialogPhase(dialog, admission);
-    if (phase === "confirm") {
-        if (enter) return "start";
-        if (escape) return "cancel";
-        return undefined;
-    }
-    if (phase === "running") {
+    if (tuiAdmissionDialogPhase(dialog, admission) === "running") {
         return escape ? "hide" : undefined;
     }
     if (enter) {
@@ -113,9 +88,6 @@ function dialogTitle(
     admission: TuiAdmissionState | undefined,
 ): string {
     const subject = `${dialog.provider}/${dialog.model}`;
-    if (phase === "confirm") {
-        return `Verify ${subject}?`;
-    }
     if (phase === "running") {
         return `Verifying ${subject}…`;
     }
@@ -131,8 +103,8 @@ function dialogBody(
     phase: TuiAdmissionDialogPhase,
     admission: TuiAdmissionState | undefined,
 ): string {
-    if (phase === "confirm" || admission === undefined) {
-        return "Runs a few small probe calls on your key.";
+    if (admission === undefined) {
+        return "Running a few small probe calls on your key.";
     }
     const lines = tuiAdmissionStepLines(admission);
     const verdict = tuiAdmissionVerdictLine(admission);
@@ -146,9 +118,6 @@ function dialogFooter(
     phase: TuiAdmissionDialogPhase,
     admission: TuiAdmissionState | undefined,
 ): string {
-    if (phase === "confirm") {
-        return "[enter] verify · [esc] cancel";
-    }
     if (phase === "running") {
         return "esc hide, verification continues";
     }

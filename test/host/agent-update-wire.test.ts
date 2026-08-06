@@ -258,7 +258,7 @@ test("host wire validates model settings results", () => {
         model: "gpt-5.6-sol",
         label: "gpt-5.6-sol",
         available: false,
-        status: "needs_verify" as const,
+        verified: false,
         levels: [],
     }];
     expect(parseAgentUpdate({
@@ -609,4 +609,42 @@ test("host wire validates reviewer decisions", () => {
     expect(parseAgentUpdate({ ...update, riskLevel: "spicy" })).toBeUndefined();
     expect(parseAgentUpdate({ ...update, userAuthorization: undefined }))
         .toBeUndefined();
+});
+
+test("host wire carries a model substitution and rejects an unknown scope", () => {
+    const substitution = {
+        type: "model_substitution" as const,
+        model: "openai/gpt-5",
+        requested: "high",
+        using: "medium",
+        reason: "unsupported value for reasoning_effort",
+        scope: "effort" as const,
+        seq: 3,
+    };
+    expect(parseAgentUpdate(substitution)).toEqual(substitution);
+    expect(parseAgentUpdate({ ...substitution, scope: "guess" }))
+        .toBeUndefined();
+    expect(parseAgentUpdate({ ...substitution, reason: 7 })).toBeUndefined();
+});
+
+test("host wire replays a substitution entry inside a history update", () => {
+    const history = {
+        type: "history" as const,
+        seq: 1,
+        entries: [{
+            kind: "model_substitution" as const,
+            substitution: {
+                model: "openai/gpt-5",
+                requested: "openai/gpt-5",
+                using: "openai/gpt-4",
+                reason: "server error",
+                scope: "model" as const,
+            },
+        }],
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ kind: "model_substitution", substitution: { model: "a" } }],
+    })).toBeUndefined();
 });

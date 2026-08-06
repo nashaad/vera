@@ -16,8 +16,8 @@ import {
     loadOptionalVeraConfig,
     loadVeraConfig,
     updateVeraConfigDefaults,
+    VeraConfigError,
 } from "../src/config.ts";
-import { addPoolEntry, readPool } from "../src/model/pool-store.ts";
 
 test("Vera config loads the shared model choice", () => {
     const path = temporaryConfigPath();
@@ -288,7 +288,7 @@ test("Vera config rejects malformed extension entries", () => {
         }));
 
         expect(() => loadVeraConfig({ path })).toThrow(
-            "Invalid Vera config",
+            "not a Vera config",
         );
     }
 });
@@ -623,28 +623,27 @@ test("switching providers clears a provider-specific fallback", () => {
     });
 });
 
-test("updating the defaults preserves keys the config type does not model", () => {
-    // The pool store writes into the same file, under a key `VeraConfig` has
-    // no field for. Before this, changing model round-tripped the file through
-    // the type and silently erased the user's whole pool.
+test("updating the defaults does not resurrect a migrated pool key", () => {
+    // The pool used to live in this file. A key this file migrated away from
+    // is not a foreign key, so carrying it across would put the dead copy back
+    // and leave two records of the pool.
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         provider: "openai-codex",
         model: "gpt-5.6-sol",
         approval_mode: "ask",
+        pool: [{ provider: "openai-codex", model: "gpt-5.6-sol" }],
     }));
-    addPoolEntry({ provider: "openai-codex", model: "gpt-5.6-sol" }, { path });
 
     updateVeraConfigDefaults({ model: "some-other-model" }, { path });
 
-    expect(readPool({ path })).toEqual([
-        { provider: "openai-codex", model: "gpt-5.6-sol" },
-    ]);
+    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+    expect((raw as Record<string, unknown>).pool).toBeUndefined();
     expect(loadVeraConfig({ path }).model).toBe("some-other-model");
 });
 
-test("preserving unmodelled keys still allows a default to be cleared", () => {
+test("clearing a default removes the key from the written file", () => {
     // The typed update wins over the raw value even when it sets a field to
     // undefined, so clearing is not a casualty of preserving unknown keys.
     const path = temporaryConfigPath();
@@ -654,14 +653,13 @@ test("preserving unmodelled keys still allows a default to be cleared", () => {
         model: "gpt-5.6-sol",
         reasoning_effort: "high",
         approval_mode: "ask",
-        pinned: ["openai-codex/gpt-5.6-sol"],
     }));
 
     updateVeraConfigDefaults({ reasoning_effort: null }, { path });
 
     const written: unknown = JSON.parse(readFileSync(path, "utf8"));
     expect(written).not.toHaveProperty("reasoning_effort");
-    expect(written).toHaveProperty("pinned", ["openai-codex/gpt-5.6-sol"]);
+    expect(written).toHaveProperty("approval_mode", "ask");
 });
 
 function temporaryConfigPath(): string {
@@ -696,7 +694,17 @@ test("Vera config rejects malformed disabled prompt contribution lists", () => {
         }));
 
         expect(() => loadVeraConfig({ path })).toThrow(
-            "Invalid Vera config",
+            "not a Vera config",
         );
     }
+});
+
+test("a damaged config names the file and the parse problem", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, "{ not json");
+
+    expect(() => loadVeraConfig({ path })).toThrow(VeraConfigError);
+    expect(() => loadVeraConfig({ path })).toThrow(
+        `Vera config at ${path} could not be read: it is not valid JSON`,
+    );
 });

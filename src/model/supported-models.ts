@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import type { ReasoningLevelId } from "./catalog-shape.ts";
 import type { ModelReasoningEffort } from "./types.ts";
 
 export interface SuggestedModel {
@@ -9,6 +10,10 @@ export interface SuggestedModel {
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    /** True on a model Vera's shipped curation recommends. */
+    readonly recommended?: boolean;
+    /** The level the curation recommends it at. A note, not a gate. */
+    readonly recommendedLevel?: ReasoningLevelId;
 }
 
 export interface VerifiedReasoningCombination {

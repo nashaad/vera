@@ -7,10 +7,11 @@ import {
     availableModelsWithLevels,
     pooledModels,
 } from "../../src/model/catalog-view.ts";
+import type { LearnedFacts } from "../../src/model/pool-file.ts";
 import {
-    addPoolEntry,
-    type PoolVerification,
-} from "../../src/model/pool-store.ts";
+    addPoolModel,
+    recordLearned,
+} from "../../src/model/pool-file-store.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 
 const directories: string[] = [];
@@ -20,6 +21,11 @@ afterEach(() => {
         rmSync(directory, { recursive: true, force: true });
     }
 });
+
+interface Fixture {
+    readonly userPath: string;
+    readonly cacheDir: string;
+}
 
 test("available models carry the catalog levels and default level", () => {
     const options = fixture();
@@ -57,22 +63,14 @@ test("available models carry the catalog levels and default level", () => {
     ]);
 });
 
-test("ready entries keep pool order and narrow levels to the verified ones", () => {
+test("pool order is kept and levels the probe rejected drop away", () => {
     const options = fixture();
-    addPoolEntry({
-        provider: "test",
-        model: "no-levels",
-        verification: verification([]),
-    }, options);
-    addPoolEntry({
-        provider: "test",
-        model: "with-levels",
-        verification: verification([
-            { vera_effort: "high", provider_effort: "high" },
-        ]),
-    }, options);
+    admit(options, "test/no-levels", {});
+    admit(options, "test/with-levels", {
+        "efforts.high": { ok: true, seen: SEEN, wire: "high" },
+        "efforts.low": { ok: false, seen: SEEN, error: "rejected" },
+    });
 
-    // Admission verified only "high", so the catalog's "low" is not served.
     expect(pooledModels([
         suggested("test", "no-levels"),
         suggested("test", "with-levels"),
@@ -82,7 +80,7 @@ test("ready entries keep pool order and narrow levels to the verified ones", () 
             model: "with-levels",
             label: "With levels",
             available: true,
-            status: "ready",
+            verified: true,
             description: "catalog description",
             contextWindow: 200_000,
             levels: [{ id: "high", label: "High", description: "slow" }],
@@ -93,15 +91,39 @@ test("ready entries keep pool order and narrow levels to the verified ones", () 
             model: "no-levels",
             label: "No levels",
             available: true,
-            status: "ready",
+            verified: true,
             levels: [],
         },
     ]);
 });
 
-test("an unverified entry is never available, even when the provider lists it", () => {
+test("a level nothing has an opinion on still comes from the catalog", () => {
     const options = fixture();
-    addPoolEntry({ provider: "test", model: "with-levels" }, options);
+    admit(options, "test/with-levels", {
+        "efforts.high": { ok: true, seen: SEEN, wire: "high" },
+    });
+
+    expect(pooledModels([suggested("test", "with-levels")], options)[0]?.levels)
+        .toEqual([
+            { id: "low", label: "Low" },
+            { id: "high", label: "High", description: "slow" },
+        ]);
+});
+
+test("a declared effort wins over the catalog's level list", () => {
+    const options = fixture();
+    addPoolModel("test/with-levels", { efforts: { low: null } }, {
+        path: options.userPath,
+    });
+    recordLearned("test/with-levels", probed(), { path: options.userPath });
+
+    expect(pooledModels([suggested("test", "with-levels")], options)[0]?.levels)
+        .toEqual([{ id: "high", label: "High", description: "slow" }]);
+});
+
+test("an unprobed entry the provider lists is available but unverified", () => {
+    const options = fixture();
+    addPoolModel("test/with-levels", {}, { path: options.userPath });
 
     expect(pooledModels([
         suggested("test", "with-levels"),
@@ -109,8 +131,8 @@ test("an unverified entry is never available, even when the provider lists it", 
         provider: "test",
         model: "with-levels",
         label: "With levels",
-        available: false,
-        status: "needs_verify",
+        available: true,
+        verified: false,
         description: "catalog description",
         contextWindow: 200_000,
         levels: [
@@ -121,13 +143,14 @@ test("an unverified entry is never available, even when the provider lists it", 
     }]);
 });
 
-test("a needs-reverify record demotes a verified entry to needs_verify", () => {
+test("a failed probe leaves the entry unverified", () => {
     const options = fixture();
-    addPoolEntry({
-        provider: "test",
-        model: "no-levels",
-        verification: { ...verification([]), needs_reverify: true },
-    }, options);
+    addPoolModel("test/no-levels", { added: true }, {
+        path: options.userPath,
+    });
+    recordLearned("test/no-levels", {
+        probe: { ok: false, seen: SEEN, error: "no answer" },
+    }, { path: options.userPath });
 
     expect(pooledModels([
         suggested("test", "no-levels"),
@@ -135,32 +158,26 @@ test("a needs-reverify record demotes a verified entry to needs_verify", () => {
         provider: "test",
         model: "no-levels",
         label: "No levels",
-        available: false,
-        status: "needs_verify",
+        available: true,
+        verified: false,
         levels: [],
     }]);
 });
 
 test("a pooled model that cannot run right now stays in the list, flagged", () => {
     const options = fixture();
-    addPoolEntry({
-        provider: "test",
-        model: "with-levels",
-        verification: verification([
-            { vera_effort: "high", provider_effort: "high" },
-        ]),
-    }, options);
-    addPoolEntry({ provider: "gone", model: "forgotten" }, options);
+    admit(options, "test/with-levels", {});
+    addPoolModel("gone/forgotten", {}, { path: options.userPath });
 
     // The catalog still describes `with-levels`, but the host cannot run it,
-    // so it is unavailable rather than absent, whatever its admission record.
+    // so it is unavailable rather than absent, whatever the pool records.
     expect(pooledModels([], options)).toEqual([
         {
             provider: "gone",
             model: "forgotten",
             label: "forgotten",
             available: false,
-            status: "needs_verify",
+            verified: false,
             levels: [],
         },
         {
@@ -168,7 +185,7 @@ test("a pooled model that cannot run right now stays in the list, flagged", () =
             model: "with-levels",
             label: "with-levels",
             available: false,
-            status: "ready",
+            verified: true,
             levels: [],
         },
     ]);
@@ -176,11 +193,7 @@ test("a pooled model that cannot run right now stays in the list, flagged", () =
 
 test("a runnable model the catalog never heard of keeps the host's facts", () => {
     const options = fixture();
-    addPoolEntry({
-        provider: "test",
-        model: "unknown-to-catalog",
-        verification: verification([]),
-    }, options);
+    admit(options, "test/unknown-to-catalog", {});
 
     expect(pooledModels([
         { ...suggested("test", "unknown-to-catalog"), contextWindow: 8_192 },
@@ -189,19 +202,84 @@ test("a runnable model the catalog never heard of keeps the host's facts", () =>
         model: "unknown-to-catalog",
         label: "Unknown to catalog",
         available: true,
-        status: "ready",
+        verified: true,
         description: "a model",
         contextWindow: 8_192,
         levels: [],
     }]);
 });
 
-function fixture(): {
-    readonly path: string;
-    readonly cacheDir: string;
-} {
+test("a denied model is not offered, whatever the pool says about it", () => {
+    const options = fixture();
+    admit(options, "test/with-levels", {});
+    writeFileSync(options.userPath, JSON.stringify({
+        defaults: { deny: ["test/*"] },
+        models: { "test/with-levels": {} },
+    }));
+
+    expect(pooledModels([suggested("test", "with-levels")], options))
+        .toEqual([]);
+});
+
+test("the project file contributes entries alongside the user file", () => {
+    const options = fixture();
+    admit(options, "test/no-levels", {});
+    const projectPath = join(makeDirectory(), "pool.json");
+    writeFileSync(projectPath, JSON.stringify({
+        models: {
+            "test/with-levels": { added: true, learned: probed() },
+        },
+    }));
+
+    expect(pooledModels(
+        [suggested("test", "no-levels"), suggested("test", "with-levels")],
+        { ...options, projectPath },
+    ).map((entry) => entry.model)).toEqual(["no-levels", "with-levels"]);
+});
+
+const SEEN = "2026-08-01T00:00:00.000Z";
+
+function probed(): LearnedFacts {
+    return {
+        probe: { ok: true, seen: SEEN, checked: "user_key" },
+        tools: { ok: true, seen: SEEN, checked: "user_key" },
+    };
+}
+
+/** The two writes the host makes when a model passes admission. */
+test("two ladder levels reaching one wire string list that level once", () => {
+    const options = fixture();
+    admit(options, "test/with-levels", {
+        "efforts.high": { ok: true, seen: SEEN, wire: "high" },
+        "efforts.xhigh": { ok: true, seen: SEEN, wire: "high" },
+    });
+
+    expect(pooledModels([suggested("test", "with-levels")], options)[0]?.levels)
+        .toEqual([
+            { id: "low", label: "Low" },
+            { id: "high", label: "High", description: "slow" },
+        ]);
+});
+
+function admit(
+    options: Fixture,
+    modelId: string,
+    learned: LearnedFacts,
+): void {
+    addPoolModel(modelId, { added: true }, { path: options.userPath });
+    recordLearned(modelId, { ...probed(), ...learned }, {
+        path: options.userPath,
+    });
+}
+
+function makeDirectory(): string {
     const directory = mkdtempSync(join(tmpdir(), "vera-catalog-view-"));
     directories.push(directory);
+    return directory;
+}
+
+function fixture(): Fixture {
+    const directory = makeDirectory();
     const cacheDir = join(directory, "cache");
     mkdirSync(cacheDir);
     writeFileSync(join(cacheDir, "test.json"), JSON.stringify({
@@ -224,18 +302,7 @@ function fixture(): {
             { id: "no-levels", label: "No levels", order: 2 },
         ],
     }));
-    return { path: join(directory, "config.json"), cacheDir };
-}
-
-function verification(
-    levels: PoolVerification["levels"],
-): PoolVerification {
-    return {
-        verified_at: "2026-08-01T00:00:00.000Z",
-        response_model: "response-model",
-        levels,
-        checked: "user_key",
-    };
+    return { userPath: join(directory, "pool.json"), cacheDir };
 }
 
 function suggested(provider: string, model: string): SuggestedModel {
@@ -250,3 +317,45 @@ function suggested(provider: string, model: string): SuggestedModel {
         description: "a model",
     };
 }
+
+// The curation names models, and the catalog carries the flag. Both projections
+// pass it through, so the picker filters one set of rows rather than holding a
+// second list of its own.
+test("a recommended model carries the flag and its level to both projections", () => {
+    const options = {
+        ...fixture(),
+        recommended: [
+            { provider: "test", model: "with-levels", reasoning_effort: "high" },
+        ],
+    };
+
+    const available = availableModelsWithLevels([
+        suggested("test", "with-levels"),
+        suggested("test", "no-levels"),
+    ], options);
+    expect(available[0]?.recommended).toBe(true);
+    expect(available[0]?.recommendedLevel).toBe("high");
+    expect(available[1]?.recommended).toBeUndefined();
+
+    addPoolModel("test/with-levels", {}, { path: options.userPath });
+    const pooled = pooledModels([suggested("test", "with-levels")], options);
+    expect(pooled[0]?.recommended).toBe(true);
+    expect(pooled[0]?.recommendedLevel).toBe("high");
+});
+
+test("an entry holding only learned facts is not in the pool", () => {
+    const options = fixture();
+    recordLearned("test/no-levels", probed(), { path: options.userPath });
+
+    expect(pooledModels([suggested("test", "no-levels")], options))
+        .toEqual([]);
+
+    addPoolModel("test/no-levels", { added: true }, {
+        path: options.userPath,
+    });
+
+    // Pooling it later keeps what was already learned, so the entry arrives
+    // verified rather than starting over.
+    expect(pooledModels([suggested("test", "no-levels")], options))
+        .toMatchObject([{ model: "no-levels", verified: true }]);
+});

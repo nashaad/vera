@@ -10,6 +10,7 @@ import {
     type ModelAdapter,
     type ModelMessage,
     type ModelReasoningEffort,
+    type ModelSubstitution,
     type ToolCallContent,
     type ToolResultMessage,
     type UserMessage,
@@ -44,6 +45,7 @@ import {
     createJsonlEventLogger,
     defaultEventLogPath,
 } from "./events.ts";
+import type { PoolAdmissionVerdict } from "./events.ts";
 import {
     executeToolHandler,
     toolDefinitionsForCapabilities,
@@ -110,6 +112,8 @@ import {
     type ModelFallbackPolicy,
     type WaitForModelRetry,
 } from "./recovery.ts";
+import type { EffortPool } from "../model/effort-pool.ts";
+import { preflightEffort } from "./effort-coarsening.ts";
 import {
     defaultSessionPath,
     SessionStore,
@@ -169,6 +173,11 @@ export interface RunTurnState {
     readonly enableUserInteraction?: boolean;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly modelFallback?: ModelFallbackPolicy;
+    /**
+     * Supplies the effort levels a model is known to accept and takes the
+     * refusals back. Absent leaves a refused level on the terminal path.
+     */
+    readonly effortPool?: EffortPool;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readApprovalMode?: () => ApprovalMode;
@@ -207,6 +216,8 @@ export interface RunHeadlessLoopOptions {
     readonly approvalMode?: ApprovalMode;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly modelFallback?: ModelFallbackPolicy;
+    /** Owner-supplied; the engine never opens the pool file itself. */
+    readonly effortPool?: EffortPool;
     /**
      * Strategy and bound models. Absent means the session never compacts and
      * always sends its whole transcript, which is what every session did
@@ -230,8 +241,9 @@ export interface RunHeadlessLoopOptions {
             readonly status: "running" | "passed" | "failed" | "skipped";
             readonly detail?: string;
         }) => void,
+        options?: { readonly verify?: boolean },
     ) => Promise<{
-        readonly verdict: "added" | "incompatible" | "unavailable";
+        readonly verdict: PoolAdmissionVerdict;
         readonly reason?: string;
         readonly statusCode?: number;
         readonly settings?: ModelTurnSettings;
@@ -600,6 +612,9 @@ export async function runHeadlessLoop(
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
+        ...(options.effortPool === undefined
+            ? {}
+            : { effortPool: options.effortPool }),
         ...(options.readModelSettings === undefined
             ? {}
             : { readModelSettings: options.readModelSettings }),
@@ -697,6 +712,9 @@ export async function runTurn(
         const turnApprovalMode = turn.approvalMode
             ?? state.readApprovalMode?.()
             ?? state.approvalMode;
+        // Substitutions settled before the round's message exists. They are
+        // drained into that message once it does.
+        const pendingSubstitutions: ModelSubstitution[] = [];
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
         const reviewBreaker = createReviewCircuitBreaker();
@@ -786,6 +804,41 @@ export async function runTurn(
             );
 
         while (true) {
+            // Before the request, not after a refusal: a level the pool
+            // already knows this model rejects would otherwise be sent again
+            // every single turn, buying the same refusal each time.
+            const preflight = state.effortPool === undefined
+                    || turnReasoningEffort === undefined
+                ? undefined
+                : preflightEffort(
+                    state.effortPool,
+                    {
+                        provider: modelSettings.provider ?? "",
+                        model: activeModel,
+                    },
+                    turnReasoningEffort,
+                );
+            if (preflight !== undefined) {
+                turnReasoningEffort = preflight.using;
+                pendingSubstitutions.push({
+                    model: activeModel,
+                    requested: preflight.requested,
+                    ...(preflight.using === undefined
+                        ? {}
+                        : { using: preflight.using }),
+                    reason: preflight.reason,
+                    scope: "effort",
+                });
+                state.events.emit({
+                    type: "model_effort_coarsened",
+                    model: activeModel,
+                    requested: preflight.requested,
+                    ...(preflight.using === undefined
+                        ? {}
+                        : { using: preflight.using }),
+                    reason: preflight.reason,
+                });
+            }
             const projectInstructions = await loadProjectInstructions(
                 state.toolRuntime.workspace,
             );
@@ -857,6 +910,11 @@ export async function runTurn(
                     request.messages,
                 );
             }
+            // Reset per model round: they ride on the message that round
+            // produced, which is where a replayed transcript reads them from.
+            // Anything decided before the request was built is carried in.
+            const substitutions: ModelSubstitution[] = pendingSubstitutions
+                .splice(0, pendingSubstitutions.length);
             let modelRequest;
             try {
                 modelRequest = {
@@ -932,8 +990,44 @@ export async function runTurn(
                             failure: sanitizedProviderFailure(retry.failure),
                         });
                     },
+                    onCoarsened(coarsened): void {
+                        turnReasoningEffort = coarsened.using;
+                        substitutions.push({
+                            model: coarsened.model,
+                            requested: coarsened.requested,
+                            using: coarsened.using,
+                            reason: coarsened.reason,
+                            scope: "effort",
+                        });
+                        state.events.emit({
+                            type: "model_effort_coarsened",
+                            ...coarsened,
+                        });
+                    },
+                    onEffortSubstituted(substituted): void {
+                        substitutions.push({
+                            model: substituted.model,
+                            requested: substituted.requested,
+                            ...(substituted.using === undefined
+                                ? {}
+                                : { using: substituted.using }),
+                            reason: substituted.reason,
+                            scope: "effort",
+                        });
+                        state.events.emit({
+                            type: "model_effort_coarsened",
+                            ...substituted,
+                        });
+                    },
                     onFallback(fallback): void {
                         activeModel = fallback.toModel;
+                        substitutions.push({
+                            model: fallback.fromModel,
+                            requested: fallback.fromModel,
+                            using: fallback.toModel,
+                            reason: fallback.failure.message,
+                            scope: "model",
+                        });
                         turnReasoningEffort = reasoningEffortForModel(
                             modelSettings.provider,
                             fallback.toModel,
@@ -966,6 +1060,9 @@ export async function runTurn(
                                 !== modelSettings.provider)
                         ? {}
                         : { fallback: state.modelFallback }),
+                    ...(state.effortPool === undefined
+                        ? {}
+                        : { coarsening: { pool: state.effortPool } }),
                     ...(state.waitForModelRetry === undefined
                         ? {}
                         : { wait: state.waitForModelRetry }),
@@ -973,6 +1070,9 @@ export async function runTurn(
             );
             assistantMessage = sanitizedErrorMessage(assistantMessage);
             assistantMessage = requireVisibleTerminalResponse(assistantMessage);
+            if (substitutions.length > 0) {
+                assistantMessage = { ...assistantMessage, substitutions };
+            }
             let preparedToolCalls: readonly PreparedToolCall[] = [];
             if (assistantMessage.stopReason === "tool_use") {
                 const prepared = await prepareAssistantToolCalls(
@@ -1498,6 +1598,12 @@ async function executePreparedTool(
                     : { reasoningEffort: modelSettings.reasoningEffort }),
             },
         );
+    // Emitted from here rather than from either spawn path, so both the
+    // in-process subagent and the host registry report a substitution the
+    // same way.
+    for (const substitution of output.substitutions ?? []) {
+        state.events.emit({ type: "model_substituted", substitution });
+    }
     const result = toolResultMessage(toolCall, output);
     const durationMs = performance.now() - startedAt;
     return finishExecutedTool(state, toolCall, hookCall, result, durationMs);

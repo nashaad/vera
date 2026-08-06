@@ -5,6 +5,7 @@ import {
     type AdmissionStep,
 } from "../../src/model/admission.ts";
 import type { CatalogModel } from "../../src/model/catalog-shape.ts";
+import { EFFORT_LADDER } from "../../src/model/effort-ladder.ts";
 import {
     ProviderFailureError,
     type ProviderFailure,
@@ -139,16 +140,29 @@ test("every level verifies, and the response model is recorded verbatim", async 
         now: () => new Date("2026-08-01T00:00:00.000Z"),
     });
 
+    const seen = "2026-08-01T00:00:00.000Z";
     expect(verdict).toEqual({
         status: "added",
-        verification: {
-            verified_at: "2026-08-01T00:00:00.000Z",
-            response_model: "probe-model-v2",
-            levels: [
-                { vera_effort: "high", provider_effort: "high" },
-                { vera_effort: "low", provider_effort: "low" },
-            ],
-            checked: "user_key",
+        learned: {
+            "efforts.high": {
+                ok: true,
+                seen,
+                wire: "high",
+                checked: "user_key",
+            },
+            "efforts.low": {
+                ok: true,
+                seen,
+                wire: "low",
+                checked: "user_key",
+            },
+            probe: {
+                ok: true,
+                seen,
+                checked: "user_key",
+                wire: "probe-model-v2",
+            },
+            tools: { ok: true, seen, checked: "user_key" },
         },
         droppedLevels: [],
     });
@@ -183,9 +197,11 @@ test("a level the key cannot use is dropped without failing the admission", asyn
         droppedLevels: ["high"],
     });
     if (verdict.status !== "added") throw new Error("expected added");
-    expect(verdict.verification.levels).toEqual([
-        { vera_effort: "low", provider_effort: "low" },
-    ]);
+    expect(verdict.learned["efforts.low"]).toMatchObject({
+        ok: true,
+        wire: "low",
+    });
+    expect(verdict.learned["efforts.high"]).toMatchObject({ ok: false });
 });
 
 test("a model that answers in text instead of a tool call is incompatible", async () => {
@@ -264,9 +280,10 @@ test("one retry-shaped failure is retried and the admission still succeeds", asy
         .toEqual(["high", "high", "low", "high"]);
 });
 
-test("a model with no catalog levels runs one plain text probe", async () => {
+test("a model the catalog has never seen is swept across the whole ladder", async () => {
+    const sweep = EFFORT_LADDER.filter((level) => level !== "off");
     const { adapter, requests } = scriptedAdapter([
-        { kind: "text", text: SENTINEL },
+        ...sweep.map(() => ({ kind: "text", text: SENTINEL } as const)),
         { kind: "tool_call", name: "admission_probe" },
     ]);
 
@@ -276,10 +293,73 @@ test("a model with no catalog levels runs one plain text probe", async () => {
         model: "probe-model",
     });
 
-    expect(verdict).toMatchObject({
-        status: "added",
-        verification: { levels: [] },
-    });
+    expect(verdict).toMatchObject({ status: "added" });
+    if (verdict.status !== "added") throw new Error("expected added");
     expect(requests.map((request) => request.reasoningEffort))
-        .toEqual([undefined, undefined]);
+        .toEqual([...sweep, sweep[0]]);
+    expect(Object.keys(verdict.learned).sort()).toEqual([
+        ...sweep.map((level) => `efforts.${level}`).sort(),
+        "probe",
+        "tools",
+    ].sort());
+});
+
+test("a model the catalog knows is probed only at its own levels", async () => {
+    const { adapter, requests } = scriptedAdapter([
+        { kind: "text", text: SENTINEL },
+        { kind: "text", text: SENTINEL },
+        { kind: "tool_call", name: "admission_probe" },
+    ]);
+
+    const verdict = await admitModel({
+        adapter,
+        provider: "scripted",
+        model: "probe-model",
+        catalogModel: catalogModel(),
+    });
+
+    expect(verdict).toMatchObject({ status: "added" });
+    expect(requests.map((request) => request.reasoningEffort))
+        .toEqual(["high", "low", "high"]);
+});
+
+test("a catalog level outside the ladder is never probed", async () => {
+    const { adapter, requests } = scriptedAdapter([
+        { kind: "text", text: SENTINEL },
+        { kind: "text", text: SENTINEL },
+        { kind: "tool_call", name: "admission_probe" },
+    ]);
+    const steps: AdmissionStep[] = [];
+
+    const verdict = await admitModel({
+        adapter,
+        provider: "scripted",
+        model: "probe-model",
+        catalogModel: {
+            id: "probe-model",
+            label: "Probe model",
+            levels: [
+                { id: "ultra", label: "Ultra" },
+                { id: "xhigh", label: "Extra high" },
+                { id: "none", label: "None" },
+                { id: "medium", label: "Medium" },
+            ],
+        },
+        onStep: (step) => steps.push(step),
+        now: () => new Date("2026-08-01T00:00:00.000Z"),
+    });
+
+    expect(requests.map((request) => request.reasoningEffort))
+        .toEqual(["xhigh", "medium", "xhigh"]);
+    expect(steps.map((step) => step.label)).toContain("Reasoning xhigh");
+    expect(steps.map((step) => step.label)).not.toContain("Reasoning Ultra");
+    expect(verdict.status).toBe("added");
+    if (verdict.status === "added") {
+        expect(Object.keys(verdict.learned)).toEqual([
+            "efforts.xhigh",
+            "efforts.medium",
+            "probe",
+            "tools",
+        ]);
+    }
 });

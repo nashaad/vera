@@ -13,25 +13,22 @@ const running: TuiAdmissionState = {
     steps: [{ step: "reach", label: "endpoint reachable", status: "running" }],
 };
 
-test("nothing probes before the confirmation is answered", () => {
-    const dialog = startTuiAdmissionDialog("or", "glm");
+test("the dialog opens on a run already under way", () => {
+    // There is nothing to confirm: the probes are on the wire before the
+    // dialog exists, so the first phase is the running one.
+    const dialog = startTuiAdmissionDialog("or", "glm", "pool-1");
 
-    expect(tuiAdmissionDialogPhase(dialog, undefined)).toBe("confirm");
-    expect(handleTuiAdmissionDialogKey(dialog, undefined, { name: "return" }))
-        .toBe("start");
+    expect(tuiAdmissionDialogPhase(dialog, undefined)).toBe("running");
     expect(handleTuiAdmissionDialogKey(dialog, undefined, { name: "escape" }))
-        .toBe("cancel");
-    expect(handleTuiAdmissionDialogKey(dialog, undefined, { name: "a" }))
+        .toBe("hide");
+    expect(handleTuiAdmissionDialogKey(dialog, undefined, { name: "return" }))
         .toBeUndefined();
 });
 
 test("a running admission cannot be aborted, only hidden", () => {
     // There is no abort wire for pool_add, so esc hides the dialog and the
     // transcript notice carries the run to its verdict.
-    const dialog = {
-        ...startTuiAdmissionDialog("or", "glm"),
-        requestId: "pool-1",
-    };
+    const dialog = startTuiAdmissionDialog("or", "glm", "pool-1");
 
     expect(tuiAdmissionDialogPhase(dialog, running)).toBe("running");
     expect(handleTuiAdmissionDialogKey(dialog, running, { name: "escape" }))
@@ -41,10 +38,7 @@ test("a running admission cannot be aborted, only hidden", () => {
 });
 
 test("the verdict decides what enter does", () => {
-    const dialog = {
-        ...startTuiAdmissionDialog("or", "glm"),
-        requestId: "pool-1",
-    };
+    const dialog = startTuiAdmissionDialog("or", "glm", "pool-1");
     const added: TuiAdmissionState = { ...running, verdict: "added" };
     const unavailable: TuiAdmissionState = {
         ...running,
@@ -65,10 +59,7 @@ test("the verdict decides what enter does", () => {
 
 test("an admission for another request keeps the dialog in running", () => {
     // A stale record (say, a previous retry) must not end this run early.
-    const dialog = {
-        ...startTuiAdmissionDialog("or", "glm"),
-        requestId: "pool-2",
-    };
+    const dialog = startTuiAdmissionDialog("or", "glm", "pool-2");
     const stale: TuiAdmissionState = { ...running, verdict: "added" };
 
     expect(tuiAdmissionDialogPhase(dialog, stale)).toBe("running");

@@ -111,7 +111,13 @@ export function normalizeOpenRouterToolCallId(id: string): string {
     return id.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-export function openRouterStopReason(reason: string): ModelStopReason {
+/**
+ * Returns undefined for a word outside the OpenAI vocabulary. The caller then
+ * reads the stop reason off the content it received, which is a better answer
+ * than failing a request the server considered successful: an unrecognised
+ * word is a gap in this table, not a statement that the turn went wrong.
+ */
+export function openRouterStopReason(reason: string): ModelStopReason | undefined {
     const reasons: Readonly<Partial<Record<string, ModelStopReason>>> = {
         stop: "stop",
         length: "length",
@@ -119,11 +125,7 @@ export function openRouterStopReason(reason: string): ModelStopReason {
         content_filter: "content_filter",
         error: "error",
     };
-    const stopReason = reasons[reason];
-    if (stopReason === undefined) {
-        throw new Error(`OpenRouter returned unknown finish_reason: ${reason}`);
-    }
-    return stopReason;
+    return reasons[reason];
 }
 
 export function openRouterUsage(usage: ChatUsage): ModelUsage {

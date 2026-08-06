@@ -302,3 +302,83 @@ test("sibling subagents run concurrently and commit results in call order", asyn
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("a subagent that ran on another model reports it as a substitution update", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-subagent-swap-"));
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_subagent",
+            name: "subagent",
+            input: { description: "Trace the request path" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "The child traced it." }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([toolCallResponse, finalResponse]);
+    const adapter: ModelAdapter = { stream: (request) => faux.stream(request) };
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const substitution = {
+        scope: "model" as const,
+        model: "openrouter/session",
+        requested: "openrouter/absent",
+        using: "openrouter/session",
+        reason: "openrouter/absent is not in the pool",
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+        enabledToolEffects: ["spawn_subagent"],
+        async applyToolEffect() {
+            return {
+                kind: "output",
+                output: "The child ran elsewhere.",
+                isError: false,
+                substitutions: [substitution],
+            };
+        },
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "delegate this" });
+        const turn = runTurn(adapter, "test", state);
+        const updates: string[] = [];
+        let seen: unknown;
+        for (;;) {
+            const update = await channel.client.receive();
+            updates.push(update.type);
+            if (update.type === "model_substitution") {
+                seen = update;
+            }
+            if (update.type === "turn_finished") {
+                break;
+            }
+        }
+        await turn;
+
+        expect(updates).toContain("model_substitution");
+        expect(seen).toEqual({
+            type: "model_substitution",
+            ...substitution,
+            seq: expect.any(Number),
+        });
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});

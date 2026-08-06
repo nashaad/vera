@@ -22,8 +22,16 @@ import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
 
 const hostLog = createHostLogger();
-import { addPoolEntry, removePoolEntry } from "../model/pool-store.ts";
+import {
+    addPoolModel,
+    recordLearned,
+    removePoolModel,
+    PoolFileWriteRefusedError,
+} from "../model/pool-file-store.ts";
 import { admitModel } from "../model/admission.ts";
+import { declaredPoolEntry } from "../model/pool-admission.ts";
+import { migrateConfigPool } from "../model/pool-migration.ts";
+import { createPoolEffortPool } from "../model/effort-pool.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
 import {
     refreshCodexCatalog,
@@ -43,6 +51,7 @@ import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import { AgentRegistry } from "./agent-registry.ts";
+import { subagentPoolPolicy } from "./subagent-policy.ts";
 import { createReminderHook } from "./reminder-rules.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
@@ -89,6 +98,12 @@ export interface ResidentHost {
 export async function startResidentHost(
     options: StartResidentHostOptions,
 ): Promise<ResidentHost> {
+    // Before anything reads or writes the pool file: the old keys are only
+    // findable while pool.json is still absent.
+    const migration = migrateConfigPool();
+    if (migration.notice !== undefined) {
+        hostLog({ type: "pool_migrated", message: migration.notice });
+    }
     const modelFallback = configuredModelFallback(options.config);
     const reviewer = configuredReviewer(options.config);
     const subagentModel = configuredSubagentModel(options.config);
@@ -128,8 +143,30 @@ export async function startResidentHost(
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,
-        readPool: () => pooledModels(models),
-        admitToPool: async (entry, onStep) => {
+        readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
+        // Built here because the pool lives in a file the host owns; the
+        // engine receives only the interface. One per agent, because the
+        // project overlay follows that agent's workspace.
+        createEffortPool: (projectRoot) =>
+            createPoolEffortPool({
+                ...scoped(projectRoot),
+                onWriteRefused: (error) =>
+                    hostLog({ type: "pool_write_refused", message: error.message }),
+            }),
+        readPolicy: (projectRoot) => subagentPoolPolicy(scoped(projectRoot)),
+        admitToPool: async (entry, onStep, options) => {
+            const id = `${entry.provider}/${entry.model}`;
+            const catalogModel = effectiveCatalog(entry.provider)
+                .models.find((candidate) => candidate.id === entry.model);
+            if (options?.verify !== true) {
+                // Nothing on the wire: the catalog copy is what the user gets
+                // to use immediately, and it carries no learned facts, which
+                // is what leaves the entry unverified.
+                const refused = refusedPoolWrite(() => {
+                    addPoolModel(id, declaredPoolEntry(catalogModel));
+                });
+                return refused ?? { verdict: "added" };
+            }
             let adapter;
             try {
                 adapter = createAdapter(entry.provider);
@@ -141,8 +178,6 @@ export async function startResidentHost(
                         : "provider is not configured",
                 };
             }
-            const catalogModel = effectiveCatalog(entry.provider)
-                .models.find((candidate) => candidate.id === entry.model);
             const verdict = await admitModel({
                 adapter,
                 provider: entry.provider,
@@ -151,12 +186,13 @@ export async function startResidentHost(
                 onStep,
             });
             if (verdict.status === "added") {
-                addPoolEntry({
-                    provider: entry.provider,
-                    model: entry.model,
-                    verification: verdict.verification,
+                // Two writes because they are two different claims: the user
+                // asked for this model, and the probe found these facts.
+                const refused = refusedPoolWrite(() => {
+                    addPoolModel(id, declaredPoolEntry(catalogModel));
+                    recordLearned(id, verdict.learned);
                 });
-                return { verdict: "added" };
+                return refused ?? { verdict: "added" };
             }
             return {
                 verdict: verdict.status,
@@ -168,7 +204,9 @@ export async function startResidentHost(
             };
         },
         removeFromPool: (entry) => {
-            removePoolEntry(entry);
+            refusedPoolWrite(() => {
+                removePoolModel(`${entry.provider}/${entry.model}`);
+            });
         },
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({
@@ -282,6 +320,39 @@ export async function startResidentHost(
             return closing;
         },
     };
+}
+
+/**
+ * The pool overlay a workspace contributes. Absent workspace means user scope
+ * only, which is what an embedded host with no checkout gets.
+ */
+function scoped(projectRoot?: string): { readonly projectRoot?: string } {
+    return projectRoot === undefined ? {} : { projectRoot };
+}
+
+/**
+ * Turns a refused pool write into a verdict the client can show. The file is
+ * left exactly as the user wrote it, so the only thing to report is that the
+ * change did not land and why. Its own verdict rather than `unavailable`: the
+ * provider was never asked, and telling the user it was sends them to fix the
+ * wrong thing.
+ */
+function refusedPoolWrite(
+    write: () => void,
+): {
+    readonly verdict: "pool_write_refused";
+    readonly reason: string;
+} | undefined {
+    try {
+        write();
+        return undefined;
+    } catch (error) {
+        if (!(error instanceof PoolFileWriteRefusedError)) {
+            throw error;
+        }
+        hostLog({ type: "pool_write_refused", message: error.message });
+        return { verdict: "pool_write_refused", reason: error.message };
+    }
 }
 
 async function discoverAvailableModels(

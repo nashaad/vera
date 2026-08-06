@@ -271,7 +271,10 @@ function normalizeHost(value: string): string {
 }
 
 function ollamaReasoningEffort(effort: ModelReasoningEffort): string {
-    return effort === "off" ? "none" : effort === "max" ? "high" : effort;
+    // `none` is this endpoint's wire word for `off`, the same level under
+    // another name. Every other level goes out verbatim: a level the endpoint
+    // refuses is coarsened on the refusal, never folded before the request.
+    return effort === "off" ? "none" : effort;
 }
 
 function classifyOllamaError(value: unknown): ProviderFailure {

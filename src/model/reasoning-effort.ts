@@ -1,4 +1,7 @@
-import type { ModelReasoningEffort } from "./types.ts";
+import type {
+    EffortSubstitutedEvent,
+    ModelReasoningEffort,
+} from "./types.ts";
 import { verifiedModel } from "./supported-models.ts";
 
 export type ReasoningProvider = "openrouter" | "openai-codex";
@@ -125,6 +128,29 @@ export function inferReasoningSelection(
         ? "medium"
         : usable[Math.floor(usable.length / 2)] as string;
     return { requested, providerEffort: moderate, inferred: true };
+}
+
+/**
+ * The notice a placed selection owes the user, or undefined when the request
+ * went out exactly as asked.
+ *
+ * Placement is the one point where a level can change without a provider ever
+ * having refused anything, so it is the one point that has to say so.
+ */
+export function effortSubstitutionNotice(
+    selection: ReasoningSelection,
+): EffortSubstitutedEvent | undefined {
+    if (!selection.inferred || selection.providerEffort === selection.requested) {
+        return undefined;
+    }
+    return {
+        type: "effort_substituted",
+        requested: selection.requested,
+        ...(selection.providerEffort === undefined
+            ? {}
+            : { using: selection.providerEffort }),
+        reason: `the model does not offer effort "${selection.requested}"`,
+    };
 }
 
 async function loadOpenRouterEfforts(

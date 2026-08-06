@@ -15,6 +15,7 @@ import type {
     ModelMessage,
     ModelReasoningEffort,
     ModelStreamEvent,
+    ModelSubstitution,
     ModelTool,
     StreamErrorEvent,
     ToolCallContent,
@@ -163,12 +164,23 @@ export interface PoolAdmissionProgressEvent {
     readonly detail?: string;
 }
 
+/**
+ * `pool_write_refused` is the local half: the model was fine and the file the
+ * entry would land in was not, which is a different thing to tell the user
+ * than a provider that would not answer.
+ */
+export type PoolAdmissionVerdict =
+    | "added"
+    | "incompatible"
+    | "unavailable"
+    | "pool_write_refused";
+
 export interface PoolAdmissionResultEvent {
     readonly type: "pool_admission_result";
     readonly requestId: string;
     readonly provider: string;
     readonly model: string;
-    readonly verdict: "added" | "incompatible" | "unavailable";
+    readonly verdict: PoolAdmissionVerdict;
     readonly reason?: string;
     readonly statusCode?: number;
 }
@@ -262,6 +274,31 @@ export interface ModelFallbackSelectedEvent {
     readonly toModel: string;
     readonly afterFailures: number;
     readonly failure: ProviderFailure;
+}
+
+/**
+ * A reasoning effort that was asked for and not sent, plus the level that went
+ * in its place. Covers a provider refusal answered by coarsening, a level the
+ * pool already knows is unsupported, and a level the adapter could not place
+ * against the model's own list. `using` is absent when no level was sent.
+ */
+export interface ModelEffortCoarsenedEvent {
+    readonly type: "model_effort_coarsened";
+    readonly model: string;
+    readonly requested: string;
+    readonly using?: string;
+    readonly reason: string;
+}
+
+/**
+ * A tool ran its work on a model other than the one it was asked to use.
+ * Separate from the coarsening and fallback events because the turn's own
+ * model did not change: the substitution happened inside a spawn, so it has
+ * no message to ride on and reaches a client only as this event.
+ */
+export interface ModelSubstitutedEvent {
+    readonly type: "model_substituted";
+    readonly substitution: ModelSubstitution;
 }
 
 export interface ModelLengthContinuationEvent {
@@ -382,6 +419,8 @@ export type EngineEvent =
     | PromptPrefixDriftEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent
+    | ModelEffortCoarsenedEvent
+    | ModelSubstitutedEvent
     | ModelLengthContinuationEvent
     | ModelStreamObservedEvent
     | ModelStreamErrorEvent

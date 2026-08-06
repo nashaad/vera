@@ -57,6 +57,53 @@ export interface ModelInputUserMessage {
     readonly internal?: boolean;
 }
 
+/**
+ * A request that ran on something other than what was asked for, either a
+ * coarser reasoning effort or a different model.
+ */
+export interface ModelSubstitution {
+    /** The model the request was aimed at when the substitution happened. */
+    readonly model: string;
+    /** What was asked for: an effort level, or a model reference. */
+    readonly requested: string;
+    /**
+     * What the retry actually ran on. Absent on an effort substitution means
+     * no reasoning level was sent at all, so the provider default applied.
+     */
+    readonly using?: string;
+    /** The provider's own wording for the refusal, or the failure that forced it. */
+    readonly reason: string;
+    readonly scope: "effort" | "model";
+}
+
+/**
+ * One wording for every surface. The same sentence is what a client shows
+ * live, what an exported transcript keeps, and what a subagent notice carries,
+ * so a substitution reads the same way wherever it is found again.
+ *
+ * Each sentence names three things and nothing else: what was asked for, what
+ * ran instead, and why. `using` absent means nothing ran in its place, so the
+ * sentence says that rather than naming a level or model that never existed.
+ */
+export function formatModelSubstitution(
+    substitution: ModelSubstitution,
+): string {
+    const { model, requested, using, reason } = substitution;
+    if (substitution.scope === "model") {
+        return using === undefined
+            ? `Requested model ${requested}, and nothing ran in its place,`
+                + ` because ${reason}.`
+            : `Requested model ${requested}, ran ${using} instead,`
+                + ` because ${reason}.`;
+    }
+    const on = model.length === 0 ? "" : ` on ${model}`;
+    return using === undefined
+        ? `Requested reasoning effort "${requested}"${on}, ran with no`
+            + ` reasoning level at all, because ${reason}.`
+        : `Requested reasoning effort "${requested}"${on}, ran at`
+            + ` "${using}" instead, because ${reason}.`;
+}
+
 export interface AssistantMessage {
     readonly role: "assistant";
     readonly content: readonly AssistantContent[];
@@ -64,6 +111,11 @@ export interface AssistantMessage {
     readonly usage: ModelUsage;
     readonly stopReason: ModelStopReason;
     readonly errorMessage?: string;
+    /**
+     * Carried on the message so a substitution survives replay: the transcript
+     * is projected from stored messages, not from the update stream.
+     */
+    readonly substitutions?: readonly ModelSubstitution[];
 }
 
 export interface ToolResultMessage {
@@ -197,6 +249,23 @@ export interface ToolCallEndEvent {
     readonly toolCall: ToolCallContent;
 }
 
+/**
+ * The request went out asking for a reasoning level other than the one the
+ * caller named, because the model's own level list does not contain it.
+ *
+ * Emitted rather than folded silently: a level the user chose and a level the
+ * adapter settled on are different facts, and the second one is the one that
+ * cost them money. Carries no model name; recovery names the model, which is
+ * the only layer that knows which one the request finally went to.
+ */
+export interface EffortSubstitutedEvent {
+    readonly type: "effort_substituted";
+    readonly requested: string;
+    /** Absent means no level was sent at all. */
+    readonly using?: string;
+    readonly reason: string;
+}
+
 export interface StreamDoneEvent {
     readonly type: "done";
     readonly message: AssistantMessage;
@@ -220,6 +289,7 @@ export type ModelStreamEvent =
     | ToolCallStartEvent
     | ToolCallDeltaEvent
     | ToolCallEndEvent
+    | EffortSubstitutedEvent
     | StreamDoneEvent
     | StreamErrorEvent;
 
