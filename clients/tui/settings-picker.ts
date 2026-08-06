@@ -1074,6 +1074,22 @@ export function handleTuiSettingsPickerKey(
     if (key.name === "backspace") {
         return searched(state, state.query.slice(0, -1));
     }
+    // Digits pick the numbered row directly on the short panes. Only while
+    // the search is empty: a query that contains a digit is still a search.
+    if (
+        digitQuickSelect(state)
+        && state.query === ""
+        && /^[1-9]$/.test(key.name)
+    ) {
+        const selected = state.options[Number(key.name) - 1];
+        if (selected === undefined) {
+            return unchanged(state, true);
+        }
+        return {
+            selection: pickerSelection(state, selected),
+            handled: true,
+        };
+    }
     if (
         key.name.length === 1
         && !key.ctrl
@@ -1346,7 +1362,11 @@ function renderListPickerRows(
     const optionNodes = dialogOptionRows(renderer, rows.flatMap((row) =>
         row.kind === "option"
             ? [{
-                label: row.option.label,
+                label: digitQuickSelect(state)
+                        && state.query === ""
+                        && row.index < 9
+                    ? `${row.index + 1}. ${row.option.label}`
+                    : row.option.label,
                 leading: optionLeading(
                     state,
                     row.option,
@@ -1628,6 +1648,19 @@ function isCurrentOption(
  * panes use: a dot means "the one in effect", and connected providers are not
  * exclusive, so several rows can carry it at once.
  */
+/**
+ * The panes short enough that a digit names a row faster than moving to it.
+ * The model and session panes stay out: their names carry digits, so a digit
+ * there is search input. On the panes below, digits select only while the
+ * search is empty, and the numbers hide once a query starts filtering.
+ */
+function digitQuickSelect(state: TuiAnySettingsPickerState): boolean {
+    return state.kind === "reasoning"
+        || state.kind === "permissions"
+        || state.kind === "settings"
+        || state.kind === "permission_settings";
+}
+
 function optionLeading(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
