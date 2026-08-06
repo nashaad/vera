@@ -286,7 +286,17 @@ export interface ModelStreamObservedEvent {
 export interface ModelStreamErrorEvent {
     readonly type: "model_stream_error";
     readonly error: string;
+    readonly errorName: string;
+    readonly stack?: string;
+    readonly cause?: ModelStreamErrorCause;
+    readonly failure?: ProviderFailure;
     readonly message: AssistantMessage;
+}
+
+export interface ModelStreamErrorCause {
+    readonly name: string;
+    readonly message: string;
+    readonly stack?: string;
 }
 
 export interface ToolExecutionStartedEvent {

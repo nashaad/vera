@@ -219,6 +219,84 @@ test("a thinking-only stop becomes a visible durable model error", async () => {
     });
 });
 
+test("an empty provider failure stays visible but does not poison the next request", async () => {
+    const recovered: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "recovered" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const requests: ModelRequest[] = [];
+    let providerCalls = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            providerCalls += 1;
+            if (providerCalls > 1) {
+                return new FauxAdapter([recovered]).stream(request);
+            }
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            const error = new Error(
+                "Provider returned error; api_key=sk-example12345678",
+            );
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    role: "assistant",
+                    content: [],
+                    source: { provider: "faux", api: "scripted", model: "test" },
+                    usage: emptyUsage(),
+                    stopReason: "error",
+                    errorMessage: error.message,
+                },
+            });
+            return stream;
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "first" });
+    const first = runTurn(adapter, "test", state);
+    const firstUpdates = await receiveThroughTurnFinished(channel);
+    await first;
+    expect(firstUpdates.at(-1)).toMatchObject({
+        type: "turn_finished",
+        outcome: "error",
+        error: "Provider returned error; api_key=[REDACTED]",
+    });
+    expect(state.messages.at(-1)).toMatchObject({
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "Provider returned error; api_key=[REDACTED]",
+    });
+
+    channel.client.send({ type: "prompt", content: "try again" });
+    const second = runTurn(adapter, "test", state);
+    const secondUpdates = await receiveThroughTurnFinished(channel);
+    await second;
+    expect(secondUpdates.at(-1)).toMatchObject({ type: "turn_finished" });
+    expect(secondUpdates.at(-1)).not.toHaveProperty("error");
+    expect(requests[1]?.messages).toEqual([
+        { role: "user", content: [{ type: "text", text: "first" }] },
+        { role: "user", content: [{ type: "text", text: "try again" }] },
+    ]);
+    expect(state.messages.at(-1)).toEqual(recovered);
+});
+
 test("image references are durable while model requests receive verified bytes", async () => {
     const response: AssistantMessage = {
         role: "assistant",
@@ -710,10 +788,15 @@ test("a transient model failure reports its retry to attached clients", async ()
                 kind: "connection",
                 resolution: "retry",
                 message: "temporary disconnect",
+                providerName: "Anthropic",
+                providerMessage: "upstream reset",
             };
+            const cause = Object.assign(new Error(failure.message), {
+                body: '{"error":{"message":"upstream reset"}}',
+            });
             const error = new ProviderFailureError(
                 failure,
-                new Error(failure.message),
+                cause,
             );
             stream.push({ type: "start" });
             stream.push({
@@ -791,6 +874,8 @@ test("a transient model failure reports its retry to attached clients", async ()
         failure: expect.objectContaining({
             kind: "connection",
             resolution: "retry",
+            providerName: "Anthropic",
+            providerMessage: "upstream reset",
         }),
     }));
 });

@@ -138,11 +138,13 @@ export class OpenRouterAdapter implements ModelAdapter {
         } catch (value) {
             const error = request.signal?.aborted
                 ? toError(value)
-                : new ProviderFailureError(
-                    this.profile.classifyError?.(value)
-                        ?? classifyOpenRouterError(value),
-                    value,
-                );
+                : value instanceof ProviderFailureError
+                    ? value
+                    : new ProviderFailureError(
+                        this.profile.classifyError?.(value)
+                            ?? classifyOpenRouterError(value),
+                        value,
+                    );
             const stopReason = request.signal?.aborted ? "aborted" : "error";
             stream.push({
                 type: "error",

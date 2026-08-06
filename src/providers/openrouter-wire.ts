@@ -82,7 +82,10 @@ export function encodeOpenRouterMessages(
         encoded.push({
             role: "assistant",
             content: text,
-            ...(reasoning ? { reasoning } : {}),
+            // OpenRouter accepts plaintext reasoning or the signed detail
+            // sequence, not both. Claude tool continuations require the exact
+            // signed sequence returned by the preceding request.
+            ...(reasoning && reasoningDetails.length === 0 ? { reasoning } : {}),
             ...(reasoningDetails.length > 0 ? { reasoningDetails } : {}),
             ...(toolCalls.length > 0 ? { toolCalls } : {}),
         });

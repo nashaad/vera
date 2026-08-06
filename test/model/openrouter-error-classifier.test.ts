@@ -5,7 +5,10 @@ import {
     RequestTimeoutError,
 } from "@openrouter/sdk/models/errors";
 
-import { classifyOpenRouterError } from "../../src/providers/openrouter-error-classifier.ts";
+import {
+    classifyOpenRouterError,
+    classifyOpenRouterStreamError,
+} from "../../src/providers/openrouter-error-classifier.ts";
 import type {
     ProviderFailureKind,
     ProviderFailureResolution,
@@ -56,12 +59,65 @@ describe("OpenRouter failure classification", () => {
             message: "unexpected",
         });
     });
+
+    test("extracts allowlisted diagnostics without retaining the raw body", () => {
+        const body = JSON.stringify({
+            error: {
+                message: "Provider returned error",
+                metadata: {
+                    provider_name: "Anthropic",
+                    raw: JSON.stringify({
+                        error: {
+                            type: "invalid_request_error",
+                            message: "invalid thinking block signature; authorization: Bearer secret-value; api_key=sk-example12345678; data:image/png;base64,AAAA",
+                            authorization: "Bearer secret",
+                            attachment: "base64-data",
+                        },
+                    }),
+                },
+            },
+        });
+        const failure = classifyOpenRouterError(httpError(400, body));
+
+        expect(failure).toMatchObject({
+            providerName: "Anthropic",
+            providerCode: "invalid_request_error",
+            providerMessage: expect.stringContaining(
+                "invalid thinking block signature",
+            ),
+        });
+        expect(failure).not.toHaveProperty("headers");
+        expect(JSON.stringify(failure)).not.toContain("Bearer secret");
+        expect(JSON.stringify(failure)).not.toContain("base64-data");
+        expect(JSON.stringify(failure)).not.toContain("secret-value");
+        expect(JSON.stringify(failure)).not.toContain("sk-example");
+        expect(JSON.stringify(failure)).not.toContain("raw");
+    });
+
+    test("falls back to HTTP classification when stream metadata is absent", () => {
+        expect(classifyOpenRouterStreamError({
+            code: 429,
+            message: "slow down",
+        })).toMatchObject({
+            kind: "rate_limit",
+            resolution: "retry",
+            statusCode: 429,
+        });
+        expect(classifyOpenRouterStreamError({
+            code: 401,
+            message: "bad key",
+        })).toMatchObject({
+            kind: "authentication",
+            resolution: "user_action",
+            statusCode: 401,
+        });
+    });
 });
 
-function httpError(statusCode: number): OpenRouterError {
+function httpError(statusCode: number, body = ""): OpenRouterError {
     return new OpenRouterError(`HTTP ${statusCode}`, {
         response: new Response(null, { status: statusCode }),
         request: new Request("https://openrouter.test/chat"),
-        body: "",
+        body,
     });
 }

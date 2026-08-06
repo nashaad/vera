@@ -395,7 +395,9 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Model error: Model returned no visible response or structured tool call.",
             );
-            expect(pane).toContain("└ Read package.json");
+            expect(pane).toContain(
+                "+ Explored · 37 lines · Read package.json  ctrl+e details",
+            );
 
             sendText(socket, session, "try again");
             sendKey(socket, session, "Enter");

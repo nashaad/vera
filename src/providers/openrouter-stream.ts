@@ -4,7 +4,9 @@ import type {
     ReasoningDetailUnion,
 } from "@openrouter/sdk/models";
 
+import { ProviderFailureError } from "../model/provider-failure.ts";
 import { ModelEventStream } from "../model/stream.ts";
+import { classifyOpenRouterStreamError } from "./openrouter-error-classifier.ts";
 import {
     encodeReasoningDetails,
     openRouterStopReason,
@@ -33,6 +35,7 @@ export class OpenRouterStreamDecoder {
     private readonly content: AssistantContent[] = [];
     private readonly toolCalls = new Map<number, PendingToolCall>();
     private readonly reasoningDetails: ReasoningDetailUnion[] = [];
+    private readonly reasoningDetailIndexes = new Map<string, number>();
     private nextContentIndex = 0;
     private textIndex?: number;
     private thinkingIndex?: number;
@@ -47,7 +50,8 @@ export class OpenRouterStreamDecoder {
 
     accept(chunk: ChatStreamChunk): void {
         if (chunk.error !== undefined) {
-            throw new Error(`OpenRouter stream error: ${chunk.error.message}`);
+            const failure = classifyOpenRouterStreamError(chunk.error);
+            throw new ProviderFailureError(failure, new Error(failure.message));
         }
 
         this.responseModel ??= chunk.model;
@@ -64,8 +68,7 @@ export class OpenRouterStreamDecoder {
             this.appendThinking(choice.delta.reasoning);
         }
         if (choice.delta.reasoningDetails !== undefined) {
-            this.ensureThinking();
-            this.reasoningDetails.push(...choice.delta.reasoningDetails);
+            this.appendReasoningDetails(choice.delta.reasoningDetails);
         }
         for (const delta of choice.delta.toolCalls ?? []) {
             this.appendToolCall(delta);
@@ -78,6 +81,9 @@ export class OpenRouterStreamDecoder {
     finish(): AssistantMessage {
         if (this.finishReason === undefined) {
             throw new Error("OpenRouter stream ended without finish_reason");
+        }
+        if (this.thinkingIndex === undefined && this.reasoningDetails.length > 0) {
+            this.ensureThinking();
         }
         if (this.textIndex !== undefined) {
             this.output.push({ type: "text_end", contentIndex: this.textIndex });
@@ -124,6 +130,31 @@ export class OpenRouterStreamDecoder {
         }
         this.content[contentIndex] = { ...block, text: block.text + text };
         this.output.push({ type: "thinking_delta", contentIndex, text });
+    }
+
+    private appendReasoningDetails(details: readonly ReasoningDetailUnion[]): void {
+        for (const detail of details) {
+            const index = reasoningDetailIndex(detail);
+            if (index === undefined) {
+                this.reasoningDetails.push(detail);
+                continue;
+            }
+            const key = `${detail.type}:${index}`;
+            const existingIndex = this.reasoningDetailIndexes.get(key);
+            if (existingIndex === undefined) {
+                this.reasoningDetailIndexes.set(key, this.reasoningDetails.length);
+                this.reasoningDetails.push(detail);
+                continue;
+            }
+            const existing = this.reasoningDetails[existingIndex];
+            if (existing === undefined) {
+                throw new Error("OpenRouter reasoning stream has an invalid index");
+            }
+            this.reasoningDetails[existingIndex] = mergeReasoningDetail(
+                existing,
+                detail,
+            );
+        }
     }
 
     private ensureThinking(): number {
@@ -207,4 +238,67 @@ export class OpenRouterStreamDecoder {
             ...(errorMessage === undefined ? {} : { errorMessage }),
         };
     }
+}
+
+function reasoningDetailIndex(detail: ReasoningDetailUnion): number | undefined {
+    switch (detail.type) {
+        case "reasoning.text":
+        case "reasoning.summary":
+        case "reasoning.encrypted":
+        case "reasoning.server_tool_call":
+            return detail.index;
+        default:
+            return undefined;
+    }
+}
+
+function mergeReasoningDetail(
+    existing: ReasoningDetailUnion,
+    incoming: ReasoningDetailUnion,
+): ReasoningDetailUnion {
+    if (existing.type !== incoming.type) {
+        throw new Error("OpenRouter reasoning stream changed detail type");
+    }
+    if (existing.type === "reasoning.text" && incoming.type === "reasoning.text") {
+        return {
+            ...existing,
+            ...incoming,
+            text: `${existing.text ?? ""}${incoming.text ?? ""}`,
+            signature: incoming.signature ?? existing.signature,
+        };
+    }
+    if (
+        existing.type === "reasoning.summary"
+        && incoming.type === "reasoning.summary"
+    ) {
+        return {
+            ...existing,
+            ...incoming,
+            summary: existing.summary + incoming.summary,
+        };
+    }
+    if (
+        existing.type === "reasoning.encrypted"
+        && incoming.type === "reasoning.encrypted"
+    ) {
+        return {
+            ...existing,
+            ...incoming,
+            data: existing.data + incoming.data,
+        };
+    }
+    if (
+        existing.type === "reasoning.server_tool_call"
+        && incoming.type === "reasoning.server_tool_call"
+    ) {
+        return {
+            ...existing,
+            ...incoming,
+            arguments: existing.arguments + incoming.arguments,
+            result: existing.result + incoming.result,
+            toolName: incoming.toolName || existing.toolName,
+            toolCallId: incoming.toolCallId ?? existing.toolCallId,
+        };
+    }
+    throw new Error("OpenRouter reasoning stream has an unsupported detail type");
 }
