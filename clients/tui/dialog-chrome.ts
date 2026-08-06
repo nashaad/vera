@@ -26,8 +26,14 @@ import {
 // rewind dialogs stay visually identical instead of drifting apart.
 
 // Each row reserves leading columns so a current-choice marker and the row
-// label line up on the same column whether or not the marker is present.
+// label line up on the same column whether or not the marker is present. The
+// gutter is written into the content rather than set as padding: text nodes
+// lay their content out from column zero, so only the card's own padding sets
+// the left margin every line shares.
 export const DIALOG_GUTTER_WIDTH = 3;
+
+/** The gutter as literal columns, for the nodes that carry no leading chunk. */
+export const DIALOG_GUTTER = " ".repeat(DIALOG_GUTTER_WIDTH);
 
 // The card chrome that surrounds a variable-height row list: the header line,
 // the three-line search block, the footer with its separating blank line, and
@@ -69,8 +75,6 @@ export function dialogHeaderNode(
         height: 1,
         flexDirection: "row",
         justifyContent: "space-between",
-        paddingLeft: 1,
-        paddingRight: 1,
     });
     header.add(new TextRenderable(renderer, {
         content: title,
@@ -100,7 +104,6 @@ export function dialogSearchNode(
         ]),
         width: "100%",
         height: 3,
-        paddingLeft: 1,
         paddingTop: 1,
     });
 }
@@ -119,7 +122,6 @@ export function dialogFooterNode(
         width: "100%",
         height: 2,
         marginTop: 1,
-        paddingLeft: 1,
     });
 }
 
@@ -129,12 +131,11 @@ export function dialogGroupHeaderNode(
     spaced: boolean,
 ): TextRenderable {
     return new TextRenderable(renderer, {
-        content: label,
+        content: `${DIALOG_GUTTER}${label}`,
         fg: TUI_ACCENT,
         attributes: 1,
         width: "100%",
         height: 1,
-        paddingLeft: DIALOG_GUTTER_WIDTH,
         ...(spaced ? { marginTop: 1 } : {}),
     });
 }
@@ -384,20 +385,20 @@ export function dialogOptionRow(
         height: content.wrap ? "auto" : 1,
         flexDirection: "row",
         backgroundColor: background,
-        paddingLeft: 1,
-        paddingRight: 1,
     });
     // Every dialog row in the TUI is built here, so pointer support is one
     // wiring rather than one per overlay. A row without handlers behaves
     // exactly as it did before.
     attachRowPointer(row, content);
-    if (content.leading !== undefined) {
-        row.add(new TextRenderable(renderer, {
-            content: new StyledText([fg(accent)(content.leading)]),
-            bg: background,
-            flexShrink: 0,
-        }));
-    }
+    // The gutter is drawn on every row, marker or not, so a row's label starts
+    // on the same column whichever it is.
+    row.add(new TextRenderable(renderer, {
+        content: new StyledText([
+            fg(accent)((content.leading ?? "").padEnd(DIALOG_GUTTER_WIDTH)),
+        ]),
+        bg: background,
+        flexShrink: 0,
+    }));
     const labelChunks: TextChunk[] = [fg(label)(content.label)];
     if (content.description !== undefined) {
         labelChunks.push(fg(detail)(`  ${content.description}`));
