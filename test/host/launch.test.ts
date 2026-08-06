@@ -3,6 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+    hostEntrypointMismatchNotice,
+    residentHostEntrypoint,
+} from "../../clients/host/launch.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 
@@ -62,6 +66,8 @@ interface DetachedHostResult {
                 await readFile(join(veraDirectory, "host.json"), "utf8"),
             ) as HostLockRecord;
             expect(lock).toEqual(result.host);
+            expect(lock.entrypoint?.endsWith("clients/host/main.ts"))
+                .toBe(true);
         } finally {
             if (hostPid !== undefined && processIsAlive(hostPid)) {
                 process.kill(hostPid, "SIGTERM");
@@ -72,6 +78,34 @@ interface DetachedHostResult {
     },
     10_000,
 );
+
+function lockRecord(entrypoint?: string): HostLockRecord {
+    return {
+        schema_version: 2,
+        pid: 101,
+        started_at: "2026-08-06T12:00:00.000Z",
+        socket_path: "/tmp/vera-test.sock",
+        ...(entrypoint === undefined ? {} : { entrypoint }),
+    };
+}
+
+test("a host stamped from another checkout produces the mismatch warning", () => {
+    const notice = hostEntrypointMismatchNotice(
+        lockRecord("/checkouts/other/clients/host/main.ts"),
+    );
+
+    expect(notice).toContain("/checkouts/other/clients/host/main.ts");
+    expect(notice).toContain(residentHostEntrypoint());
+});
+
+test("a host stamped with this checkout's entrypoint produces no warning", () => {
+    expect(hostEntrypointMismatchNotice(lockRecord(residentHostEntrypoint())))
+        .toBeUndefined();
+});
+
+test("a record without an entrypoint produces no warning", () => {
+    expect(hostEntrypointMismatchNotice(lockRecord())).toBeUndefined();
+});
 
 function processIsAlive(pid: number): boolean {
     try {

@@ -229,9 +229,57 @@ test("the socket owner replaces a malformed lockfile", async () => {
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(record);
 });
 
+test("the record carries the host entrypoint when one is given", async () => {
+    const path = temporaryLockPath();
+    const lockfile = createTestLockfile(path, {
+        entrypoint: "/checkouts/a/clients/host/main.ts",
+    });
+
+    const record = await lockfile.publish();
+
+    expect(record.entrypoint).toBe("/checkouts/a/clients/host/main.ts");
+    expect(record.schema_version).toBe(2);
+    expect(await createTestLockfile(path).read()).toEqual(record);
+});
+
+test("a record without an entrypoint publishes and reads without one", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+
+    expect(record.entrypoint).toBeUndefined();
+    expect(await createTestLockfile(path).read()).toEqual(record);
+});
+
+test("a version-1 record without the entrypoint field stays valid", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+    const { entrypoint: _dropped, ...v1Fields } = record;
+    writeFileSync(path, `${JSON.stringify({
+        ...v1Fields,
+        schema_version: 1,
+    })}\n`);
+
+    expect(await createTestLockfile(path).read()).toEqual({
+        ...v1Fields,
+        schema_version: 1,
+    });
+});
+
+test("a record with a malformed entrypoint is not accepted", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+    writeFileSync(path, `${JSON.stringify({
+        ...record,
+        entrypoint: "",
+    })}\n`);
+
+    expect(await createTestLockfile(path).read()).toBeUndefined();
+});
+
 interface TestLockfileOverrides {
     readonly pid?: number;
     readonly startedAt?: string;
+    readonly entrypoint?: string;
     readonly inspectSocket?: () => Promise<{
         readonly pid: number;
         readonly started_at: string;
@@ -248,6 +296,9 @@ function createTestLockfile(
         socketPath: "/tmp/vera-test.sock",
         pid: overrides.pid ?? 101,
         startedAt: overrides.startedAt ?? startedAt,
+        ...(overrides.entrypoint === undefined
+            ? {}
+            : { entrypoint: overrides.entrypoint }),
         inspectSocket: overrides.inspectSocket ?? (async () => ({
             pid: overrides.pid ?? 101,
             started_at: overrides.startedAt ?? startedAt,

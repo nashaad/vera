@@ -1,9 +1,14 @@
 #!/usr/bin/env bun
 
+import { fileURLToPath } from "node:url";
+
 import { loadVeraConfig } from "../../src/config.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 
-const host = await startResidentHost({ config: loadVeraConfig() });
+const host = await startResidentHost({
+    config: loadVeraConfig(),
+    entrypoint: fileURLToPath(import.meta.url),
+});
 
 try {
     await waitForShutdownSignal();

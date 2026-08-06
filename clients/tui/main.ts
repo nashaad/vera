@@ -71,7 +71,10 @@ import {
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
-import { findOrStartResidentHost } from "../host/launch.ts";
+import {
+    findOrStartResidentHost,
+    hostEntrypointMismatchNotice,
+} from "../host/launch.ts";
 import {
     createTuiApprovalView,
     tuiApprovalHint,
@@ -299,6 +302,8 @@ export interface TuiDependencies {
     readonly reconnectSession?: (agentId: string) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
+    /** Notice lines shown in the transcript before anything else happens. */
+    readonly startupNotices?: readonly string[];
     readonly sessionSwitchTimeoutMs?: number;
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
     readonly renameSession?: (
@@ -433,8 +438,12 @@ export async function startConfiguredTui(
         attachAgent({ socketPath: host.socket_path, agentId: id });
     try {
         const listAgents = () => listAgentsThroughHost(host.socket_path);
+        const mismatchNotice = hostEntrypointMismatchNotice(host);
         const exit = await startTui({
             client,
+            ...(mismatchNotice === undefined
+                ? {}
+                : { startupNotices: [mismatchNotice] }),
             listAgents,
             getRunningBackgroundAgentCount: async () =>
                 countRunningBackgroundAgents(await listAgents()),
@@ -524,6 +533,9 @@ export async function startTui(
     applyTuiTheme(theme);
 
     let state = createTuiState();
+    for (const notice of dependencies.startupNotices ?? []) {
+        state = appendTuiNotice(state, notice);
+    }
     let connectionFailed = false;
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
