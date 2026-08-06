@@ -17,6 +17,7 @@ import type {
     VeraClientModelSettingsUpdateResult,
     VeraClientPickerRequest,
     VeraClientPickerResult,
+    VeraClientModelAvailability,
     VeraClientReasoningLevel,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
@@ -39,6 +40,7 @@ const CLIENT_KEYBINDING_CAPABILITY = "client.keybindings.register";
 const CLIENT_PREFERENCES_CAPABILITY = "client.preferences";
 const CLIENT_MODEL_SETTINGS_CAPABILITY = "client.model_settings";
 const CLIENT_PICKER_CAPABILITY = "client.ui.picker";
+const CLIENT_NOTICE_CAPABILITY = "client.ui.notice";
 
 export interface ClientExtensionConfig {
     readonly path: string;
@@ -97,11 +99,16 @@ export interface ClientExtensionPickerAdapter {
     ): Promise<VeraClientPickerResult>;
 }
 
+export interface ClientExtensionNoticeAdapter {
+    post(extensionId: string, text: string): void;
+}
+
 export interface StartClientExtensionRegistryOptions {
     readonly extensions: readonly ClientExtensionConfig[];
     readonly preferences: ClientExtensionPreferencesAdapter;
     readonly modelSettings: ClientExtensionModelSettingsAdapter;
     readonly picker: ClientExtensionPickerAdapter;
+    readonly notice: ClientExtensionNoticeAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -209,6 +216,7 @@ export async function startClientExtensionRegistry(
                 preferences: options.preferences,
                 modelSettings: options.modelSettings,
                 picker: options.picker,
+                notice: options.notice,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -351,6 +359,7 @@ interface ActivateClientExtensionOptions {
     readonly preferences: ClientExtensionPreferencesAdapter;
     readonly modelSettings: ClientExtensionModelSettingsAdapter;
     readonly picker: ClientExtensionPickerAdapter;
+    readonly notice: ClientExtensionNoticeAdapter;
     readonly activationTimeoutMs: number;
 }
 
@@ -483,6 +492,17 @@ async function activateClientExtension(
                 requireCapability(CLIENT_MODEL_SETTINGS_CAPABILITY);
                 return currentModelLevel(options.modelSettings.current());
             },
+            availability(
+                model: { readonly provider?: string; readonly model: string },
+            ): VeraClientModelAvailability {
+                requireAvailable();
+                requireCapability(CLIENT_MODEL_SETTINGS_CAPABILITY);
+                validateModelReference(model);
+                return modelAvailability(
+                    options.modelSettings.current(),
+                    model,
+                );
+            },
         }),
         ui: Object.freeze({
             requestPicker(
@@ -500,6 +520,11 @@ async function activateClientExtension(
                     structuredClone(request),
                     operationSignal,
                 ).then((result) => structuredClone(result));
+            },
+            notice(text: string): void {
+                requireAvailable();
+                requireCapability(CLIENT_NOTICE_CAPABILITY);
+                options.notice.post(options.id, validateNoticeText(text));
             },
         }),
         keybindings: Object.freeze({
@@ -926,6 +951,48 @@ function currentModelLevel(
         current.levels.map((level) => level.id),
         current.defaultLevel,
     ).providerEffort;
+}
+
+/**
+ * A model is runnable when a connected provider offers it, which is the same
+ * test the picker's All models tab applies to a row. A pooled entry that cannot
+ * run keeps its row there and is not runnable here.
+ */
+function modelAvailability(
+    settings: VeraClientModelSettingsSnapshot | undefined,
+    model: { readonly provider?: string; readonly model: string },
+): VeraClientModelAvailability {
+    const matches = (candidate: { provider: string; model: string }): boolean =>
+        candidate.model === model.model
+        && (model.provider === undefined
+            || candidate.provider === model.provider);
+    const pooled = (settings?.pooled ?? []).find(matches);
+    const offered = (settings?.availableModels ?? []).some(matches);
+    return {
+        runnable: offered || pooled?.available === true,
+        pooled: pooled !== undefined,
+        verified: pooled?.verified === true,
+    };
+}
+
+function validateModelReference(
+    model: { readonly provider?: string; readonly model: string },
+): void {
+    if (
+        typeof model !== "object" || model === null
+        || typeof model.model !== "string" || model.model.length === 0
+        || (model.provider !== undefined && typeof model.provider !== "string")
+    ) {
+        throw new Error("Invalid client extension model reference");
+    }
+}
+
+function validateNoticeText(text: string): string {
+    const trimmed = typeof text === "string" ? text.trim() : "";
+    if (trimmed.length === 0) {
+        throw new Error("Client extension notice text must not be empty");
+    }
+    return trimmed;
 }
 
 function currentAvailableModel(

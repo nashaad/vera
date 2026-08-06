@@ -145,6 +145,19 @@ export interface VeraClientAvailableModel {
     readonly defaultLevel?: string;
 }
 
+/**
+ * Whether one model can be run right now, and what the pool knows about it.
+ * Derived from `current()`, so it answers the same question the model picker
+ * answers about a row.
+ */
+export interface VeraClientModelAvailability {
+    /** The model is offered by a connected provider, so a switch would land. */
+    readonly runnable: boolean;
+    readonly pooled: boolean;
+    /** True once probe evidence exists; false for an unpooled model. */
+    readonly verified: boolean;
+}
+
 export interface VeraClientPooledModel {
     readonly provider: string;
     readonly model: string;
@@ -196,6 +209,17 @@ export interface VeraClientExtensionModelSettings {
         signal?: AbortSignal,
     ): Promise<VeraClientModelSettingsUpdateResult>;
     onChanged(listener: VeraClientModelSettingsListener): VeraExtensionDisposer;
+    /**
+     * Whether a given model could be switched to right now. Read-only, and
+     * derived from the same snapshot `current()` returns, so an extension does
+     * not have to re-implement the runnable, pooled and verified rules. An
+     * omitted provider matches the model on any provider.
+     *
+     * Capability: `client.model_settings`, the one `current()` already needs.
+     */
+    availability(
+        model: { readonly provider?: string; readonly model: string },
+    ): VeraClientModelAvailability;
     /**
      * The current model's own reasoning levels, most capable first. Derived
      * from `current().availableModels` by matching provider and model, the
@@ -255,6 +279,15 @@ export interface VeraClientExtensionUi {
         request: VeraClientPickerRequest,
         signal?: AbortSignal,
     ): Promise<VeraClientPickerResult>;
+    /**
+     * Post one line into the transcript. For the thing an extension did that
+     * the user would otherwise have to infer, which a keybinding especially
+     * has no other way to say. The client owns where it lands and how long it
+     * stays; nothing is returned, and nothing waits. Empty text is refused.
+     *
+     * Capability: `client.ui.notice`.
+     */
+    notice(text: string): void;
 }
 
 export interface VeraClientExtensionKeybindings {

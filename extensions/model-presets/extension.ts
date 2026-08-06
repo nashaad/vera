@@ -48,7 +48,15 @@ export function activateClient(vera: any): void {
             const position = filled.findIndex((entry) => entry.index === at);
             // A model that came from somewhere else leaves position at -1,
             // which starts the cycle at the first filled slot.
-            const next = filled[(position + 1) % filled.length]!;
+            // Cycling passes over a slot whose model cannot run: the key is
+            // meant to land somewhere, and a slot that would be refused is a
+            // dead stop. It keeps its contents, since the provider may return.
+            const runnable = filled.filter((entry) =>
+                entry.index === at || isRunnable(entry.slot)
+            );
+            const pool = runnable.length > 1 ? runnable : filled;
+            const at2 = pool.findIndex((entry) => entry.index === at);
+            const next = pool[(at2 + 1) % pool.length]!;
             await applySlot(next.index, next.slot);
         },
     });
@@ -66,7 +74,9 @@ export function activateClient(vera: any): void {
                     label: `Slot ${index + 1}`,
                     description: slot === null
                         ? "empty · ⏎ saves the current model"
-                        : presetLabel(slot),
+                        : isRunnable(slot)
+                        ? presetLabel(slot)
+                        : `${presetLabel(slot)} · unavailable`,
                     current: index === currentIndex,
                 })),
                 selectedId: selectedId
@@ -123,8 +133,20 @@ export function activateClient(vera: any): void {
      * "which slot am I on" is not recoverable from the model afterwards.
      */
     async function applySlot(index: number, preset: Preset): Promise<void> {
+        // Said before the update goes out: shift+tab is a key with no other
+        // surface, so without this a refusal is the first thing the user hears
+        // about the slot the key landed on.
+        vera.ui.notice(`preset ${index + 1}: ${presetLabel(preset)}`);
         await vera.modelSettings.update(preset);
         await vera.preferences.set(CURRENT_SLOT_KEY, index);
+    }
+
+    /** Whether a slot's model could be switched to right now. */
+    function isRunnable(preset: Preset): boolean {
+        return vera.modelSettings.availability({
+            provider: preset.provider,
+            model: preset.model,
+        }).runnable;
     }
 
     /**

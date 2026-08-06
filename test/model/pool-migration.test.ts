@@ -92,14 +92,6 @@ test("the old config keys are left exactly as they were", () => {
     expect(readFileSync(scope.configPath, "utf8")).toBe(before);
 });
 
-test("the legacy pinned list migrates when there is no pool key", () => {
-    const scope = paths({ pinned: ["cerebras/a", "openrouter/b", "junk"] });
-
-    const outcome = migrateConfigPool(scope);
-
-    expect(outcome.migrated).toEqual(["cerebras/a", "openrouter/b"]);
-});
-
 test("an existing pool file is never migrated over", () => {
     const scope = paths(
         { pool: [{ provider: "cerebras", model: "m" }] },

@@ -730,6 +730,12 @@ export async function startTui(
             request: (_extensionId, request, signal) =>
                 requestExtensionPicker(request, signal),
         },
+        notice: {
+            post(_extensionId, text) {
+                state = appendTuiNotice(state, text);
+                renderState();
+            },
+        },
         reservedCommandNames:
             commandRegistry.registeredCommands().map(({ name }) => name),
         reservedKeybindingKeys: [],
