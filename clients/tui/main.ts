@@ -11,6 +11,7 @@ import {
     TextRenderable,
     createCliRenderer,
     KeyEvent,
+    RGBA,
     type Selection,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
@@ -917,6 +918,16 @@ export async function startTui(
         },
     });
     app.add(transcript);
+    const overlayScrim = new BoxRenderable(renderer, {
+        id: "overlay-scrim",
+        position: "absolute",
+        width: "100%",
+        height: "100%",
+        backgroundColor: RGBA.fromInts(0, 0, 0, 210),
+        zIndex: 5,
+        visible: false,
+    });
+    app.add(overlayScrim);
     app.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
@@ -2905,6 +2916,9 @@ export async function startTui(
             === "tool_approval";
         questionView.box.visible = pendingUiRequest?.request.type
             === "user_question";
+        // Only the two overlays that ask the user something take the footer
+        // with them. Behind a pane you are reading rather than answering, the
+        // status line is still the answer to "what is this session".
         const interactiveCardVisible = approvalView.box.visible
             || questionView.box.visible;
         statusText.visible = !interactiveCardVisible;
@@ -2959,18 +2973,18 @@ export async function startTui(
         sessionTrashConfirmView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate !== undefined;
-        transcript.opacity = approvalView.box.visible
-                || questionView.box.visible
-                || timelinePickerView.box.visible
-                || settingsPickerView.box.visible
-                || commandPaletteView.box.visible
-                || helpView.box.visible
-                || permissionsConfirmView.box.visible
-                || sessionTrashConfirmView.box.visible
-                || sessionRenamePromptView.box.visible
-                || secretPromptView.box.visible
-            ? 0.2
-            : 1;
+        const overlayVisible = approvalView.box.visible
+            || questionView.box.visible
+            || timelinePickerView.box.visible
+            || settingsPickerView.box.visible
+            || preferencesListView.box.visible
+            || commandPaletteView.box.visible
+            || helpView.box.visible
+            || permissionsConfirmView.box.visible
+            || sessionTrashConfirmView.box.visible
+            || sessionRenamePromptView.box.visible
+            || secretPromptView.box.visible;
+        overlayScrim.visible = overlayVisible;
         composerBox.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
