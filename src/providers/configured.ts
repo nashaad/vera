@@ -12,6 +12,9 @@ export interface ConfiguredProviderOptions {
     readonly authStorage?: AuthStorage;
     readonly env?: Readonly<Record<string, string | undefined>>;
     readonly fetch?: typeof globalThis.fetch;
+    readonly log?: (
+        entry: { readonly type: string } & Record<string, unknown>,
+    ) => void;
 }
 
 /**
@@ -38,6 +41,7 @@ const ADAPTERS: Readonly<Record<
     ollama: (options) => createOllamaAdapter({
         host: (options.env ?? process.env).OLLAMA_HOST,
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...(options.log === undefined ? {} : { log: options.log }),
     }),
     openrouter: (options) => createOpenRouterAdapter({
         apiKey: requiredApiKey("openrouter", options),

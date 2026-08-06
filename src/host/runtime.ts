@@ -14,6 +14,14 @@ import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pinnedModels } from "../model/catalog-view.ts";
+import type {
+    CatalogModel,
+    ReasoningLevel,
+} from "../model/catalog-shape.ts";
+import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
+import { createHostLogger, type HostLog } from "./host-log.ts";
+
+const hostLog = createHostLogger();
 import { addPin, removePin } from "../model/pin-store.ts";
 import {
     refreshCodexCatalog,
@@ -110,7 +118,7 @@ export async function startResidentHost(
             ?? ((provider) => createConfiguredModelAdapter({
                 ...options.config,
                 provider: (provider ?? options.config.provider) as VeraConfig["provider"],
-            }, { authStorage })),
+            }, { authStorage, log: hostLog })),
         provider: options.config.provider,
         model: options.config.model,
         approvalMode: options.config.approval_mode,
@@ -239,47 +247,7 @@ async function discoverAvailableModels(
     authStorage: AuthStorage,
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
-    try {
-        const configuredHost = process.env.OLLAMA_HOST
-            ?? "http://127.0.0.1:11434";
-        const host = (/^https?:\/\//.test(configuredHost)
-            ? configuredHost
-            : `http://${configuredHost}`).replace(/\/+$/, "");
-        const response = await fetch(`${host}/v1/models`, {
-            signal: AbortSignal.timeout(750),
-        });
-        if (response.ok) {
-            const body = await response.json() as {
-                data?: readonly { id?: unknown }[];
-            };
-            for (const item of body.data ?? []) {
-                if (typeof item.id !== "string" || item.id.length === 0) {
-                    continue;
-                }
-                catalog.push({
-                    provider: "ollama",
-                    model: item.id,
-                    label: item.id,
-                    description: "installed locally",
-                });
-            }
-        }
-        if (config.provider === "ollama") {
-            const contextWindow = await discoverOllamaContextWindow(
-                host,
-                config.model,
-            );
-            const configured = catalog.find((item) =>
-                item.provider === "ollama" && item.model === config.model
-            );
-            if (configured !== undefined && contextWindow !== undefined) {
-                const index = catalog.indexOf(configured);
-                catalog[index] = { ...configured, contextWindow };
-            }
-        }
-    } catch {
-        // Ollama is optional; an offline local server must not block Vera startup.
-    }
+    catalog.push(...await discoveredOllamaModels({ log: hostLog }));
     const openrouter = await discoveredOpenRouterModels(config);
     if (openrouter.length > 0) {
         // The fetched list supersedes the shipped entries, which name the same
@@ -428,18 +396,183 @@ function hasCodexCredential(authStorage?: AuthStorage): boolean {
     }
 }
 
-async function discoverOllamaContextWindow(
-    host: string,
-    model: string,
-): Promise<number | undefined> {
-    const response = await fetch(`${host}/api/show`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model }),
-        signal: AbortSignal.timeout(750),
-    });
-    if (!response.ok) return undefined;
-    return ollamaContextWindow(await response.json());
+export interface OllamaDiscoveryOptions {
+    readonly host?: string;
+    readonly cacheDir?: string;
+    readonly fetch?: (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => Promise<Response>;
+    readonly log?: HostLog;
+}
+
+const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
+    { id: "high", label: "High" },
+    { id: "medium", label: "Medium" },
+    { id: "low", label: "Low" },
+];
+
+/**
+ * `/v1/models` names the installed models and nothing else, so what each one
+ * can actually be asked for comes from a per-model `/api/show`. Every call is
+ * to a local daemon and every failure is survivable: an Ollama that is not
+ * running must not delay startup or empty the picker.
+ *
+ * A model whose response carries no `capabilities` is left out of the snapshot
+ * rather than written with no levels. Empty levels is the claim "this model has
+ * no reasoning control"; an old daemon that never makes the claim should keep
+ * falling through to the optimistic default instead.
+ */
+export async function discoveredOllamaModels(
+    options: OllamaDiscoveryOptions = {},
+): Promise<readonly SuggestedModel[]> {
+    const configuredHost = options.host ?? process.env.OLLAMA_HOST
+        ?? "http://127.0.0.1:11434";
+    const host = (/^https?:\/\//.test(configuredHost)
+        ? configuredHost
+        : `http://${configuredHost}`).replace(/\/+$/, "");
+    const fetchImplementation = options.fetch ?? globalThis.fetch;
+    const log = options.log ?? (() => {});
+
+    let ids: readonly string[];
+    try {
+        const response = await fetchImplementation(`${host}/v1/models`, {
+            signal: AbortSignal.timeout(750),
+        });
+        if (!response.ok) {
+            log({
+                type: "ollama_discovery_unavailable",
+                host,
+                reason: `HTTP ${response.status}`,
+            });
+            return [];
+        }
+        const body = await response.json() as {
+            data?: readonly { id?: unknown }[];
+        };
+        ids = (body.data ?? [])
+            .map((item) => item.id)
+            .filter((id): id is string => typeof id === "string" && id !== "");
+    } catch (error) {
+        log({
+            type: "ollama_discovery_unavailable",
+            host,
+            reason: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+    }
+    log({ type: "ollama_discovery_listed", host, models: ids });
+
+    const described = await Promise.allSettled(ids.map(async (id) => {
+        const response = await fetchImplementation(`${host}/api/show`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model: id }),
+            signal: AbortSignal.timeout(750),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const body: unknown = await response.json();
+        return {
+            id,
+            capabilities: ollamaCapabilities(body),
+            contextWindow: ollamaContextWindow(body),
+        };
+    }));
+
+    const models: SuggestedModel[] = [];
+    const entries: CatalogModel[] = [];
+    for (const [index, outcome] of described.entries()) {
+        const id = ids[index]!;
+        const detail = outcome.status === "fulfilled"
+            ? outcome.value
+            : { id, capabilities: undefined, contextWindow: undefined };
+        const { capabilities, contextWindow } = detail;
+        if (outcome.status === "rejected") {
+            log({
+                type: "ollama_model_probe_failed",
+                model: id,
+                reason: outcome.reason instanceof Error
+                    ? outcome.reason.message
+                    : String(outcome.reason),
+            });
+        } else {
+            log({
+                type: "ollama_model_described",
+                model: id,
+                ...(capabilities === undefined ? {} : { capabilities }),
+                ...(contextWindow === undefined
+                    ? {}
+                    : { context_window: contextWindow }),
+            });
+        }
+        if (capabilities !== undefined) {
+            if (
+                capabilities.includes("embedding")
+                || !capabilities.includes("completion")
+            ) {
+                log({
+                    type: "ollama_model_excluded",
+                    model: id,
+                    reason: capabilities.includes("embedding")
+                        ? "embedding model"
+                        : "no completion capability",
+                });
+                continue;
+            }
+        }
+        models.push({
+            provider: "ollama",
+            model: id,
+            label: id,
+            description: "installed locally",
+            ...(contextWindow === undefined ? {} : { contextWindow }),
+        });
+        if (capabilities === undefined) continue;
+        entries.push({
+            id,
+            label: id,
+            description: "installed locally",
+            ...(contextWindow === undefined
+                ? {}
+                : { context_window: contextWindow }),
+            ...(capabilities.includes("tools") ? { tool_support: true } : {}),
+            levels: capabilities.includes("thinking")
+                ? OLLAMA_REASONING_LEVELS
+                : [],
+        });
+    }
+
+    try {
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "ollama",
+            models: entries,
+        }, options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir });
+        log({
+            type: "ollama_catalog_written",
+            models: entries.map((entry) => entry.id),
+        });
+    } catch (error) {
+        // The snapshot enriches the picker; failing to record it must not
+        // block startup.
+        log({
+            type: "ollama_catalog_write_failed",
+            reason: error instanceof Error ? error.message : String(error),
+        });
+    }
+    return models;
+}
+
+export function ollamaCapabilities(
+    value: unknown,
+): readonly string[] | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const declared = (value as { capabilities?: unknown }).capabilities;
+    return Array.isArray(declared)
+        ? declared.filter((entry): entry is string => typeof entry === "string")
+        : undefined;
 }
 
 export function ollamaContextWindow(value: unknown): number | undefined {
