@@ -20,6 +20,7 @@ import {
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
+import type { EffectiveCatalogOptions } from "../model/catalog.ts";
 import {
     runHeadlessLoop,
     sessionScratchDir,
@@ -182,6 +183,11 @@ export interface AgentRegistryOptions {
     readonly createToolHooks?: () => ToolHooks;
     /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
+    /**
+     * Where discovery snapshots are read from when resolving a model's
+     * reasoning levels; absent, the per-user cache directory.
+     */
+    readonly cacheDir?: string;
 }
 
 export interface CreateRegisteredAgentOptions {
@@ -266,6 +272,7 @@ export class AgentRegistry {
     private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
     private readonly maxConcurrentBackgroundAgents: number;
     private readonly startingBackgroundAgents = new Map<string, number>();
+    private readonly catalog: EffectiveCatalogOptions;
 
     constructor(private readonly options: AgentRegistryOptions) {
         this.defaultModel = options.model;
@@ -278,6 +285,9 @@ export class AgentRegistry {
         );
         this.trashArtifacts = options.trashSessionArtifacts
             ?? trashSessionArtifacts;
+        this.catalog = options.cacheDir === undefined
+            ? {}
+            : { cacheDir: options.cacheDir };
     }
 
     async create(
@@ -480,6 +490,7 @@ export class AgentRegistry {
         const availableEfforts = availableReasoningEfforts(
             provider,
             model,
+            this.catalog,
         );
         // Carrying the old effort to a new target is the caller's convenience,
         // not their request, so a target that cannot take it gets coerced
@@ -515,6 +526,7 @@ export class AgentRegistry {
         return settingsForClient(
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
+            this.catalog,
             this.options.availableModels,
             this.options.readPins?.(),
             this.options.subagentModel,
@@ -549,6 +561,7 @@ export class AgentRegistry {
         return settingsForClient(
             agentEntry.modelSettings,
             agentEntry.modelSettings.provider ?? this.defaultProvider,
+            this.catalog,
             this.options.availableModels,
             this.options.readPins?.(),
             this.options.subagentModel,
@@ -758,6 +771,7 @@ export class AgentRegistry {
                         ...storedSettings,
                         provider: storedSettings.provider ?? this.defaultProvider,
                     },
+                this.catalog,
             ),
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
             run: Promise.resolve(),
@@ -879,6 +893,7 @@ export class AgentRegistry {
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
+                    this.catalog,
                     this.options.availableModels,
                     this.options.readPins?.(),
                     this.options.subagentModel,
@@ -1327,11 +1342,13 @@ export class AgentRegistry {
  */
 function supportedModelSettings(
     settings: ModelTurnSettings,
+    catalog: EffectiveCatalogOptions = {},
 ): ModelTurnSettings {
     const effort = reasoningEffortForModel(
         settings.provider,
         settings.model,
         settings.reasoningEffort,
+        catalog,
     );
     if (effort === settings.reasoningEffort) {
         return settings;
@@ -1360,17 +1377,23 @@ function strongestReasoningEffort(
 function settingsForClient(
     settings: ModelTurnSettings,
     provider: string,
+    catalog: EffectiveCatalogOptions = {},
     models: readonly SuggestedModel[] = availableModels(),
     pinned: readonly PinnedModel[] = [],
     subagentModel?: SpawnModelDefault,
 ): ModelTurnSettings {
     const contextWindow = contextWindowForModel(provider, settings.model, models);
+    const efforts = availableReasoningEfforts(provider, settings.model, catalog);
+    // A running session's stored effort can outlive discovery deciding the
+    // model has no levels at all; serving it anyway shows a dial the model
+    // cannot have. Same emptiness rule as `reasoningEffortForModel`.
+    const { reasoningEffort, ...rest } = settings;
     return {
-        ...settings,
-        availableReasoningEfforts: availableReasoningEfforts(
-            provider,
-            settings.model,
-        ),
+        ...rest,
+        ...(efforts.length > 0 && reasoningEffort !== undefined
+            ? { reasoningEffort }
+            : {}),
+        availableReasoningEfforts: efforts,
         availableModels: availableModelsWithLevels(models),
         pinned,
         subagentDefault: subagentModel === undefined

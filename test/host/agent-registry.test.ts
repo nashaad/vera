@@ -2322,6 +2322,77 @@ test("editing the pinned keeps the running model and reports the new list", asyn
     }
 });
 
+test("a stored effort a model's discovered levels refuse is not served", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-refused-effort-"));
+    const cacheDir = join(root, "cache");
+    const makeRegistry = () => new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "ollama",
+        model: "granite4.1:8b",
+        reasoningEffort: "max",
+        approvalMode: "auto",
+        cacheDir,
+    });
+    const readSettings = async (
+        agent: { attach: () => AgentAttachment },
+        requestId: string,
+    ) => {
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "get_model_settings", requestId });
+        while (true) {
+            const update = await receiveModelSettings(attachment);
+            if (update.requestId === requestId) {
+                return update.settings;
+            }
+        }
+    };
+    const writeSnapshot = () => writeFile(
+        join(cacheDir, "ollama.json"),
+        JSON.stringify({
+            schema_version: 2,
+            provider: "ollama",
+            models: [
+                { id: "granite4.1:8b", label: "granite4.1:8b", levels: [] },
+            ],
+        }),
+    );
+
+    const liveRegistry = makeRegistry();
+    try {
+        await mkdir(cacheDir, { recursive: true });
+        const agent = await liveRegistry.create({
+            id: "granite",
+            workspace: root,
+            sessionPath: join(root, "granite.jsonl"),
+        });
+        // No snapshot yet: the optimistic fallback keeps the stored dial.
+        expect(await readSettings(agent, "before")).toMatchObject({
+            reasoningEffort: "max",
+        });
+
+        await writeSnapshot();
+        const settings = await readSettings(agent, "after");
+        expect(settings.reasoningEffort).toBeUndefined();
+        expect(settings.availableReasoningEfforts).toEqual([]);
+    } finally {
+        await liveRegistry.close();
+    }
+
+    const resumedRegistry = makeRegistry();
+    try {
+        const resumed = await resumedRegistry.resume({
+            sessionPath: join(root, "granite.jsonl"),
+        });
+        const settings = await readSettings(resumed, "resumed");
+        expect(settings.reasoningEffort).toBeUndefined();
+        expect(settings.availableReasoningEfforts).toEqual([]);
+    } finally {
+        await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("an agent starts even when the configured provider has no credential", async () => {
     // Otherwise there is no way back: no credential means no agent, no agent
     // means no TUI, and the connect pane that fixes it lives inside the TUI.
