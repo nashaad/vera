@@ -42,6 +42,7 @@ const config = {
             socketPath,
             lockPath: join(root, "host.json"),
             sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
         });
 
         try {
