@@ -149,7 +149,32 @@ const SECRET_KEY = new RegExp(
 );
 
 const BEARER = /\bBearer\s+[\w\-._~+/]+=*/gi;
-const KEY_LITERAL = /\bsk-[A-Za-z0-9\-_]{8,}/g;
+// Well-known token shapes. Captured requests carry prior tool output, so a
+// key can arrive as a bare literal (an `env` dump, a read .env file) with no
+// header name or Bearer prefix around it.
+const KEY_LITERAL = new RegExp(
+    "\\b(?:"
+    + "sk-[A-Za-z0-9\\-_]{8,}"
+    + "|gh[pousr]_[A-Za-z0-9]{20,}"
+    + "|github_pat_[A-Za-z0-9_]{20,}"
+    + "|xox[baprs]-[A-Za-z0-9-]{10,}"
+    + "|glpat-[A-Za-z0-9\\-_]{20,}"
+    + "|npm_[A-Za-z0-9]{30,}"
+    + "|AKIA[0-9A-Z]{16}"
+    + ")\\b",
+    "g",
+);
+// `NAME=value` / `NAME: value` lines inside strings, for secrets whose value
+// has no recognizable shape (AWS secret keys, arbitrary passwords). The name
+// is the signal there, same as the object-key pass below.
+const SECRET_ASSIGNMENT = new RegExp(
+    "\\b([A-Za-z_][A-Za-z0-9_-]*"
+    + "(?:key|token|secret|password|passwd|credential)s?"
+    + "[A-Za-z0-9_-]*)"
+    + "(\\s*[=:]\\s*)"
+    + "(\"[^\"\\n]+\"|'[^'\\n]+'|[^\\s\"',;]+)",
+    "gi",
+);
 
 /**
  * Credentials out, message content in.
@@ -163,7 +188,8 @@ const KEY_LITERAL = /\bsk-[A-Za-z0-9\-_]{8,}/g;
 export function redactSecrets(value: unknown): unknown {
     if (typeof value === "string") {
         return value.replace(BEARER, `Bearer ${REDACTED}`)
-            .replace(KEY_LITERAL, REDACTED);
+            .replace(KEY_LITERAL, REDACTED)
+            .replace(SECRET_ASSIGNMENT, `$1$2${REDACTED}`);
     }
     if (Array.isArray(value)) {
         return value.map((entry) => redactSecrets(entry));

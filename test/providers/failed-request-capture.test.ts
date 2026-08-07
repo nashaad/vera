@@ -212,6 +212,25 @@ describe("failed request capture", () => {
         expect(redacted.messages[0]?.content).toBe("explain my token budget");
     });
 
+    test("redacts secrets carried inside tool output text", () => {
+        const redacted = redactSecrets({
+            messages: [{
+                role: "tool",
+                content: "GITHUB_TOKEN=ghp_abcdefghij0123456789abcdefghij\n"
+                    + "AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCY\n"
+                    + "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\n"
+                    + "the word token stays readable",
+            }],
+        }) as { messages: readonly { content: string }[] };
+
+        const content = redacted.messages[0]?.content ?? "";
+        expect(content).not.toContain("ghp_abcdefghij");
+        expect(content).not.toContain("wJalrXUtnFEMI");
+        expect(content).not.toContain("AKIAIOSFODNN7EXAMPLE");
+        expect(content).toContain("GITHUB_TOKEN=");
+        expect(content).toContain("the word token stays readable");
+    });
+
     test("redacts a credential reaching the file through the request body", async () => {
         const capture = createFailedRequestCapture({
             sessionId: "session-secret",
