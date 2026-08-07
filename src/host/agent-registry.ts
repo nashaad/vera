@@ -86,6 +86,10 @@ import {
 } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
 import {
+    createFailedRequestCapture,
+    type FailedRequestCapture,
+} from "../providers/failed-request-capture.ts";
+import {
     type AgentAttachment,
     ResidentAgent,
 } from "./resident-agent.ts";
@@ -145,12 +149,22 @@ export interface AgentRegistryOptions {
     /**
      * The workspace is passed alongside the provider because a project pool
      * can name levels the user pool does not, and an adapter built without it
-     * would send a request the project's own settings do not describe.
+     * would send a request the project's own settings do not describe. The
+     * capture sink rides along because its caps are per session, and the
+     * session is known here rather than where the host builds its adapters.
      */
     readonly createAdapter: (
         provider?: string,
         projectRoot?: string,
+        captureFailedRequest?: FailedRequestCapture,
     ) => ModelAdapter;
+    /**
+     * Where a session's failed provider requests are kept. Defaults to the
+     * per-user capture directory; a test points it somewhere it owns.
+     */
+    readonly createFailedRequestCapture?: (
+        sessionId: string,
+    ) => FailedRequestCapture;
     /**
      * Tells a running agent that a provider's credentials changed, so it stops
      * spending the key it started with. Absent in tests that never sign in.
@@ -1187,10 +1201,18 @@ export class AgentRegistry {
         clientPromptRefusal?: string,
     ): ResidentAgent {
         const storedFailure = store.agentFailure();
+        const captureFailedRequest = (
+            this.options.createFailedRequestCapture
+                ?? ((sessionId) => createFailedRequestCapture({ sessionId }))
+        )(store.header.id);
         const adapter = storedFailure === undefined
             ? new ProviderRoutingAdapter(
                 (provider) =>
-                    this.options.createAdapter(provider, store.header.cwd),
+                    this.options.createAdapter(
+                        provider,
+                        store.header.cwd,
+                        captureFailedRequest,
+                    ),
                 this.defaultProvider,
                 this.options.credentialFingerprint,
             )

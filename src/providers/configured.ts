@@ -12,6 +12,7 @@ import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
 import { findProvider } from "./registry.ts";
 import { UserFacingError } from "../user-facing-error.ts";
+import type { FailedRequestCapture } from "./failed-request-capture.ts";
 
 export interface ConfiguredProviderOptions {
     readonly authStorage?: AuthStorage;
@@ -28,6 +29,11 @@ export interface ConfiguredProviderOptions {
     readonly effortLevels?: EffortLevelsLookup;
     /** The workspace whose pool overlays the user's, when there is one. */
     readonly projectRoot?: string;
+    /**
+     * Where a failed provider request is kept. Scoped by whoever builds the
+     * adapter, because the caps it enforces are per session.
+     */
+    readonly captureFailedRequest?: FailedRequestCapture;
 }
 
 /**
@@ -44,6 +50,7 @@ const ADAPTERS: Readonly<Record<
     cerebras: (options) => createCerebrasAdapter({
         apiKey: requiredApiKey("cerebras", options),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...capture(options),
     }),
     "openai-codex": (options) => createOpenAICodexAdapter({
         ...(options.authStorage === undefined
@@ -55,6 +62,7 @@ const ADAPTERS: Readonly<Record<
         host: (options.env ?? process.env).OLLAMA_HOST,
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...(options.log === undefined ? {} : { log: options.log }),
+        ...capture(options),
     }),
     openrouter: (options) => createOpenRouterAdapter({
         apiKey: requiredApiKey("openrouter", options),
@@ -66,8 +74,17 @@ const ADAPTERS: Readonly<Record<
                     : { projectRoot: options.projectRoot },
             ),
         }),
+        ...capture(options),
     }),
 };
+
+function capture(
+    options: ConfiguredProviderOptions,
+): { captureFailedRequest?: FailedRequestCapture } {
+    return options.captureFailedRequest === undefined
+        ? {}
+        : { captureFailedRequest: options.captureFailedRequest };
+}
 
 export function createConfiguredModelAdapter(
     config: VeraConfig,
