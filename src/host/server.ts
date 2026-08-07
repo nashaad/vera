@@ -651,12 +651,17 @@ function receiveConnection(
             // and the timeout exists to drop a client that never speaks.
             clearTimeout(deadline);
             finished = true;
+            const model = splitModelSpec(request.model);
             void runOnce({
                 workspace: request.workspace,
                 prompt: request.prompt,
                 ...(request.approval_mode === undefined
                     ? {}
                     : { approvalMode: request.approval_mode }),
+                ...model,
+                ...(request.effort === undefined
+                    ? {}
+                    : { reasoningEffort: request.effort }),
             }).then(
                 (result) => send({
                     type: "run_once_finished",
@@ -786,6 +791,27 @@ function receiveConnection(
             return undefined;
         }
     }
+}
+
+/**
+ * `provider/model` splits at the first slash, because model names carry
+ * slashes of their own and providers do not. A bare name means the provider
+ * the config already resolves.
+ */
+function splitModelSpec(
+    spec: string | undefined,
+): { readonly provider?: string; readonly model?: string } {
+    if (spec === undefined) {
+        return {};
+    }
+    const slash = spec.indexOf("/");
+    if (slash <= 0 || slash === spec.length - 1) {
+        return { model: spec };
+    }
+    return {
+        provider: spec.slice(0, slash),
+        model: spec.slice(slash + 1),
+    };
 }
 
 function writeSocketMessage(socket: Socket, message: object): Promise<void> {

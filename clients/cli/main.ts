@@ -45,6 +45,8 @@ export interface CliDependencies {
         readonly workspace: string;
         readonly prompt: string;
         readonly approvalMode?: string;
+        readonly model?: string;
+        readonly effort?: string;
     }) => Promise<RunOnceOutcome>;
     readonly runTui?: (
         target: TuiStartTarget,
@@ -114,14 +116,16 @@ export async function runCli(
         return 0;
     }
 
-    const printRequest = parsePrintRequest(args);
-    if (printRequest !== undefined) {
+    if (args[0] === "-p") {
+        const printRequest = parsePrintRequest(args);
+        if (printRequest === undefined) {
+            errorOutput.write(renderCliUsage());
+            return 1;
+        }
         const result = await (dependencies.runOnce ?? runOnceOnResidentHost)({
             workspace: process.cwd(),
             prompt: printRequest.prompt,
-            ...(printRequest.approvalMode === undefined
-                ? {}
-                : { approvalMode: printRequest.approvalMode }),
+            ...printRequest.options,
         });
         if (result.text.length > 0) {
             output.write(`${result.text}\n`);
@@ -218,33 +222,50 @@ export async function runCli(
 
 interface PrintRequest {
     readonly prompt: string;
-    readonly approvalMode?: string;
+    readonly options: {
+        readonly approvalMode?: string;
+        readonly model?: string;
+        readonly effort?: string;
+    };
 }
+
+/** The flags `-p` accepts, and the request field each one fills. */
+const PRINT_FLAGS: Readonly<Record<string, "approvalMode" | "model" | "effort">> = {
+    "--permission-mode": "approvalMode",
+    "--model": "model",
+    "--effort": "effort",
+};
 
 function parsePrintRequest(
     args: readonly string[],
 ): PrintRequest | undefined {
-    if (args[0] !== "-p" || typeof args[1] !== "string" || args[1].length === 0) {
+    const prompt = args[1];
+    if (typeof prompt !== "string" || prompt.length === 0) {
         return undefined;
     }
-    if (args.length === 2) {
-        return { prompt: args[1] };
+    const options: Record<string, string> = {};
+    for (let index = 2; index < args.length; index += 2) {
+        const field = PRINT_FLAGS[args[index] ?? ""];
+        const value = args[index + 1];
+        if (
+            field === undefined
+            || typeof value !== "string"
+            || value.length === 0
+            || options[field] !== undefined
+        ) {
+            return undefined;
+        }
+        options[field] = value;
     }
-    if (
-        args.length === 4
-        && args[2] === "--permission-mode"
-        && typeof args[3] === "string"
-        && args[3].length > 0
-    ) {
-        return { prompt: args[1], approvalMode: args[3] };
-    }
-    return undefined;
+    return { prompt, options };
 }
 
 async function runOnceOnResidentHost(request: {
     readonly workspace: string;
     readonly prompt: string;
     readonly approvalMode?: string;
+    readonly model?: string;
+    readonly effort?: string;
 }): Promise<RunOnceOutcome> {
     const { findOrStartResidentHost } = await import("../host/launch.ts");
     const host = await findOrStartResidentHost();

@@ -402,3 +402,61 @@ test("vera -p passes an approval mode through and fails on a turn error", async 
     expect(errors).toContain("Denied bash");
     expect(errors).toContain("Provider is not connected");
 });
+
+test("vera -p flags compose in any order and unknown flags are refused", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    let output = "";
+    let errors = "";
+    const dependencies = {
+        runOnce: async (request: Record<string, unknown>) => {
+            requests.push({ ...request });
+            return {
+                agentId: "bounded",
+                sessionPath: "/sessions/bounded.jsonl",
+                text: "ok",
+                outcome: "completed" as const,
+                notes: [],
+            };
+        },
+        stdout: { write: (text: string) => output += text },
+        stderr: { write: (text: string) => errors += text },
+    };
+
+    expect(await runCli(
+        ["-p", "sweep", "--model", "openai/gpt-5.5", "--effort", "high"],
+        dependencies,
+    )).toBe(0);
+    expect(await runCli(
+        ["-p", "sweep", "--effort", "low", "--permission-mode", "full_access"],
+        dependencies,
+    )).toBe(0);
+    expect(await runCli(
+        [
+            "-p",
+            "sweep",
+            "--permission-mode",
+            "auto",
+            "--model",
+            "anthropic/claude-opus-4",
+        ],
+        dependencies,
+    )).toBe(0);
+
+    expect(requests).toMatchObject([
+        { prompt: "sweep", model: "openai/gpt-5.5", effort: "high" },
+        { prompt: "sweep", effort: "low", approvalMode: "full_access" },
+        {
+            prompt: "sweep",
+            approvalMode: "auto",
+            model: "anthropic/claude-opus-4",
+        },
+    ]);
+
+    errors = "";
+    expect(await runCli(["-p", "sweep", "--temperature", "0"], dependencies))
+        .toBe(1);
+    expect(await runCli(["-p", "sweep", "--model"], dependencies)).toBe(1);
+    expect(await runCli(["-p"], dependencies)).toBe(1);
+    expect(errors).toContain("vera --help");
+    expect(requests).toHaveLength(3);
+});

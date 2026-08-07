@@ -6,7 +6,7 @@ export interface CliCommandHelp {
 export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera", description: "Start a new agent in the current directory" },
     { usage: "vera -c", description: "Continue the most recent session" },
-    { usage: "vera -p \"prompt\" [--permission-mode <mode>]", description: "Run one bounded turn and print the final reply" },
+    { usage: "vera -p \"prompt\" [flags]", description: "Run one bounded turn and print the final reply" },
     { usage: "vera ls", description: "List live resident agents" },
     { usage: "vera attach <agent-id>", description: "Attach to a live agent" },
     { usage: "vera resume <session-id|path>", description: "Resume a durable session" },
@@ -26,7 +26,11 @@ export function renderCliHelp(): string {
     return `Vera coding agent\n\nUsage:\n${commands}\n\nOptions:\n`
         + "  -h, --help     Show this help\n"
         + "  -y, --yes     Skip host stop or busy-host restart confirmation\n"
-        + "  -v, --version  Show the source revision\n";
+        + "  -v, --version  Show the source revision\n"
+        + "\nFlags for -p:\n"
+        + "  --permission-mode <mode>  Run under a named permission mode\n"
+        + "  --model <provider/model>  Run on one model instead of the configured one\n"
+        + "  --effort <level>          Run at one reasoning effort\n";
 }
 
 export function renderCliUsage(): string {

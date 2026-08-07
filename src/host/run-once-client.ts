@@ -22,6 +22,8 @@ export async function runOnceThroughHost(
         readonly workspace: string;
         readonly prompt: string;
         readonly approvalMode?: string;
+        readonly model?: string;
+        readonly effort?: string;
     },
 ): Promise<RunOnceOutcome> {
     const connection = await connectHost({ socketPath });
@@ -33,6 +35,8 @@ export async function runOnceThroughHost(
             ...(request.approvalMode === undefined
                 ? {}
                 : { approval_mode: request.approvalMode }),
+            ...(request.model === undefined ? {} : { model: request.model }),
+            ...(request.effort === undefined ? {} : { effort: request.effort }),
         });
         const response = asRecord(await connection.receive());
         if (response?.type === "run_once_failed") {
