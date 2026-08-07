@@ -35,7 +35,8 @@ const exit = await startTui({
     forkSession: async (agentId, boundaryId) => {
         forkedFrom = agentId;
         forkBoundary = boundaryId;
-        if (process.env.FORK_TIMEOUT === "1") {
+        if (process.env.FORK_TIMEOUT === "1"
+            || process.env.FORK_TIMEOUT === "hold") {
             return new Promise(() => {});
         }
         await Bun.sleep(300);
@@ -56,6 +57,10 @@ const exit = await startTui({
     },
     ...(process.env.FORK_TIMEOUT === "1"
         ? { sessionSwitchTimeoutMs: 100 }
+        // "hold" keeps the switch pending for the whole test, which is the
+        // only way to press ctrl+c while one is in flight.
+        : process.env.FORK_TIMEOUT === "hold"
+        ? { sessionSwitchTimeoutMs: 60_000 }
         : {}),
 });
 

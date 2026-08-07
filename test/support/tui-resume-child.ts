@@ -47,8 +47,14 @@ const exit = await startTui({
             updated_at: updatedAt,
         },
     ],
+    ...(process.env.RESUME_TIMEOUT === "1"
+        ? { sessionSwitchTimeoutMs: 100 }
+        : {}),
     resumeSession: async (sessionPath) => {
         resumedPath = sessionPath;
+        if (process.env.RESUME_TIMEOUT === "1") {
+            return new Promise(() => {});
+        }
         // The resumed session runs a different model in full access: the
         // status line has to report both as soon as the transcript lands.
         return createSettingsAnsweringClient({

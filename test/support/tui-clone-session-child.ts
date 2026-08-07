@@ -17,9 +17,15 @@ const client = createSettingsAnsweringClient({
 
 const exit = await startTui({
     client,
+    ...(process.env.CLONE_TIMEOUT === "1"
+        ? { sessionSwitchTimeoutMs: 100 }
+        : {}),
     cloneSession: async (agentId) => {
         cloneAttempts += 1;
         clonedFrom = agentId;
+        if (process.env.CLONE_TIMEOUT === "1") {
+            return new Promise(() => {});
+        }
         await Bun.sleep(400);
         return createSettingsAnsweringClient({
             agentId: "cloned-session",

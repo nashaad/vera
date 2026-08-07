@@ -1226,7 +1226,12 @@ export async function startTui(
             return;
         }
         if (parseRawInputEvent(key)?.type === "interrupt") {
-            if (sessionSwitchPending) {
+            // A trash in flight still consumes ctrl+c: it is destructive, it
+            // is bounded by its own deadline, and the confirmation card is on
+            // screen. A pending session switch does not, because the switch
+            // has no cancel and swallowing the chord left no way to quit a
+            // host that was slow to answer.
+            if (sessionTrashPending) {
                 key.preventDefault();
                 key.stopPropagation();
                 return;
@@ -2237,9 +2242,12 @@ export async function startTui(
             sessionSwitchPending = true;
             sessionSwitchActivity = "restarting host…";
             renderState();
-            void dependencies.reconnectSession(currentAgentId).then((next) => {
+            void withSessionSwitchDeadline(
+                dependencies.reconnectSession(currentAgentId),
+                discardSwitchTarget,
+            ).then((next) => {
                 if (shuttingDown) {
-                    void next.detach().catch(() => next.close());
+                    discardSwitchTarget(next);
                     return;
                 }
                 switchToClient(next);
@@ -2281,9 +2289,12 @@ export async function startTui(
             sessionSwitchPending = true;
             sessionSwitchActivity = "starting new session…";
             renderStatus();
-            void dependencies.createSession(workspace).then((next) => {
+            void withSessionSwitchDeadline(
+                dependencies.createSession(workspace),
+                discardSwitchTarget,
+            ).then((next) => {
                 if (shuttingDown) {
-                    void next.detach().catch(() => next.close());
+                    discardSwitchTarget(next);
                     return;
                 }
                 switchToClient(next);
@@ -2325,9 +2336,12 @@ export async function startTui(
             sessionSwitchPending = true;
             sessionSwitchActivity = "cloning session…";
             renderStatus();
-            void dependencies.cloneSession(sourceAgentId).then((next) => {
+            void withSessionSwitchDeadline(
+                dependencies.cloneSession(sourceAgentId),
+                discardSwitchTarget,
+            ).then((next) => {
                 if (shuttingDown) {
-                    void next.detach().catch(() => next.close());
+                    discardSwitchTarget(next);
                     return;
                 }
                 switchToClient(next);
@@ -3077,6 +3091,45 @@ export async function startTui(
         renderState();
     }
 
+    /**
+     * Give every session switch a deadline.
+     *
+     * A pending switch swallows the palette and refuses new prompts, so a host
+     * request that never settles would strand the client with no way back. On
+     * timeout the caller's rejection path runs, the old session stays attached,
+     * and a late answer is discarded rather than swapped in behind the user.
+     */
+    function withSessionSwitchDeadline<T>(
+        request: Promise<T>,
+        discardLate: (value: T) => void,
+    ): Promise<T> {
+        let timedOut = false;
+        let timeout: ReturnType<typeof setTimeout>;
+        const deadline = new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => {
+                timedOut = true;
+                reject(new Error("timed out"));
+            }, dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
+            // The deadline only matters to a TUI that is still on screen.
+            // Left referenced, quitting mid-switch would hold the process open
+            // until it fired.
+            timeout.unref?.();
+        });
+        void request.then((value) => {
+            if (timedOut) {
+                discardLate(value);
+            }
+        }, () => undefined);
+        return Promise.race([request, deadline]).finally(() => {
+            clearTimeout(timeout);
+        });
+    }
+
+    /** Drop a session the client asked for but can no longer use. */
+    function discardSwitchTarget(next: TuiAgentClient): void {
+        void next.detach().catch(() => next.close());
+    }
+
     function beginFork(boundaryId: string): void {
         timelinePicker = undefined;
         timelinePickerView.box.visible = false;
@@ -3096,22 +3149,10 @@ export async function startTui(
         sessionSwitchPending = true;
         sessionSwitchActivity = "forking session…";
         renderState();
-        const fork = dependencies.forkSession(sourceAgentId, boundaryId);
-        let timedOut = false;
-        let timeout: ReturnType<typeof setTimeout>;
-        const deadline = new Promise<never>((_resolve, reject) => {
-            timeout = setTimeout(() => {
-                timedOut = true;
-                reject(new Error("fork timed out"));
-            }, dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
-        });
-        void fork.then((result) => {
-            if (timedOut) {
-                void result.client.detach().catch(() => result.client.close());
-            }
-        }, () => undefined);
-        void Promise.race([fork, deadline]).then((result) => {
-            clearTimeout(timeout);
+        void withSessionSwitchDeadline(
+            dependencies.forkSession(sourceAgentId, boundaryId),
+            (result) => discardSwitchTarget(result.client),
+        ).then((result) => {
             if (shuttingDown) {
                 void result.client.detach().catch(() => result.client.close());
                 return;
@@ -3130,7 +3171,6 @@ export async function startTui(
                 ),
             });
         }).catch((error) => {
-            clearTimeout(timeout);
             if (shuttingDown) return;
             sessionSwitchPending = false;
             const message = error instanceof Error ? error.message : String(error);
@@ -4325,9 +4365,12 @@ export async function startTui(
         sessionSwitchActivity = "switching conversation…";
         settingsPickerView.box.visible = false;
         renderState();
-        void dependencies.resumeSession(sessionPath).then((next) => {
+        void withSessionSwitchDeadline(
+            dependencies.resumeSession(sessionPath),
+            discardSwitchTarget,
+        ).then((next) => {
             if (shuttingDown) {
-                void next.detach().catch(() => next.close());
+                discardSwitchTarget(next);
                 return;
             }
             switchToClient(next, draft);
