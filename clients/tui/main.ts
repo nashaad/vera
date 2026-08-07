@@ -3383,6 +3383,7 @@ export async function startTui(
     function clearTranscriptNodes(): void {
         while (entryNodes.length > 0) {
             entryNodes.pop()?.destroy();
+            entryNodeKinds.pop();
         }
     }
 
