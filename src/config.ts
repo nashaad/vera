@@ -39,11 +39,18 @@ import {
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
-export type VeraProviderId =
-    | "openrouter"
-    | "openai-codex"
-    | "ollama"
-    | "cerebras";
+export const VERA_PROVIDER_IDS = [
+    "openrouter",
+    "openai-codex",
+    "ollama",
+    "cerebras",
+] as const;
+
+export type VeraProviderId = typeof VERA_PROVIDER_IDS[number];
+
+export function isVeraProviderId(value: string): value is VeraProviderId {
+    return (VERA_PROVIDER_IDS as readonly string[]).includes(value);
+}
 
 export interface VeraModelFallbackConfig {
     readonly model: string;

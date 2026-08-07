@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -26,6 +26,9 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera resume <session-id|path>");
     expect(output).toContain("vera export <session-path>");
     expect(output).toContain("vera inspect <session-path>");
+    expect(output).toContain("vera pool list");
+    expect(output).toContain("vera pool add <provider/model>");
+    expect(output).toContain("vera pool remove <pool name|id>");
     expect(output).toContain("vera login");
     expect(output).toContain("-v, --version");
 
@@ -202,6 +205,133 @@ test("vera abort requests cancellation through a resident agent", async () => {
     expect(exitCode).toBe(0);
     expect(aborted).toEqual(["agent-1"]);
     expect(output).toBe("Abort requested for agent-1.\n");
+});
+
+test("vera pool list renders stable model rows from the pool file", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-cli-pool-"));
+    const previous = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = join(directory, "pool.json");
+    writeFileSync(process.env.VERA_POOL_FILE, JSON.stringify({
+        models: {
+            "openrouter/alpha": {
+                added: true,
+                efforts: { high: "high", low: "low", off: null },
+            },
+            "openrouter/learned-only": {
+                learned: { probe: { ok: false, seen: "2026-08-07" } },
+            },
+            "cerebras/beta": { added: true },
+        },
+    }));
+    let output = "";
+
+    try {
+        const exitCode = await runCli(["pool", "list"], {
+            stdout: { write: (text) => output += text },
+        });
+
+        expect(exitCode).toBe(0);
+        expect(output).toBe(
+            "openrouter/alpha\topenrouter\tefforts=low,high\n"
+            + "cerebras/beta\tcerebras\tefforts=-\n",
+        );
+    } finally {
+        if (previous === undefined) {
+            delete process.env.VERA_POOL_FILE;
+        } else {
+            process.env.VERA_POOL_FILE = previous;
+        }
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("vera pool add uses pool admission and remove resolves pool refs", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-cli-pool-"));
+    const previous = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = join(directory, "pool.json");
+    let output = "";
+
+    try {
+        expect(await runCli(["pool", "add", "openrouter/fresh"], {
+            stdout: { write: (text) => output += text },
+        })).toBe(0);
+        expect(JSON.parse(
+            readFileSync(process.env.VERA_POOL_FILE, "utf8"),
+        )).toMatchObject({
+            models: {
+                "openrouter/fresh": { added: true },
+            },
+        });
+
+        writeFileSync(process.env.VERA_POOL_FILE, JSON.stringify({
+            models: {
+                "openrouter/fresh": { added: true, name: "fresh" },
+            },
+        }));
+        expect(await runCli(["pool", "remove", "fresh"], {
+            stdout: { write: (text) => output += text },
+        })).toBe(0);
+        expect(JSON.parse(
+            readFileSync(process.env.VERA_POOL_FILE, "utf8"),
+        ).models).toEqual({});
+        expect(output).toContain(
+            "openrouter/fresh added to the pool (unverified).",
+        );
+        expect(output).toContain("fresh removed from the pool.");
+    } finally {
+        if (previous === undefined) {
+            delete process.env.VERA_POOL_FILE;
+        } else {
+            process.env.VERA_POOL_FILE = previous;
+        }
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("vera pool add --verify asks for verification and reports probe steps", async () => {
+    let received: { verify?: boolean } | undefined;
+    let output = "";
+    let errors = "";
+
+    expect(await runCli(["pool", "add", "openrouter/fresh", "--verify"], {
+        stdout: { write: (text) => output += text },
+        stderr: { write: (text) => errors += text },
+        addPoolModel: async (_workspace, _ref, options) => {
+            received = options;
+            options.onStep?.({
+                step: "probe",
+                label: "one turn",
+                status: "passed",
+            });
+            return { verdict: "added" };
+        },
+    })).toBe(0);
+
+    expect(received?.verify).toBe(true);
+    expect(output).toContain("openrouter/fresh added to the pool (verified).");
+    expect(errors).toContain("passed");
+    expect(errors).toContain("one turn");
+});
+
+test("vera pool add reports a refused verification as a nonzero exit", async () => {
+    let errors = "";
+
+    expect(await runCli(["pool", "add", "openrouter/fresh", "--verify"], {
+        stderr: { write: (text) => errors += text },
+        addPoolModel: async () => ({
+            verdict: "incompatible",
+            reason: "no tool calls",
+        }),
+    })).toBe(1);
+
+    expect(errors).toContain("was not added to the pool (incompatible)");
+    expect(errors).toContain("no tool calls");
+});
+
+test("vera pool add rejects an unknown flag", async () => {
+    expect(await runCli(["pool", "add", "openrouter/fresh", "--force"], {
+        stderr: { write: () => {} },
+    })).toBe(1);
 });
 
 test("vera interactive commands select create, continue, attach, and resume targets", async () => {
