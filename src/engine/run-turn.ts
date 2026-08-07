@@ -47,10 +47,10 @@ import {
 } from "./events.ts";
 import type { PoolAdmissionVerdict } from "./events.ts";
 import {
+    boundToolResult,
     executeToolHandler,
     toolDefinitionsForCapabilities,
     toolMayRunInParallel,
-    toolResultMessage,
 } from "../tools/execute.ts";
 import { initBashParser } from "../tools/bash-parser.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
@@ -69,9 +69,15 @@ import { promptContributionMetadata } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
 import { loadScratchState } from "./scratch-state.ts";
+import { createToolResultSpill } from "./tool-result-spill.ts";
+import type {
+    ToolResultSpill,
+    ToolResultTruncation,
+} from "../tools/tool-result-limit.ts";
 import {
     measureMessages,
     measureProjectedRequest,
+    measureToolResultBytes,
     type ContextMeasurement,
 } from "./context-measurement.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
@@ -194,6 +200,8 @@ export interface RunTurnState {
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly scratchDir?: string;
+    /** Where a truncated tool result's full output goes. */
+    readonly toolResultSpill?: ToolResultSpill;
     readonly disabledPromptContributions?: readonly string[];
 }
 
@@ -634,6 +642,7 @@ export async function runHeadlessLoop(
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
         scratchDir,
+        toolResultSpill: createToolResultSpill(scratchDir),
         ...(options.disabledPromptContributions === undefined ? {} : {
             disabledPromptContributions: options.disabledPromptContributions,
         }),
@@ -894,6 +903,7 @@ export async function runTurn(
                 messages: request.messages,
                 tools: request.tools,
                 promptContributions,
+                toolResultBytes: measureToolResultBytes(request.messages),
             });
             const measurement = measureProjectedRequest(
                 request,
@@ -1604,9 +1614,20 @@ async function executePreparedTool(
     for (const substitution of output.substitutions ?? []) {
         state.events.emit({ type: "model_substituted", substitution });
     }
-    const result = toolResultMessage(toolCall, output);
+    const bound = await boundToolResult(
+        toolCall,
+        output,
+        state.toolResultSpill,
+    );
     const durationMs = performance.now() - startedAt;
-    return finishExecutedTool(state, toolCall, hookCall, result, durationMs);
+    return finishExecutedTool(
+        state,
+        toolCall,
+        hookCall,
+        bound.result,
+        durationMs,
+        bound.truncation,
+    );
 }
 
 /**
@@ -1656,7 +1677,9 @@ async function finishExecutedTool(
     hookCall: HookToolCall,
     result: ToolResultMessage,
     durationMs: number,
+    truncation?: ToolResultTruncation,
 ): Promise<CompletedToolCall> {
+    const truncated = truncation === undefined ? {} : { truncation };
     try {
         const effective = await state.hooks.runPostToolUse({
             type: "post_tool_use",
@@ -1686,6 +1709,7 @@ async function finishExecutedTool(
             toolCall,
             result: finalResult,
             durationMs,
+            ...truncated,
         });
         return { result: finalResult };
     } catch (postHookError) {
@@ -1700,6 +1724,7 @@ async function finishExecutedTool(
             toolCall,
             result,
             durationMs,
+            ...truncated,
         });
         return { result };
     }

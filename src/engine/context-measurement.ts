@@ -137,3 +137,24 @@ function measureMessage(message: ModelMessage): number {
 function sum<T>(items: readonly T[], size: (item: T) => number): number {
     return items.reduce((total, item) => total + size(item), 0);
 }
+
+/**
+ * The tool-result share of a request, in bytes rather than estimated tokens:
+ * this number exists to be compared against itself across requests, and an
+ * estimate would put a made-up divisor between the measurement and the thing
+ * measured.
+ */
+export function measureToolResultBytes(
+    messages: readonly ModelMessage[],
+): number {
+    let bytes = 0;
+    for (const message of messages) {
+        if (message.role !== "tool_result") {
+            continue;
+        }
+        for (const block of message.content) {
+            bytes += Buffer.byteLength(block.text, "utf8");
+        }
+    }
+    return bytes;
+}

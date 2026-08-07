@@ -24,6 +24,11 @@ import { notifyParentTool } from "./notify-parent.ts";
 import { webFetchTool } from "./web-fetch.ts";
 import { catalogSearchTool } from "./catalog-search.ts";
 import { poolAddTool } from "./pool-add.ts";
+import {
+    limitToolResult,
+    type ToolResultSpill,
+    type ToolResultTruncation,
+} from "./tool-result-limit.ts";
 
 const ordinaryTools: readonly RegisteredTool[] = [
     bashTool,
@@ -144,7 +149,39 @@ export async function executeToolCall(
         : execution.kind === "interaction"
             ? errorOutput("User interaction is not enabled in this agent")
             : errorOutput("Tool effects are not enabled in this agent");
-    return toolResultMessage(toolCall, output);
+    return (await boundToolResult(toolCall, output)).result;
+}
+
+export interface BoundToolResult {
+    readonly result: ToolResultMessage;
+    /** Absent when the result was under the ceiling. */
+    readonly truncation?: ToolResultTruncation;
+}
+
+/**
+ * The one place a tool's output becomes a message the model will carry.
+ * Everything a tool returns passes here, extension tools included, which is
+ * what makes the ceiling a property of the engine rather than of the tools
+ * that remembered to have one.
+ */
+export async function boundToolResult(
+    toolCall: ToolCallContent,
+    output: ToolOutput,
+    spill?: ToolResultSpill,
+): Promise<BoundToolResult> {
+    const limited = await limitToolResult(output.output, {
+        toolName: toolCall.name,
+        ...(spill === undefined ? {} : { spill }),
+    });
+    const result = toolResultMessage(
+        toolCall,
+        limited.truncation === undefined
+            ? output
+            : { ...output, output: limited.text },
+    );
+    return limited.truncation === undefined
+        ? { result }
+        : { result, truncation: limited.truncation };
 }
 
 export async function executeToolHandler(

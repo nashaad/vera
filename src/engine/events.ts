@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ContextMeasurement } from "./context-measurement.ts";
+import type { ToolResultTruncation } from "../tools/tool-result-limit.ts";
 import type {
     AssistantMessage,
     ModelMessage,
@@ -209,6 +210,12 @@ export interface ModelRequestEvent {
     readonly tools: readonly ModelTool[];
     readonly projectInstructions?: ProjectInstructionMetadata;
     readonly promptContributions: readonly PromptContributionMetadata[];
+    /**
+     * How much of this request is tool results. Recorded per request because
+     * the share, not the total, is what says whether old results are worth
+     * replacing with references to them.
+     */
+    readonly toolResultBytes: number;
 }
 
 /**
@@ -384,6 +391,13 @@ export interface ToolExecutionFinishedEvent {
     readonly toolCall: ToolCallContent;
     readonly result: ToolResultMessage;
     readonly durationMs: number;
+    /**
+     * Present when the result did not fit the model-visible ceiling. Original
+     * versus retained bytes is what says whether the ceiling is costing the
+     * session anything, which is the measurement the next stage of this work
+     * is gated on.
+     */
+    readonly truncation?: ToolResultTruncation;
 }
 
 export interface ToolPresentationReadyEvent {
