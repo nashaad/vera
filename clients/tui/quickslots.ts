@@ -1,15 +1,15 @@
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 
-// A preset is one saved position of the dials `/model` and `/effort` already
-// set. Nothing here is new capability: a slot can only ever hold a combination
+// A quickslot is one saved position of the dials `/model` and `/effort`
+// already set. Nothing here is new capability: a slot can only ever hold a combination
 // those two commands could reach on their own, so saving one records a state
 // the session was already in, and applying one returns to it in a single key.
 //
-// This file is the preset domain only. It does not touch disk (that is
+// This file is the quickslot domain only. It does not touch disk (that is
 // theme-preference.ts) and does not know the picker exists (that is
 // settings-picker.ts), so every rule below is testable as a plain function.
 
-export interface ModelPreset {
+export interface Quickslot {
     readonly provider: string;
     readonly model: string;
     readonly reasoningEffort: ModelReasoningEffort;
@@ -20,24 +20,26 @@ export interface ModelPreset {
  * slot keeps its number for the whole session: slot 3 stays slot 3 after slot 2
  * is cleared, and the numbers stay worth memorising.
  */
-export const MODEL_PRESET_SLOT_COUNT = 4;
+export const QUICKSLOT_COUNT = 4;
 
-export type ModelPresetSlots = readonly (ModelPreset | null)[];
+export type Quickslots = readonly (Quickslot | null)[];
 
-export function emptyModelPresetSlots(): ModelPresetSlots {
-    return Array.from({ length: MODEL_PRESET_SLOT_COUNT }, () => null);
+export function emptyQuickslots(): Quickslots {
+    return Array.from({ length: QUICKSLOT_COUNT }, () => null);
 }
 
 /** Save into a slot, or clear it by passing `null`. */
-export function withModelPresetSlot(
-    slots: ModelPresetSlots,
+export function withQuickslot(
+    slots: Quickslots,
     index: number,
-    preset: ModelPreset | null,
-): ModelPresetSlots {
-    return slots.map((slot, position) => position === index ? preset : slot);
+    quickslot: Quickslot | null,
+): Quickslots {
+    return slots.map((slot, position) =>
+        position === index ? quickslot : slot
+    );
 }
 
-export function sameModelPreset(left: ModelPreset, right: ModelPreset): boolean {
+export function sameQuickslot(left: Quickslot, right: Quickslot): boolean {
     return left.provider === right.provider
         && left.model === right.model
         && left.reasoningEffort === right.reasoningEffort;
@@ -46,19 +48,19 @@ export function sameModelPreset(left: ModelPreset, right: ModelPreset): boolean 
 /**
  * The slot the cycle key moves to: the first filled slot after whichever one
  * matches the current settings, wrapping past the end. Undefined when there is
- * nowhere different to land, so a lone saved preset does not re-send itself on
- * every press.
+ * nowhere different to land, so a lone saved quickslot does not re-send
+ * itself on every press.
  *
  * Position is derived from the live settings rather than remembered, so a slot
  * saved, cleared, or overwritten mid-session cannot leave a stale cursor
  * behind, and `/model` used directly still lands the cycle in the right place.
  */
-export function nextModelPresetSlot(
-    slots: ModelPresetSlots,
-    current: ModelPreset | undefined,
+export function nextQuickslot(
+    slots: Quickslots,
+    current: Quickslot | undefined,
 ): number | undefined {
     const start = current === undefined ? -1 : slots.findIndex((slot) =>
-        slot !== null && sameModelPreset(slot, current)
+        slot !== null && sameQuickslot(slot, current)
     );
     for (let step = 1; step <= slots.length; step += 1) {
         const index = (start + step + slots.length) % slots.length;
@@ -75,40 +77,40 @@ export function nextModelPresetSlot(
  * stored beside it, so a slot never needs naming and its label can never go
  * stale against its contents.
  */
-export function modelPresetLabel(preset: ModelPreset): string {
-    const name = preset.model.split("/").at(-1) ?? preset.model;
-    return `${name} · ${preset.reasoningEffort}`;
+export function quickslotLabel(quickslot: Quickslot): string {
+    const name = quickslot.model.split("/").at(-1) ?? quickslot.model;
+    return `${name} · ${quickslot.reasoningEffort}`;
 }
 
 // On disk the fields are snake_case, matching how every other Vera
 // configuration file spells them. The two functions below are the only place
 // that spelling exists, so the rest of the client works in one shape.
 
-interface DiskModelPreset {
+interface DiskQuickslot {
     readonly provider: string;
     readonly model: string;
     readonly reasoning_effort: ModelReasoningEffort;
 }
 
-export type DiskModelPresetSlots = readonly (DiskModelPreset | null)[];
+export type DiskQuickslots = readonly (DiskQuickslot | null)[];
 
 /**
- * Always returns exactly `MODEL_PRESET_SLOT_COUNT` entries, whatever was on
- * disk. A hand-edited or truncated file drops the unreadable slots instead of
+ * Always returns exactly `QUICKSLOT_COUNT` entries, whatever was on disk. A
+ * hand-edited or truncated file drops the unreadable slots instead of
  * failing, on the same reasoning as the rest of this preferences file: a bad
  * preference must never keep the TUI from starting.
  */
-export function parseModelPresetSlots(value: unknown): ModelPresetSlots {
+export function parseQuickslots(value: unknown): Quickslots {
     const entries = Array.isArray(value) ? value : [];
     return Array.from(
-        { length: MODEL_PRESET_SLOT_COUNT },
-        (_, index) => asModelPreset(entries[index]),
+        { length: QUICKSLOT_COUNT },
+        (_, index) => asQuickslot(entries[index]),
     );
 }
 
-export function modelPresetSlotsForDisk(
-    slots: ModelPresetSlots,
-): DiskModelPresetSlots {
+export function quickslotsForDisk(
+    slots: Quickslots,
+): DiskQuickslots {
     return slots.map((slot) =>
         slot === null ? null : {
             provider: slot.provider,
@@ -118,7 +120,7 @@ export function modelPresetSlotsForDisk(
     );
 }
 
-function asModelPreset(value: unknown): ModelPreset | null {
+function asQuickslot(value: unknown): Quickslot | null {
     if (typeof value !== "object" || value === null) {
         return null;
     }

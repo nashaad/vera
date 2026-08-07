@@ -164,12 +164,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "cycle-reasoning",
     },
     {
-        id: "cycle-preset",
+        id: "cycle-quickslot",
         keys: ["shift+tab"],
         scope: "global",
-        description: "Cycle model presets",
+        description: "Cycle quickslots",
         hint: "shift+tab",
-        extensionId: "cycle-preset",
+        extensionId: "cycle-quickslot",
     },
     {
         id: "complete_command",

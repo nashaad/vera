@@ -1,24 +1,24 @@
-// A preset holds either a pool entry's name or a `provider/model` id. The name
-// is the entry's identity, so a slot that holds one follows a rename or a
+// A quickslot holds either a pool entry's name or a `provider/model` id. The
+// name is the entry's identity, so a slot that holds one follows a rename or a
 // re-pointed entry instead of pinning whatever the name meant when it was
 // saved. A slot only ever holds one of the two forms, never both.
 
-interface NamedPreset {
+interface NamedQuickslot {
     readonly name: string;
     // A level id, not a fixed vocabulary: each model names its own levels, so
-    // a preset saved on one model can hold a word another has never heard of.
+    // a quickslot saved on one model can hold a word another has not heard of.
     readonly reasoningEffort: string;
 }
 
-interface IdPreset {
+interface IdQuickslot {
     readonly provider: string;
     readonly model: string;
     readonly reasoningEffort: string;
 }
 
-type Preset = NamedPreset | IdPreset;
+type Quickslot = NamedQuickslot | IdQuickslot;
 
-type Slot = Preset | null;
+type Slot = Quickslot | null;
 
 interface ModelTarget {
     readonly provider: string;
@@ -39,11 +39,11 @@ const CURRENT_SLOT_KEY = "current-slot";
 // Bundled by Vera, but intentionally limited to the same public API as user extensions.
 export function activateClient(vera: any): void {
     vera.commands.register({
-        name: "preset",
-        description: "Save and switch between model presets",
-        usage: "/preset",
+        name: "quickslot",
+        description: "Save and switch between model quickslots",
+        usage: "/quickslot",
         palette: {
-            label: "Model presets",
+            label: "Quickslots",
             description: "save the current model, or switch to a saved one",
             group: "Settings",
             keyHint: "shift+tab",
@@ -54,8 +54,8 @@ export function activateClient(vera: any): void {
         },
     });
     vera.keybindings.register({
-        id: "cycle-preset",
-        description: "Cycle model presets",
+        id: "cycle-quickslot",
+        description: "Cycle quickslots",
         keys: ["shift+tab"],
         async run() {
             const slots = await loadSlots();
@@ -92,7 +92,7 @@ export function activateClient(vera: any): void {
             const slots = await loadSlots();
             const currentIndex = await currentSlotIndex(slots);
             const result = await vera.ui.requestPicker({
-                title: "Model presets",
+                title: "Quickslots",
                 subtitle: "Switching models may reset the KV cache. The next turn will be slower.",
                 rows: slots.map((slot, index) => ({
                     id: `slot-${index + 1}`,
@@ -131,13 +131,13 @@ export function activateClient(vera: any): void {
                 return;
             }
             if (intent === "save") {
-                const preset = currentPreset();
-                if (preset !== undefined) {
-                    slots[index] = preset;
+                const quickslot = currentQuickslot();
+                if (quickslot !== undefined) {
+                    slots[index] = quickslot;
                     await vera.preferences.set("slots", slots);
                     // Saving the model you are on into a slot puts you on that
                     // slot, so the cycle continues from there rather than from
-                    // whichever other slot happens to hold the same preset.
+                    // whichever other slot happens to hold the same quickslot.
                     await vera.preferences.set(CURRENT_SLOT_KEY, index);
                 }
                 continue;
@@ -150,20 +150,23 @@ export function activateClient(vera: any): void {
     }
 
     /**
-     * Put a slot's preset on, and remember that it is the one you are on.
+     * Put a slot's contents on, and remember that it is the slot you are on.
      *
-     * The remembering is the point. Two slots may hold the same preset, so
+     * The remembering is the point. Two slots may hold the same quickslot, so
      * "which slot am I on" is not recoverable from the model afterwards.
      */
-    async function applySlot(index: number, preset: Preset): Promise<void> {
-        const target = resolveTarget(preset);
+    async function applySlot(
+        index: number,
+        quickslot: Quickslot,
+    ): Promise<void> {
+        const target = resolveTarget(quickslot);
         // A stale name has nothing to apply, and quietly leaving the model
         // where it is would read as the key doing nothing. Naming the name is
         // the only way the user can tell which slot to fix.
         if (target === undefined) {
             vera.ui.notice(
-                `preset ${index + 1}: no pooled model named ${
-                    (preset as NamedPreset).name
+                `quickslot ${index + 1}: no pooled model named ${
+                    (quickslot as NamedQuickslot).name
                 }`,
             );
             return;
@@ -171,11 +174,11 @@ export function activateClient(vera: any): void {
         // Said before the update goes out: shift+tab is a key with no other
         // surface, so without this a refusal is the first thing the user hears
         // about the slot the key landed on.
-        vera.ui.notice(`preset ${index + 1}: ${presetLabel(preset)}`);
+        vera.ui.notice(`quickslot ${index + 1}: ${quickslotLabel(quickslot)}`);
         await vera.modelSettings.update({
             provider: target.provider,
             model: target.model,
-            reasoningEffort: preset.reasoningEffort,
+            reasoningEffort: quickslot.reasoningEffort,
         });
         await vera.preferences.set(CURRENT_SLOT_KEY, index);
     }
@@ -188,14 +191,14 @@ export function activateClient(vera: any): void {
      * named it. An ambiguous name resolves to nothing here because the pool
      * drops a repeated name before it reaches this list.
      */
-    function resolveTarget(preset: Preset): ModelTarget | undefined {
-        if (!isNamed(preset)) {
-            return { provider: preset.provider, model: preset.model };
+    function resolveTarget(quickslot: Quickslot): ModelTarget | undefined {
+        if (!isNamed(quickslot)) {
+            return { provider: quickslot.provider, model: quickslot.model };
         }
         const pooled = vera.modelSettings.current()?.pooled ?? [];
         const entry = pooled.find(
             (candidate: { poolName?: string }) =>
-                candidate.poolName === preset.name,
+                candidate.poolName === quickslot.name,
         );
         return entry === undefined
             ? undefined
@@ -203,8 +206,8 @@ export function activateClient(vera: any): void {
     }
 
     /** Whether a slot could be switched to right now, and why not. */
-    function slotState(preset: Preset): SlotState {
-        const target = resolveTarget(preset);
+    function slotState(quickslot: Quickslot): SlotState {
+        const target = resolveTarget(quickslot);
         if (target === undefined) {
             return "stale";
         }
@@ -213,12 +216,12 @@ export function activateClient(vera: any): void {
             : "unavailable";
     }
 
-    function slotDescription(preset: Preset): string {
-        const state = slotState(preset);
+    function slotDescription(quickslot: Quickslot): string {
+        const state = slotState(quickslot);
         if (state === "ready") {
-            return presetLabel(preset);
+            return quickslotLabel(quickslot);
         }
-        return `${presetLabel(preset)} · ${
+        return `${quickslotLabel(quickslot)} · ${
             state === "stale" ? "stale name" : "unavailable"
         }`;
     }
@@ -227,23 +230,26 @@ export function activateClient(vera: any): void {
      * The slot the current model came from, or -1 when it came from elsewhere.
      *
      * The remembered index is only trusted while the model still matches what
-     * that slot holds: the model picker, a preset overwritten in another
+     * that slot holds: the model picker, a quickslot overwritten in another
      * session, and a cleared slot all change the answer without going through
      * here. Matching by value is the fallback rather than the answer, because
-     * with two slots holding one preset it can only name the first of them,
+     * with two slots holding one quickslot it can only name the first of them,
      * which is what made cycling stick.
      */
     async function currentSlotIndex(slots: readonly Slot[]): Promise<number> {
-        const current = currentPreset();
+        const current = currentQuickslot();
         const remembered = await vera.preferences.get(CURRENT_SLOT_KEY);
         if (Number.isInteger(remembered)) {
             const slot = slots[remembered as number];
-            if (slot !== null && slot !== undefined && samePreset(slot, current)) {
+            if (
+                slot !== null && slot !== undefined
+                && sameQuickslot(slot, current)
+            ) {
                 return remembered as number;
             }
         }
         return slots.findIndex((slot) =>
-            slot !== null && samePreset(slot, current)
+            slot !== null && sameQuickslot(slot, current)
         );
     }
 
@@ -252,7 +258,7 @@ export function activateClient(vera: any): void {
      * the user has named is stored by that name: the name is what saving it
      * meant, and the id it resolves to is the pool's business afterwards.
      */
-    function currentPreset(): Preset | undefined {
+    function currentQuickslot(): Quickslot | undefined {
         const settings = vera.modelSettings.current();
         if (
             settings?.provider === undefined
@@ -278,14 +284,15 @@ export function activateClient(vera: any): void {
     }
 
     /**
-     * Whether two presets put the same dials on. Compared after resolution, so
+     * Whether two quickslots put the same dials on. Compared after resolution,
+     * so
      * a slot holding a name still matches the model it points at however that
      * model was reached. Two stale slots never match: neither stands for a
      * model, so neither can be the one you are on.
      */
-    function samePreset(
-        left: Preset | undefined,
-        right: Preset | undefined,
+    function sameQuickslot(
+        left: Quickslot | undefined,
+        right: Quickslot | undefined,
     ): boolean {
         if (
             left === undefined || right === undefined
@@ -305,16 +312,16 @@ export function activateClient(vera: any): void {
         const value = await vera.preferences.get("slots");
         if (!Array.isArray(value)) return [null, null, null, null];
         return Array.from({ length: 4 }, (_, index) =>
-            asPreset(value[index])
+            asQuickslot(value[index])
         );
     }
 }
 
-function isNamed(preset: Preset): preset is NamedPreset {
-    return "name" in preset;
+function isNamed(quickslot: Quickslot): quickslot is NamedQuickslot {
+    return "name" in quickslot;
 }
 
-function asPreset(value: unknown): Preset | null {
+function asQuickslot(value: unknown): Quickslot | null {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return null;
     }
@@ -339,7 +346,7 @@ function asPreset(value: unknown): Preset | null {
 
 function isEffort(
     value: unknown,
-): value is Preset["reasoningEffort"] {
+): value is Quickslot["reasoningEffort"] {
     return value === "off"
         || value === "low"
         || value === "medium"
@@ -347,9 +354,9 @@ function isEffort(
         || value === "max";
 }
 
-function presetLabel(preset: Preset): string {
-    const model = isNamed(preset)
-        ? preset.name
-        : preset.model.split("/").at(-1);
-    return `${model} · ${preset.reasoningEffort}`;
+function quickslotLabel(quickslot: Quickslot): string {
+    const model = isNamed(quickslot)
+        ? quickslot.name
+        : quickslot.model.split("/").at(-1);
+    return `${model} · ${quickslot.reasoningEffort}`;
 }

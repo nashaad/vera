@@ -458,10 +458,10 @@ test("interactive commands remain active until the client cancels them", async (
     await registry.close();
 });
 
-test("bundled preset uses the same public seams as a user extension", async () => {
+test("bundled quickslot uses the same public seams as a user extension", async () => {
     const extension = join(
         import.meta.dir,
-        "../../extensions/model-presets",
+        "../../extensions/quickslot",
     );
     const preferences = new Map<string, JsonValue>();
     const updates: unknown[] = [];
@@ -505,7 +505,7 @@ test("bundled preset uses the same public seams as a user extension", async () =
         },
         picker: {
             async request(_extensionId, request) {
-                expect(request.title).toBe("Model presets");
+                expect(request.title).toBe("Quickslots");
                 expect(request.rows).toHaveLength(4);
                 return pickerResults[pickerIndex++]
                     ?? { outcome: "cancelled" };
@@ -514,15 +514,15 @@ test("bundled preset uses the same public seams as a user extension", async () =
     });
 
     expect(registry.commands()).toEqual([expect.objectContaining({
-        name: "preset",
+        name: "quickslot",
         source: "vera.model-presets",
     })]);
     expect(registry.keybindings()).toEqual([expect.objectContaining({
-        id: "cycle-preset",
+        id: "cycle-quickslot",
         keys: ["shift+tab"],
     })]);
 
-    await registry.invokeCommand("preset", "", createDirectory());
+    await registry.invokeCommand("quickslot", "", createDirectory());
     expect(preferences.get("vera.model-presets:slots")).toEqual([
         null,
         {
@@ -550,7 +550,7 @@ test("bundled preset uses the same public seams as a user extension", async () =
         rowId: "slot-1",
         actionId: "choose",
     };
-    await registry.invokeCommand("preset", "", createDirectory());
+    await registry.invokeCommand("quickslot", "", createDirectory());
     expect(updates).toEqual([{
         provider: "openai-codex",
         model: "gpt-5.6",
@@ -1157,10 +1157,10 @@ test("a status line renderer needs the declared capability", async () => {
     await registry.close();
 });
 
-test("preset cycling walks slots, not models, so a duplicate does not stick", async () => {
-    const extension = join(import.meta.dir, "../../extensions/model-presets");
+test("quickslot cycling walks slots, not models, so a duplicate does not stick", async () => {
+    const extension = join(import.meta.dir, "../../extensions/quickslot");
     const preferences = new Map<string, JsonValue>();
-    // Nash's real layout: slot 3 and slot 4 hold the same preset. Matching the
+    // Nash's real layout: slot 3 and slot 4 hold the same quickslot. Matching the
     // current model against the slots answers slot 3 both times, which is what
     // pinned the cycle there and stopped it ever reaching slot 1 again.
     const slots = [
@@ -1214,7 +1214,7 @@ test("preset cycling walks slots, not models, so a duplicate does not stick", as
 
     const workspace = createDirectory();
     const cycle = async () => {
-        await registry.invokeKeybinding("cycle-preset", workspace);
+        await registry.invokeKeybinding("cycle-quickslot", workspace);
         return `${settings.model} · ${settings.reasoningEffort}`;
     };
 
@@ -1236,7 +1236,7 @@ test("preset cycling walks slots, not models, so a duplicate does not stick", as
 });
 
 test("cycling with nothing to cycle to shows the slots instead of doing nothing", async () => {
-    const extension = join(import.meta.dir, "../../extensions/model-presets");
+    const extension = join(import.meta.dir, "../../extensions/quickslot");
     const preferences = new Map<string, JsonValue>();
     const only = {
         provider: "openrouter",
@@ -1263,7 +1263,7 @@ test("cycling with nothing to cycle to shows the slots instead of doing nothing"
         modelSettings: {
             current: () => only,
             async update() {
-                throw new Error("cycling had nowhere to go and applied a preset");
+                throw new Error("cycling had nowhere to go and applied a quickslot");
             },
             subscribe: () => () => undefined,
         },
@@ -1278,9 +1278,9 @@ test("cycling with nothing to cycle to shows the slots instead of doing nothing"
     const workspace = createDirectory();
     // One filled slot that is already current, and then none at all. A
     // keybinding cannot put a line on screen, so the slots are the answer.
-    await registry.invokeKeybinding("cycle-preset", workspace);
+    await registry.invokeKeybinding("cycle-quickslot", workspace);
     preferences.set("vera.model-presets:slots", [null, null, null, null]);
-    await registry.invokeKeybinding("cycle-preset", workspace);
+    await registry.invokeKeybinding("cycle-quickslot", workspace);
     expect(pickerRequests).toBe(2);
     await registry.close();
 });
@@ -1309,10 +1309,10 @@ test("ui.notice posts one transcript line, and refuses an empty one", async () =
         ...harness.adapters,
     });
 
-    await registry.invokeCommand("say", "  preset 1: kimi-k3 · medium  ", workspace);
+    await registry.invokeCommand("say", "  quickslot 1: kimi-k3 · medium  ", workspace);
     expect(harness.notices).toEqual([{
         extensionId: "client.talker",
-        text: "preset 1: kimi-k3 · medium",
+        text: "quickslot 1: kimi-k3 · medium",
     }]);
     await expect(registry.invokeCommand("say", "", workspace))
         .rejects.toThrow("notice text must not be empty");
@@ -1433,10 +1433,10 @@ test("modelSettings.availability answers runnable, pooled and verified", async (
     await registry.close();
 });
 
-test("the preset cycle names the slot it lands on and steps over dead slots", async () => {
+test("the quickslot cycle names the slot it lands on and steps over dead slots", async () => {
     const extension = join(
         import.meta.dir,
-        "../../extensions/model-presets",
+        "../../extensions/quickslot",
     );
     const preferences = new Map<string, JsonValue>([[
         "vera.model-presets:slots",
@@ -1510,14 +1510,14 @@ test("the preset cycle names the slot it lands on and steps over dead slots", as
     });
 
     // Slot 2 holds a model no provider is offering, so the cycle goes past it
-    // to slot 3. Slot 2 keeps its preset: the provider may come back.
-    await registry.invokeKeybinding("cycle-preset", createDirectory());
+    // to slot 3. Slot 2 keeps its quickslot: the provider may come back.
+    await registry.invokeKeybinding("cycle-quickslot", createDirectory());
     expect(updates).toEqual([{
         provider: "openrouter",
         model: "glm-5.2",
         reasoningEffort: "medium",
     }]);
-    expect(notices).toEqual(["preset 3: glm-5.2 · medium"]);
+    expect(notices).toEqual(["quickslot 3: glm-5.2 · medium"]);
     expect((preferences.get("vera.model-presets:slots") as unknown[])[1])
         .toEqual({
             provider: "openrouter",
@@ -1561,8 +1561,8 @@ function poolWithFrosty(
     };
 }
 
-test("a preset holding a pool name resolves through the pool on every use", async () => {
-    const extension = join(import.meta.dir, "../../extensions/model-presets");
+test("a quickslot holding a pool name resolves through the pool on every use", async () => {
+    const extension = join(import.meta.dir, "../../extensions/quickslot");
     const preferences = new Map<string, JsonValue>([[
         "vera.model-presets:slots",
         [
@@ -1623,20 +1623,20 @@ test("a preset holding a pool name resolves through the pool on every use", asyn
     });
 
     const workspace = createDirectory();
-    await registry.invokeKeybinding("cycle-preset", workspace);
+    await registry.invokeKeybinding("cycle-quickslot", workspace);
     expect(updates).toEqual([{
         provider: "ollama",
         model: "qwen3:1.7b",
         reasoningEffort: "high",
     }]);
-    expect(notices).toEqual(["preset 1: frosty · high"]);
+    expect(notices).toEqual(["quickslot 1: frosty · high"]);
 
     // The name is pointed at another entry. The slot follows it, which is the
     // reason it stores the name rather than the id the name resolved to.
     frosty = { provider: "ollama", model: "qwen3:8b" };
     settings = { ...settings, ...poolWithFrosty(frosty) };
-    await registry.invokeKeybinding("cycle-preset", workspace);
-    await registry.invokeKeybinding("cycle-preset", workspace);
+    await registry.invokeKeybinding("cycle-quickslot", workspace);
+    await registry.invokeKeybinding("cycle-quickslot", workspace);
     expect(updates.slice(1)).toEqual([
         // The model stopped matching the slot it came from, so the cycle
         // restarts at slot 1, which now stands for a different model.
@@ -1647,8 +1647,8 @@ test("a preset holding a pool name resolves through the pool on every use", asyn
     await registry.close();
 });
 
-test("a preset whose pool name is gone reads as stale and refuses to apply", async () => {
-    const extension = join(import.meta.dir, "../../extensions/model-presets");
+test("a quickslot whose pool name is gone reads as stale and refuses to apply", async () => {
+    const extension = join(import.meta.dir, "../../extensions/quickslot");
     const preferences = new Map<string, JsonValue>([[
         "vera.model-presets:slots",
         [
@@ -1718,15 +1718,15 @@ test("a preset whose pool name is gone reads as stale and refuses to apply", asy
     });
 
     const workspace = createDirectory();
-    await registry.invokeCommand("preset", "", workspace);
+    await registry.invokeCommand("quickslot", "", workspace);
     expect(requests[0]?.rows[0]?.description).toBe("frosty · high · stale name");
     // Enter on the stale slot has to say so. Leaving the model where it is
     // without a word would read as the key having done nothing.
     expect(updates).toEqual([]);
-    expect(notices).toEqual(["preset 1: no pooled model named frosty"]);
+    expect(notices).toEqual(["quickslot 1: no pooled model named frosty"]);
 
     // The cycle steps over it to the next slot that can still be applied.
-    await registry.invokeKeybinding("cycle-preset", workspace);
+    await registry.invokeKeybinding("cycle-quickslot", workspace);
     expect(updates).toEqual([{
         provider: "openrouter",
         model: "kimi-k3",
@@ -1765,11 +1765,11 @@ test("saving an unnamed model stores the id, since there is no name to keep", as
     });
 });
 
-/** Opens the preset picker, saves into slot 1, and returns what was stored. */
+/** Opens the quickslot picker, saves into slot 1, and returns what was stored. */
 async function saveCurrentIntoFirstSlot(
     current: VeraClientModelSettingsSnapshot,
 ): Promise<unknown> {
-    const extension = join(import.meta.dir, "../../extensions/model-presets");
+    const extension = join(import.meta.dir, "../../extensions/quickslot");
     const preferences = new Map<string, JsonValue>();
     const results: VeraClientPickerResult[] = [
         { outcome: "selected", rowId: "slot-1", actionId: "save" },
@@ -1793,7 +1793,7 @@ async function saveCurrentIntoFirstSlot(
         modelSettings: {
             current: () => current,
             async update() {
-                throw new Error("saving a preset changed the model");
+                throw new Error("saving a quickslot changed the model");
             },
             subscribe: () => () => undefined,
         },
@@ -1804,7 +1804,7 @@ async function saveCurrentIntoFirstSlot(
         },
     });
 
-    await registry.invokeCommand("preset", "", createDirectory());
+    await registry.invokeCommand("quickslot", "", createDirectory());
     await registry.close();
     return (preferences.get("vera.model-presets:slots") as unknown[])[0];
 }
