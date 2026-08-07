@@ -54,6 +54,14 @@ export interface ResidentAgentOptions {
         path: string,
         signal: AbortSignal,
     ) => Promise<ImageAttachedUpdate["attachment"]>;
+    /**
+     * Called when this agent starts or stops running, and when it closes.
+     *
+     * The host reports background work to attached clients, and `status` is
+     * the only thing that decides whether a background session counts as
+     * running. Without this the answer would have to be polled.
+     */
+    readonly onRunStateChanged?: () => void;
 }
 
 interface QueuedCommand {
@@ -405,6 +413,7 @@ export class ResidentAgent {
         for (const ownerId of this.imageAttachmentTasks.keys()) {
             this.abortImageAttachments(ownerId);
         }
+        this.notifyRunStateChanged();
     }
 
     private broadcast(update: AgentUpdate): void {
@@ -441,6 +450,7 @@ export class ResidentAgent {
         }
         const snapshot = clone(update);
         this.lastSequence = snapshot.seq;
+        const previousStatus = this.currentStatus;
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
             if (snapshot.state === "working") {
@@ -486,6 +496,17 @@ export class ResidentAgent {
         }
         for (const outgoing of this.attachments.values()) {
             outgoing.push(clone(snapshot));
+        }
+        if (this.currentStatus !== previousStatus) {
+            this.notifyRunStateChanged();
+        }
+    }
+
+    private notifyRunStateChanged(): void {
+        try {
+            this.options.onRunStateChanged?.();
+        } catch {
+            // A listener that throws must not break the update it observed.
         }
     }
 

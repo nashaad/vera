@@ -2100,6 +2100,48 @@ test("resident timeline preview and apply stay with their requesting attachment"
     }
 });
 
+test("the registry reports every roster change to its listeners", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-roster-"));
+    const registry = createRegistry(() => [textResponse("done")]);
+    let changes = 0;
+    const stop = registry.onRosterChanged(() => {
+        changes += 1;
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "first",
+            workspace: root,
+            sessionPath: join(root, "first.jsonl"),
+            eventLogPath: join(root, "first-events.jsonl"),
+        });
+        const registered = changes;
+        expect(registered).toBeGreaterThan(0);
+
+        await runPrompt(agent.attach(), "say something");
+        const worked = changes;
+        // A turn starts and finishes, and both are roster news.
+        expect(worked).toBeGreaterThan(registered + 1);
+
+        await registry.closeAgent("first");
+        expect(changes).toBeGreaterThan(worked);
+
+        const closed = changes;
+        stop();
+        await registry.create({
+            id: "second",
+            workspace: root,
+            sessionPath: join(root, "second.jsonl"),
+            eventLogPath: join(root, "second-events.jsonl"),
+        });
+        expect(changes).toBe(closed);
+    } finally {
+        stop();
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 function createRegistry(script: () => AssistantMessage[]): AgentRegistry {
     return new AgentRegistry({
         createAdapter: () => new FauxAdapter(script()),

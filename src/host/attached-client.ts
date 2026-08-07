@@ -11,6 +11,10 @@ import {
 } from "../extensions/commands.ts";
 import { parseAgentUpdate } from "./agent-update-wire.ts";
 import { connectHost, type HostConnection } from "./connection.ts";
+import {
+    NO_BACKGROUND_AGENTS,
+    type BackgroundAgentsSnapshot,
+} from "./background-agents.ts";
 
 const DEFAULT_MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -24,6 +28,14 @@ export interface AttachAgentOptions {
 export interface AttachedAgentClient {
     readonly agentId: string;
     readonly workspace: string;
+    /**
+     * Background work as the host last reported it, correct from the attach
+     * onwards. Read it to draw, and subscribe to be told when it changes.
+     */
+    readonly backgroundAgents: BackgroundAgentsSnapshot;
+    onBackgroundAgents(
+        listener: (agents: BackgroundAgentsSnapshot) => void,
+    ): () => void;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands(): Promise<readonly ExtensionCommandDescriptor[]>;
@@ -82,7 +94,11 @@ export async function attachAgent(
                 response.reason,
             );
         }
-        if (!isAttached(response, options.agentId)) {
+        const backgroundAgents = isAttached(response, options.agentId)
+            ? parseBackgroundAgents(response.background_agents)
+            : undefined;
+        if (!isAttached(response, options.agentId)
+            || backgroundAgents === undefined) {
             throw new AgentAttachError(
                 `Host returned an invalid attach response for ${options.agentId}`,
             );
@@ -91,6 +107,7 @@ export async function attachAgent(
             connection,
             response.agent_id,
             response.workspace,
+            backgroundAgents,
             maxPendingUpdates,
         );
     } catch (error) {
@@ -103,9 +120,14 @@ function createAttachedClient(
     connection: HostConnection,
     agentId: string,
     workspace: string,
+    initialBackgroundAgents: BackgroundAgentsSnapshot,
     maxPendingUpdates: number,
 ): AttachedAgentClient {
     const updates = new AsyncQueue<AgentUpdate>();
+    let backgroundAgents = initialBackgroundAgents;
+    const backgroundAgentListeners = new Set<
+        (agents: BackgroundAgentsSnapshot) => void
+    >();
     let isClosed = false;
     let isDetaching = false;
     let detachPromise: Promise<void> | undefined;
@@ -134,6 +156,15 @@ function createAttachedClient(
     return {
         agentId,
         workspace,
+        get backgroundAgents(): BackgroundAgentsSnapshot {
+            return backgroundAgents;
+        },
+        onBackgroundAgents(listener): () => void {
+            backgroundAgentListeners.add(listener);
+            return (): void => {
+                backgroundAgentListeners.delete(listener);
+            };
+        },
         send(command): Promise<void> {
             if (isClosed || connection.closed || isDetaching) {
                 return Promise.reject(new Error("Agent attachment is closed"));
@@ -228,6 +259,9 @@ function createAttachedClient(
                     );
                 }
                 if (receiveExtensionResponse(value)) {
+                    continue;
+                }
+                if (receiveBackgroundAgents(value)) {
                     continue;
                 }
                 const update = parseAgentUpdate(value);
@@ -363,6 +397,25 @@ function createAttachedClient(
         return true;
     }
 
+    function receiveBackgroundAgents(value: unknown): boolean {
+        if (asRecord(value)?.type !== "background_agents") {
+            return false;
+        }
+        const snapshot = parseBackgroundAgents(value);
+        if (snapshot === undefined) {
+            throw new Error("Host sent an invalid background agent count");
+        }
+        backgroundAgents = snapshot;
+        for (const listener of [...backgroundAgentListeners]) {
+            try {
+                listener(snapshot);
+            } catch {
+                // A listener that throws must not close the attachment.
+            }
+        }
+        return true;
+    }
+
     function failExtensionRequests(error: Error): void {
         for (const pending of extensionRequests.values()) {
             pending.reject(error);
@@ -392,12 +445,38 @@ function isAttached(
     readonly type: "attached";
     readonly agent_id: string;
     readonly workspace: string;
+    readonly background_agents: unknown;
 } {
     const response = asRecord(value);
     return response?.type === "attached"
         && response.agent_id === expectedAgentId
         && typeof response.workspace === "string"
         && response.workspace.length > 0;
+}
+
+/**
+ * The one shape background work arrives in, whether it rode the attach
+ * response or a later notification.
+ */
+function parseBackgroundAgents(
+    value: unknown,
+): BackgroundAgentsSnapshot | undefined {
+    const snapshot = asRecord(value);
+    if (
+        snapshot === undefined
+        || !Number.isSafeInteger(snapshot.running)
+        || (snapshot.running as number) < 0
+        || typeof snapshot.has_parent !== "boolean"
+        || !Array.isArray(snapshot.children)
+        || snapshot.children.some((name) => typeof name !== "string")
+    ) {
+        return undefined;
+    }
+    return {
+        running: snapshot.running as number,
+        children: snapshot.children as readonly string[],
+        has_parent: snapshot.has_parent,
+    };
 }
 
 function isAttachFailure(

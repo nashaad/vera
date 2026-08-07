@@ -509,6 +509,7 @@ export class AgentRegistry {
     /** Child id to the ladder notice its spawn produced, if any. */
     private readonly spawnNotices = new Map<string, string>();
     private readonly catalog: EffectiveCatalogOptions;
+    private readonly rosterListeners = new Set<() => void>();
 
     constructor(private readonly options: AgentRegistryOptions) {
         this.defaultModel = options.model;
@@ -629,6 +630,7 @@ export class AgentRegistry {
         entry.inbox?.release();
         this.agents.delete(id);
         this.spawnNotices.delete(id);
+        this.notifyRosterChanged();
         return "closed";
     }
 
@@ -1160,6 +1162,31 @@ export class AgentRegistry {
         return entry.store.name() ?? null;
     }
 
+    /**
+     * Watch for anything that would change what `list` answers about who is
+     * registered and what is running: a session registered or forgotten, and
+     * any agent starting or stopping a turn.
+     *
+     * Returns the unsubscribe. Listeners are told that something changed, not
+     * what changed, because the only reader wants a fresh derivation anyway.
+     */
+    onRosterChanged(listener: () => void): () => void {
+        this.rosterListeners.add(listener);
+        return (): void => {
+            this.rosterListeners.delete(listener);
+        };
+    }
+
+    private notifyRosterChanged(): void {
+        for (const listener of [...this.rosterListeners]) {
+            try {
+                listener();
+            } catch {
+                // One client's failure must not stop the others being told.
+            }
+        }
+    }
+
     list(): RegisteredAgentSummary[] {
         return [...this.agents.values()]
             .map((entry) => {
@@ -1279,6 +1306,7 @@ export class AgentRegistry {
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
             attachImage: (path, signal) =>
                 imageAttachments.attachFile(path, signal),
+            onRunStateChanged: () => this.notifyRosterChanged(),
             ...(clientPromptRefusal === undefined
                 ? {}
                 : { clientPromptRefusal }),
@@ -1321,6 +1349,7 @@ export class AgentRegistry {
                 : { failure: new Error(storedFailure.detail) }),
         };
         this.agents.set(agent.id, entry);
+        this.notifyRosterChanged();
         if (storedFailure !== undefined) {
             agent.restoreFailure({
                 type: "history",
