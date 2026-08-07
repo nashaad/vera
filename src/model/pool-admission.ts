@@ -14,8 +14,121 @@
  */
 
 import type { CatalogModel } from "./catalog-shape.ts";
+import { effectiveCatalog } from "./catalog.ts";
 import { isEffortLevel } from "./effort-ladder.ts";
+import { admitModel } from "./admission.ts";
 import type { PoolFileModel } from "./pool-file.ts";
+import type { ModelAdapter } from "./types.ts";
+import {
+    addPoolModel,
+    recordLearned,
+    PoolFileWriteRefusedError,
+} from "./pool-file-store.ts";
+
+export type PoolAdmissionVerdict =
+    | "added"
+    | "incompatible"
+    | "unavailable"
+    | "pool_write_refused";
+
+export interface PoolAdmissionEntry {
+    readonly provider: string;
+    readonly model: string;
+}
+
+export interface PoolAdmissionStep {
+    readonly step: string;
+    readonly label: string;
+    readonly status: "running" | "passed" | "failed" | "skipped";
+    readonly detail?: string;
+}
+
+export interface PoolAdmissionOptions {
+    readonly verify?: boolean;
+    readonly onWriteRefused?: (error: PoolFileWriteRefusedError) => void;
+    readonly createAdapter?: (provider: string) => ModelAdapter;
+}
+
+export interface PoolAdmissionOutcome {
+    readonly verdict: PoolAdmissionVerdict;
+    readonly reason?: string;
+    readonly statusCode?: number;
+}
+
+export async function admitToPool(
+    entry: PoolAdmissionEntry,
+    onStep: (step: PoolAdmissionStep) => void = () => {},
+    options: PoolAdmissionOptions = {},
+): Promise<PoolAdmissionOutcome> {
+    const id = `${entry.provider}/${entry.model}`;
+    const catalogModel = effectiveCatalog(entry.provider)
+        .models.find((candidate) => candidate.id === entry.model);
+    if (options.verify !== true) {
+        // Nothing on the wire: the catalog copy is what the user gets to use
+        // immediately, and it carries no learned facts, which is what leaves
+        // the entry unverified.
+        const refused = refusedPoolWrite(() => {
+            addPoolModel(id, declaredPoolEntry(catalogModel));
+        }, options);
+        return refused ?? { verdict: "added" };
+    }
+    let adapter;
+    try {
+        if (options.createAdapter === undefined) {
+            return {
+                verdict: "unavailable",
+                reason: "provider is not configured",
+            };
+        }
+        adapter = options.createAdapter(entry.provider);
+    } catch (error) {
+        return {
+            verdict: "unavailable",
+            reason: error instanceof Error
+                ? error.message
+                : "provider is not configured",
+        };
+    }
+    const verdict = await admitModel({
+        adapter,
+        provider: entry.provider,
+        model: entry.model,
+        ...(catalogModel === undefined ? {} : { catalogModel }),
+        onStep,
+    });
+    if (verdict.status === "added") {
+        // Two writes because they are two different claims: the user asked for
+        // this model, and the probe found these facts.
+        const refused = refusedPoolWrite(() => {
+            addPoolModel(id, declaredPoolEntry(catalogModel));
+            recordLearned(id, verdict.learned);
+        }, options);
+        return refused ?? { verdict: "added" };
+    }
+    return {
+        verdict: verdict.status,
+        reason: verdict.reason,
+        ...(verdict.status === "incompatible" && verdict.statusCode !== undefined
+            ? { statusCode: verdict.statusCode }
+            : {}),
+    };
+}
+
+function refusedPoolWrite(
+    write: () => void,
+    options: PoolAdmissionOptions,
+): { readonly verdict: "pool_write_refused"; readonly reason: string } | undefined {
+    try {
+        write();
+        return undefined;
+    } catch (error) {
+        if (!(error instanceof PoolFileWriteRefusedError)) {
+            throw error;
+        }
+        options.onWriteRefused?.(error);
+        return { verdict: "pool_write_refused", reason: error.message };
+    }
+}
 
 /**
  * The declared entry a `pool_add` writes.

@@ -5,7 +5,13 @@
 import { stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 
-import { VeraConfigError } from "../../src/config.ts";
+import {
+    isVeraProviderId,
+    loadVeraConfig,
+    VERA_PROVIDER_IDS,
+    VeraConfigError,
+    type VeraConfig,
+} from "../../src/config.ts";
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
@@ -23,6 +29,23 @@ import {
     type SessionExportFormat,
 } from "../../src/session-export.ts";
 import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts";
+import { supportedLevels } from "../../src/model/effort-ladder.ts";
+import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
+import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
+import { readUserPoolFile, removePoolModel } from "../../src/model/pool-file-store.ts";
+import { resolvePoolRef } from "../../src/model/pool-names.ts";
+import {
+    admitToPool,
+    type PoolAdmissionOutcome,
+    type PoolAdmissionStep,
+} from "../../src/model/pool-admission.ts";
+import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+import { createAuthStorage } from "../../src/providers/auth-storage.ts";
+
+interface PoolAddOptions {
+    readonly verify?: boolean;
+    readonly onStep?: (step: PoolAdmissionStep) => void;
+}
 import type { TuiStartOptions, TuiStartTarget } from "../tui/main.ts";
 import { renderCliHelp, renderCliUsage } from "./help.ts";
 
@@ -54,6 +77,13 @@ export interface CliDependencies {
     ) => Promise<void>;
     readonly confirmHostStop?: () => boolean | Promise<boolean>;
     readonly stopHost?: () => Promise<number | undefined>;
+    readonly listPool?: (workspace: string) => Promise<string>;
+    readonly addPoolModel?: (
+        workspace: string,
+        ref: string,
+        options: PoolAddOptions,
+    ) => Promise<PoolAdmissionOutcome>;
+    readonly removePoolModel?: (workspace: string, ref: string) => Promise<void>;
     readonly version?: string;
 }
 
@@ -182,6 +212,54 @@ export async function runCli(
 
     if (args.length === 1 && args[0] === "rpc") {
         await (dependencies.runRpc ?? runNdjsonProcess)();
+        return 0;
+    }
+
+    if (args.length === 2 && args[0] === "pool" && args[1] === "list") {
+        output.write(await (dependencies.listPool ?? listPool)(process.cwd()));
+        return 0;
+    }
+
+    if (
+        (args.length === 3 || (args.length === 4 && args[3] === "--verify"))
+        && args[0] === "pool"
+        && args[1] === "add"
+        && typeof args[2] === "string"
+        && args[2].length > 0
+    ) {
+        const ref = args[2];
+        const verify = args.length === 4;
+        const outcome = await (dependencies.addPoolModel ?? addPoolRef)(
+            process.cwd(),
+            ref,
+            {
+                verify,
+                onStep: (step) => errorOutput.write(poolAdmissionStep(step)),
+            },
+        );
+        if (outcome.verdict !== "added") {
+            errorOutput.write(poolAdmissionFailure(ref, outcome));
+            return 1;
+        }
+        output.write(
+            `${ref} added to the pool${verify ? " (verified)" : " (unverified)"}.\n`,
+        );
+        return 0;
+    }
+
+    if (
+        args.length === 3
+        && args[0] === "pool"
+        && args[1] === "remove"
+        && typeof args[2] === "string"
+        && args[2].length > 0
+    ) {
+        const ref = args[2];
+        await (dependencies.removePoolModel ?? removePoolRef)(
+            process.cwd(),
+            ref,
+        );
+        output.write(`${ref} removed from the pool.\n`);
         return 0;
     }
 
@@ -374,6 +452,93 @@ async function abortLiveAgent(agentId: string): Promise<void> {
         throw new Error("No live Vera host");
     }
     await abortAgentThroughHost(host.socket_path, agentId);
+}
+
+async function listPool(workspace: string): Promise<string> {
+    const pool = loadPoolFile({ projectRoot: workspace }).merged;
+    return Object.entries(pool.models)
+        .filter(([, entry]) => isCuratedPoolEntry(entry))
+        .map(([id, entry]) => {
+            const provider = providerOf(id) ?? "";
+            const levels = supportedLevels(entry.efforts ?? {});
+            return `${id}\t${provider}\tefforts=${levels.join(",") || "-"}`;
+        })
+        .join("\n")
+        + "\n";
+}
+
+async function addPoolRef(
+    _workspace: string,
+    ref: string,
+    options: PoolAddOptions,
+): Promise<PoolAdmissionOutcome> {
+    const parsed = parsePoolModelId(ref);
+    if (parsed === undefined) {
+        return {
+            verdict: "unavailable",
+            reason: "expected provider/model",
+        };
+    }
+    if (!isVeraProviderId(parsed.provider)) {
+        return {
+            verdict: "unavailable",
+            reason: `unknown provider "${parsed.provider}", expected one of `
+                + VERA_PROVIDER_IDS.join(", "),
+        };
+    }
+    if (options.verify !== true) {
+        return admitToPool(parsed);
+    }
+    // Verification talks to the provider, so it needs the same config and
+    // stored credentials the host builds its adapters from.
+    const config = loadVeraConfig();
+    const authStorage = createAuthStorage();
+    return admitToPool(parsed, options.onStep, {
+        verify: true,
+        createAdapter: (provider) =>
+            createConfiguredModelAdapter({
+                ...config,
+                provider: provider as VeraConfig["provider"],
+            }, { authStorage }),
+    });
+}
+
+function poolAdmissionStep(step: PoolAdmissionStep): string {
+    const detail = step.detail === undefined ? "" : `: ${step.detail}`;
+    return `  ${step.status.padEnd(7)} ${step.label}${detail}\n`;
+}
+
+async function removePoolRef(workspace: string, ref: string): Promise<void> {
+    const pool = loadPoolFile({ projectRoot: workspace }).merged;
+    const id = resolvePoolRef(pool, ref);
+    if (id === undefined) {
+        throw new Error(`Model "${ref}" is not in the pool`);
+    }
+    if (readUserPoolFile().models[id] === undefined) {
+        throw new Error(`Model "${ref}" is not in the user pool file`);
+    }
+    removePoolModel(id);
+}
+
+function parsePoolModelId(
+    ref: string,
+): { readonly provider: string; readonly model: string } | undefined {
+    const separator = ref.indexOf("/");
+    if (separator <= 0 || separator === ref.length - 1) {
+        return undefined;
+    }
+    return {
+        provider: ref.slice(0, separator),
+        model: ref.slice(separator + 1),
+    };
+}
+
+function poolAdmissionFailure(
+    ref: string,
+    outcome: PoolAdmissionOutcome,
+): string {
+    const reason = outcome.reason === undefined ? "" : `: ${outcome.reason}`;
+    return `${ref} was not added to the pool (${outcome.verdict})${reason}\n`;
 }
 
 async function runConfiguredTui(

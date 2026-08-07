@@ -31,11 +31,9 @@ import {
 } from "../model/pool-file-store.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
-import { admitModel } from "../model/admission.ts";
-import { declaredPoolEntry } from "../model/pool-admission.ts";
+import { admitToPool } from "../model/pool-admission.ts";
 import { migrateConfigPool } from "../model/pool-migration.ts";
 import { createPoolEffortPool } from "../model/effort-pool.ts";
-import { effectiveCatalog } from "../model/catalog.ts";
 import {
     refreshCodexCatalog,
     type CodexCatalogRefreshOptions,
@@ -219,55 +217,13 @@ export async function startResidentHost(
                     hostLog({ type: "pool_write_refused", message: error.message }),
             }),
         readPolicy: (projectRoot) => subagentPoolPolicy(scoped(projectRoot)),
-        admitToPool: async (entry, onStep, options) => {
-            const id = `${entry.provider}/${entry.model}`;
-            const catalogModel = effectiveCatalog(entry.provider)
-                .models.find((candidate) => candidate.id === entry.model);
-            if (options?.verify !== true) {
-                // Nothing on the wire: the catalog copy is what the user gets
-                // to use immediately, and it carries no learned facts, which
-                // is what leaves the entry unverified.
-                const refused = refusedPoolWrite(() => {
-                    addPoolModel(id, declaredPoolEntry(catalogModel));
-                });
-                return refused ?? { verdict: "added" };
-            }
-            let adapter;
-            try {
-                adapter = createAdapter(entry.provider);
-            } catch (error) {
-                return {
-                    verdict: "unavailable",
-                    reason: error instanceof Error
-                        ? error.message
-                        : "provider is not configured",
-                };
-            }
-            const verdict = await admitModel({
-                adapter,
-                provider: entry.provider,
-                model: entry.model,
-                ...(catalogModel === undefined ? {} : { catalogModel }),
-                onStep,
-            });
-            if (verdict.status === "added") {
-                // Two writes because they are two different claims: the user
-                // asked for this model, and the probe found these facts.
-                const refused = refusedPoolWrite(() => {
-                    addPoolModel(id, declaredPoolEntry(catalogModel));
-                    recordLearned(id, verdict.learned);
-                });
-                return refused ?? { verdict: "added" };
-            }
-            return {
-                verdict: verdict.status,
-                reason: verdict.reason,
-                ...(verdict.status === "incompatible"
-                        && verdict.statusCode !== undefined
-                    ? { statusCode: verdict.statusCode }
-                    : {}),
-            };
-        },
+        admitToPool: (entry, onStep, options) =>
+            admitToPool(entry, onStep, {
+                ...options,
+                createAdapter,
+                onWriteRefused: (error) =>
+                    hostLog({ type: "pool_write_refused", message: error.message }),
+            }),
         removeFromPool: (entry) => {
             refusedPoolWrite(() => {
                 removePoolModel(`${entry.provider}/${entry.model}`);
