@@ -1584,6 +1584,16 @@ export async function startTui(
         }
 
         if (
+            tuiBindingId("global", key) === "open_model_picker"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openModelPicker();
+            return;
+        }
+
+        if (
             tuiBindingId("conversation", key) === "toggle_tool_details"
             && !anyOverlayOpen()
         ) {

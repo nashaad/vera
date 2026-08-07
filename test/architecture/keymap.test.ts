@@ -111,3 +111,11 @@ test("every hint belongs to a binding that exists", () => {
     }
     expect(tuiKeyHint("not-a-binding")).toBe("");
 });
+
+test("the model picker chord is bound only in its shifted form", () => {
+    expect(tuiBindingId("global", { name: "m", ctrl: true, shift: true }))
+        .toBe("open_model_picker");
+    // Ctrl+m is the byte Enter sends. Binding it would take the submit key.
+    expect(tuiBindingId("global", { name: "m", ctrl: true })).toBeUndefined();
+    expect(tuiBindingId("composer", { name: "m", ctrl: true })).toBeUndefined();
+});
