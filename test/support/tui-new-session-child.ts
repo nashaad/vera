@@ -19,9 +19,15 @@ const client = createSettingsAnsweringClient({
 
 const exit = await startTui({
     client,
+    ...(process.env.CREATE_TIMEOUT === "1"
+        ? { sessionSwitchTimeoutMs: 100 }
+        : {}),
     createSession: async (workspace) => {
         createAttempts += 1;
         createdForWorkspace = workspace;
+        if (process.env.CREATE_TIMEOUT === "1") {
+            return new Promise(() => {});
+        }
         if (createAttempts === 1) {
             throw new Error("host refused creation");
         }

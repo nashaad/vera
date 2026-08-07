@@ -780,9 +780,176 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "Could not fork this session: fork timed out",
+                "Could not fork this session: timed out",
             );
             expect(pane).toContain("ready");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+/**
+ * Every session switch races the same deadline. A host that never answers used
+ * to leave the TUI in a pending switch with no notice, no new prompt, and no
+ * way to quit, so each of these drives the switch a different way and asserts
+ * the same recovery: a notice, the old session still on screen, and ready.
+ */
+const stalledSwitches = [
+    {
+        name: "clear",
+        child: "test/support/tui-new-session-child.ts",
+        env: { CREATE_TIMEOUT: "1" },
+        open: (socket: string, session: string): void => {
+            sendText(socket, session, "/clear");
+            sendKey(socket, session, "Enter");
+        },
+        notice: "Could not start a new session: timed out",
+        survivor: "current-model",
+    },
+    {
+        name: "clone",
+        child: "test/support/tui-clone-session-child.ts",
+        env: { CLONE_TIMEOUT: "1" },
+        open: (socket: string, session: string): void => {
+            sendText(socket, session, "/clone");
+            sendKey(socket, session, "Enter");
+        },
+        notice: "Could not clone this session: timed out",
+        survivor: "source-model",
+    },
+] as const;
+
+for (const stalled of stalledSwitches) {
+    test.skipIf(!tmuxAvailable)(
+        `a stalled ${stalled.name} returns control to the current session`,
+        async () => {
+            const socket = `vera-${stalled.name}-timeout-${process.pid}-${
+                randomUUID()
+            }`;
+            const session = `${stalled.name}-timeout`;
+            const home = mkdtempSync(
+                join(tmpdir(), `vera-tui-${stalled.name}-timeout-`),
+            );
+            let pane = "";
+
+            try {
+                startTuiSession(
+                    socket,
+                    session,
+                    home,
+                    stalled.child,
+                    100,
+                    30,
+                    stalled.env,
+                );
+                await waitForVisiblePane(socket, session, "Start a conversation");
+                stalled.open(socket, session);
+                pane = await waitForVisiblePane(socket, session, stalled.notice);
+                expect(pane).toContain("ready");
+                // The session that was on screen is still the attached one.
+                expect(pane).toContain(stalled.survivor);
+                sendKey(socket, session, "C-c");
+                await waitForSessionExit(socket, session);
+            } catch (error) {
+                pane = captureVisiblePane(socket, session);
+                throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+            } finally {
+                Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                    stdout: "ignore",
+                    stderr: "ignore",
+                });
+                rmSync(home, { recursive: true, force: true });
+            }
+        },
+        15_000,
+    );
+}
+
+test.skipIf(!tmuxAvailable)(
+    "a stalled resume returns control to the current session",
+    async () => {
+        const socket = `vera-resume-timeout-${process.pid}-${randomUUID()}`;
+        const session = "resume-timeout";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-timeout-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-resume-child.ts",
+                100,
+                30,
+                { RESUME_TIMEOUT: "1" },
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/resume");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Continue the theme picker");
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Could not switch conversation: timed out",
+            );
+            expect(pane).toContain("ready");
+            expect(pane).toContain("current-model");
+            expect(pane).not.toContain("RESUMED HISTORY LOADED");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "ctrl+c quits while a session switch is still pending",
+    async () => {
+        const socket = `vera-switch-quit-${process.pid}-${randomUUID()}`;
+        const session = "switch-quit";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-switch-quit-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-fork-session-child.ts",
+                100,
+                30,
+                { FORK_TIMEOUT: "hold" },
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/fork");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Fork session");
+            sendKey(socket, session, "Enter");
+            // The deadline is a minute out, so the switch is still pending and
+            // ctrl+c is the only way out of it.
+            pane = await waitForVisiblePane(socket, session, "forking session");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
         } catch (error) {
@@ -1739,7 +1906,11 @@ function startTuiSession(
     childPath: string,
     width = 100,
     height = 30,
+    env: Readonly<Record<string, string>> = {},
 ): void {
+    const exported = Object.entries(env)
+        .map(([name, value]) => `${name}=${shellQuote(value)} `)
+        .join("");
     runTmux(socket, [
         "-f",
         "/dev/null",
@@ -1751,9 +1922,11 @@ function startTuiSession(
         String(width),
         "-y",
         String(height),
-        `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
-            shellQuote(process.execPath)
-        } run ${shellQuote(childPath)}`,
+        `cd ${shellQuote(process.cwd())} && HOME=${
+            shellQuote(home)
+        } ${exported}${shellQuote(process.execPath)} run ${
+            shellQuote(childPath)
+        }`,
     ]);
 }
 
