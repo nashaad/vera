@@ -853,7 +853,7 @@ export class AgentRegistry {
         const published = publishedReasoningLevels(
             provider,
             model,
-            this.options.readPool?.(),
+            this.options.readPool?.(entry.store.header.cwd),
             this.catalog,
         );
         // A level the model does not publish is coerced rather than promoted:
