@@ -409,7 +409,12 @@ test("host protocol parses messages after attach", () => {
         const socketPath = join(directory, "host.sock");
         const server = createServer((socket) => {
             const drip = setInterval(() => socket.write(" "), 50);
-            socket.once("close", () => clearInterval(drip));
+            const stop = () => clearInterval(drip);
+            socket.once("close", stop);
+            // The client hangs up on its own deadline, so a drip can land on a
+            // socket the peer has already finished. EPIPE is the expected end
+            // of this connection, not a failure.
+            socket.once("error", stop);
         });
         try {
             await new Promise<void>((resolve, reject) => {
