@@ -11,7 +11,7 @@
       "element": "#1D1F2A"
     },
     "muted-blue": {
-      "accent": "#02A2FF", "text": "#CDD6F4", "muted": "#175B8B",
+      "accent": "#02A2FF", "text": "#02A2FF", "muted": "#175B8B",
       "notice": "#FEFC59", "success": "#A7E3A1", "background": "#0F1117",
       "panel": "#171B23", "element": "#2C2D31"
     },
