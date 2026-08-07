@@ -81,6 +81,7 @@ import {
 import { createSessionBranch } from "../store/session-branch.ts";
 import type { UserMessage } from "../model/types.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
+import { agentNameKey, mintAgentName } from "./agent-name.ts";
 import type {
     InboxDeliveryCoordinator,
     InboxDeliverySession,
@@ -470,6 +471,12 @@ interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
     readonly kind: RegisteredAgentKind;
+    /**
+     * The identity name this session posts and is addressed under, minted at
+     * registration and stable for the entry's lifetime. Changing it
+     * mid-session would break self-echo suppression on the next arc post.
+     */
+    readonly arcName: string;
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
     readonly eventLogPath?: string;
@@ -821,6 +828,43 @@ export class AgentRegistry {
     find(id: string): ResidentAgent | undefined {
         const agent = this.agents.get(id)?.agent;
         return agent?.closed === false ? agent : undefined;
+    }
+
+    /** The identity name a live session posts under, `undefined` when gone. */
+    arcNameOf(id: string): string | undefined {
+        const entry = this.agents.get(id);
+        return entry?.agent.closed === false ? entry.arcName : undefined;
+    }
+
+    /**
+     * Resolves an arc `session` value to the live session it names. Names
+     * match on `slug:hex4` so a purpose tail never changes addressing; a
+     * value that is not a name still resolves as a raw agent id, because
+     * entries recorded before naming carry ids.
+     */
+    agentIdForArcSession(value: string): string | undefined {
+        const key = agentNameKey(value);
+        if (key !== null) {
+            for (const [id, entry] of this.agents) {
+                if (
+                    !entry.agent.closed
+                    && agentNameKey(entry.arcName) === key
+                ) {
+                    return id;
+                }
+            }
+            return undefined;
+        }
+        return this.find(value)?.id;
+    }
+
+    private arcNameKeyTaken(key: string): boolean {
+        for (const entry of this.agents.values()) {
+            if (agentNameKey(entry.arcName) === key) {
+                return true;
+            }
+        }
+        return false;
     }
 
     async updateModelSettings(
@@ -1316,6 +1360,7 @@ export class AgentRegistry {
             agent,
             store,
             kind,
+            arcName: mintAgentName((key) => this.arcNameKeyTaken(key)),
             events,
             eventLogPath,
             ...(parentId === undefined
@@ -1444,6 +1489,10 @@ export class AgentRegistry {
                 eventLogPath,
                 eventBus: events,
                 approvalMode: entry.approvalMode,
+                // Every shell this session spawns carries its identity name,
+                // so arc stamps the session's posts with it and self-echo
+                // suppression matches with no manual export.
+                toolEnv: { ARC_SESSION: entry.arcName },
                 modelFallback: this.options.modelFallback,
                 ...(this.options.createEffortPool === undefined
                     ? {}
@@ -1539,7 +1588,10 @@ export class AgentRegistry {
             const inbox = this.options.inboxDelivery.attach({
                 label: agent.id,
                 actor: this.options.inboxActorForSession?.(agent.id) ?? null,
-                session: agent.id,
+                // The minted name, not the agent id: arc stamps posts with
+                // the ARC_SESSION the shell carries, which is this name, so
+                // the self-echo pair must hold the same value.
+                session: entry.arcName,
                 target: {
                     recordDelivery: (delivery) =>
                         recordDeliveryAndNotify(store, events, delivery),

@@ -1,3 +1,4 @@
+import { agentNameKey } from "../host/agent-name.ts";
 import type { JsonObject, JsonValue } from "../extensions/contributions.ts";
 import {
     WatchFatalError,
@@ -315,7 +316,9 @@ export function toSourceEvent(frame: SseFrame): SourceEvent | null {
             ? event.actor
             : "source:arc",
         session: event.session !== undefined && event.session !== ""
-            ? event.session
+            // Identity names match on `slug:hex4` alone, so a purpose tail is
+            // stripped here at the bridge; the payload keeps the full text.
+            ? agentNameKey(event.session) ?? event.session
             : null,
         ...(frame.id === null ? {} : { cursor: frame.id }),
         payload: arcPayload(event),

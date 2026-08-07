@@ -11,6 +11,7 @@ let sweepStarted = false;
 export function newStashingToolRuntime(
     workspace: string,
     sessionId: string,
+    env?: Readonly<Record<string, string>>,
 ): ToolRuntime {
     if (!sweepStarted) {
         sweepStarted = true;
@@ -21,5 +22,6 @@ export function newStashingToolRuntime(
         workspace,
         (path, content) => stash.capture(path, content),
         stash.directory,
+        env,
     );
 }

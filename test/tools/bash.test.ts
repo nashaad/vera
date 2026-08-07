@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runBash } from "../../src/tools/bash.ts";
+import { bashTool, runBash } from "../../src/tools/bash.ts";
+import { ToolRuntime } from "../../src/tools/runtime.ts";
 
 test("bash runs ordinary recursive deletion after engine permission", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
@@ -110,3 +111,47 @@ test("a command that writes far past the capture limit still exits", async () =>
         await rm(workspace, { recursive: true, force: true });
     }
 }, 30_000);
+
+test("caller env layers over the inherited environment", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
+
+    try {
+        const bare = await runBash('printf "%s" "$VERA_TEST_ENV"', workspace);
+        expect(bare.output).toBe("(no output)");
+
+        const layered = await runBash(
+            'printf "%s:%s" "$VERA_TEST_ENV" "$HOME"',
+            workspace,
+            undefined,
+            { VERA_TEST_ENV: "layered" },
+        );
+        expect(layered.isError).toBe(false);
+        expect(layered.output.startsWith("layered:")).toBe(true);
+        expect(layered.output.length).toBeGreaterThan("layered:".length);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("runtime env does not leak between tool runtimes", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
+    const signal = new AbortController().signal;
+    const withEnv = new ToolRuntime(
+        workspace,
+        undefined,
+        undefined,
+        { VERA_TEST_ENV: "session-a" },
+    );
+    const withoutEnv = new ToolRuntime(workspace);
+    const command = { command: 'printf "%s" "$VERA_TEST_ENV"' };
+
+    try {
+        const first = await bashTool.execute(command, withEnv, signal);
+        const second = await bashTool.execute(command, withoutEnv, signal);
+
+        expect(first).toMatchObject({ output: "session-a" });
+        expect(second).toMatchObject({ output: "(no output)" });
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});

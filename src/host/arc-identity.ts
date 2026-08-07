@@ -6,11 +6,11 @@ import { join } from "node:path";
  * The arc identity this host's sessions post under.
  *
  * arc stamps every event with the posting node's id as `actor` and the value
- * of `ARC_SESSION` in the posting shell as `session`. Session subprocesses
- * inherit the host environment, and the host attaches each interactive session
- * to the inbox with its agent id as the session half of the self-echo pair, so
- * the node id read here is the actor half that completes the pair. Without it
- * the pair stays half-null and self-echo suppression never arms.
+ * of `ARC_SESSION` in the posting shell as `session`. The host attaches each
+ * interactive session to the inbox with its minted identity name as the
+ * session half of the self-echo pair, so the node id read here is the actor
+ * half that completes the pair. Without it the pair stays half-null and
+ * self-echo suppression never arms.
  */
 
 const NODE_ID_LINE = /^\s*node_id\s*=\s*"([^"]*)"\s*(?:#.*)?$/;
