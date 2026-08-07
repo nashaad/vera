@@ -32,6 +32,6 @@
     "clients/tui/**/*.ts",
     "test/**/*.ts",
     "scripts/**/*.ts",
-    "dev/custodian/**/*.ts"
+    "dev/model/**/*.ts"
   ]
 }
