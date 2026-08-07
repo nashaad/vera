@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
 
 import {
-    countRunningBackgroundAgents,
-    renderBackgroundAgentNames,
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
     renderTuiStatusSegments,
@@ -149,34 +147,6 @@ test("TUI splits activity from persistent details across both footer lines", () 
     );
 });
 
-test("running background-agent count counts the live ones only", () => {
-    expect(countRunningBackgroundAgents([
-        backgroundAgent("working"),
-        backgroundAgent("waiting"),
-        // Resident and idle, which is every background session the host
-        // restored at startup. Nothing is running in it.
-        backgroundAgent("idle"),
-        // Live because someone attached to read it, which is not running.
-        { ...backgroundAgent("completed"), live: true },
-        backgroundAgent("closed"),
-        backgroundAgent("failed"),
-        {
-            ...backgroundAgent("working"),
-            id: "interactive",
-            kind: "interactive",
-        },
-    ])).toBe(2);
-});
-
-test("background-agent names stack active children and omit finished ones", () => {
-    expect(renderBackgroundAgentNames([
-        { ...backgroundAgent("working"), parent_id: "main", title: "research" },
-        { ...backgroundAgent("waiting"), parent_id: "main", title: "review" },
-        { ...backgroundAgent("completed"), parent_id: "main", title: "done" },
-        { ...backgroundAgent("working"), parent_id: "other", title: "else" },
-    ], "main")).toBe("* research\n* review");
-});
-
 test("TUI renders extension segments in its own words", () => {
     expect(renderTuiStatusSegments([
         { kind: "background_agents", running: 2 },
@@ -220,19 +190,6 @@ test("TUI status snapshot carries facts and no client state", () => {
         context: { tokens: 64_500, capacity: 258_000, estimated: false },
     });
 });
-
-function backgroundAgent(
-    status: "idle" | "working" | "waiting" | "completed" | "closed" | "failed",
-) {
-    return {
-        id: `background-${status}`,
-        workspace: "/workspace",
-        session_path: `/sessions/${status}.jsonl`,
-        kind: "background" as const,
-        status,
-        live: status === "working" || status === "waiting",
-    };
-}
 
 test("the idle status line reports the background agents still running", () => {
     expect(renderTuiIdleHint("ready · ctrl+p commands", 2))

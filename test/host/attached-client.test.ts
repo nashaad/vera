@@ -10,6 +10,7 @@ import {
     ExtensionCommandError,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
+import { NO_BACKGROUND_AGENTS } from "../../src/host/background-agents.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
 
@@ -321,6 +322,7 @@ afterEach(() => {
                             type: "attached",
                             agent_id: "agent-1",
                             workspace: "/work/one",
+                            background_agents: NO_BACKGROUND_AGENTS,
                         })}\n`);
                         socket.write(
                             '{"type":"history","entries":[],"seq":0}\n',
@@ -364,6 +366,7 @@ afterEach(() => {
                     type: "attached",
                     agent_id: "agent-1",
                     workspace: "/work/one",
+                    background_agents: NO_BACKGROUND_AGENTS,
                 })}\n{"type":"history","entries":[],"seq":0}\n${
                     JSON.stringify({
                         type: "assistant_delta",
@@ -555,6 +558,7 @@ afterEach(() => {
                     type: "attached",
                     agent_id: "agent-1",
                     workspace: "/work/one",
+                    background_agents: NO_BACKGROUND_AGENTS,
                 })}\n`);
                 socket.write('{"type":"history","entries":[],"seq":0}\n');
                 socket.write(
@@ -712,6 +716,7 @@ async function scriptedHost(
                 type: "attached",
                 agent_id: "agent-1",
                 workspace: "/work/one",
+                background_agents: NO_BACKGROUND_AGENTS,
             })}\n`);
             for (const update of updates) {
                 socket.write(`${JSON.stringify(update)}\n`);
@@ -730,3 +735,95 @@ function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
         server.close((error) => error === undefined ? resolve() : reject(error));
     });
 }
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client reads background work from the attach and the pushes after it",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("main", "/work/one");
+        const listeners = new Set<() => void>();
+        let running = 1;
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listAgents: () => [
+                {
+                    id: "main",
+                    workspace: "/work/one",
+                    session_path: "/sessions/main.jsonl",
+                    kind: "interactive",
+                    status: "idle",
+                    live: true,
+                },
+                ...(running === 0 ? [] : [{
+                    id: "child",
+                    workspace: "/work/one",
+                    session_path: "/sessions/child.jsonl",
+                    kind: "background" as const,
+                    status: "working" as const,
+                    live: true,
+                    parent_id: "main",
+                    title: "research",
+                }]),
+            ],
+            onRosterChanged: (listener) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            // Correct before anything changes, not after the first change.
+            expect(client.backgroundAgents).toEqual({
+                running: 1,
+                children: ["research"],
+                has_parent: false,
+            });
+
+            const seen: unknown[] = [];
+            let pushed: () => void = () => undefined;
+            const nextPush = new Promise<void>((resolve) => pushed = resolve);
+            const stop = client.onBackgroundAgents((agents) => {
+                seen.push(agents);
+                pushed();
+            });
+            running = 0;
+            for (const listener of listeners) {
+                listener();
+            }
+            await nextPush;
+            expect(seen).toEqual([{
+                running: 0,
+                children: [],
+                has_parent: false,
+            }]);
+            // The update stream still starts at the history checkpoint, so the
+            // push travelled beside the agent updates rather than among them.
+            expect(await client.receive()).toEqual({
+                type: "history",
+                entries: [],
+                seq: 0,
+            });
+            expect(client.backgroundAgents).toEqual({
+                running: 0,
+                children: [],
+                has_parent: false,
+            });
+
+            stop();
+            running = 1;
+            for (const listener of listeners) {
+                listener();
+            }
+            agent.engine.send({ type: "status", state: "idle", seq: 1 });
+            expect(await client.receive()).toMatchObject({ type: "status" });
+            expect(seen).toHaveLength(1);
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);

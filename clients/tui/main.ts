@@ -69,6 +69,7 @@ import {
     attachAgent,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
+import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
     trashSessionThroughHost,
@@ -141,8 +142,6 @@ import {
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection } from "./selection.ts";
 import {
-    countRunningBackgroundAgents,
-    renderBackgroundAgentNames,
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
     renderTuiStatusSegments,
@@ -285,7 +284,6 @@ const STOPPING_HINT = "stopping…";
 const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
 const COPY_NOTICE_DURATION_MS = 1_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
-const BACKGROUND_AGENT_REFRESH_INTERVAL_MS = 1_000;
 const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
@@ -303,7 +301,6 @@ export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
-    readonly getRunningBackgroundAgentCount?: () => Promise<number>;
     /**
      * The four ways to reach another session, each handed the identity of the
      * one being left rather than closing over it.
@@ -363,6 +360,9 @@ export interface TuiExit {
 export interface TuiAgentClient {
     readonly agentId?: string;
     readonly workspace?: string;
+    /** Background work as of the attach, before anything has changed. */
+    readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
+    onBackgroundAgents?: AttachedAgentClient["onBackgroundAgents"];
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];
@@ -472,8 +472,6 @@ export async function startConfiguredTui(
             client,
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
-            getRunningBackgroundAgentCount: async () =>
-                countRunningBackgroundAgents(await listAgents()),
             createSession: async (workspace) =>
                 attach((await createAgentThroughHost(host.socket_path, workspace)).id),
             cloneSession: async (currentAgentId) =>
@@ -688,9 +686,9 @@ export async function startTui(
     let extensionCommandsLoading =
         dependencies.client.listExtensionCommands !== undefined;
     let runningBackgroundAgents = 0;
-    let runningBackgroundAgentNames = "";
+    let runningBackgroundAgentNames: readonly string[] = [];
     let currentAgentHasParent = false;
-    let backgroundAgentRefreshPending = false;
+    let stopWatchingBackgroundAgents: (() => void) | undefined;
     let pendingSessionRename: {
         readonly requestId: string;
         /** Restored to the composer if the rename never lands, when it came from one. */
@@ -1119,7 +1117,8 @@ export async function startTui(
         shuttingDown = true;
         renderCoalescer.stop();
         clearInterval(statusTimer);
-        clearInterval(backgroundAgentTimer);
+        stopWatchingBackgroundAgents?.();
+        stopWatchingBackgroundAgents = undefined;
         const picker = pendingExtensionPicker;
         pendingExtensionPicker = undefined;
         picker?.removeAbortListener();
@@ -1146,10 +1145,7 @@ export async function startTui(
     const statusTimer = setInterval(() => {
         renderStatus();
     }, STATUS_REFRESH_INTERVAL_MS);
-    const backgroundAgentTimer = setInterval(() => {
-        void refreshBackgroundAgentCount();
-    }, BACKGROUND_AGENT_REFRESH_INTERVAL_MS);
-    void refreshBackgroundAgentCount();
+    watchBackgroundAgents(dependencies.client);
 
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
         const copyableNodes = pendingUiRequest !== undefined
@@ -4308,6 +4304,7 @@ export async function startTui(
         admissionReturnPicker = undefined;
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
+        watchBackgroundAgents(next);
         sessionTitle = undefined;
         applyTerminalTitle();
         refreshTerminalTitle();
@@ -4803,16 +4800,12 @@ export async function startTui(
                 state.effortSubstitution,
             )
             : renderTuiStatusSegments(extensionSegments);
-        const runningNames = runningBackgroundAgentNames === ""
-            ? []
-            : runningBackgroundAgentNames
-                .split("\n")
-                .map((name) =>
-                    truncateFooterLine(
-                        name,
-                        Math.min(72, renderer.width - 8),
-                    )
-                );
+        const runningNames = runningBackgroundAgentNames.map((name) =>
+            truncateFooterLine(
+                `* ${name}`,
+                Math.min(72, renderer.width - 8),
+            )
+        );
         const agentSection = currentAgentHasParent
             ? ["/parent to return"]
             : runningNames.length === 0
@@ -4880,45 +4873,32 @@ export async function startTui(
             : statusLine;
     }
 
-    async function refreshBackgroundAgentCount(): Promise<void> {
-        if (
-            dependencies.listAgents === undefined
-            || backgroundAgentRefreshPending
-            || shuttingDown
-        ) {
-            return;
-        }
-        backgroundAgentRefreshPending = true;
-        try {
-            const agents = await dependencies.listAgents();
-            const nextCount = countRunningBackgroundAgents(agents);
-            const nextNames = renderBackgroundAgentNames(
-                agents,
-                client.agentId,
-            );
-            const nextHasParent = agents.some((agent) =>
-                agent.id === client.agentId && agent.parent_id !== undefined,
-            );
-            if (!shuttingDown && (nextCount !== runningBackgroundAgents
-                || nextNames !== runningBackgroundAgentNames
-                || nextHasParent !== currentAgentHasParent)) {
-                runningBackgroundAgents = nextCount;
-                runningBackgroundAgentNames = nextNames;
-                currentAgentHasParent = nextHasParent;
-                renderStatus();
+    /**
+     * Follow one session's background work, from the attach onwards.
+     *
+     * The host sends the current facts with the attach and again whenever they
+     * change, so there is nothing to poll and nothing to wait for: the first
+     * paint after a switch is already right.
+     */
+    function watchBackgroundAgents(next: TuiAgentClient): void {
+        stopWatchingBackgroundAgents?.();
+        stopWatchingBackgroundAgents = undefined;
+        applyBackgroundAgents(next.backgroundAgents);
+        stopWatchingBackgroundAgents = next.onBackgroundAgents?.((agents) => {
+            if (client !== next || shuttingDown) {
+                return;
             }
-        } catch {
-            if (!shuttingDown && (runningBackgroundAgents !== 0
-                || runningBackgroundAgentNames !== ""
-                || currentAgentHasParent)) {
-                runningBackgroundAgents = 0;
-                runningBackgroundAgentNames = "";
-                currentAgentHasParent = false;
-                renderStatus();
-            }
-        } finally {
-            backgroundAgentRefreshPending = false;
-        }
+            applyBackgroundAgents(agents);
+            renderStatus();
+        });
+    }
+
+    function applyBackgroundAgents(
+        agents: BackgroundAgentsSnapshot | undefined,
+    ): void {
+        runningBackgroundAgents = agents?.running ?? 0;
+        runningBackgroundAgentNames = agents?.children ?? [];
+        currentAgentHasParent = agents?.has_parent ?? false;
     }
 
     function observeActivity(update: AgentUpdate): void {

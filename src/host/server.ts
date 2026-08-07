@@ -25,6 +25,12 @@ import type {
     RunOnceResult,
 } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
+import {
+    backgroundAgentsSnapshot,
+    sameBackgroundAgents,
+    NO_BACKGROUND_AGENTS,
+    type BackgroundAgentsSnapshot,
+} from "./background-agents.ts";
 import { acquireHostStartupClaim } from "./startup-claim.ts";
 import {
     ExtensionCommandUnavailableError,
@@ -49,6 +55,14 @@ export interface StartHostServerOptions {
     readonly startupClaimPath?: string;
     readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
+    /**
+     * Subscribe to registry changes, returning the unsubscribe.
+     *
+     * Attached clients are told about background work when it changes. Without
+     * this every client would have to ask on a timer, which is what it used to
+     * do, and the answer would be up to a tick stale on every screen.
+     */
+    readonly onRosterChanged?: (listener: () => void) => () => void;
     readonly createAgent?: (workspace: string) => Promise<ResidentAgent>;
     readonly resumeAgent?: (sessionPath: string) => Promise<ResidentAgent>;
     readonly branchAgent?: (
@@ -185,6 +199,7 @@ export async function startHostServer(
             requestShutdown,
             attachmentOpened,
             notifyShutdownAccepted,
+            options.onRosterChanged ?? (() => () => undefined),
         );
     });
     try {
@@ -258,6 +273,7 @@ function receiveConnection(
     ) => ShutdownIfIdleResponse,
     attachmentOpened: () => () => void,
     notifyShutdownAccepted: () => void,
+    onRosterChanged: (listener: () => void) => () => void,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     const deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
@@ -267,6 +283,8 @@ function receiveConnection(
     let writes: Promise<void> = Promise.resolve();
     let attachmentClosed: (() => void) | undefined;
     let attachedWorkspace: string | undefined;
+    let stopWatchingRoster: (() => void) | undefined;
+    let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
     const extensionRequests = new Set<AbortController>();
     const extensionRequestIds = new Set<string>();
 
@@ -285,6 +303,8 @@ function receiveConnection(
 
     socket.once("close", () => {
         clearTimeout(deadline);
+        stopWatchingRoster?.();
+        stopWatchingRoster = undefined;
         attachment?.detach();
         attachment = undefined;
         attachedWorkspace = undefined;
@@ -347,6 +367,8 @@ function receiveConnection(
         }
         if (message.type === "detach") {
             finished = true;
+            stopWatchingRoster?.();
+            stopWatchingRoster = undefined;
             attachment.detach();
             attachment = undefined;
             attachedWorkspace = undefined;
@@ -731,14 +753,55 @@ function receiveConnection(
         attachment = attached;
         attachedWorkspace = agent.workspace;
         attachmentClosed = attachmentOpened();
+        const attachedId = agent.id;
+        sentBackgroundAgents = readBackgroundAgents(attachedId);
+        stopWatchingRoster = onRosterChanged(
+            () => sendBackgroundAgents(attachedId),
+        );
         void send({
             type: "attached",
-            agent_id: agent.id,
+            agent_id: attachedId,
             workspace: agent.workspace,
+            background_agents: sentBackgroundAgents,
         }).then(
             () => forwardAgentUpdates(attached),
             () => socket.destroy(),
         );
+    }
+
+    function readBackgroundAgents(
+        attachedAgentId: string,
+    ): BackgroundAgentsSnapshot {
+        try {
+            return backgroundAgentsSnapshot(listAgents(), attachedAgentId);
+        } catch {
+            return NO_BACKGROUND_AGENTS;
+        }
+    }
+
+    /**
+     * Send the background-agent facts, unless the client already has them.
+     *
+     * The registry reports that something changed, not what: most changes it
+     * reports say nothing about background work, and re-sending an identical
+     * snapshot would make every client repaint for nothing.
+     */
+    function sendBackgroundAgents(attachedAgentId: string): void {
+        if (finished || attachment === undefined) {
+            return;
+        }
+        const next = readBackgroundAgents(attachedAgentId);
+        if (sameBackgroundAgents(next, sentBackgroundAgents)) {
+            return;
+        }
+        sentBackgroundAgents = next;
+        void send({
+            type: "background_agents",
+            running: next.running,
+            children: next.children,
+            has_parent: next.has_parent,
+        }, () => !finished && attachment !== undefined)
+            .catch(() => socket.destroy());
     }
 
     function startAgent(

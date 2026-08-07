@@ -13,6 +13,7 @@ import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { connectHost } from "../../src/host/connection.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownIfIdle,
@@ -434,6 +435,11 @@ afterEach(() => {
                 type: "attached",
                 agent_id: agent.id,
                 workspace: "/work/one",
+                background_agents: {
+                    running: 0,
+                    children: [],
+                    has_parent: false,
+                },
             });
             expect(await connection.receive()).toEqual({
                 type: "history",
@@ -884,3 +890,173 @@ function temporaryHostDirectory(): string {
         }
     },
 );
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "the host pushes background work on attach and on every change",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("main", "/work/one");
+        let agents: RegisteredAgentSummary[] = [
+            summary({ id: "main", kind: "interactive", status: "idle" }),
+        ];
+        const listeners = new Set<() => void>();
+        const changeRoster = (next: RegisteredAgentSummary[]): void => {
+            agents = next;
+            for (const listener of listeners) {
+                listener();
+            }
+        };
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+            listAgents: () => agents,
+            onRosterChanged: (listener) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: "main" });
+            expect(await connection.receive()).toMatchObject({
+                type: "attached",
+                background_agents: {
+                    running: 0,
+                    children: [],
+                    has_parent: false,
+                },
+            });
+            expect(await connection.receive()).toMatchObject({
+                type: "history",
+            });
+
+            // Spawned.
+            changeRoster([
+                agents[0]!,
+                summary({
+                    id: "child",
+                    parent_id: "main",
+                    title: "research",
+                    status: "working",
+                }),
+            ]);
+            expect(await connection.receive()).toEqual({
+                type: "background_agents",
+                running: 1,
+                children: ["research"],
+                has_parent: false,
+            });
+
+            // A change that says nothing about background work sends nothing,
+            // which the next assertion proves by reading the change after it.
+            changeRoster([...agents]);
+
+            // Finished its turn.
+            changeRoster([
+                agents[0]!,
+                summary({
+                    id: "child",
+                    parent_id: "main",
+                    title: "research",
+                    status: "idle",
+                }),
+            ]);
+            expect(await connection.receive()).toEqual({
+                type: "background_agents",
+                running: 0,
+                children: [],
+                has_parent: false,
+            });
+
+            // Adopted: the attached session is now somebody's child.
+            changeRoster([
+                summary({
+                    id: "main",
+                    kind: "interactive",
+                    status: "idle",
+                    parent_id: "other",
+                }),
+            ]);
+            expect(await connection.receive()).toEqual({
+                type: "background_agents",
+                running: 0,
+                children: [],
+                has_parent: true,
+            });
+
+            // Trashed: the parent row went with it.
+            changeRoster([
+                summary({ id: "main", kind: "interactive", status: "idle" }),
+            ]);
+            expect(await connection.receive()).toEqual({
+                type: "background_agents",
+                running: 0,
+                children: [],
+                has_parent: false,
+            });
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "the host stops pushing background work once the client detaches",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("main", "/work/one");
+        const listeners = new Set<() => void>();
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+            listAgents: () => [
+                summary({ id: "main", kind: "interactive", status: "idle" }),
+            ],
+            onRosterChanged: (listener) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: "main" });
+            await connection.receive();
+            await connection.receive();
+            expect(listeners.size).toBe(1);
+            await connection.send({ type: "detach" });
+            expect(await connection.receive()).toEqual({ type: "detached" });
+            expect(listeners.size).toBe(0);
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+function summary(
+    fields: {
+        readonly id: string;
+        readonly status: RegisteredAgentSummary["status"];
+        readonly kind?: RegisteredAgentSummary["kind"];
+        readonly parent_id?: string;
+        readonly title?: string;
+    },
+): RegisteredAgentSummary {
+    return {
+        id: fields.id,
+        workspace: "/work/one",
+        session_path: `/sessions/${fields.id}.jsonl`,
+        kind: fields.kind ?? "background",
+        status: fields.status,
+        live: fields.status === "working" || fields.status === "waiting",
+        ...(fields.parent_id === undefined
+            ? {}
+            : { parent_id: fields.parent_id }),
+        ...(fields.title === undefined ? {} : { title: fields.title }),
+    };
+}

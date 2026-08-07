@@ -396,6 +396,7 @@ export async function startResidentHost(
                 : { entrypoint: options.entrypoint }),
             findAgent: (agentId) => registry.find(agentId),
             listAgents: () => registry.list(),
+            onRosterChanged: (listener) => registry.onRosterChanged(listener),
             createAgent: (workspace) => registry.create({ workspace }),
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
             branchAgent: (options) => registry.branch(options),

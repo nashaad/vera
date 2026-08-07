@@ -5,6 +5,7 @@ import {
     type ClientCommand,
 } from "../engine/protocol.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
     ExtensionCommandDescriptor,
     ExtensionCommandResult,
@@ -13,7 +14,7 @@ import type {
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 24;
+export const HOST_PROTOCOL_VERSION = 25;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -162,6 +163,24 @@ export interface AttachedResponse {
     readonly type: "attached";
     readonly agent_id: string;
     readonly workspace: string;
+    /**
+     * The background-agent facts as of the attach, so a client has a correct
+     * count to draw before anything changes rather than after the first change.
+     */
+    readonly background_agents: BackgroundAgentsSnapshot;
+}
+
+/**
+ * Sent whenever the attached client's view of background work changes.
+ *
+ * Unsolicited and unsequenced: it is a host fact about other sessions, not an
+ * engine update about this one, so it stays out of the agent update sequence.
+ */
+export interface BackgroundAgentsResponse {
+    readonly type: "background_agents";
+    readonly running: number;
+    readonly children: readonly string[];
+    readonly has_parent: boolean;
 }
 
 export interface AttachFailedResponse {
@@ -290,6 +309,7 @@ export type HostResponse =
     | RunOnceFailedResponse
     | ShutdownIfIdleResponse
     | AttachedResponse
+    | BackgroundAgentsResponse
     | AttachFailedResponse
     | DetachedResponse
     | ExtensionCommandHostResponse

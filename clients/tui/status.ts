@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
-import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { TuiEffortSubstitution } from "./state.ts";
 import type {
     StatusLineSegment,
@@ -172,33 +171,6 @@ export function renderTuiIdleHint(
         runningBackgroundAgents === 1 ? "" : "s"
     }`;
     return `waiting for ${agents} · ${readyHint}`;
-}
-
-export function countRunningBackgroundAgents(
-    agents: readonly RegisteredAgentSummary[],
-): number {
-    // Running, not merely present and not merely live: every background
-    // session the host restored at startup is present, and one being read
-    // through an attachment is live, but neither is doing anything.
-    return agents.filter((agent) =>
-        agent.kind === "background"
-        && (agent.status === "working" || agent.status === "waiting")
-    ).length;
-}
-
-export function renderBackgroundAgentNames(
-    agents: readonly RegisteredAgentSummary[],
-    parentId: string | undefined,
-): string {
-    if (parentId === undefined) return "";
-    return agents
-        .filter((agent) =>
-            agent.kind === "background"
-            && agent.parent_id === parentId
-            && (agent.status === "working" || agent.status === "waiting")
-        )
-        .map((agent) => `* ${agent.title ?? agent.id}`)
-        .join("\n");
 }
 
 function compactWorkspace(workspace: string): string {

@@ -667,3 +667,32 @@ function values<T>(...items: T[]): () => T {
         return item;
     };
 }
+
+test("resident agent reports every start and stop of its turn, once each", () => {
+    const changes: string[] = [];
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        onRunStateChanged: () => changes.push(agent.status),
+    });
+
+    agent.engine.send({ type: "user_prompt", content: "hello", seq: 1 });
+    // Already working: the same state twice is not a change.
+    agent.engine.send({ type: "status", state: "working", seq: 2 });
+    agent.engine.send({ type: "assistant_delta", text: "hi", seq: 3 });
+    agent.engine.send({
+        type: "ui_request",
+        request: { type: "user_question", question: "which?", choices: [] },
+        requestId: "q-1",
+        seq: 4,
+    });
+    agent.engine.send({ type: "ui_request_closed", requestId: "q-1", seq: 5 });
+    agent.engine.send({ type: "turn_finished", seq: 6 });
+    agent.close();
+
+    expect(changes).toEqual([
+        "working",
+        "waiting",
+        "working",
+        "idle",
+        "idle",
+    ]);
+});
