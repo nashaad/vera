@@ -106,11 +106,17 @@ const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [
 /**
  * The efforts a provider can actually be asked for on this model.
  *
- * Discovery is consulted because it is the same source the picker offers levels
- * from, and the two disagreeing is a rejection the user cannot act on: every
- * `openai-codex` model used to land here with no efforts at all, because the
- * verified list only ever held openrouter entries, so choosing a codex level
- * the picker had just listed was refused as unsupported.
+ * Discovery is consulted first because it is the same source the picker offers
+ * levels from, and the two disagreeing is a rejection the user cannot act on:
+ * the shipped verified list named two levels for `z-ai/glm-5.2` while discovery
+ * named four, so choosing the medium the picker had just listed was refused as
+ * unsupported. The shipped list is a seed for models discovery has not
+ * described, never a ceiling on one it has.
+ *
+ * A model discovery describes with no levels at all falls through to the
+ * shipped list rather than settling on empty, because empty is the answer that
+ * removes the dial entirely and a shipped entry is direct evidence the model
+ * has one.
  *
  * The optimistic fallback below is only safe where the adapter can cope with an
  * effort it has no mapping for. OpenRouter can: it looks the model up and
@@ -123,11 +129,14 @@ export function availableReasoningEfforts(
     model: string,
     options: EffectiveCatalogOptions = {},
 ): readonly ModelReasoningEffort[] {
+    const discovered = discoveredReasoningEfforts(provider, model, options);
+    if (discovered !== undefined && discovered.length > 0) {
+        return discovered;
+    }
     const verified = verifiedReasoningEfforts(provider, model);
     if (verified.length > 0) {
         return verified;
     }
-    const discovered = discoveredReasoningEfforts(provider, model, options);
     if (discovered !== undefined) {
         return discovered;
     }
@@ -135,6 +144,51 @@ export function availableReasoningEfforts(
         return [];
     }
     return EVERY_REASONING_EFFORT;
+}
+
+/**
+ * The levels published for a model, and the level to settle on when a
+ * requested one is not among them.
+ *
+ * This is the single authority behind both the list a client is served and the
+ * list a settings change is checked against. Reading it twice through two
+ * different orderings is what let a level be offered in the picker and then
+ * refused on the way back in.
+ *
+ * A ready pool entry wins outright: admission measured what this key can
+ * actually send, so it beats both discovery and the shipped list.
+ */
+export function publishedReasoningLevels(
+    provider: string,
+    model: string,
+    pooled: readonly PooledModel[] = [],
+    options: EffectiveCatalogOptions = {},
+): PublishedReasoningLevels {
+    const poolEntry = pooled.find((entry) =>
+        entry.provider === provider
+        && entry.model === model
+        && entry.status === "ready");
+    if (poolEntry !== undefined) {
+        return {
+            efforts: poolEntry.levels.map((level) => level.id),
+            ...(poolEntry.defaultLevel === undefined
+                ? {}
+                : { defaultLevel: poolEntry.defaultLevel }),
+        };
+    }
+    const catalogDefault = effectiveCatalog(provider, options).models
+        .find((candidate) => candidate.id === model)
+        ?.default_level;
+    return {
+        efforts: availableReasoningEfforts(provider, model, options),
+        ...(catalogDefault === undefined ? {} : { defaultLevel: catalogDefault }),
+    };
+}
+
+export interface PublishedReasoningLevels {
+    readonly efforts: readonly ModelReasoningEffort[];
+    /** The model's own default level, when one is recorded. */
+    readonly defaultLevel?: string;
 }
 
 /**
