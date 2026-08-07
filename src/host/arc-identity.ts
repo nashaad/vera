@@ -1,0 +1,48 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+/**
+ * The arc identity this host's sessions post under.
+ *
+ * arc stamps every event with the posting node's id as `actor` and the value
+ * of `ARC_SESSION` in the posting shell as `session`. Session subprocesses
+ * inherit the host environment, and the host attaches each interactive session
+ * to the inbox with its agent id as the session half of the self-echo pair, so
+ * the node id read here is the actor half that completes the pair. Without it
+ * the pair stays half-null and self-echo suppression never arms.
+ */
+
+const NODE_ID_LINE = /^\s*node_id\s*=\s*"([^"]*)"\s*(?:#.*)?$/;
+
+/** `$ARC_CONFIG` when set, else arc's default per-user config path. */
+export function defaultArcConfigPath(): string {
+    const override = process.env.ARC_CONFIG;
+    if (override !== undefined && override !== "") {
+        return override;
+    }
+    return join(homedir(), ".config", "arc", "config.toml");
+}
+
+/**
+ * The `node_id` from arc's config file, `null` when the file is missing,
+ * unreadable, or carries none. A host without an arc identity still runs; its
+ * sessions just get no self-echo suppression on arc entries.
+ */
+export function readArcNodeId(
+    configPath: string = defaultArcConfigPath(),
+): string | null {
+    let text: string;
+    try {
+        text = readFileSync(configPath, "utf8");
+    } catch {
+        return null;
+    }
+    for (const line of text.split("\n")) {
+        const match = NODE_ID_LINE.exec(line);
+        if (match !== null && match[1] !== "") {
+            return match[1]!;
+        }
+    }
+    return null;
+}
