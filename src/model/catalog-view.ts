@@ -29,6 +29,7 @@ import {
     type PoolFileModel,
     providerOf,
 } from "./pool-file.ts";
+import { poolNameOf } from "./pool-names.ts";
 import { isSelectable, supportedEfforts } from "./pool-policy.ts";
 import type { SuggestedModel } from "./supported-models.ts";
 
@@ -51,6 +52,8 @@ export interface PooledModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
+    /** The user's own name for this entry, when it has one. */
+    readonly poolName?: string;
     /**
      * False when the model cannot run right now, never a reason to omit it.
      * Availability is about the provider still listing the model, not about
@@ -154,6 +157,8 @@ export function pooledModels(
             return [];
         }
         const name = id.slice(provider.length + 1);
+        const poolName = poolNameOf(file, id);
+        const named = poolName === undefined ? {} : { poolName };
         const verified = isVerifiedPoolEntry(entry);
         const model = knownModels.get(id);
         if (model === undefined) {
@@ -161,6 +166,7 @@ export function pooledModels(
                 provider,
                 model: name,
                 label: name,
+                ...named,
                 available: false,
                 verified,
                 levels: [],
@@ -171,6 +177,7 @@ export function pooledModels(
             provider,
             model: name,
             label: model.label,
+            ...named,
             available: true,
             verified,
             ...(model.description === undefined

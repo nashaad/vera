@@ -25,9 +25,12 @@ const hostLog = createHostLogger();
 import {
     addPoolModel,
     recordLearned,
+    namePoolModel,
     removePoolModel,
     PoolFileWriteRefusedError,
 } from "../model/pool-file-store.ts";
+import { loadPoolFile } from "../model/pool-file-loader.ts";
+import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitModel } from "../model/admission.ts";
 import { declaredPoolEntry } from "../model/pool-admission.ts";
 import { migrateConfigPool } from "../model/pool-migration.ts";
@@ -213,6 +216,25 @@ export async function startResidentHost(
             refusedPoolWrite(() => {
                 removePoolModel(`${entry.provider}/${entry.model}`);
             });
+        },
+        namePoolEntry: (entry, name, projectRoot) => {
+            const id = `${entry.provider}/${entry.model}`;
+            const merged = loadPoolFile({ projectRoot }).merged;
+            if (
+                name !== null
+                && poolNameRefusal(merged, id, name) !== undefined
+            ) {
+                return false;
+            }
+            let named = false;
+            const refused = refusedPoolWrite(() => {
+                // Names land in the user file like every other write, so an
+                // entry only the project overlay declares cannot take one.
+                const file = namePoolModel(id, name ?? undefined);
+                named = file.models[id] !== undefined
+                    && file.models[id]?.name === (name ?? undefined);
+            });
+            return refused === undefined && named;
         },
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({

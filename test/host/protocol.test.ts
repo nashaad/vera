@@ -301,6 +301,31 @@ test("host protocol parses messages after attach", () => {
             }))).toBeUndefined();
         }
     }
+    for (const name of ["frosty", null]) {
+        expect(parseAttachedClientMessage(JSON.stringify({
+            type: "pool_name",
+            requestId: "pool-name-1",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            name,
+        }))).toEqual({
+            type: "pool_name",
+            requestId: "pool-name-1",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            name,
+        });
+    }
+    // An absent or empty name is not a request to clear it, which `null` says.
+    for (const name of ["", undefined]) {
+        expect(parseAttachedClientMessage(JSON.stringify({
+            type: "pool_name",
+            requestId: "pool-name-2",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            name,
+        }))).toBeUndefined();
+    }
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "ui_response",
         requestId: "request-1",

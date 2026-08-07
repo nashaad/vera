@@ -214,6 +214,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^⇧r verify",
     },
     {
+        id: "name_pooled",
+        keys: ["ctrl+n"],
+        scope: "model_picker",
+        description: "Name the selected pool entry",
+        hint: "^n name",
+    },
+    {
         id: "open_providers",
         keys: ["ctrl+e"],
         scope: "model_picker",

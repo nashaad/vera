@@ -1560,3 +1560,17 @@ test("the pool listing names the effort, the probe state and the provider", () =
     ].join("\n"));
     expect(tuiPoolListing([])).toContain("Your pool is empty");
 });
+
+test("a named pool entry lists by its name, with the model id behind it", () => {
+    expect(tuiPoolListing([
+        {
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            label: "GLM-5.2",
+            poolName: "frosty",
+            available: true,
+            verified: true,
+            levels: [],
+        },
+    ])).toContain("  frosty (z-ai/glm-5.2) · provider default");
+});

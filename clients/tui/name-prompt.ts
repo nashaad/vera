@@ -16,22 +16,35 @@ import type { TuiSettingsPickerState } from "./settings-picker.ts";
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
+export interface TuiSessionNameTarget {
+    readonly kind: "session";
+    readonly sessionId: string;
+}
+
+export interface TuiPoolNameTarget {
+    readonly kind: "pool";
+    readonly provider: string;
+    readonly model: string;
+}
+
+export type TuiNamePromptTarget = TuiSessionNameTarget | TuiPoolNameTarget;
+
 /**
- * The name line for one session row.
+ * The name line for one row, either a session or a pool entry.
  *
  * Its own overlay rather than the picker's search box: what is typed here
- * names a session, and the picker's box filters the list.
+ * names the row, and the picker's box filters the list.
  */
-export interface TuiSessionRenamePromptState {
-    readonly sessionId: string;
-    /** The row as it reads now, which may still be the first-prompt fallback. */
+export interface TuiNamePromptState {
+    readonly target: TuiNamePromptTarget;
+    /** The row as it reads now, which may still be a fallback label. */
     readonly label: string;
     readonly value: string;
     /** The pane this was opened over, restored when it closes. */
     readonly parent?: TuiSettingsPickerState;
 }
 
-export interface TuiSessionRenamePromptKey {
+export interface TuiNamePromptKey {
     readonly name: string;
     readonly sequence?: string;
     readonly ctrl?: boolean;
@@ -41,8 +54,8 @@ export interface TuiSessionRenamePromptKey {
     readonly hyper?: boolean;
 }
 
-export interface TuiSessionRenamePromptTransition {
-    readonly state?: TuiSessionRenamePromptState;
+export interface TuiNamePromptTransition {
+    readonly state?: TuiNamePromptState;
     readonly handled: boolean;
     /**
      * The requested name on a submit, null to clear it. Absent means the
@@ -51,30 +64,31 @@ export interface TuiSessionRenamePromptTransition {
     readonly submitted?: string | null;
 }
 
-export interface TuiSessionRenamePromptView {
+export interface TuiNamePromptView {
     readonly box: BoxRenderable;
-    update(state: TuiSessionRenamePromptState): void;
+    update(state: TuiNamePromptState): void;
 }
 
-export function startTuiSessionRenamePrompt(
-    session: { readonly sessionId: string; readonly label: string },
+export function startTuiNamePrompt(
+    target: TuiNamePromptTarget,
+    label: string,
     parent?: TuiSettingsPickerState,
-): TuiSessionRenamePromptState {
+): TuiNamePromptState {
     // The field opens empty rather than holding the current row text: a row
     // with no name of its own reads as its first prompt, and prefilling would
     // offer to save that sentence as the name.
     return {
-        sessionId: session.sessionId,
-        label: session.label,
+        target,
+        label,
         value: "",
         ...(parent === undefined ? {} : { parent }),
     };
 }
 
-export function handleTuiSessionRenamePromptPaste(
-    state: TuiSessionRenamePromptState,
+export function handleTuiNamePromptPaste(
+    state: TuiNamePromptState,
     text: string,
-): TuiSessionRenamePromptState {
+): TuiNamePromptState {
     const pasted = text.replaceAll(new RegExp(CONTROL_CHARACTERS, "g"), "")
         .trim();
     return pasted.length === 0
@@ -82,10 +96,10 @@ export function handleTuiSessionRenamePromptPaste(
         : { ...state, value: state.value + pasted };
 }
 
-export function handleTuiSessionRenamePromptKey(
-    state: TuiSessionRenamePromptState,
-    key: TuiSessionRenamePromptKey,
-): TuiSessionRenamePromptTransition {
+export function handleTuiNamePromptKey(
+    state: TuiNamePromptState,
+    key: TuiNamePromptKey,
+): TuiNamePromptTransition {
     if (key.name === "escape") {
         return { handled: true };
     }
@@ -121,9 +135,9 @@ export function handleTuiSessionRenamePromptKey(
     return { state: { ...state, value: state.value + typed }, handled: true };
 }
 
-export function createTuiSessionRenamePromptView(
+export function createTuiNamePromptView(
     renderer: RenderContext,
-): TuiSessionRenamePromptView {
+): TuiNamePromptView {
     const title = new TextRenderable(renderer, {
         content: "",
         fg: TUI_TEXT,
@@ -153,7 +167,7 @@ export function createTuiSessionRenamePromptView(
         marginTop: 1,
     });
     const box = new BoxRenderable(renderer, {
-        id: "session-rename-prompt",
+        id: "name-prompt",
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
@@ -177,14 +191,16 @@ export function createTuiSessionRenamePromptView(
     return {
         box,
         update(state): void {
-            title.content = "Rename conversation";
+            title.content = state.target.kind === "session"
+                ? "Rename conversation"
+                : "Name pooled model";
             hint.content = state.label;
-            entry.content = tuiSessionRenameEntryLine(state.value);
+            entry.content = tuiNamePromptEntryLine(state.value);
         },
     };
 }
 
-export function tuiSessionRenameEntryLine(value: string): StyledText {
+export function tuiNamePromptEntryLine(value: string): StyledText {
     return new StyledText([
         value.length === 0
             ? fg(TUI_MUTED)("name")
