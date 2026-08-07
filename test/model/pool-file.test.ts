@@ -178,3 +178,29 @@ test("a legacy pinned key is kept verbatim and read by nothing", () => {
     expect(parsed.issues.map((issue) => issue.path)).toEqual(["pinned"]);
     expect(parsed.preserved.root).toEqual({ pinned: ["openrouter/one"] });
 });
+
+test("a malformed name is dropped and the rest of the entry survives", () => {
+    const parsed = parsePoolFileText(JSON.stringify({
+        models: { "openrouter/one": { name: "Frosty One", family: "kimi" } },
+    }));
+
+    expect(parsed.issues[0]?.path).toBe("models.openrouter/one.name");
+    expect(parsed.file.models["openrouter/one"]).toEqual({ family: "kimi" });
+});
+
+test("a name two entries claim is reported against both", () => {
+    const parsed = parsePoolFileText(JSON.stringify({
+        models: {
+            "openrouter/one": { name: "twin" },
+            "cerebras/two": { name: "twin" },
+        },
+    }));
+
+    expect(parsed.issues.map((issue) => issue.path)).toEqual([
+        "models.openrouter/one.name",
+        "models.cerebras/two.name",
+    ]);
+    for (const issue of parsed.issues) {
+        expect(issue.message).toContain("names none");
+    }
+});

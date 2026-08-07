@@ -167,6 +167,8 @@ export interface VeraClientPooledModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
+    /** The user's own name for this entry, when it has one. */
+    readonly poolName?: string;
     /** False when the model cannot run right now, never a reason to omit it. */
     readonly available: boolean;
     /** True once probe or rejection evidence exists for this model. */

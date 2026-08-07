@@ -65,7 +65,7 @@ export interface RunOnceRequest {
     readonly workspace: string;
     readonly prompt: string;
     readonly approval_mode?: string;
-    /** `provider/model` as the pool and the pickers name it. */
+    /** A pool entry, by its user-chosen name or its `provider/model` id. */
     readonly model?: string;
     readonly effort?: string;
 }

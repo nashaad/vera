@@ -173,6 +173,20 @@ export interface PoolRemoveCommand {
     readonly model: string;
 }
 
+/**
+ * Names a pool entry, or clears its name with `null`. The name is that
+ * entry's identity rather than a setting on it, so a name another entry
+ * already holds, a name shaped like a model id, or a model outside the pool
+ * is refused instead of stored.
+ */
+export interface PoolNameCommand {
+    readonly type: "pool_name";
+    readonly requestId: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly name: string | null;
+}
+
 export interface GetPermissionsCommand {
     readonly type: "get_permissions";
     readonly requestId: string;
@@ -264,6 +278,7 @@ export type ClientCommand =
     | UpdateModelSettingsCommand
     | PoolAddCommand
     | PoolRemoveCommand
+    | PoolNameCommand
     | GetPermissionsCommand
     | UpdatePermissionsCommand
     | AddPermissionPreferenceCommand
@@ -824,6 +839,21 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             ...(command.type === "pool_add" && command.verify === true
                 ? { verify: true }
                 : {}),
+        };
+    }
+    if (
+        command.type === "pool_name"
+        && isRequestId(command.requestId)
+        && isNonEmptyString(command.provider)
+        && isNonEmptyString(command.model)
+        && (command.name === null || isNonEmptyString(command.name))
+    ) {
+        return {
+            type: "pool_name",
+            requestId: command.requestId,
+            provider: command.provider,
+            model: command.model,
+            name: command.name as string | null,
         };
     }
     if (command.type === "get_permissions" && isRequestId(command.requestId)) {

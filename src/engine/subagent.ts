@@ -130,6 +130,10 @@ export function resolveSpawnModelChoice(
     policy?: SubagentPoolPolicy,
 ): SpawnModelResolution {
     const sessionProvider = context.provider ?? "";
+    const pool = readPool?.() ?? [];
+    const suggested = effect.model === undefined
+        ? undefined
+        : poolNamed(effect.model, pool) ?? effect.model;
     const configuredDefault = policy?.subagentDefault
         ?? (subagentModel === undefined
             ? undefined
@@ -139,7 +143,7 @@ export function resolveSpawnModelChoice(
             ));
     const outcome = resolveSubagentModel(
         {
-            ...(effect.model === undefined ? {} : { suggested: effect.model }),
+            ...(suggested === undefined ? {} : { suggested }),
             ...(effect.reasoningEffort === undefined
                 ? {}
                 : { suggestedEffort: effect.reasoningEffort }),
@@ -159,7 +163,7 @@ export function resolveSpawnModelChoice(
                 ? {}
                 : { selfEffort: policy.selfEffort }),
         },
-        ladderPool(context, readPool?.() ?? [], subagentModel, policy),
+        ladderPool(context, pool, subagentModel, policy),
     );
     if (!outcome.ok) {
         return { ok: false, error: outcome.error };
@@ -262,6 +266,24 @@ function ladderPool(
             ? {}
             : { failsafe: policy.failsafe }),
     };
+}
+
+/**
+ * The `provider/model` a pool name stands for. A ref with a slash is already
+ * an id, and an unmatched ref is left alone so the ladder reports it as the
+ * user wrote it.
+ */
+function poolNamed(
+    ref: string,
+    pool: readonly PooledModel[],
+): string | undefined {
+    if (ref.includes("/")) {
+        return undefined;
+    }
+    const entry = pool.find((candidate) => candidate.poolName === ref);
+    return entry === undefined
+        ? undefined
+        : `${entry.provider}/${entry.model}`;
 }
 
 /**

@@ -359,3 +359,23 @@ test("an entry holding only learned facts is not in the pool", () => {
     expect(pooledModels([suggested("test", "no-levels")], options))
         .toMatchObject([{ model: "no-levels", verified: true }]);
 });
+
+test("a named entry carries its name to the clients", () => {
+    const options = fixture();
+    writeFileSync(options.userPath, JSON.stringify({
+        models: {
+            "test/with-levels": { name: "frosty" },
+            "test/no-levels": {},
+        },
+    }));
+
+    const pooled = pooledModels([
+        suggested("test", "with-levels"),
+        suggested("test", "no-levels"),
+    ], options);
+
+    expect(pooled.find((entry) => entry.model === "with-levels")?.poolName)
+        .toBe("frosty");
+    expect(pooled.find((entry) => entry.model === "no-levels")?.poolName)
+        .toBeUndefined();
+});
