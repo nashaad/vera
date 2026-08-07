@@ -18,6 +18,16 @@ export interface ModelTurnSettings {
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     /**
+     * The level the user asked for, present only while it differs from the
+     * one in effect because the model does not publish it. Absent is the
+     * normal case and is what tells a client the note has cleared, so never
+     * fill it in with the effective level.
+     *
+     * Client-facing only: it describes a substitution, not a stored choice,
+     * and is never persisted with the session's settings.
+     */
+    readonly requestedReasoningEffort?: ModelReasoningEffort;
+    /**
      * The efforts the running model accepts, as flat strings. Kept alongside
      * the per-model levels below until clients have moved onto them.
      */
@@ -63,6 +73,8 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
         && settings.model.trim().length > 0
         && (settings.reasoningEffort === undefined
             || isModelReasoningEffort(settings.reasoningEffort))
+        && (settings.requestedReasoningEffort === undefined
+            || isModelReasoningEffort(settings.requestedReasoningEffort))
         && (settings.availableReasoningEfforts === undefined
             || (Array.isArray(settings.availableReasoningEfforts)
                 && settings.availableReasoningEfforts.every(isModelReasoningEffort)))
