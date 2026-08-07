@@ -462,6 +462,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     ) {
         return state;
     }
+    if (update.type === "prompt_rejected") {
+        // The optimistic user entry stays: it is what the person typed, and
+        // the notice under it says it did not run. Clearing `working` is the
+        // part that matters, since the refused prompt started no turn, and a
+        // turn that is genuinely running re-asserts it on its next status.
+        return appendTuiNotice({ ...state, working: false }, update.reason);
+    }
     if (update.type === "compaction") {
         return applyCompaction(state, update);
     }

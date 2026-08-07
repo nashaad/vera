@@ -41,7 +41,9 @@ import {
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
     isToolApprovalUiRequestUpdate,
+    isUserQuestionUiRequestUpdate,
     type ToolApprovalUiRequestUpdate,
+    type UiRequestUpdate,
 } from "../engine/protocol.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
@@ -237,6 +239,28 @@ export interface CreateRegisteredAgentOptions {
     readonly workspace: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
+    /**
+     * The mode this agent starts in, when it must not be the host default.
+     * It is written to the session like any other approval-mode change, so a
+     * client that resumes the session later reads it back.
+     */
+    readonly approvalMode?: ApprovalMode;
+}
+
+export interface RunOnceOptions extends CreateRegisteredAgentOptions {
+    readonly prompt: string;
+}
+
+export interface RunOnceResult {
+    readonly agentId: string;
+    readonly sessionPath: string;
+    /** The final assistant text, empty when the turn produced none. */
+    readonly text: string;
+    readonly outcome: "completed" | "error" | "aborted";
+    /** Present only with the error outcome. */
+    readonly error?: string;
+    /** What the run decided on the user's behalf, in the user's words. */
+    readonly notes: readonly string[];
 }
 
 export interface ResumeRegisteredAgentOptions {
@@ -263,6 +287,27 @@ export type RenameSessionOutcome =
     | { readonly status: "invalid" | "busy" | "not_found" | "failed" };
 
 /** Returns undefined for a name the attached path would also refuse. */
+/**
+ * What an attached client is told when it prompts a bounded run.
+ *
+ * Watching one is fully supported. Steering it is not, because the run
+ * answers to whoever launched it, and its one input is the prompt they gave.
+ */
+const CLIENT_PROMPT_REFUSAL =
+    "This agent is running a single bounded turn, so it takes no prompts. "
+    + "Start your own session to continue this work.";
+
+/** The text a caller waiting on one turn is waiting for. */
+function finalAssistantText(store: SessionStore | undefined): string {
+    return store?.messages()
+        .findLast((message) => message.role === "assistant")
+        ?.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n")
+        .trim() ?? "";
+}
+
 function normalizeSessionName(
     name: string | null,
 ): string | null | undefined {
@@ -337,13 +382,139 @@ export class AgentRegistry {
     async create(
         options: CreateRegisteredAgentOptions,
     ): Promise<ResidentAgent> {
-        return this.createWithKind(options, "interactive");
+        return this.createWithKind(
+            options,
+            "interactive",
+            options.approvalMode === undefined
+                ? undefined
+                : { approvalMode: options.approvalMode },
+        );
+    }
+
+    /**
+     * One prompt against a fresh agent, then the agent is gone.
+     *
+     * The bounded lifecycle is the whole feature: the agent is an ordinary
+     * resident agent running an ordinary turn, so it lists, attaches, and
+     * persists like any other, and the only thing that differs is that the
+     * host, not the client, owns when it ends. A client that dies mid-run
+     * cannot leak it, because nothing about the close depends on the client.
+     */
+    async runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
+        const agent = await this.createWithKind(
+            options,
+            "interactive",
+            options.approvalMode === undefined
+                ? undefined
+                : { approvalMode: options.approvalMode },
+            CLIENT_PROMPT_REFUSAL,
+        );
+        const sessionPath = this.agents.get(agent.id)?.store.path ?? "";
+        const notes: string[] = [];
+        let outcome: RunOnceResult["outcome"] = "completed";
+        let error: string | undefined;
+        try {
+            const attachment = agent.attach();
+            try {
+                agent.sendPrompt(options.prompt);
+                while (true) {
+                    const update = await attachment.receive();
+                    if (update.type === "ui_request") {
+                        notes.push(this.refuseHeadlessRequest(
+                            attachment,
+                            update,
+                        ));
+                        continue;
+                    }
+                    if (update.type === "agent_failed") {
+                        outcome = "error";
+                        error = update.detail;
+                        break;
+                    }
+                    if (update.type === "turn_finished") {
+                        if (update.outcome !== undefined) {
+                            outcome = update.outcome;
+                            error = update.error;
+                        }
+                        break;
+                    }
+                }
+            } finally {
+                attachment.detach();
+            }
+            return {
+                agentId: agent.id,
+                sessionPath,
+                text: finalAssistantText(this.agents.get(agent.id)?.store),
+                outcome,
+                ...(error === undefined ? {} : { error }),
+                notes,
+            };
+        } finally {
+            await this.closeAgent(agent.id);
+        }
+    }
+
+    /**
+     * Stop one agent and forget it, leaving its session on disk.
+     *
+     * Distinct from `abort`, which cancels a turn and leaves the agent
+     * running, and from `trashSession`, which is this plus deleting what the
+     * session wrote. Idempotent: the second call finds nothing to close, which
+     * is what makes "closed exactly once" checkable.
+     */
+    async closeAgent(id: string): Promise<"closed" | "not_found"> {
+        const entry = this.agents.get(id);
+        if (entry === undefined) {
+            return "not_found";
+        }
+        entry.agent.close();
+        await entry.run;
+        this.agents.delete(id);
+        this.spawnNotices.delete(id);
+        return "closed";
+    }
+
+    /**
+     * The answer a run with nobody watching gives to a question it cannot ask.
+     *
+     * Always denial, even when a client happens to be attached: a bounded run
+     * that sometimes waits for a human is a bounded run that sometimes hangs,
+     * and the same prompt would then produce different work depending on who
+     * was looking.
+     */
+    private refuseHeadlessRequest(
+        attachment: AgentAttachment,
+        update: UiRequestUpdate,
+    ): string {
+        if (isToolApprovalUiRequestUpdate(update)) {
+            attachment.send({
+                type: "ui_response",
+                requestId: update.requestId,
+                response: { type: "tool_approval", decision: "deny" },
+            });
+            return `Denied ${update.request.toolCall.name}: `
+                + "a print-mode run never waits for approval. "
+                + "Re-run with an approval mode that allows it, "
+                + "or run it interactively.";
+        }
+        if (isUserQuestionUiRequestUpdate(update)) {
+            attachment.send({
+                type: "ui_response",
+                requestId: update.requestId,
+                response: { type: "user_question", outcome: "cancelled" },
+            });
+            return `Cancelled a question from the model: `
+                + `${update.request.question}`;
+        }
+        return "Refused a request that needs someone watching.";
     }
 
     private async createWithKind(
         options: CreateRegisteredAgentOptions,
         kind: RegisteredAgentKind,
         inherited?: InheritedAgentSettings,
+        clientPromptRefusal?: string,
     ): Promise<ResidentAgent> {
         const id = options.id ?? randomUUID();
         this.reserveId(id);
@@ -373,6 +544,7 @@ export class AgentRegistry {
                 kind,
                 options.eventLogPath,
                 inherited?.parentId,
+                clientPromptRefusal,
             );
         } finally {
             this.startingIds.delete(id);
@@ -468,10 +640,7 @@ export class AgentRegistry {
             return "busy";
         }
 
-        entry.agent.close();
-        await entry.run;
-        this.agents.delete(targetId);
-        this.spawnNotices.delete(targetId);
+        await this.closeAgent(targetId);
         try {
             await this.trashArtifacts({
                 sessionPath: entry.store.path,
@@ -864,6 +1033,7 @@ export class AgentRegistry {
         eventLogPath = this.options.eventLogPathForId?.(store.header.id)
             ?? defaultEventLogPath(store.header.id),
         parentId?: string,
+        clientPromptRefusal?: string,
     ): ResidentAgent {
         const storedFailure = store.agentFailure();
         const adapter = storedFailure === undefined
@@ -881,6 +1051,9 @@ export class AgentRegistry {
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
             attachImage: (path, signal) =>
                 imageAttachments.attachFile(path, signal),
+            ...(clientPromptRefusal === undefined
+                ? {}
+                : { clientPromptRefusal }),
         });
         const events = new EngineEventBus();
         const storedSettings = store.modelSettings();

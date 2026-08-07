@@ -13,7 +13,7 @@ import type {
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 21;
+export const HOST_PROTOCOL_VERSION = 22;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -51,6 +51,37 @@ export interface BranchAgentRequest {
     readonly source_agent_id: string;
     readonly position: "before" | "at";
     readonly entry_id?: string;
+}
+
+/**
+ * One prompt, one turn, one agent that the host closes when the turn ends.
+ *
+ * `approval_mode` names a mode the config already defines. Print mode adds no
+ * permission vocabulary of its own: it decides nothing about what is allowed,
+ * only that nobody is there to be asked.
+ */
+export interface RunOnceRequest {
+    readonly type: "run_once";
+    readonly workspace: string;
+    readonly prompt: string;
+    readonly approval_mode?: string;
+}
+
+export interface RunOnceFinishedResponse {
+    readonly type: "run_once_finished";
+    readonly agent_id: string;
+    readonly session_path: string;
+    readonly text: string;
+    readonly outcome: "completed" | "error" | "aborted";
+    readonly error?: string;
+    /** Decisions the run made because nobody was there to make them. */
+    readonly notes?: readonly string[];
+}
+
+/** The run never started, so there is no agent and no turn to report on. */
+export interface RunOnceFailedResponse {
+    readonly type: "run_once_failed";
+    readonly reason?: string;
 }
 
 export interface TrashSessionRequest {
@@ -234,6 +265,7 @@ export type HostRequest =
     | BranchAgentRequest
     | TrashSessionRequest
     | RenameSessionRequest
+    | RunOnceRequest
     | AttachRequest;
 export type AttachedClientMessage =
     | ClientCommand
@@ -251,6 +283,8 @@ export type HostResponse =
     | SessionTrashRejectedResponse
     | SessionRenamedResponse
     | SessionRenameRejectedResponse
+    | RunOnceFinishedResponse
+    | RunOnceFailedResponse
     | ShutdownIfIdleResponse
     | AttachedResponse
     | AttachFailedResponse
@@ -344,6 +378,25 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             type: "rename_session",
             target_agent_id: value.target_agent_id,
             name: value.name as string | null,
+        };
+    }
+    if (
+        value?.type === "run_once"
+        && typeof value.workspace === "string"
+        && value.workspace.length > 0
+        && typeof value.prompt === "string"
+        && value.prompt.trim().length > 0
+        && (value.approval_mode === undefined
+            || (typeof value.approval_mode === "string"
+                && value.approval_mode.length > 0))
+    ) {
+        return {
+            type: "run_once",
+            workspace: value.workspace,
+            prompt: value.prompt,
+            ...(value.approval_mode === undefined
+                ? {}
+                : { approval_mode: value.approval_mode as string }),
         };
     }
     if (

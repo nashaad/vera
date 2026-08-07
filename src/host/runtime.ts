@@ -290,6 +290,7 @@ export async function startResidentHost(
             trashSession: (targetId) => registry.trashSession(targetId),
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),
+            runOnce: (runOptions) => registry.runOnce(runOptions),
             listExtensionCommands: () => extensions.commands(),
             runExtensionCommand: (
                 name,
