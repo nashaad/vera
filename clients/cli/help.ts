@@ -29,7 +29,7 @@ export function renderCliHelp(): string {
         + "  -v, --version  Show the source revision\n"
         + "\nFlags for -p:\n"
         + "  --permission-mode <mode>  Run under a named permission mode\n"
-        + "  --model <provider/model>  Run on one model instead of the configured one\n"
+        + "  --model <pool name|id>    Run on one pooled model, by name or provider/model\n"
         + "  --effort <level>          Run at one reasoning effort\n";
 }
 

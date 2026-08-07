@@ -66,6 +66,15 @@ export function effortLearnedKey(level: string): string {
     return `efforts.${level}`;
 }
 
+/**
+ * What a pool name may look like.
+ *
+ * Slug-shaped so a name can stand in for a model id without ambiguity: no
+ * slash, because a ref containing one is read as `provider/model` and never
+ * as a name.
+ */
+export const POOL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
+
 export interface PoolFileModel {
     /**
      * The user put this model in their pool. Written by `pool_add` and by
@@ -73,6 +82,13 @@ export interface PoolFileModel {
      * exists only to hold facts learned about a model the user never pooled.
      */
     readonly added?: boolean;
+    /**
+     * A name the user gave this entry, usable anywhere a model string is.
+     * Identity, not configuration: it names the model, never the effort.
+     * Only a curated entry may carry one, so a name can never point at a
+     * model the user did not pool.
+     */
+    readonly name?: string;
     /** Declared label bounding sibling search inside one provider. */
     readonly family?: string;
     readonly tools?: boolean;
@@ -198,6 +214,7 @@ const DEFAULTS_KEYS = [
 ] as const;
 const MODEL_KEYS = [
     "added",
+    "name",
     "family",
     "tools",
     "context",
@@ -346,7 +363,37 @@ function parseModels(
             }
         }
     }
+    warnDuplicateNames(models, issues);
     return models;
+}
+
+/**
+ * Two entries answering to one name make the name useless: a ref would pick
+ * whichever the object happened to enumerate first. Both are reported, and
+ * resolution refuses the name rather than guessing.
+ */
+function warnDuplicateNames(
+    models: Readonly<Record<string, PoolFileModel>>,
+    issues: PoolFileIssue[],
+): void {
+    const owners = new Map<string, string[]>();
+    for (const [id, entry] of Object.entries(models)) {
+        if (entry.name === undefined) {
+            continue;
+        }
+        owners.set(entry.name, [...owners.get(entry.name) ?? [], id]);
+    }
+    for (const [name, ids] of owners) {
+        if (ids.length < 2) {
+            continue;
+        }
+        for (const id of ids) {
+            issues.push({
+                path: `models.${id}.name`,
+                message: `"${name}" names ${ids.length} entries, so it names none`,
+            });
+        }
+    }
 }
 
 function parseModel(
@@ -372,6 +419,7 @@ function parseModel(
     } else if (record.added !== undefined) {
         issues.push({ path: `${path}.added`, message: "expected a boolean" });
     }
+    const name = parsePoolName(record.name, path, issues);
     const family = asNonEmptyString(record.family);
     if (record.family !== undefined && family === undefined) {
         issues.push({ path: `${path}.family`, message: "expected a string" });
@@ -399,6 +447,7 @@ function parseModel(
 
     return {
         ...(added === undefined ? {} : { added }),
+        ...(name === undefined ? {} : { name }),
         ...(family === undefined ? {} : { family }),
         ...(tools === undefined ? {} : { tools }),
         ...(context === undefined ? {} : { context }),
@@ -406,6 +455,25 @@ function parseModel(
         ...parseFallback(record.fallback, provider, path, issues),
         ...parseLearned(record.learned, path, issues),
     };
+}
+
+function parsePoolName(
+    value: unknown,
+    path: string,
+    issues: PoolFileIssue[],
+): string | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    const name = asNonEmptyString(value);
+    if (name === undefined || !POOL_NAME_PATTERN.test(name)) {
+        issues.push({
+            path: `${path}.name`,
+            message: "expected lowercase letters, digits, - or _, no slash",
+        });
+        return undefined;
+    }
+    return name;
 }
 
 function parseEfforts(

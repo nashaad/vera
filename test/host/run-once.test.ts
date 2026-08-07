@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -211,6 +211,17 @@ test("a bounded run denies approvals it cannot ask about", async () => {
     }
 });
 
+async function writeProjectPool(
+    root: string,
+    models: Record<string, unknown>,
+): Promise<void> {
+    await mkdir(join(root, ".vera"), { recursive: true });
+    await writeFile(
+        join(root, ".vera", "pool.json"),
+        JSON.stringify({ models }),
+    );
+}
+
 function createRegistry(script: () => AssistantMessage[]): AgentRegistry {
     return new AgentRegistry({
         createAdapter: () => new FauxAdapter(script()),
@@ -308,9 +319,12 @@ function readMarkerScript(): AssistantMessage[] {
     ];
 }
 
-test("a bounded run takes its model through the ordinary settings path", async () => {
+test("a bounded run takes its pooled model by name", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-run-once-model-"));
     await writeFile(join(root, "marker.txt"), "workspace content");
+    await writeProjectPool(root, {
+        "openrouter/other-test-model": { added: true, name: "frosty" },
+    });
     const registry = createRegistry(() => readMarkerScript());
 
     try {
@@ -320,12 +334,33 @@ test("a bounded run takes its model through the ordinary settings path", async (
             sessionPath: join(root, "run.jsonl"),
             eventLogPath: join(root, "events.jsonl"),
             prompt: "read the marker",
-            model: "other-test-model",
+            modelRef: "frosty",
         });
 
         expect(result.outcome).toBe("completed");
         const session = await readFile(join(root, "run.jsonl"), "utf8");
         expect(session).toContain("other-test-model");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a bounded run refuses a model the pool does not hold", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-run-once-unpooled-"));
+    const registry = createRegistry(() => readMarkerScript());
+
+    try {
+        await expect(registry.runOnce({
+            id: "bounded",
+            workspace: root,
+            sessionPath: join(root, "run.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+            prompt: "read the marker",
+            modelRef: "openrouter/never-pooled-model",
+        })).rejects.toThrow("is not in the pool");
+
+        expect(registry.find("bounded")).toBeUndefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

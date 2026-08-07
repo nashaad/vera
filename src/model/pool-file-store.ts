@@ -121,6 +121,37 @@ export function addPoolModel(
     });
 }
 
+/**
+ * Sets or clears the name on an entry that is already pooled.
+ *
+ * Separate from `addPoolModel`, which replaces the declared half wholesale
+ * and moves the entry to the front: a rename changes one field and must not
+ * reorder the pool, because file order is what the failsafe rung walks.
+ *
+ * The caller checks `poolNameRefusal` first. This refuses only the case that
+ * the check cannot see, an entry that is not in the file at all.
+ */
+export function namePoolModel(
+    modelId: string,
+    name: string | undefined,
+    options: PoolStoreOptions = {},
+): PoolFile {
+    return updatePoolFile(options, (file) => {
+        const existing = file.models[modelId];
+        if (existing === undefined) {
+            return file;
+        }
+        const { name: previous, ...rest } = existing;
+        return {
+            ...file,
+            models: {
+                ...file.models,
+                [modelId]: name === undefined ? rest : { ...rest, name },
+            },
+        };
+    });
+}
+
 export function removePoolModel(
     modelId: string,
     options: PoolStoreOptions = {},

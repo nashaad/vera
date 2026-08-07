@@ -933,3 +933,54 @@ test("a spawn that fell through the ladder carries typed substitution rows", () 
             + " default model can run",
     }]);
 });
+
+test("a spawn may name the pool entry it wants by its user-chosen name", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-named-"));
+    const final: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "pin-provider", api: "scripted", model: "small-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([final]);
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(nextRequest) {
+            request = nextRequest;
+            return faux.stream(nextRequest);
+        },
+    };
+    const applyEffect = createSubagentEffectApplier({
+        adapter,
+        workspace: root,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        readPool: () => [{
+            provider: "pin-provider",
+            model: "small-model",
+            label: "Small",
+            poolName: "frosty",
+            available: true,
+            verified: true,
+            levels: [{ id: "low", label: "Low" }],
+        }],
+    });
+
+    try {
+        const result = await applyEffect({
+            type: "spawn_subagent",
+            description: "use the named entry",
+            model: "frosty",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            provider: "parent-provider",
+            model: "selected",
+        });
+
+        expect(request?.provider).toBe("pin-provider");
+        expect(request?.model).toBe("small-model");
+        expect(result.isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});

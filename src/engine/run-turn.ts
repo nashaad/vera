@@ -259,6 +259,10 @@ export interface RunHeadlessLoopOptions {
     readonly poolRemove?: (
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly poolName?: (
+        entry: { readonly provider: string; readonly model: string },
+        name: string | null,
+    ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
@@ -419,6 +423,9 @@ export async function runHeadlessLoop(
         ...(options.poolRemove === undefined
             ? {}
             : { poolRemove: options.poolRemove }),
+        ...(options.poolName === undefined
+            ? {}
+            : { poolName: options.poolName }),
         readApprovalMode,
         readPermissionInspection,
         updateApprovalMode,

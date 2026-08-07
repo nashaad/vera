@@ -690,6 +690,8 @@ function isPooledModel(value: unknown): boolean {
     return typeof model?.provider === "string"
         && typeof model.model === "string"
         && typeof model.label === "string"
+        && (model.poolName === undefined
+            || typeof model.poolName === "string")
         && typeof model.available === "boolean"
         && typeof model.verified === "boolean"
         && (model.description === undefined

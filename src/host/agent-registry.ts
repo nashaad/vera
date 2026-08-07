@@ -51,6 +51,9 @@ import {
     validChildAgentLimit,
 } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
+import { loadPoolFile } from "../model/pool-file-loader.ts";
+import { providerOf } from "../model/pool-file.ts";
+import { resolvePoolRef } from "../model/pool-names.ts";
 import type {
     ModelAdapter,
     ModelReasoningEffort,
@@ -214,6 +217,12 @@ export interface AgentRegistryOptions {
     readonly removeFromPool?: (
         entry: { readonly provider: string; readonly model: string },
     ) => void;
+    /** False when the name was refused, so nothing was written. */
+    readonly namePoolEntry?: (
+        entry: { readonly provider: string; readonly model: string },
+        name: string | null,
+        projectRoot: string,
+    ) => boolean;
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
@@ -250,9 +259,12 @@ export interface CreateRegisteredAgentOptions {
 
 export interface RunOnceOptions extends CreateRegisteredAgentOptions {
     readonly prompt: string;
-    /** The model this one run uses, when it must not be the configured one. */
-    readonly model?: string;
-    readonly provider?: string;
+    /**
+     * The model this one run uses, as a pool name or a `provider/model` id.
+     * A run with nobody watching draws from the curated pool only, so a ref
+     * the pool does not hold ends the run instead of reaching the provider.
+     */
+    readonly modelRef?: string;
     readonly reasoningEffort?: ModelReasoningEffort;
 }
 
@@ -311,11 +323,40 @@ const CLIENT_PROMPT_REFUSAL =
  * here: a bounded run that quietly fell back to the configured model would
  * report results for a model nobody asked for.
  */
+/**
+ * The pooled model a `-p` run asked for, by name or by id.
+ *
+ * Throws rather than falling back: a headless run is the easiest place to
+ * slip an unvetted endpoint into a workspace with nobody watching, so the ref
+ * has to be one the user curated, and a miss is loud.
+ */
+function resolveRunOnceModel(
+    options: RunOnceOptions,
+): { readonly provider?: string; readonly model: string } | undefined {
+    if (options.modelRef === undefined) {
+        return undefined;
+    }
+    const pool = loadPoolFile({ projectRoot: options.workspace }).merged;
+    const id = resolvePoolRef(pool, options.modelRef);
+    if (id === undefined) {
+        throw new Error(
+            `Model "${options.modelRef}" is not in the pool. `
+                + "A print-mode run uses pooled models only: add it with "
+                + "ctrl+s in the model picker, or /pool add.",
+        );
+    }
+    const provider = providerOf(id);
+    return provider === undefined
+        ? { model: id }
+        : { provider, model: id.slice(provider.length + 1) };
+}
+
 async function selectRunOnceModel(
     attachment: AgentAttachment,
     options: RunOnceOptions,
+    model: { readonly provider?: string; readonly model: string } | undefined,
 ): Promise<void> {
-    if (options.model === undefined && options.reasoningEffort === undefined) {
+    if (model === undefined && options.reasoningEffort === undefined) {
         return;
     }
     const requestId = randomUUID();
@@ -323,10 +364,10 @@ async function selectRunOnceModel(
         type: "update_model_settings",
         requestId,
         patch: {
-            ...(options.provider === undefined
+            ...(model?.provider === undefined
                 ? {}
-                : { provider: options.provider }),
-            ...(options.model === undefined ? {} : { model: options.model }),
+                : { provider: model.provider }),
+            ...(model === undefined ? {} : { model: model.model }),
             ...(options.reasoningEffort === undefined
                 ? {}
                 : { reasoningEffort: options.reasoningEffort }),
@@ -352,17 +393,12 @@ async function selectRunOnceModel(
 }
 
 function describeRunOnceModel(options: RunOnceOptions): string {
-    const model = options.model === undefined
-        ? undefined
-        : options.provider === undefined
-        ? options.model
-        : `${options.provider}/${options.model}`;
-    if (model === undefined) {
+    if (options.modelRef === undefined) {
         return `Effort ${options.reasoningEffort}`;
     }
     return options.reasoningEffort === undefined
-        ? `Model ${model}`
-        : `Model ${model} at effort ${options.reasoningEffort}`;
+        ? `Model ${options.modelRef}`
+        : `Model ${options.modelRef} at effort ${options.reasoningEffort}`;
 }
 
 function substitutionNote(update: ModelSubstitutionUpdate): string {
@@ -490,7 +526,11 @@ export class AgentRegistry {
         try {
             const attachment = agent.attach();
             try {
-                await selectRunOnceModel(attachment, options);
+                await selectRunOnceModel(
+                    attachment,
+                    options,
+                    resolveRunOnceModel(options),
+                );
                 agent.sendPrompt(options.prompt);
                 while (true) {
                     const update = await attachment.receive();
@@ -951,6 +991,37 @@ export class AgentRegistry {
         );
     }
 
+    async poolName(
+        id: string,
+        entry: { readonly provider: string; readonly model: string },
+        name: string | null,
+    ): Promise<ModelTurnSettings | undefined> {
+        const agentEntry = this.agents.get(id);
+        if (
+            agentEntry === undefined
+            || agentEntry.agent.closed
+            || agentEntry.agent.failed
+            || this.options.namePoolEntry === undefined
+        ) {
+            return undefined;
+        }
+        const named = this.options.namePoolEntry({
+            provider: entry.provider.trim(),
+            model: entry.model.trim(),
+        }, name === null ? null : name.trim(), agentEntry.store.header.cwd);
+        if (!named) {
+            return undefined;
+        }
+        return settingsForClient(
+            agentEntry.modelSettings,
+            agentEntry.modelSettings.provider ?? this.defaultProvider,
+            this.catalog,
+            this.options.availableModels,
+            this.options.readPool?.(agentEntry.store.header.cwd),
+            this.options.subagentModel,
+        );
+    }
+
     async updateApprovalMode(
         id: string,
         mode: ApprovalMode,
@@ -1313,6 +1384,8 @@ export class AgentRegistry {
                     this.poolAdd(agent.id, entry, onStep, options),
                 poolRemove: (entry) =>
                     this.poolRemove(agent.id, entry),
+                poolName: (entry, name) =>
+                    this.poolName(agent.id, entry, name),
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
