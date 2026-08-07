@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
     countRunningBackgroundAgents,
     renderBackgroundAgentNames,
+    renderTuiIdleHint,
     renderTuiStatusDetailsLine,
 } from "../../clients/tui/status.ts";
 
@@ -167,3 +168,13 @@ function backgroundAgent(
         live: status === "working" || status === "waiting",
     };
 }
+
+test("the idle status line reports the background agents still running", () => {
+    expect(renderTuiIdleHint("ready · ctrl+p commands", 2))
+        .toBe("waiting for 2 background agents · ready · ctrl+p commands");
+    expect(renderTuiIdleHint("ready · ctrl+p commands", 1))
+        .toBe("waiting for 1 background agent · ready · ctrl+p commands");
+    // Back to the plain hint once the children are done.
+    expect(renderTuiIdleHint("ready · ctrl+p commands", 0))
+        .toBe("ready · ctrl+p commands");
+});

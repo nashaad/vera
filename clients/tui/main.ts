@@ -143,6 +143,7 @@ import { isTranscriptSelection } from "./selection.ts";
 import {
     countRunningBackgroundAgents,
     renderBackgroundAgentNames,
+    renderTuiIdleHint,
     renderTuiStatusDetailsLine,
 } from "./status.ts";
 import {
@@ -4593,7 +4594,10 @@ export async function startTui(
         }
         renderJumpToBottom();
 
-        let lifecycleHint = READY_HINT;
+        let lifecycleHint = renderTuiIdleHint(
+            READY_HINT,
+            runningBackgroundAgents,
+        );
         if (connectionFailed) {
             lifecycleHint = "disconnected · /reconnect host · ctrl+c quit";
         } else if (abortRequested) {

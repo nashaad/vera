@@ -52,6 +52,26 @@ export function renderTuiStatusDetailsLine(
     return `${background}${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${usage}`;
 }
 
+/**
+ * The idle status line, which reports background work when there is any.
+ *
+ * An idle session with children still out looks identical to a finished one,
+ * so the quiet is what needs explaining. The palette hint rides along because
+ * the idle line is the only place that chord is advertised.
+ */
+export function renderTuiIdleHint(
+    readyHint: string,
+    runningBackgroundAgents: number,
+): string {
+    if (runningBackgroundAgents <= 0) {
+        return readyHint;
+    }
+    const agents = `${runningBackgroundAgents} background agent${
+        runningBackgroundAgents === 1 ? "" : "s"
+    }`;
+    return `waiting for ${agents} · ${readyHint}`;
+}
+
 export function countRunningBackgroundAgents(
     agents: readonly RegisteredAgentSummary[],
 ): number {
