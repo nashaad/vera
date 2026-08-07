@@ -307,3 +307,52 @@ function readMarkerScript(): AssistantMessage[] {
         },
     ];
 }
+
+test("a bounded run takes its model through the ordinary settings path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-run-once-model-"));
+    await writeFile(join(root, "marker.txt"), "workspace content");
+    const registry = createRegistry(() => readMarkerScript());
+
+    try {
+        const result = await registry.runOnce({
+            id: "bounded",
+            workspace: root,
+            sessionPath: join(root, "run.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+            prompt: "read the marker",
+            model: "other-test-model",
+        });
+
+        expect(result.outcome).toBe("completed");
+        const session = await readFile(join(root, "run.jsonl"), "utf8");
+        expect(session).toContain("other-test-model");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a refused model ends the run before the turn starts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-run-once-refused-"));
+    const registry = createRegistry(() => readMarkerScript());
+
+    try {
+        await expect(registry.runOnce({
+            id: "bounded",
+            workspace: root,
+            sessionPath: join(root, "run.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+            prompt: "read the marker",
+            reasoningEffort: "not-a-level",
+        })).rejects.toThrow("was refused");
+
+        // No silent fallback and no leak: the run never reached a turn, and
+        // the agent is closed anyway.
+        expect(registry.find("bounded")).toBeUndefined();
+        const session = await readFile(join(root, "run.jsonl"), "utf8");
+        expect(session).not.toContain("read the marker");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});

@@ -13,7 +13,7 @@ import type {
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 22;
+export const HOST_PROTOCOL_VERSION = 23;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -65,6 +65,9 @@ export interface RunOnceRequest {
     readonly workspace: string;
     readonly prompt: string;
     readonly approval_mode?: string;
+    /** `provider/model` as the pool and the pickers name it. */
+    readonly model?: string;
+    readonly effort?: string;
 }
 
 export interface RunOnceFinishedResponse {
@@ -389,6 +392,10 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && (value.approval_mode === undefined
             || (typeof value.approval_mode === "string"
                 && value.approval_mode.length > 0))
+        && (value.model === undefined
+            || (typeof value.model === "string" && value.model.length > 0))
+        && (value.effort === undefined
+            || (typeof value.effort === "string" && value.effort.length > 0))
     ) {
         return {
             type: "run_once",
@@ -397,6 +404,12 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.approval_mode === undefined
                 ? {}
                 : { approval_mode: value.approval_mode as string }),
+            ...(value.model === undefined
+                ? {}
+                : { model: value.model as string }),
+            ...(value.effort === undefined
+                ? {}
+                : { effort: value.effort as string }),
         };
     }
     if (

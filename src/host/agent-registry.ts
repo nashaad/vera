@@ -42,6 +42,7 @@ import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
     isToolApprovalUiRequestUpdate,
     isUserQuestionUiRequestUpdate,
+    type ModelSubstitutionUpdate,
     type ToolApprovalUiRequestUpdate,
     type UiRequestUpdate,
 } from "../engine/protocol.ts";
@@ -249,6 +250,10 @@ export interface CreateRegisteredAgentOptions {
 
 export interface RunOnceOptions extends CreateRegisteredAgentOptions {
     readonly prompt: string;
+    /** The model this one run uses, when it must not be the configured one. */
+    readonly model?: string;
+    readonly provider?: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 export interface RunOnceResult {
@@ -296,6 +301,75 @@ export type RenameSessionOutcome =
 const CLIENT_PROMPT_REFUSAL =
     "This agent is running a single bounded turn, so it takes no prompts. "
     + "Start your own session to continue this work.";
+
+/**
+ * Point the run at the model it was launched with, before the turn starts.
+ *
+ * This is the ordinary model-settings command an interactive model change
+ * sends, so pool and catalog resolution, effort coarsening, and substitution
+ * notices all behave the way they do in a session. A refusal ends the run
+ * here: a bounded run that quietly fell back to the configured model would
+ * report results for a model nobody asked for.
+ */
+async function selectRunOnceModel(
+    attachment: AgentAttachment,
+    options: RunOnceOptions,
+): Promise<void> {
+    if (options.model === undefined && options.reasoningEffort === undefined) {
+        return;
+    }
+    const requestId = randomUUID();
+    attachment.send({
+        type: "update_model_settings",
+        requestId,
+        patch: {
+            ...(options.provider === undefined
+                ? {}
+                : { provider: options.provider }),
+            ...(options.model === undefined ? {} : { model: options.model }),
+            ...(options.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: options.reasoningEffort }),
+        },
+    });
+    while (true) {
+        const update = await attachment.receive();
+        if (update.type === "model_settings" && update.requestId === requestId) {
+            return;
+        }
+        if (
+            update.type === "model_settings_rejected"
+            && update.requestId === requestId
+        ) {
+            throw new Error(
+                `${describeRunOnceModel(options)} was refused: `
+                + (update.reason === "unavailable"
+                    ? "this host cannot change the model."
+                    : "no such model, or the effort is not one it accepts."),
+            );
+        }
+    }
+}
+
+function describeRunOnceModel(options: RunOnceOptions): string {
+    const model = options.model === undefined
+        ? undefined
+        : options.provider === undefined
+        ? options.model
+        : `${options.provider}/${options.model}`;
+    if (model === undefined) {
+        return `Effort ${options.reasoningEffort}`;
+    }
+    return options.reasoningEffort === undefined
+        ? `Model ${model}`
+        : `Model ${model} at effort ${options.reasoningEffort}`;
+}
+
+function substitutionNote(update: ModelSubstitutionUpdate): string {
+    const using = update.using ?? "no reasoning level";
+    return `Ran on ${update.model} with ${using} instead of `
+        + `${update.requested}: ${update.reason}`;
+}
 
 /** The text a caller waiting on one turn is waiting for. */
 function finalAssistantText(store: SessionStore | undefined): string {
@@ -416,9 +490,14 @@ export class AgentRegistry {
         try {
             const attachment = agent.attach();
             try {
+                await selectRunOnceModel(attachment, options);
                 agent.sendPrompt(options.prompt);
                 while (true) {
                     const update = await attachment.receive();
+                    if (update.type === "model_substitution") {
+                        notes.push(substitutionNote(update));
+                        continue;
+                    }
                     if (update.type === "ui_request") {
                         notes.push(this.refuseHeadlessRequest(
                             attachment,
