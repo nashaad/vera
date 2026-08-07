@@ -248,7 +248,10 @@ test("a failing pre-image recorder does not fail the write", async () => {
 test("file tool guidance describes its permission-gated path reach", () => {
     const definitions = toolDefinitionsForCapabilities([]);
     expect(definitions.find((tool) => tool.name === "read")?.description).toBe(
-        "Read a UTF-8 text file at any path available to Vera. Relative paths resolve from the workspace.",
+        "Read a UTF-8 text file at any path available to Vera. Relative paths "
+            + "resolve from the workspace. `offset` and `limit` are byte "
+            + "counts, not lines, and a call that names neither reads from the "
+            + "start of the file up to 1048576 bytes.",
     );
     expect(definitions.find((tool) => tool.name === "write")?.description).toBe(
         "Create a new UTF-8 text file, or completely replace an existing one. Replacement is total: any existing content not included in this call is destroyed. To modify an existing file (append, insert, or change part of it), use edit instead. Relative paths resolve from the workspace.",

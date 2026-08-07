@@ -1,3 +1,7 @@
+import {
+    captureBounded,
+    BASH_CAPTURE_LIMIT_BYTES,
+} from "./bounded-capture.ts";
 import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 export const bashTool: RegisteredTool = {
@@ -60,11 +64,26 @@ export async function runBash(
     let stderr: string;
     let exitCode: number;
     try {
-        [stdout, stderr, exitCode] = await Promise.all([
-            new Response(subprocess.stdout).text(),
-            new Response(subprocess.stderr).text(),
+        // Both streams share the budget, half each, so a command that says
+        // everything on stderr is bounded the same as one that says it on
+        // stdout. Both are read to their end whatever the budget, because a
+        // child blocked on a full pipe never reaches its exit.
+        const [stdoutCapture, stderrCapture, code] = await Promise.all([
+            captureBounded(
+                subprocess.stdout,
+                BASH_CAPTURE_LIMIT_BYTES / 2,
+                "stdout",
+            ),
+            captureBounded(
+                subprocess.stderr,
+                BASH_CAPTURE_LIMIT_BYTES / 2,
+                "stderr",
+            ),
             subprocess.exited,
         ]);
+        stdout = stdoutCapture.text;
+        stderr = stderrCapture.text;
+        exitCode = code;
     } finally {
         signal?.removeEventListener("abort", stop);
     }

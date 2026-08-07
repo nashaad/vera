@@ -2,6 +2,19 @@ import type { RegisteredTool, ToolOutput } from "./types.ts";
 import { resolveReadPath } from "./files.ts";
 
 const DEFAULT_MAX_RESULTS = 250;
+/**
+ * Byte limits, both of them safety invariants rather than settings. The count
+ * cap alone bounds neither memory nor context: 250 lines of minified
+ * JavaScript is as unbounded as no cap at all.
+ */
+const MAX_LINE_BYTES = 2 * 1024;
+const MAX_TOTAL_BYTES = 256 * 1024;
+/**
+ * How far past the window the scan will go to learn the true match count.
+ * Lines beyond the window are counted and dropped, so this bounds time, not
+ * memory; the search is abandoned once even counting stops being worth it.
+ */
+const MAX_SCANNED_LINES = 20_000;
 const MAX_RESULTS_CAP = 1000;
 const MAX_CONTEXT_LINES = 50;
 const OUTPUT_MODES = ["files_with_matches", "content", "count"] as const;
@@ -143,14 +156,18 @@ async function runRipgrep(
         return { kind: "output", output: RIPGREP_NOT_FOUND_MESSAGE, isError: true };
     }
 
-    const [stdout, stderr, exitCode] = await Promise.all([
-        new Response(subprocess.stdout).text(),
+    const [collected, stderr, exitCode] = await Promise.all([
+        collectLines(subprocess.stdout, maxResults + offset, () => {
+            subprocess.kill();
+        }),
         new Response(subprocess.stderr).text(),
         subprocess.exited,
     ]);
 
-    // rg exits 1 for "no matches", which is a normal, successful result.
-    if (exitCode > 1) {
+    // rg exits 1 for "no matches", which is a normal, successful result. A run
+    // Vera stopped early reports whatever the kill produced, and its lines are
+    // the answer, so its code is not a failure either.
+    if (exitCode > 1 && !collected.stopped) {
         return {
             kind: "output",
             output: stderr.trim() || `rg exited with code ${exitCode}`,
@@ -158,12 +175,100 @@ async function runRipgrep(
         };
     }
 
-    const lines = stdout.split("\n").filter((line) => line.length > 0);
     return {
         kind: "output",
-        output: formatResults(lines, maxResults, offset),
+        output: formatResults(collected, maxResults, offset),
         isError: false,
     };
+}
+
+interface CollectedLines {
+    readonly lines: readonly string[];
+    /** Matches seen, which is more than were kept once the window is full. */
+    readonly total: number;
+    /** True when rg was still producing when Vera stopped reading. */
+    readonly stopped: boolean;
+    readonly longLines: number;
+}
+
+/**
+ * Reads rg's output line by line, retaining only the window the caller asked
+ * for and counting the rest.
+ *
+ * Buffering the whole run and slicing afterwards makes the caps a formatting
+ * decision, which is too late: the bytes are already held. Counting past the
+ * window keeps the reported total exact, which is what makes `offset` paging
+ * mean anything, and costs one integer.
+ */
+async function collectLines(
+    stream: ReadableStream<Uint8Array>,
+    wanted: number,
+    stop: () => void,
+): Promise<CollectedLines> {
+    const lines: string[] = [];
+    let pending = "";
+    let total = 0;
+    let retainedBytes = 0;
+    let longLines = 0;
+    let stopped = false;
+    const decoder = new TextDecoder("utf-8");
+    const reader = stream.getReader();
+
+    // Returns false once nothing further is worth reading.
+    const take = (line: string): boolean => {
+        if (line.length === 0) {
+            return true;
+        }
+        total += 1;
+        if (lines.length < wanted && retainedBytes < MAX_TOTAL_BYTES) {
+            const bounded = Buffer.byteLength(line, "utf8") > MAX_LINE_BYTES
+                ? `${truncateBytes(line, MAX_LINE_BYTES)} [vera] line truncated`
+                : line;
+            longLines += bounded === line ? 0 : 1;
+            lines.push(bounded);
+            retainedBytes += Buffer.byteLength(bounded, "utf8") + 1;
+        }
+        return total < MAX_SCANNED_LINES;
+    };
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+            pending += decoder.decode(value, { stream: true });
+            const parts = pending.split("\n");
+            pending = parts.pop() ?? "";
+            let room = true;
+            for (const part of parts) {
+                room = take(part);
+                if (!room) {
+                    break;
+                }
+            }
+            if (!room) {
+                stopped = true;
+                stop();
+                break;
+            }
+        }
+        if (!stopped && pending.length > 0) {
+            take(pending);
+        }
+    } finally {
+        reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+    }
+
+    return { lines, total, stopped, longLines };
+}
+
+/** Cuts on a byte boundary and drops the decoder's mark at the cut. */
+function truncateBytes(line: string, limit: number): string {
+    return new TextDecoder("utf-8")
+        .decode(Buffer.from(line, "utf8").subarray(0, limit))
+        .replace(/\uFFFD+$/, "");
 }
 
 /**
@@ -188,23 +293,34 @@ function spawnRipgrep(args: string[]) {
  * rather than falling back to Bash when a search overflows the cap.
  */
 function formatResults(
-    lines: readonly string[],
+    collected: CollectedLines,
     maxResults: number,
     offset: number,
 ): string {
-    if (lines.length === 0) {
+    const lines = collected.lines;
+    // A scan Vera abandoned knows how many matches it saw, not how many exist,
+    // so its count is marked as a floor rather than reported as the truth.
+    const total = collected.stopped
+        ? `${collected.total}+`
+        : `${collected.total}`;
+    const note = collected.longLines === 0
+        ? ""
+        : `\n(${collected.longLines} long line`
+            + `${collected.longLines === 1 ? "" : "s"} cut to `
+            + `${MAX_LINE_BYTES} bytes)`;
+    if (collected.total === 0) {
         return "(no matches)";
     }
-    if (offset >= lines.length) {
-        return `(no results at offset ${offset}; ${lines.length} total)`;
+    if (lines.length <= offset) {
+        return `(no results at offset ${offset}; ${total} total)`;
     }
     const shown = lines.slice(offset, offset + maxResults);
     const end = offset + shown.length;
-    if (offset === 0 && end >= lines.length) {
-        return shown.join("\n");
+    if (offset === 0 && end >= collected.total && !collected.stopped) {
+        return `${shown.join("\n")}${note}`;
     }
     return `${shown.join("\n")}\n(showing ${offset + 1}-${end} of `
-        + `${lines.length}; pass offset=${end} for more)`;
+        + `${total}; pass offset=${end} for more)${note}`;
 }
 
 function parseOutputMode(value: unknown): OutputMode {
