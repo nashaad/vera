@@ -92,6 +92,8 @@ export interface TuiSettingsPickerOption {
      */
     readonly activity?: string;
     readonly workspace?: string;
+    /** Transcript bytes on disk, shown beside the workspace on session rows. */
+    readonly sizeBytes?: number;
     /** True on the session the user is attached to right now. */
     readonly current?: boolean;
     /** The session this one was forked from, when the host reported one. */
@@ -757,6 +759,9 @@ export function startTuiSessionPicker(
             sessionId: agent.id,
             activity: sessionActivity(agent, now),
             workspace: sessionWorkspace(agent),
+            ...(agent.size_bytes === undefined
+                ? {}
+                : { sizeBytes: agent.size_bytes }),
             ...(agent.id === currentAgentId ? { current: true } : {}),
             ...(agent.forked_from === undefined
                 ? {}
@@ -984,6 +989,20 @@ function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
     return agent.live ? "open" : relativeSessionTime(agent.updated_at, now);
 }
 
+/**
+ * Three significant figures at most, so the column stays the same width from
+ * a fresh session to a long one and the unit carries the magnitude.
+ */
+function formatSessionSize(bytes: number): string {
+    if (bytes < 1_000) {
+        return `${bytes}B`;
+    }
+    if (bytes < 1_000_000) {
+        return `${Math.round(bytes / 1_000)}K`;
+    }
+    return `${(bytes / 1_000_000).toFixed(1)}M`;
+}
+
 function relativeSessionTime(value: string | undefined, now: Date): string {
     const timestamp = value === undefined ? Number.NaN : Date.parse(value);
     if (!Number.isFinite(timestamp)) {
@@ -1003,13 +1022,7 @@ function relativeSessionTime(value: string | undefined, now: Date): string {
     if (elapsedHours < 24) {
         return `${elapsedHours}h ago`;
     }
-    const elapsedDays = Math.floor(elapsedHours / 24);
-    return elapsedDays < 7
-        ? `${elapsedDays}d ago`
-        : new Date(timestamp).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-        });
+    return `${Math.floor(elapsedHours / 24)}d ago`;
 }
 
 export function handleTuiSettingsPickerKey(
@@ -1922,7 +1935,14 @@ function optionMeta(
     option: TuiSettingsPickerOption,
 ): DialogMeta | undefined {
     if (state.kind === "session") {
-        return option.workspace;
+        if (option.sizeBytes === undefined) {
+            return option.workspace;
+        }
+        return [
+            { text: formatSessionSize(option.sizeBytes) },
+            { text: "  " },
+            { text: option.workspace ?? "" },
+        ];
     }
     if (state.kind !== "model") {
         return undefined;
