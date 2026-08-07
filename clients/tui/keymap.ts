@@ -147,6 +147,15 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+end",
     },
     {
+        id: "open_model_picker",
+        // Only the kitty-protocol encoding of ctrl+shift+m is bound. Plain
+        // ctrl+m is byte-identical to Enter, so binding it would take the
+        // submit key.
+        keys: ["ctrl+shift+m"],
+        scope: "global",
+        description: "Open the model picker",
+    },
+    {
         id: "cycle-reasoning",
         keys: ["ctrl+t"],
         scope: "global",
