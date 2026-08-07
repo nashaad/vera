@@ -535,8 +535,10 @@ test("one reserved delivery wake survives a full user command queue", async () =
     expect(await agent.engine.receive()).toEqual({
         type: "trigger_delivery_turn",
     });
-    agent.engine.send({ type: "status", state: "working", seq: 1 });
+    agent.engine.send({ type: "user_prompt", content: "queued user work", seq: 1 });
     agent.engine.send({ type: "turn_finished", seq: 2 });
+    agent.engine.send({ type: "status", state: "working", seq: 3 });
+    agent.engine.send({ type: "turn_finished", seq: 4 });
     attachment.detach();
     expect(await agent.engine.receive()).toMatchObject({
         type: "timeline_owner_detached",
@@ -582,6 +584,78 @@ test("detached attachment IDs cannot be reused", async () => {
         ownerId: "owner-b",
         command: { type: "list_timeline", requestId: "list-2" },
     });
+});
+
+test("a turn that finishes without starting stops blocking shutdown", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const attachment = agent.attach();
+    await attachment.receive();
+
+    attachment.send({ type: "prompt", content: "look at this image" });
+    attachment.detach();
+    expect(await agent.engine.receive()).toEqual({
+        type: "prompt",
+        content: "look at this image",
+    });
+    expect(await agent.engine.receive()).toMatchObject({
+        type: "timeline_owner_detached",
+    });
+    expect(agent.idleForShutdown()).toBeFalse();
+
+    // Attachment hydration failed, so the turn ends without ever sending a
+    // user_prompt or a working status.
+    agent.engine.send({ type: "turn_finished", seq: 1 });
+    expect(agent.idleForShutdown()).toBeTrue();
+    agent.close();
+});
+
+test("a delivery wake the engine discards stops blocking shutdown", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const attachment = agent.attach();
+    await attachment.receive();
+
+    attachment.send({ type: "prompt", content: "hello" });
+    attachment.detach();
+    expect(await agent.engine.receive()).toMatchObject({ type: "prompt" });
+    expect(await agent.engine.receive()).toMatchObject({
+        type: "timeline_owner_detached",
+    });
+    agent.engine.send({ type: "user_prompt", content: "hello", seq: 1 });
+
+    // The wake lands mid-turn, and that turn drains the delivery, so the
+    // router discards the wake without emitting anything at all for it.
+    agent.triggerDeliveryTurn();
+    expect(await agent.engine.receive()).toEqual({
+        type: "trigger_delivery_turn",
+    });
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    expect(agent.idleForShutdown()).toBeTrue();
+    agent.close();
+});
+
+test("two prompts accepted before either starts keep their own pending state", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const attachment = agent.attach();
+    await attachment.receive();
+
+    attachment.send({ type: "prompt", content: "first" });
+    attachment.send({ type: "prompt", content: "second" });
+    attachment.detach();
+    expect(await agent.engine.receive()).toMatchObject({ content: "first" });
+    expect(await agent.engine.receive()).toMatchObject({ content: "second" });
+    expect(await agent.engine.receive()).toMatchObject({
+        type: "timeline_owner_detached",
+    });
+
+    agent.engine.send({ type: "user_prompt", content: "first", seq: 1 });
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    expect(agent.idleForShutdown()).toBeFalse();
+
+    agent.engine.send({ type: "user_prompt", content: "second", seq: 3 });
+    expect(agent.idleForShutdown()).toBeFalse();
+    agent.engine.send({ type: "turn_finished", seq: 4 });
+    expect(agent.idleForShutdown()).toBeTrue();
+    agent.close();
 });
 
 function values<T>(...items: T[]): () => T {

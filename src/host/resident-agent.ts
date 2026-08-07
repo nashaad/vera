@@ -86,7 +86,16 @@ export class ResidentAgent {
     private terminalFailure: AgentUpdate | undefined;
     private isClosed = false;
     private pendingCommandCount = 0;
-    private promptStarting = false;
+    // Turns the engine has taken off the inbound queue but has not been seen
+    // starting yet. Counted, not flagged: the router drains the queue eagerly,
+    // so several prompts can be accepted before the first one starts, and a
+    // flag would let one prompt clear another's pending state.
+    private unstartedPrompts = 0;
+    private deliveryTurnStarting = false;
+    // True between a turn's start update and its turn_finished. A
+    // turn_finished with no started turn is a turn that died before starting
+    // (a failed attachment hydration), so it retires an unstarted prompt.
+    private startedTurnActive = false;
     private deliveryTurnQueued = false;
     private readonly maxPendingCommands: number;
     private readonly createAttachmentId: () => string;
@@ -113,14 +122,12 @@ export class ResidentAgent {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
                     }
-                    if (
-                        queued.command.type === "prompt"
-                        || queued.command.type === "trigger_delivery_turn"
-                    ) {
-                        this.promptStarting = true;
+                    if (queued.command.type === "prompt") {
+                        this.unstartedPrompts += 1;
                     }
                     if (queued.command.type === "trigger_delivery_turn") {
                         this.deliveryTurnQueued = false;
+                        this.deliveryTurnStarting = true;
                     }
                     return queued.command;
                 });
@@ -437,10 +444,16 @@ export class ResidentAgent {
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
             if (snapshot.state === "working") {
-                this.promptStarting = false;
+                // The only status update the engine sends is the one that
+                // opens a delivery turn.
+                this.deliveryTurnStarting = false;
+                this.startedTurnActive = true;
             }
         } else if (snapshot.type === "user_prompt") {
-            this.promptStarting = false;
+            if (this.unstartedPrompts > 0) {
+                this.unstartedPrompts -= 1;
+            }
+            this.startedTurnActive = true;
             this.currentStatus = "working";
         } else if (snapshot.type === "ui_request") {
             this.currentStatus = "waiting";
@@ -448,8 +461,22 @@ export class ResidentAgent {
             this.currentStatus = "working";
         } else if (snapshot.type === "turn_finished") {
             this.currentStatus = "idle";
+            if (this.startedTurnActive) {
+                this.startedTurnActive = false;
+            } else if (this.unstartedPrompts > 0) {
+                this.unstartedPrompts -= 1;
+            }
+            // A wake taken off the queue before this boundary either opens the
+            // next delivery turn, which sends its own status update, or is
+            // discarded because this turn already drained the delivery. The
+            // discard is silent, so the turn boundary is the only place the
+            // host can retire it.
+            this.deliveryTurnStarting = false;
         } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";
+            this.unstartedPrompts = 0;
+            this.deliveryTurnStarting = false;
+            this.startedTurnActive = false;
         }
         if (snapshot.type === "history") {
             this.checkpoint = snapshot;
@@ -481,7 +508,8 @@ export class ResidentAgent {
     idleForShutdown(): boolean {
         return this.isClosed || this.terminalFailure !== undefined || (
             this.currentStatus === "idle"
-            && !this.promptStarting
+            && this.unstartedPrompts === 0
+            && !this.deliveryTurnStarting
             && !this.deliveryTurnQueued
             && this.pendingCommandCount === 0
             && this.attachments.size === 0
