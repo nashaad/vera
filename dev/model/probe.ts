@@ -1,7 +1,7 @@
 /**
  * The admission seam the custodian workflow shells out to.
  *
- *     bun run dev/custodian/probe.ts --provider <provider> --model <id>
+ *     bun run dev/model/probe.ts --provider <provider> --model <id>
  *
  * Provider keys come from the environment only; nothing here reads stored
  * credentials. The probe itself is the same `admitModel` the picker checklist
@@ -44,7 +44,7 @@ function parseArgs(argv: readonly string[]): ProbeArgs {
     }
     if (provider === undefined || model === undefined) {
         throw new Error(
-            "usage: bun run dev/custodian/probe.ts"
+            "usage: bun run dev/model/probe.ts"
                 + " --provider <provider> --model <id>",
         );
     }
