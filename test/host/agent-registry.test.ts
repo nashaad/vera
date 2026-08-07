@@ -510,12 +510,12 @@ test("accepted settings become defaults for new agents in the live host", async 
             sessionPath: join(root, "first.jsonl"),
         });
         // An effort the target cannot take does not sink the model change:
-        // the switch is the request and the effort coerces to the strongest
-        // level the target offers.
+        // the switch is the request and the effort coerces to a middle level
+        // of what the target offers, never to the top.
         expect(await registry.updateModelSettings(first.id, {
             model: "z-ai/glm-5.2",
             reasoningEffort: "off",
-        })).toMatchObject({ model: "z-ai/glm-5.2", reasoningEffort: "max" });
+        })).toMatchObject({ model: "z-ai/glm-5.2", reasoningEffort: "medium" });
         expect(await registry.updateModelSettings(first.id, {
             model: "second-model",
             reasoningEffort: "high",
@@ -550,7 +550,7 @@ test("accepted settings become defaults for new agents in the live host", async 
     }
 });
 
-test("switching models chooses the strongest supported reasoning fallback", async () => {
+test("switching models settles an unsupported effort on a middle level", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-reasoning-fallback-"));
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
@@ -569,7 +569,7 @@ test("switching models chooses the strongest supported reasoning fallback", asyn
             model: "moonshotai/kimi-k3",
         })).toMatchObject({
             model: "moonshotai/kimi-k3",
-            reasoningEffort: "max",
+            reasoningEffort: "medium",
         });
     } finally {
         await registry.close();
