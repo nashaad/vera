@@ -22,6 +22,7 @@ import {
     type PoolFile,
     providerOf,
 } from "../model/pool-file.ts";
+import { resolvePoolRef } from "../model/pool-names.ts";
 import { lookupModel, resolveTools } from "../model/pool-policy.ts";
 
 export interface SubagentPolicyOptions
@@ -38,7 +39,12 @@ export function subagentPoolPolicy(
         }
     }
     const selfEffort = file.defaults.subagentEffort;
-    const subagentDefault = file.defaults.subagent;
+    // A default may be written as a pool name, which is the same identity as
+    // the id it stands for; the ladder only knows ids.
+    const subagentDefault = file.defaults.subagent === undefined
+            || file.defaults.subagent === "self"
+        ? file.defaults.subagent
+        : resolvePoolRef(file, file.defaults.subagent) ?? file.defaults.subagent;
     const failsafe = failsafeCandidates(file);
     const tools = failsafeToolSupport(failsafe, file, options);
     return {

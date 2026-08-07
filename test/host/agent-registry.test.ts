@@ -20,6 +20,7 @@ import type {
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
+import type { PooledModel } from "../../src/model/catalog-view.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -2574,6 +2575,68 @@ test("an adapter is built for the agent's own workspace", async () => {
         // The workspace decides which project pool overlays the user's, so an
         // adapter built without it can send a level the project never named.
         expect(workspaces).toEqual([root]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("naming a pool entry reports the refreshed snapshot, and a refusal reports nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-pool-name-"));
+    let pooled: readonly PooledModel[] = [
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            label: "GPT-5.6-Sol",
+            available: true,
+            verified: true,
+            levels: [],
+        },
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        approvalMode: "auto",
+        readPool: () => pooled,
+        namePoolEntry: (entry, name) => {
+            if (name === "taken") {
+                return false;
+            }
+            pooled = pooled.map((item) =>
+                item.model === entry.model
+                    ? {
+                        ...item,
+                        ...(name === null ? {} : { poolName: name }),
+                    }
+                    : item
+            );
+            return true;
+        },
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+
+        const named = await registry.poolName(agent.id, {
+            provider: "openai-codex",
+            model: "  gpt-5.6-sol  ",
+        }, "frosty");
+
+        expect(named?.pooled).toMatchObject([
+            { model: "gpt-5.6-sol", poolName: "frosty" },
+        ]);
+        expect(await registry.poolName(agent.id, {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        }, "taken")).toBeUndefined();
+        expect(await registry.poolName("no-such-agent", {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        }, "frosty")).toBeUndefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

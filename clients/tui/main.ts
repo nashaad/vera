@@ -177,13 +177,13 @@ import {
     type TuiSecretPromptState,
 } from "./secret-prompt.ts";
 import {
-    createTuiSessionRenamePromptView,
-    handleTuiSessionRenamePromptKey,
-    handleTuiSessionRenamePromptPaste,
-    startTuiSessionRenamePrompt,
-    type TuiSessionRenamePromptState,
-    type TuiSessionRenamePromptTransition,
-} from "./session-rename-prompt.ts";
+    createTuiNamePromptView,
+    handleTuiNamePromptKey,
+    handleTuiNamePromptPaste,
+    startTuiNamePrompt,
+    type TuiNamePromptState,
+    type TuiNamePromptTransition,
+} from "./name-prompt.ts";
 import {
     tuiBindingId,
     tuiChord,
@@ -637,7 +637,7 @@ export async function startTui(
     >();
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
     let secretPrompt: TuiSecretPromptState | undefined;
-    let sessionRenamePrompt: TuiSessionRenamePromptState | undefined;
+    let namePrompt: TuiNamePromptState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
     /** The picker pane the preferences list was opened over, restored on close. */
     let preferencesListParent: TuiSettingsPickerState | undefined;
@@ -645,6 +645,16 @@ export async function startTui(
     let help: TuiHelpState | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let confirmingFullAccess = false;
+    /**
+     * The pool add whose name prompt is still owed, if any. Naming is offered
+     * once, at the moment the entry appears, and skipping it is a plain escape.
+     */
+    let pendingPoolName: {
+        readonly requestId: string;
+        readonly provider: string;
+        readonly model: string;
+        readonly label: string;
+    } | undefined;
     let admissionDialog: TuiAdmissionDialogState | undefined;
     /** The model pane the dialog covered, put back when the dialog leaves. */
     let admissionReturnPicker: TuiSettingsPickerState | undefined;
@@ -940,7 +950,7 @@ export async function startTui(
     const timelinePickerView = createTuiTimelinePickerView(renderer);
     const settingsPickerView = createTuiSettingsPickerView(renderer);
     const secretPromptView = createTuiSecretPromptView(renderer);
-    const sessionRenamePromptView = createTuiSessionRenamePromptView(renderer);
+    const namePromptView = createTuiNamePromptView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
@@ -1054,7 +1064,7 @@ export async function startTui(
     };
     app.add(settingsPickerView.box);
     app.add(secretPromptView.box);
-    app.add(sessionRenamePromptView.box);
+    app.add(namePromptView.box);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
@@ -1160,13 +1170,13 @@ export async function startTui(
     // end up with the key as visible text in the transcript.
     renderer.keyInput.on("paste", (event) => {
         if (
-            sessionRenamePrompt !== undefined
-            && sessionRenamePromptView.box.visible
+            namePrompt !== undefined
+            && namePromptView.box.visible
         ) {
             event.preventDefault();
             event.stopPropagation();
-            sessionRenamePrompt = handleTuiSessionRenamePromptPaste(
-                sessionRenamePrompt,
+            namePrompt = handleTuiNamePromptPaste(
+                namePrompt,
                 stripAnsiSequences(decodePasteBytes(event.bytes)),
             );
             renderState();
@@ -1209,7 +1219,7 @@ export async function startTui(
             if (
                 pendingUiRequest === undefined && !sessionSwitchPending
                 && secretPrompt === undefined
-                && sessionRenamePrompt === undefined
+                && namePrompt === undefined
             ) {
                 openCommandPalette();
             }
@@ -1379,16 +1389,16 @@ export async function startTui(
 
         // Ahead of the picker: the prompt is drawn over the pane that opened
         // it, so it takes the keys while it is up.
-        if (sessionRenamePrompt !== undefined) {
-            const transition = handleTuiSessionRenamePromptKey(
-                sessionRenamePrompt,
+        if (namePrompt !== undefined) {
+            const transition = handleTuiNamePromptKey(
+                namePrompt,
                 key,
             );
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 applySessionRenamePromptTransition(
-                    sessionRenamePrompt,
+                    namePrompt,
                     transition,
                 );
                 return;
@@ -1961,6 +1971,20 @@ export async function startTui(
             // gate, so nothing is added here; `provider/model` names a
             // provider, a bare name keeps the running one.
             const typed = commandAction.model.trim();
+            // A pool name is that entry's identity, so it names the provider
+            // too; anything else is read as the user typed it.
+            const named = state.modelSettings?.pooled?.find(
+                (entry) => entry.poolName === typed,
+            );
+            if (named !== undefined) {
+                requestModelSettingsChange(
+                    { provider: named.provider, model: named.model },
+                    `model → ${typed}`,
+                    `the model to ${typed}`,
+                );
+                renderState();
+                return;
+            }
             const separator = typed.indexOf("/");
             const provider = separator > 0 ? typed.slice(0, separator) : undefined;
             const model = separator > 0 ? typed.slice(separator + 1) : typed;
@@ -2664,6 +2688,27 @@ export async function startTui(
                 observeActivity(update);
                 state = applyAgentUpdate(state, update);
                 if (
+                    update.type === "pool_admission_result"
+                    && pendingPoolName?.requestId === update.requestId
+                ) {
+                    const pending = pendingPoolName;
+                    pendingPoolName = undefined;
+                    if (update.verdict === "added" && namePrompt === undefined) {
+                        namePrompt = startTuiNamePrompt(
+                            {
+                                kind: "pool",
+                                provider: pending.provider,
+                                model: pending.model,
+                            },
+                            pending.label,
+                            settingsPicker?.kind === "model"
+                                ? settingsPicker
+                                : undefined,
+                        );
+                        focusActiveSurface();
+                    }
+                }
+                if (
                     update.type === "model_settings"
                     && state.modelSettings !== undefined
                 ) {
@@ -2978,8 +3023,8 @@ export async function startTui(
         if (sessionTrashCandidate !== undefined) {
             return () => sessionTrashConfirmView.box.focus();
         }
-        if (sessionRenamePrompt !== undefined) {
-            return () => sessionRenamePromptView.box.focus();
+        if (namePrompt !== undefined) {
+            return () => namePromptView.box.focus();
         }
         if (secretPrompt !== undefined) {
             return () => secretPromptView.box.focus();
@@ -3116,7 +3161,7 @@ export async function startTui(
         queuedUiRequests.length = 0;
         timelinePicker = undefined;
         settingsPicker = undefined;
-        sessionRenamePrompt = undefined;
+        namePrompt = undefined;
         commandPalette = undefined;
         help = undefined;
         confirmingFullAccess = false;
@@ -3155,23 +3200,23 @@ export async function startTui(
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
-        sessionRenamePromptView.box.visible = pendingUiRequest === undefined
+        namePromptView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
-            && sessionRenamePrompt !== undefined;
+            && namePrompt !== undefined;
         secretPromptView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
-            && sessionRenamePrompt === undefined
+            && namePrompt === undefined
             && secretPrompt !== undefined;
         settingsPickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && secretPrompt === undefined
-            && sessionRenamePrompt === undefined
+            && namePrompt === undefined
             && settingsPicker !== undefined;
         preferencesListView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
@@ -3216,7 +3261,7 @@ export async function startTui(
             || permissionsConfirmView.box.visible
             || admissionDialogView.box.visible
             || sessionTrashConfirmView.box.visible
-            || sessionRenamePromptView.box.visible
+            || namePromptView.box.visible
             || secretPromptView.box.visible;
         overlayScrim.visible = overlayVisible;
         composerBox.visible = pendingUiRequest === undefined
@@ -3225,7 +3270,7 @@ export async function startTui(
             && admissionDialog === undefined
             && sessionTrashCandidate === undefined
             && secretPrompt === undefined
-            && sessionRenamePrompt === undefined
+            && namePrompt === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && help === undefined;
@@ -3251,8 +3296,8 @@ export async function startTui(
         if (secretPrompt !== undefined) {
             secretPromptView.update(secretPrompt);
         }
-        if (sessionRenamePrompt !== undefined) {
-            sessionRenamePromptView.update(sessionRenamePrompt);
+        if (namePrompt !== undefined) {
+            namePromptView.update(namePrompt);
         }
         if (preferencesList !== undefined) {
             preferencesListView.update(preferencesList);
@@ -3378,7 +3423,7 @@ export async function startTui(
         return pendingUiRequest !== undefined
             || timelinePicker !== undefined
             || secretPrompt !== undefined
-            || sessionRenamePrompt !== undefined
+            || namePrompt !== undefined
             || settingsPicker !== undefined
             || preferencesList !== undefined
             || commandPalette !== undefined
@@ -3720,18 +3765,34 @@ export async function startTui(
      * behind an attached client's back. Every other row goes over the host.
      */
     function applySessionRenamePromptTransition(
-        prompt: TuiSessionRenamePromptState,
-        transition: TuiSessionRenamePromptTransition,
+        prompt: TuiNamePromptState,
+        transition: TuiNamePromptTransition,
     ): void {
-        sessionRenamePrompt = transition.state;
-        if (sessionRenamePrompt !== undefined) {
+        namePrompt = transition.state;
+        if (namePrompt !== undefined) {
             renderState();
             return;
         }
+        // A pool name leaves the pane it was opened over alone: the settings
+        // snapshot that follows the write rebuilds it, and the captured parent
+        // is the list as it read before the name existed.
         const parent = prompt.parent;
-        settingsPicker = parent;
-        if (transition.submitted !== undefined) {
-            if (prompt.sessionId === client.agentId) {
+        settingsPicker = prompt.target.kind === "pool"
+            ? settingsPicker ?? parent
+            : parent;
+        if (transition.submitted !== undefined && prompt.target.kind === "pool") {
+            sendCommand({
+                type: "pool_name",
+                requestId: randomUUID(),
+                provider: prompt.target.provider,
+                model: prompt.target.model,
+                name: transition.submitted,
+            });
+        } else if (
+            transition.submitted !== undefined
+            && prompt.target.kind === "session"
+        ) {
+            if (prompt.target.sessionId === client.agentId) {
                 const requestId = randomUUID();
                 pendingSessionRename = { requestId };
                 sendCommand({
@@ -3741,7 +3802,7 @@ export async function startTui(
                 });
             } else {
                 void performSessionRename(
-                    prompt.sessionId,
+                    prompt.target.sessionId,
                     transition.submitted,
                 );
             }
@@ -3960,8 +4021,12 @@ export async function startTui(
             "renameCandidate" in transition
             && transition.renameCandidate !== undefined
         ) {
-            sessionRenamePrompt = startTuiSessionRenamePrompt(
-                transition.renameCandidate,
+            namePrompt = startTuiNamePrompt(
+                {
+                    kind: "session",
+                    sessionId: transition.renameCandidate.sessionId,
+                },
+                transition.renameCandidate.label,
                 previousPicker?.kind === "extension"
                     ? undefined
                     : previousPicker,
@@ -3985,13 +4050,38 @@ export async function startTui(
             );
             return;
         }
+        if ("poolName" in transition && transition.poolName !== undefined) {
+            namePrompt = startTuiNamePrompt(
+                {
+                    kind: "pool",
+                    provider: transition.poolName.provider,
+                    model: transition.poolName.model,
+                },
+                transition.poolName.label,
+                previousPicker?.kind === "extension" ? undefined : previousPicker,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         if ("poolToggle" in transition && transition.poolToggle !== undefined) {
             // The pane stays open and stays on the same row. It is not updated
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             const toggle = transition.poolToggle;
             if (toggle.action === "add") {
-                requestPoolAdmission(toggle.provider, toggle.model);
+                // The name prompt follows the verdict, not the keypress: a
+                // model that never made it into the pool cannot be named.
+                const requestId = requestPoolAdmission(
+                    toggle.provider,
+                    toggle.model,
+                );
+                pendingPoolName = {
+                    requestId,
+                    provider: toggle.provider,
+                    model: toggle.model,
+                    label: `${toggle.provider}/${toggle.model}`,
+                };
                 return;
             }
             sendCommand({
@@ -4170,7 +4260,7 @@ export async function startTui(
         timelinePicker = undefined;
         settingsPicker = undefined;
         secretPrompt = undefined;
-        sessionRenamePrompt = undefined;
+        namePrompt = undefined;
         preferencesList = undefined;
         preferencesListParent = undefined;
         confirmingFullAccess = false;

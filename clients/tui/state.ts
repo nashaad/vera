@@ -689,7 +689,12 @@ export function tuiPoolListing(
         const effort = entry.defaultLevel ?? "provider default";
         const state = entry.verified ? "verified" : "unverified";
         const availability = entry.available ? "" : ", unavailable right now";
-        return `  ${entry.model} · ${effort} · ${state} · ${entry.provider}${availability}`;
+        // Name first where there is one, with the model id right behind it:
+        // the name is what the user types, the id is what runs.
+        const named = entry.poolName === undefined
+            ? entry.model
+            : `${entry.poolName} (${entry.model})`;
+        return `  ${named} · ${effort} · ${state} · ${entry.provider}${availability}`;
     });
     return [`Pool (${pooled.length}):`, ...lines].join("\n");
 }

@@ -105,3 +105,22 @@ test("defaults.subagent reaches the ladder as the configured default", () => {
         "openrouter/worker",
     );
 });
+
+test("a default written as a pool name is handed over as the model it names", () => {
+    const userPath = poolPath({
+        defaults: { subagent: "frosty" },
+        models: { "bedrock/claude-haiku-4-5": { name: "frosty" } },
+    });
+
+    expect(subagentPoolPolicy({ userPath }).subagentDefault)
+        .toBe("bedrock/claude-haiku-4-5");
+});
+
+test("a default naming nothing is passed through as the user wrote it", () => {
+    const userPath = poolPath({
+        defaults: { subagent: "nobody" },
+        models: {},
+    });
+
+    expect(subagentPoolPolicy({ userPath }).subagentDefault).toBe("nobody");
+});

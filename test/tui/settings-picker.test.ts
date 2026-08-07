@@ -1753,3 +1753,51 @@ test("the footer sheds whole hints rather than splitting a chord from its label"
     // last hints to go.
     expect(narrow).toContain("close");
 });
+
+test("ctrl+n asks to name a pooled row and does nothing on an unpooled one", () => {
+    const pooled = modelPickerWithPool(
+        pooledModels,
+        "gpt-5.6-sol",
+        "openai-codex",
+    );
+
+    expect(handleTuiSettingsPickerKey(pooled, { name: "n", ctrl: true }))
+        .toEqual({
+            state: pooled,
+            handled: true,
+            poolName: {
+                provider: "openai-codex",
+                model: "gpt-5.6-sol",
+                label: "gpt-5.6-sol",
+            },
+        });
+
+    const unpooled = modelPickerWithPool([], "moonshotai/kimi-k3");
+    const refused = handleTuiSettingsPickerKey(unpooled, {
+        name: "n",
+        ctrl: true,
+    });
+
+    expect(refused.poolName).toBeUndefined();
+    expect(refused.handled).toBe(true);
+});
+
+test("a named pool row reads by its name and keeps the model id on the row", async () => {
+    const named = modelPickerWithPool(
+        pooledModels.map((entry) =>
+            entry.model === "gpt-5.6-sol"
+                ? { ...entry, poolName: "frosty" }
+                : entry
+        ),
+        "gpt-5.6-sol",
+        "openai-codex",
+    );
+    const frame = await pickerFrame(named);
+
+    expect(named.options[named.selectedIndex]?.label).toBe("frosty");
+    expect(frame).toContain("frosty");
+    expect(frame).toContain("gpt-5.6-sol");
+    // Searching still finds the row by what the model is called.
+    expect(named.options[named.selectedIndex]?.searchText)
+        .toContain("gpt-5.6-sol");
+});

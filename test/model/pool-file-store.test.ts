@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     PoolFileWriteRefusedError,
     addPoolModel,
+    namePoolModel,
     readUserPoolFile,
     recordLearned,
     removePoolModel,
@@ -108,4 +109,42 @@ test("an entry's unknown fields go with it when the entry is removed", () => {
     removePoolModel("cerebras/m", { path });
 
     expect(JSON.parse(readFileSync(path, "utf8")).models).toEqual({});
+});
+
+test("naming an entry leaves its place and its other fields alone", () => {
+    const path = poolPath(JSON.stringify({
+        models: {
+            "cerebras/first": { family: "m" },
+            "cerebras/second": {},
+        },
+    }));
+
+    namePoolModel("cerebras/first", "frosty", { path });
+
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect(Object.keys(written.models)).toEqual([
+        "cerebras/first",
+        "cerebras/second",
+    ]);
+    expect(written.models["cerebras/first"])
+        .toEqual({ family: "m", name: "frosty" });
+});
+
+test("clearing a name removes the field rather than emptying it", () => {
+    const path = poolPath(JSON.stringify({
+        models: { "cerebras/first": { name: "frosty" } },
+    }));
+
+    namePoolModel("cerebras/first", undefined, { path });
+
+    expect(JSON.parse(readFileSync(path, "utf8")).models["cerebras/first"])
+        .toEqual({});
+});
+
+test("naming a model the file does not hold writes nothing", () => {
+    const path = poolPath(JSON.stringify({ models: {} }));
+
+    const file = namePoolModel("cerebras/absent", "frosty", { path });
+
+    expect(file.models["cerebras/absent"]).toBeUndefined();
 });

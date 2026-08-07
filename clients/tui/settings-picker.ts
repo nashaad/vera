@@ -107,6 +107,11 @@ export interface TuiSettingsPickerOption {
      * restore the order the store keeps, which sorting by provider destroys.
      */
     readonly pooledRank?: number;
+    /**
+     * The user's own name for this pool entry. The row reads by it, and the
+     * model id stays on the row's meta line so the slug is never lost.
+     */
+    readonly poolName?: string;
     /** True on a pool row whose model cannot run right now. */
     readonly unavailable?: boolean;
     /** True on a pool row with no probe or rejection evidence behind it. */
@@ -277,6 +282,14 @@ export interface TuiPoolToggle {
     readonly model: string;
 }
 
+/** The selected pool row, on its way to the name prompt. */
+export interface TuiPoolNameCandidate {
+    readonly provider: string;
+    readonly model: string;
+    /** The row as it reads now, shown while the name is typed. */
+    readonly label: string;
+}
+
 /** The selected pool row, sent off to be probed on the user's say-so. */
 export interface TuiPoolVerify {
     readonly provider: string;
@@ -295,6 +308,8 @@ export interface TuiSettingsPickerTransition {
     readonly poolToggle?: TuiPoolToggle;
     /** Same contract as `poolToggle`: reported, not applied here. */
     readonly poolVerify?: TuiPoolVerify;
+    /** Same contract again: the pane asks for the prompt, it does not name. */
+    readonly poolName?: TuiPoolNameCandidate;
     /**
      * The model pane asking for the connect pane over it. A request rather than
      * a state: which providers are connected is a fact about the disk, and only
@@ -1065,6 +1080,29 @@ export function handleTuiSettingsPickerKey(
                 action: isPooled(state, selected) ? "remove" : "add",
                 provider: selected.provider,
                 model: selected.model,
+            },
+        };
+    }
+    // A name belongs to a pool entry, so the key does nothing on a row the
+    // user has not pooled.
+    if (
+        state.kind === "model"
+        && tuiBindingId("model_picker", key) === "name_pooled"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (
+            selected?.provider === undefined || selected.model === undefined
+            || !isPooled(state, selected)
+        ) {
+            return unchanged(state, true);
+        }
+        return {
+            state,
+            handled: true,
+            poolName: {
+                provider: selected.provider,
+                model: selected.model,
+                label: selected.label,
             },
         };
     }
@@ -1912,6 +1950,11 @@ function optionMeta(
     if (option.recommended === true) {
         separated({ text: "top pick", tone: "positive" });
     }
+    // A named row reads by its name, so the id it stands for goes here: the
+    // name is the model's identity, and the slug still has to be findable.
+    if (option.poolName !== undefined && option.model !== undefined) {
+        separated({ text: option.model });
+    }
     // A pool row whose model the provider no longer lists says so, on every
     // view. It is the one thing about a row that a provider heading cannot
     // tell you, and choosing it is a dead end.
@@ -2128,6 +2171,9 @@ function modelOptions(
         const held = poolEntry.get(value);
         return {
             ...(held === undefined ? {} : { pooledRank: held.rank }),
+            ...(held?.entry.poolName === undefined
+                ? {}
+                : { poolName: held.entry.poolName, label: held.entry.poolName }),
             ...(held !== undefined && !held.entry.verified
                 ? { unverified: true }
                 : {}),
@@ -2139,7 +2185,11 @@ function modelOptions(
             value,
             label: model.label,
             description: model.description,
-            searchText: `${model.provider} ${model.model}`,
+            searchText: `${model.provider} ${model.model}${
+                poolEntry.get(value)?.entry.poolName === undefined
+                    ? ""
+                    : ` ${poolEntry.get(value)?.entry.poolName}`
+            }`,
             provider: model.provider,
             model: model.model,
             ...recommendationMarks(model),
@@ -2168,9 +2218,14 @@ function modelOptions(
         const value = providerModelKey(entry.provider, entry.model);
         return runnable.some((option) => option.value === value) ? [] : [{
             value,
-            label: entry.label,
+            label: entry.poolName ?? entry.label,
             description: "not available right now",
-            searchText: `${entry.provider} ${entry.model}`,
+            searchText: `${entry.provider} ${entry.model}${
+                entry.poolName === undefined ? "" : ` ${entry.poolName}`
+            }`,
+            ...(entry.poolName === undefined
+                ? {}
+                : { poolName: entry.poolName }),
             provider: entry.provider,
             model: entry.model,
             pooledRank: rank,

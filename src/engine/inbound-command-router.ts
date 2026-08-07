@@ -151,6 +151,14 @@ export interface InboundCommandRouterOptions {
     readonly poolRemove?: (
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
+    /**
+     * Returns the settings snapshot as it stands after the name is set or
+     * cleared. `undefined` means the name was refused and nothing changed.
+     */
+    readonly poolName?: (
+        entry: { readonly provider: string; readonly model: string },
+        name: string | null,
+    ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionInspection?: () => PermissionInspection | undefined;
     readonly updateApprovalMode?: (
@@ -486,6 +494,14 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "pool_name") {
+                    await this.poolName(command.requestId, {
+                        provider: command.provider,
+                        model: command.model,
+                    }, command.name);
+                    continue;
+                }
+
                 if (command.type === "get_permissions") {
                     this.sendPermissions(command.requestId);
                     continue;
@@ -655,6 +671,30 @@ export class InboundCommandRouter {
                 type: "model_settings_rejected",
                 requestId,
                 reason: this.options.poolRemove === undefined
+                    ? "unavailable"
+                    : "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(settings),
+            pending: this.hasPendingTurn(),
+        });
+    }
+
+    private async poolName(
+        requestId: string,
+        entry: { readonly provider: string; readonly model: string },
+        name: string | null,
+    ): Promise<void> {
+        const settings = await this.options.poolName?.(entry, name);
+        if (settings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: this.options.poolName === undefined
                     ? "unavailable"
                     : "invalid",
             });
