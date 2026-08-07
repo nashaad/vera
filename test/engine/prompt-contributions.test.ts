@@ -116,6 +116,9 @@ test("a scratch directory adds the scratchpad contribution after the workspace",
     );
     expect(scratchpad?.target).toBe("stable");
     expect(scratchpad?.content).toContain("/tmp/vera/session-1");
+    expect(scratchpad?.content).toContain(
+        "check items off and strike them through as you go",
+    );
 });
 
 test("disabled contribution ids are omitted from both targets", () => {

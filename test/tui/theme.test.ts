@@ -68,3 +68,19 @@ test("named themes use the attributed OpenCode palettes exactly", async () => {
     expect((await resolveTuiTheme(renderer, "github")).text).toBe("#c9d1d9");
     expect((await resolveTuiTheme(renderer, "system")).background).toBe("#111111");
 });
+
+test("muted blue keeps body color subdued and reserves cyan for emphasis", async () => {
+    const renderer = { async getPalette() { return terminalColors(); } };
+    const theme = await resolveTuiTheme(renderer, "muted-blue");
+
+    expect(theme).toEqual({
+        accent: "#02A2FF",
+        text: "#CDD6F4",
+        muted: "#175B8B",
+        notice: "#FEFC59",
+        success: "#A7E3A1",
+        background: "#0F1117",
+        panel: "#171B23",
+        element: "#2C2D31",
+    });
+});
