@@ -165,7 +165,7 @@ test("TUI renders extension segments in its own words", () => {
         { kind: "workspace", path: "/workspace" },
         { kind: "permissions", mode: "auto" },
         { kind: "context", tokens: 64_500, capacity: 258_000, estimated: true },
-        { kind: "note", text: "deploy queued" },
+        { kind: "free_note", text: "deploy queued" },
     ])).toBe(
         "2 async subagents running · gpt-5.6-sol · reasoning high · /workspace"
             + " · auto · ctx ~25% · deploy queued",

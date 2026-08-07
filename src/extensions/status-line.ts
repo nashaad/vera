@@ -80,7 +80,7 @@ export interface TurnStatusSegment {
  * be used to hand-format facts that already have a kind.
  */
 export interface NoteStatusSegment {
-    readonly kind: "note";
+    readonly kind: "free_note";
     readonly text: string;
     readonly tone?: "info" | "warning" | "error";
 }
@@ -149,7 +149,7 @@ export function parseStatusLineSegment(
                     && isTurnState(value.state)
                 ? { kind: "turn", state: value.state }
                 : undefined;
-        case "note":
+        case "free_note":
             return parseNoteSegment(value);
         default:
             return undefined;
@@ -210,7 +210,7 @@ function parseNoteSegment(
         return undefined;
     }
     return {
-        kind: "note",
+        kind: "free_note",
         text: value.text,
         ...(value.tone === undefined ? {} : { tone: value.tone }),
     };

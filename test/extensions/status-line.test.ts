@@ -9,11 +9,11 @@ test("segments keep only the facts each kind declares", () => {
     expect(parseStatusLineSegments([
         { kind: "model", provider: "openrouter", model: "glm-5.2" },
         { kind: "context", tokens: 10, capacity: 40 },
-        { kind: "note", text: "queued", tone: "warning" },
+        { kind: "free_note", text: "queued", tone: "warning" },
     ])).toEqual([
         { kind: "model", provider: "openrouter", model: "glm-5.2" },
         { kind: "context", tokens: 10, capacity: 40 },
-        { kind: "note", text: "queued", tone: "warning" },
+        { kind: "free_note", text: "queued", tone: "warning" },
     ]);
 });
 
@@ -34,13 +34,13 @@ test("segments refuse unknown kinds, stray keys, and non-lists", () => {
     ])).toBeUndefined();
     expect(parseStatusLineSegments([{ kind: "turn", state: "thinking" }]))
         .toBeUndefined();
-    expect(parseStatusLineSegments({ kind: "note", text: "one" }))
+    expect(parseStatusLineSegments({ kind: "free_note", text: "one" }))
         .toBeUndefined();
     expect(parseStatusLineSegments(Promise.resolve([]))).toBeUndefined();
 });
 
 test("segments are capped so one repaint cannot be flooded", () => {
-    const segment = { kind: "note", text: "x" };
+    const segment = { kind: "free_note", text: "x" };
     expect(parseStatusLineSegments(
         Array.from({ length: MAX_STATUS_LINE_SEGMENTS }, () => segment),
     )).toHaveLength(MAX_STATUS_LINE_SEGMENTS);

@@ -1080,7 +1080,7 @@ test("a slow status line renderer is retired rather than left in the repaint", a
                     render() {
                         const until = Date.now() + 20;
                         while (Date.now() < until) {}
-                        return [{ kind: "note", text: "late" }];
+                        return [{ kind: "free_note", text: "late" }];
                     },
                 });
             }
@@ -1104,7 +1104,7 @@ test("only one extension owns the status line", async () => {
     const source = `
         export function activateClient(vera) {
             vera.statusLine.register({
-                render: () => [{ kind: "note", text: "mine" }],
+                render: () => [{ kind: "free_note", text: "mine" }],
             });
         }
     `;
