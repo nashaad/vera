@@ -16,13 +16,14 @@ import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
 import {
     availableModels,
-    availableReasoningEfforts,
     contextWindowForModel,
     isModelReasoningEffort,
+    publishedReasoningLevels,
     reasoningEffortForModel,
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
+import { inferReasoningSelection } from "../model/reasoning-effort.ts";
 import type { EffectiveCatalogOptions } from "../model/catalog.ts";
 import {
     runHeadlessLoop,
@@ -838,31 +839,41 @@ export class AgentRegistry {
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
-        const availableEfforts = availableReasoningEfforts(
+        // Checked against exactly what the picker was served, through the
+        // same reader: a level published for this model is always acceptable
+        // here, whichever layer published it.
+        const published = publishedReasoningLevels(
             provider,
             model,
+            this.options.readPool?.(),
             this.catalog,
         );
-        // On a model change, any effort the target cannot take is coerced
-        // rather than rejected: whether it was carried over from the old
-        // model or named alongside the switch (a top pick's suggested
-        // effort), the model choice is the request and the effort rides
-        // along. `strongestReasoningEffort` returns undefined when the
-        // target offers no efforts at all, which drops the dial. Only an
-        // effort-only patch still rejects an unsupported level: there the
-        // level is the whole request.
-        if (
-            (patch.model !== undefined || patch.provider !== undefined)
-            && reasoningEffort !== undefined
-            && !availableEfforts.includes(reasoningEffort)
-        ) {
-            reasoningEffort = strongestReasoningEffort(availableEfforts);
-        }
+        // A level the model does not publish is coerced rather than promoted:
+        // the model's own default, else a middle level, never the top. Same
+        // rule as request-time resolution, so a switch and a turn place an
+        // unknown level identically. The coerced level comes back in the
+        // returned settings, which is how the client learns of the
+        // substitution.
+        //
+        // A model that publishes no levels at all is the one case an
+        // effort-only patch still refuses: there is no dial to move, and
+        // there the level is the whole request.
         if (
             reasoningEffort !== undefined
-            && !availableEfforts.includes(reasoningEffort)
+            && !published.efforts.includes(reasoningEffort)
         ) {
-            return undefined;
+            if (
+                published.efforts.length === 0
+                && patch.model === undefined
+                && patch.provider === undefined
+            ) {
+                return undefined;
+            }
+            reasoningEffort = inferReasoningSelection(
+                reasoningEffort,
+                published.efforts,
+                published.defaultLevel,
+            ).providerEffort;
         }
         const settings: ModelTurnSettings = {
             provider,
@@ -1885,18 +1896,6 @@ function supportedModelSettings(
     return supported;
 }
 
-function strongestReasoningEffort(
-    efforts: readonly ModelReasoningEffort[],
-): ModelReasoningEffort | undefined {
-    const strongestFirst: readonly ModelReasoningEffort[] = [
-        "max",
-        "high",
-        "medium",
-        "low",
-    ];
-    return strongestFirst.find((effort) => efforts.includes(effort));
-}
-
 /**
  * The levels are resolved here rather than where the runnable list is built,
  * so every client sees the catalog as it is now, and a client can show the
@@ -1911,16 +1910,12 @@ function settingsForClient(
     subagentModel?: SpawnModelDefault,
 ): ModelTurnSettings {
     const contextWindow = contextWindowForModel(provider, settings.model, models);
-    // A pool entry's resolved level list is the authority for the running
-    // model: it is what the user declared and what evidence has narrowed, so
-    // it wins over the optimistic per-provider fallback.
-    const poolEntry = pooled.find((entry) =>
-        entry.provider === provider
-        && entry.model === settings.model
-        && entry.available);
-    const efforts = poolEntry !== undefined
-        ? poolEntry.levels.map((level) => level.id)
-        : availableReasoningEfforts(provider, settings.model, catalog);
+    const { efforts } = publishedReasoningLevels(
+        provider,
+        settings.model,
+        pooled,
+        catalog,
+    );
     // A running session's stored effort can outlive discovery deciding the
     // model has no levels at all; serving it anyway shows a dial the model
     // cannot have. Same emptiness rule as `reasoningEffortForModel`.

@@ -367,25 +367,25 @@ test("a bounded run refuses a model the pool does not hold", async () => {
     }
 });
 
-test("a refused model ends the run before the turn starts", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-run-once-refused-"));
+test("an unknown effort coerces and the run still starts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-run-once-coerced-"));
     const registry = createRegistry(() => readMarkerScript());
 
     try {
-        await expect(registry.runOnce({
+        // One coercion rule everywhere: an effort the model does not publish
+        // becomes its default (else a middle level), never a refusal.
+        const outcome = await registry.runOnce({
             id: "bounded",
             workspace: root,
             sessionPath: join(root, "run.jsonl"),
             eventLogPath: join(root, "events.jsonl"),
             prompt: "read the marker",
             reasoningEffort: "not-a-level",
-        })).rejects.toThrow("was refused");
-
-        // No silent fallback and no leak: the run never reached a turn, and
-        // the agent is closed anyway.
-        expect(registry.find("bounded")).toBeUndefined();
+        });
+        expect(outcome).toBeDefined();
         const session = await readFile(join(root, "run.jsonl"), "utf8");
-        expect(session).not.toContain("read the marker");
+        expect(session).toContain("read the marker");
+        expect(session).not.toContain("not-a-level");
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
