@@ -10,6 +10,7 @@ import {
     type PermissionMode,
 } from "../engine/permissions.ts";
 import type { ToolHooks } from "../engine/hooks.ts";
+import { UserFacingError } from "../user-facing-error.ts";
 import type { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
@@ -339,7 +340,7 @@ function resolveRunOnceModel(
     const pool = loadPoolFile({ projectRoot: options.workspace }).merged;
     const id = resolvePoolRef(pool, options.modelRef);
     if (id === undefined) {
-        throw new Error(
+        throw new UserFacingError(
             `Model "${options.modelRef}" is not in the pool. `
                 + "A print-mode run uses pooled models only: add it with "
                 + "ctrl+s in the model picker, or /pool add.",
