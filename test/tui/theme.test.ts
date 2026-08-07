@@ -34,6 +34,7 @@ test("TUI system theme uses terminal foreground and ANSI colors", () => {
     expect(theme.accent).toBe("#00aaaa");
     expect(theme.notice).toBe("#aa5500");
     expect(theme.success).toBe("#00aa00");
+    expect(theme.code).toBe("#00aa00");
     expect(theme.panel).not.toBe(VERA_TUI_THEME.panel);
 });
 
@@ -46,6 +47,7 @@ test("TUI uses Vera colors by default", async () => {
 
     expect(theme).toBe(VERA_TUI_THEME);
     expect(theme.success).toBe("#B8B6D9");
+    expect(theme.code).toBe("#B8B6D9");
 });
 
 test("TUI system theme falls back to Vera colors when detection fails", async () => {
@@ -69,7 +71,7 @@ test("named themes use the attributed OpenCode palettes exactly", async () => {
     expect((await resolveTuiTheme(renderer, "system")).background).toBe("#111111");
 });
 
-test("muted blue uses Codex blue for transcript text and muted details", async () => {
+test("muted blue uses Codex transcript, inline code, and detail colors", async () => {
     const renderer = { async getPalette() { return terminalColors(); } };
     const theme = await resolveTuiTheme(renderer, "muted-blue");
 
@@ -79,6 +81,7 @@ test("muted blue uses Codex blue for transcript text and muted details", async (
         muted: "#175B8B",
         notice: "#FEFC59",
         success: "#A7E3A1",
+        code: "#74C0FF",
         background: "#0F1117",
         panel: "#171B23",
         element: "#2C2D31",
