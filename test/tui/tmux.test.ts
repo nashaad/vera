@@ -928,7 +928,7 @@ test.skipIf(!tmuxAvailable)(
             expect(readFileSync(
                 join(home, "trash-session-result.txt"),
                 "utf8",
-            )).toBe("saved-session\nlist calls 3");
+            )).toBe("saved-session");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
@@ -1474,7 +1474,10 @@ test.skipIf(!tmuxAvailable)(
             expect(pane.replace(/\s+/g, " ")).toContain(
                 "Routine command requested by the user.",
             );
-            expect(pane).toContain("└ env AUTO_REVIEW=ran");
+            // `env` prints as many lines as the machine has variables, so
+            // the row is pinned by its command and its details hint.
+            expect(pane).toContain("+ Ran · ");
+            expect(pane).toContain("· env AUTO_REVIEW=ran  ctrl+e details");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Permission required");
             expect(pane).not.toContain("Allow once");

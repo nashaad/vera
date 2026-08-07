@@ -48,5 +48,5 @@ await startTui({
 
 await Bun.write(
     join(process.env.HOME ?? ".", "trash-session-result.txt"),
-    `${trashed}\nlist calls ${listCalls}`,
+    trashed,
 );
