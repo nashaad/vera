@@ -28,6 +28,7 @@ import {
     type ClientExtensionPreferencesAdapter,
     type ClientExtensionRegistryFailure,
 } from "../../src/extensions/client-registry.ts";
+import type { StatusLineSnapshot } from "../../src/extensions/status-line.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -979,6 +980,182 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     }
     throw new Error("condition was not reached");
 }
+
+const SNAPSHOT: StatusLineSnapshot = {
+    version: 1,
+    turn: "working",
+    workspace: "/workspace",
+    runningBackgroundAgents: 2,
+    model: { provider: "openrouter", model: "glm-5.2", reasoningEffort: "max" },
+    approvalMode: "auto",
+    context: { tokens: 100, capacity: 400, estimated: true },
+};
+
+test("a status line renderer answers the repaint with semantic segments", async () => {
+    const extension = createExtension(
+        "client.status",
+        ["client.status_line"],
+        `
+            export function activateClient(vera) {
+                vera.statusLine.register({
+                    render(snapshot) {
+                        return [
+                            { kind: "turn", state: snapshot.turn },
+                            {
+                                kind: "background_agents",
+                                running: snapshot.runningBackgroundAgents,
+                            },
+                            { kind: "model", model: snapshot.model.model },
+                        ];
+                    },
+                });
+            }
+        `,
+    );
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+    });
+
+    expect(registry.statusLineOwner()).toBe("client.status");
+    expect(registry.renderStatusLine(SNAPSHOT)).toEqual([
+        { kind: "turn", state: "working" },
+        { kind: "background_agents", running: 2 },
+        { kind: "model", model: "glm-5.2" },
+    ]);
+    await registry.close();
+});
+
+test("a failing status line renderer falls back and is retired after three strikes", async () => {
+    const extension = createExtension(
+        "client.status-broken",
+        ["client.status_line"],
+        `
+            let calls = 0;
+            export function activateClient(vera) {
+                vera.statusLine.register({
+                    render() {
+                        calls += 1;
+                        if (calls === 1) {
+                            throw new Error("no status for you");
+                        }
+                        if (calls === 2) {
+                            return [{ kind: "wat", text: "hello" }];
+                        }
+                        return Promise.resolve([]);
+                    },
+                });
+            }
+        `,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    // Throwing, garbage, and a promise are all the same answer to a repaint:
+    // nothing usable, so the client renders the status line itself.
+    expect(registry.renderStatusLine(SNAPSHOT)).toBeUndefined();
+    expect(registry.renderStatusLine(SNAPSHOT)).toBeUndefined();
+    expect(registry.renderStatusLine(SNAPSHOT)).toBeUndefined();
+    expect(registry.statusLineOwner()).toBeUndefined();
+    expect(registry.renderStatusLine(SNAPSHOT)).toBeUndefined();
+    expect(failures).toHaveLength(3);
+    expect(failures[0]?.message).toContain("no status for you");
+    expect(failures[2]?.message).toContain("handed back to the client");
+    await registry.close();
+});
+
+test("a slow status line renderer is retired rather than left in the repaint", async () => {
+    const extension = createExtension(
+        "client.status-slow",
+        ["client.status_line"],
+        `
+            export function activateClient(vera) {
+                vera.statusLine.register({
+                    render() {
+                        const until = Date.now() + 20;
+                        while (Date.now() < until) {}
+                        return [{ kind: "note", text: "late" }];
+                    },
+                });
+            }
+        `,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        statusLineBudgetMs: 1,
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(registry.renderStatusLine(SNAPSHOT)).toBeUndefined();
+    expect(failures[0]?.message).toContain("budget");
+    await registry.close();
+});
+
+test("only one extension owns the status line", async () => {
+    const source = `
+        export function activateClient(vera) {
+            vera.statusLine.register({
+                render: () => [{ kind: "note", text: "mine" }],
+            });
+        }
+    `;
+    const first = createExtension(
+        "client.status-first",
+        ["client.status_line"],
+        source,
+    );
+    const second = createExtension(
+        "client.status-second",
+        ["client.status_line"],
+        source,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(first), configured(second)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(registry.statusLineOwner()).toBe("client.status-first");
+    expect(failures[0]?.message).toContain(
+        "status line from client.status-second collides with client.status-first",
+    );
+    await registry.close();
+});
+
+test("a status line renderer needs the declared capability", async () => {
+    const extension = createExtension(
+        "client.status-undeclared",
+        ["client.commands.register"],
+        `
+            export function activateClient(vera) {
+                vera.statusLine.register({ render: () => [] });
+            }
+        `,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(registry.statusLineOwner()).toBeUndefined();
+    expect(registry.renderStatusLine(SNAPSHOT)).toBeUndefined();
+    expect(failures[0]?.message).toContain("did not declare client.status_line");
+    await registry.close();
+});
 
 test("preset cycling walks slots, not models, so a duplicate does not stick", async () => {
     const extension = join(import.meta.dir, "../../extensions/model-presets");

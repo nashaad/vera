@@ -5,6 +5,8 @@ import {
     renderBackgroundAgentNames,
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
+    renderTuiStatusSegments,
+    tuiStatusSnapshot,
 } from "../../clients/tui/status.ts";
 
 test("TUI status line shows host-reported model and reasoning", () => {
@@ -154,6 +156,50 @@ test("background-agent names stack active children and omit finished ones", () =
         { ...backgroundAgent("completed"), parent_id: "main", title: "done" },
         { ...backgroundAgent("working"), parent_id: "other", title: "else" },
     ], "main")).toBe("* research\n* review");
+});
+
+test("TUI renders extension segments in its own words", () => {
+    expect(renderTuiStatusSegments([
+        { kind: "background_agents", running: 2 },
+        { kind: "model", model: "gpt-5.6-sol", reasoningEffort: "high" },
+        { kind: "workspace", path: "/workspace" },
+        { kind: "permissions", mode: "auto" },
+        { kind: "context", tokens: 64_500, capacity: 258_000, estimated: true },
+        { kind: "note", text: "deploy queued" },
+    ])).toBe(
+        "2 async subagents running · gpt-5.6-sol · reasoning high · /workspace"
+            + " · auto · ctx ~25% · deploy queued",
+    );
+});
+
+test("TUI drops segments whose facts say nothing", () => {
+    // The extension keeps the segment in its list on every repaint; whether
+    // zero agents and an idle turn earn a slot is the client's call.
+    expect(renderTuiStatusSegments([
+        { kind: "turn", state: "idle" },
+        { kind: "background_agents", running: 0 },
+        { kind: "context", tokens: 400 },
+        { kind: "model", model: "gemma4:26b" },
+    ])).toBe("gemma4:26b");
+});
+
+test("TUI status snapshot carries facts and no client state", () => {
+    expect(tuiStatusSnapshot(
+        { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        "auto",
+        { tokens: 64_500, capacity: 258_000, estimated: false },
+        "/workspace",
+        2,
+        "working",
+    )).toEqual({
+        version: 1,
+        turn: "working",
+        workspace: "/workspace",
+        runningBackgroundAgents: 2,
+        model: { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        approvalMode: "auto",
+        context: { tokens: 64_500, capacity: 258_000, estimated: false },
+    });
 });
 
 function backgroundAgent(
