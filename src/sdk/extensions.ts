@@ -1,5 +1,9 @@
 import type { JsonValue } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
+import type {
+    StatusLineSegment,
+    StatusLineSnapshot,
+} from "../extensions/status-line.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
 import type { ToolPresentation } from "../model/types.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
@@ -79,6 +83,7 @@ export interface VeraClientExtensionApi {
     readonly modelSettings: VeraClientExtensionModelSettings;
     readonly ui: VeraClientExtensionUi;
     readonly keybindings: VeraClientExtensionKeybindings;
+    readonly statusLine: VeraClientExtensionStatusLine;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 
@@ -309,3 +314,24 @@ export interface VeraClientExtensionKeybindingRequest {
 export type VeraClientExtensionKeybindingHandler = (
     request: VeraClientExtensionKeybindingRequest,
 ) => void | Promise<void>;
+
+export type VeraClientStatusSnapshot = StatusLineSnapshot;
+export type VeraClientStatusSegment = StatusLineSegment;
+
+export interface VeraClientExtensionStatusLine {
+    register(spec: VeraClientExtensionStatusLineSpec): void;
+}
+
+export interface VeraClientExtensionStatusLineSpec {
+    readonly render: VeraClientStatusLineRenderer;
+}
+
+/**
+ * Called during a repaint, so it must be synchronous and quick: returning a
+ * promise counts as an invalid result, and the client keeps its own rendering
+ * rather than waiting. One extension owns the whole segment list; a second
+ * registration is refused at load.
+ */
+export type VeraClientStatusLineRenderer = (
+    snapshot: VeraClientStatusSnapshot,
+) => readonly VeraClientStatusSegment[];

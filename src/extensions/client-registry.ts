@@ -11,6 +11,8 @@ import type {
     VeraClientExtensionKeybindingHandler,
     VeraClientExtensionKeybindingSpec,
     VeraClientExtensionModule,
+    VeraClientExtensionStatusLineSpec,
+    VeraClientStatusLineRenderer,
     VeraClientModelSettingsListener,
     VeraClientModelSettingsPatch,
     VeraClientModelSettingsSnapshot,
@@ -30,6 +32,11 @@ import {
 } from "./commands.ts";
 import { loadExtensionManifest } from "./manifest.ts";
 import { runExtensionOperation } from "./operation.ts";
+import {
+    parseStatusLineSegments,
+    type StatusLineSegment,
+    type StatusLineSnapshot,
+} from "./status-line.ts";
 
 const DEFAULT_ACTIVATION_TIMEOUT_MS = 5_000;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
@@ -41,6 +48,16 @@ const CLIENT_PREFERENCES_CAPABILITY = "client.preferences";
 const CLIENT_MODEL_SETTINGS_CAPABILITY = "client.model_settings";
 const CLIENT_PICKER_CAPABILITY = "client.ui.picker";
 const CLIENT_NOTICE_CAPABILITY = "client.ui.notice";
+const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
+
+const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
+/**
+ * A renderer that throws, stalls, or answers with garbage is taken off the
+ * status line after this many strikes and the client's own rendering stands
+ * in for good. Retrying forever would spend part of every repaint on an
+ * extension that has already shown it cannot answer.
+ */
+const STATUS_LINE_FAILURE_LIMIT = 3;
 
 export interface ClientExtensionConfig {
     readonly path: string;
@@ -114,6 +131,8 @@ export interface StartClientExtensionRegistryOptions {
     readonly activationTimeoutMs?: number;
     readonly handlerTimeoutMs?: number;
     readonly disposeTimeoutMs?: number;
+    /** How long one status line render may take before it counts as a strike. */
+    readonly statusLineBudgetMs?: number;
     readonly onFailure?: (failure: ClientExtensionRegistryFailure) => void;
 }
 
@@ -131,6 +150,16 @@ export interface ClientExtensionRegistry {
         workspace: string,
         signal?: AbortSignal,
     ): Promise<void>;
+    /** The extension that owns the status line, absent while nobody does. */
+    statusLineOwner(): string | undefined;
+    /**
+     * Synchronous by contract: this is called inside a repaint, so it never
+     * awaits and never throws. Undefined means the client renders the status
+     * line itself, which is also what a failing renderer resolves to.
+     */
+    renderStatusLine(
+        snapshot: StatusLineSnapshot,
+    ): readonly StatusLineSegment[] | undefined;
     close(): Promise<void>;
 }
 
@@ -155,6 +184,7 @@ interface LoadedClientExtension {
     readonly path: string;
     readonly commands: readonly RegisteredCommand[];
     readonly keybindings: readonly RegisteredKeybinding[];
+    readonly statusLine: VeraClientStatusLineRenderer | undefined;
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveInvocation>;
     readonly invocationSignal: AsyncLocalStorage<AbortSignal>;
@@ -172,6 +202,12 @@ interface KeybindingOwner {
     readonly keybinding: RegisteredKeybinding;
 }
 
+interface StatusLineOwner {
+    readonly extension: LoadedClientExtension;
+    readonly render: VeraClientStatusLineRenderer;
+    failures: number;
+}
+
 export async function startClientExtensionRegistry(
     options: StartClientExtensionRegistryOptions,
 ): Promise<ClientExtensionRegistry> {
@@ -187,6 +223,9 @@ export async function startClientExtensionRegistry(
     const extensionIds = new Set<string>();
     const commands = new Map<string, CommandOwner>();
     const keybindings = new Map<string, KeybindingOwner>();
+    const statusLineBudgetMs = options.statusLineBudgetMs
+        ?? DEFAULT_STATUS_LINE_BUDGET_MS;
+    let statusLine: StatusLineOwner | undefined;
     let closing: Promise<void> | undefined;
 
     for (const configured of options.extensions) {
@@ -223,10 +262,18 @@ export async function startClientExtensionRegistry(
                 extension,
                 commands,
                 keybindings,
+                statusLine,
                 reservedCommands,
                 reservedKeybindings,
             );
             loaded.push(extension);
+            if (extension.statusLine !== undefined) {
+                statusLine = {
+                    extension,
+                    render: extension.statusLine,
+                    failures: 0,
+                };
+            }
             extensionIds.add(extension.id);
             for (const command of extension.commands) {
                 commands.set(command.descriptor.name, { extension, command });
@@ -323,15 +370,72 @@ export async function startClientExtensionRegistry(
                 signal,
             );
         },
+        statusLineOwner(): string | undefined {
+            return statusLine?.extension.id;
+        },
+        renderStatusLine(
+            snapshot: StatusLineSnapshot,
+        ): readonly StatusLineSegment[] | undefined {
+            const owner = statusLine;
+            if (
+                owner === undefined
+                || closing !== undefined
+                || owner.extension.disposing
+            ) {
+                return undefined;
+            }
+            const started = performance.now();
+            let returned: unknown;
+            try {
+                returned = owner.render(structuredClone(snapshot));
+            } catch (error) {
+                return failStatusLine(owner, errorMessage(error));
+            }
+            const elapsed = performance.now() - started;
+            const segments = parseStatusLineSegments(returned);
+            if (segments === undefined) {
+                return failStatusLine(
+                    owner,
+                    "status line renderer returned an invalid result",
+                );
+            }
+            if (elapsed > statusLineBudgetMs) {
+                return failStatusLine(
+                    owner,
+                    `status line render took ${Math.round(elapsed)}ms,`
+                        + ` over the ${statusLineBudgetMs}ms budget`,
+                );
+            }
+            owner.failures = 0;
+            return segments;
+        },
         close(): Promise<void> {
             closing ??= close();
             return closing;
         },
     };
 
+    /** Never rethrows: a repaint cannot be the place an extension fault lands. */
+    function failStatusLine(owner: StatusLineOwner, message: string): undefined {
+        owner.failures += 1;
+        const retired = owner.failures >= STATUS_LINE_FAILURE_LIMIT;
+        if (retired) {
+            statusLine = undefined;
+        }
+        safelyReportFailure(options.onFailure, {
+            path: owner.extension.path,
+            extensionId: owner.extension.id,
+            message: retired
+                ? `${message}; status line handed back to the client`
+                : message,
+        });
+        return undefined;
+    }
+
     async function close(): Promise<void> {
         commands.clear();
         keybindings.clear();
+        statusLine = undefined;
         const failures: string[] = [];
         for (const extension of loaded.toReversed()) {
             try {
@@ -372,6 +476,7 @@ async function activateClientExtension(
     const keybindingIds = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
+    let statusLine: VeraClientStatusLineRenderer | undefined;
     let phase: "activating" | "active" | "unavailable" = "activating";
     let activationCompletion: Promise<unknown> | undefined;
     let activationSettled = false;
@@ -547,6 +652,19 @@ async function activateClientExtension(
                 });
             },
         }),
+        statusLine: Object.freeze({
+            register(spec: VeraClientExtensionStatusLineSpec): void {
+                requireRegistrationPhase(phase, "status line renderers");
+                requireCapability(CLIENT_STATUS_LINE_CAPABILITY);
+                validateStatusLineSpec(spec);
+                if (statusLine !== undefined) {
+                    throw new Error(
+                        `Extension ${options.id} registered more than one status line renderer`,
+                    );
+                }
+                statusLine = spec.render;
+            },
+        }),
         onDispose(dispose: VeraExtensionDisposer): void {
             requireRegistrationPhase(phase, "disposal");
             if (typeof dispose !== "function") {
@@ -603,6 +721,7 @@ async function activateClientExtension(
         path: options.path,
         commands,
         keybindings,
+        statusLine,
         disposers,
         activeInvocations: new Set(),
         invocationSignal,
@@ -713,9 +832,17 @@ function validateOwnership(
     extension: LoadedClientExtension,
     commands: ReadonlyMap<string, CommandOwner>,
     keybindings: ReadonlyMap<string, KeybindingOwner>,
+    statusLine: StatusLineOwner | undefined,
     reservedCommands: ReadonlySet<string>,
     reservedKeybindings: ReadonlySet<string>,
 ): void {
+    // One owner for the whole segment list, so the status line never becomes a
+    // race between two extensions writing over each other.
+    if (extension.statusLine !== undefined && statusLine !== undefined) {
+        throw new Error(
+            `Client extension status line from ${extension.id} collides with ${statusLine.extension.id}`,
+        );
+    }
     for (const command of extension.commands) {
         const name = command.descriptor.name;
         if (reservedCommands.has(name)) {
@@ -795,6 +922,16 @@ function validateKeybindingSpec(
         || typeof spec.run !== "function"
     ) {
         throw new Error("Invalid client extension keybinding registration");
+    }
+}
+
+function validateStatusLineSpec(spec: VeraClientExtensionStatusLineSpec): void {
+    if (
+        typeof spec !== "object"
+        || spec === null
+        || typeof spec.render !== "function"
+    ) {
+        throw new Error("Invalid client extension status line registration");
     }
 }
 

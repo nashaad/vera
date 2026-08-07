@@ -5,7 +5,106 @@ import type { ContextMeasurement } from "../../src/engine/context-measurement.ts
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { TuiEffortSubstitution } from "./state.ts";
+import type {
+    StatusLineSegment,
+    StatusLineSnapshot,
+} from "../../src/extensions/status-line.ts";
 import { findProvider } from "../../src/providers/registry.ts";
+
+/**
+ * The facts the extension surface is handed on every repaint. Built here
+ * rather than in the render pass so the snapshot stays plain data, with no
+ * renderable, no session, and no client state hanging off it.
+ */
+export function tuiStatusSnapshot(
+    settings: ModelTurnSettings | undefined,
+    approvalMode: ApprovalMode | undefined,
+    context: ContextMeasurement | undefined,
+    workspace: string,
+    runningBackgroundAgents: number,
+    turn: StatusLineSnapshot["turn"],
+): StatusLineSnapshot {
+    return {
+        version: 1,
+        turn,
+        workspace,
+        runningBackgroundAgents,
+        ...(settings === undefined ? {} : {
+            model: {
+                model: settings.model,
+                ...(settings.provider === undefined
+                    ? {}
+                    : { provider: settings.provider }),
+                ...(settings.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: settings.reasoningEffort }),
+            },
+        }),
+        ...(approvalMode === undefined ? {} : { approvalMode }),
+        ...(context === undefined ? {} : {
+            context: {
+                tokens: context.tokens,
+                estimated: context.estimated,
+                ...(context.capacity === undefined
+                    ? {}
+                    : { capacity: context.capacity }),
+            },
+        }),
+    };
+}
+
+/**
+ * Segments carry facts, not wording. Every phrase below is the TUI's own
+ * choice, so an extension reordering or dropping segments never changes how
+ * this client says a thing. An unknown kind cannot reach here: the registry
+ * refuses to parse it.
+ */
+export function renderTuiStatusSegments(
+    segments: readonly StatusLineSegment[],
+): string {
+    return segments
+        .map((segment) => renderTuiStatusSegment(segment))
+        .filter((text) => text.length > 0)
+        .join(" · ");
+}
+
+function renderTuiStatusSegment(segment: StatusLineSegment): string {
+    switch (segment.kind) {
+        case "model": {
+            const label = segment.provider === undefined
+                ? undefined
+                : findProvider(segment.provider)?.shortLabel;
+            const model = label === undefined
+                ? segment.model
+                : `${label}/${segment.model}`;
+            return segment.reasoningEffort === undefined
+                ? model
+                : `${model} · reasoning ${segment.reasoningEffort}`;
+        }
+        case "context":
+            return segment.capacity === undefined
+                ? ""
+                : contextUsage(
+                    segment.tokens,
+                    segment.capacity,
+                    segment.estimated === true,
+                );
+        case "permissions":
+            return renderPermissions(segment.mode);
+        case "workspace":
+            return compactWorkspace(segment.path);
+        case "background_agents":
+            return segment.running === 0
+                ? ""
+                : `${segment.running} async subagent${
+                    segment.running === 1 ? "" : "s"
+                } running`;
+        case "turn":
+            return segment.state === "idle" ? "" : segment.state;
+        case "note":
+            return segment.text;
+    }
+}
 
 export function renderTuiStatusDetailsLine(
     settings: ModelTurnSettings | undefined,
@@ -38,11 +137,9 @@ export function renderTuiStatusDetailsLine(
         : substituted
             ? `${substitution!.effective ?? "none"} (asked ${requested})`
             : requested;
-    const permissions = approvalMode === "full_access"
-        ? "FULL ACCESS · RED ZONE"
-        : approvalMode === "auto"
-            ? "auto"
-            : approvalMode ?? "permissions loading";
+    const permissions = approvalMode === undefined
+        ? "permissions loading"
+        : renderPermissions(approvalMode);
     const usage = renderContextUsage(context);
     const background = runningBackgroundAgents === 0
         ? ""
@@ -119,9 +216,20 @@ function compactWorkspace(workspace: string): string {
  */
 function renderContextUsage(context: ContextMeasurement | undefined): string {
     if (context?.capacity === undefined) return "";
-    const percent = Math.min(
-        100,
-        Math.round(context.tokens / context.capacity * 100),
-    );
-    return ` · ctx ${context.estimated ? "~" : ""}${percent}%`;
+    return ` · ${
+        contextUsage(context.tokens, context.capacity, context.estimated)
+    }`;
+}
+
+function contextUsage(
+    tokens: number,
+    capacity: number,
+    estimated: boolean,
+): string {
+    const percent = Math.min(100, Math.round(tokens / capacity * 100));
+    return `ctx ${estimated ? "~" : ""}${percent}%`;
+}
+
+function renderPermissions(mode: string): string {
+    return mode === "full_access" ? "FULL ACCESS · RED ZONE" : mode;
 }

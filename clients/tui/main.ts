@@ -145,6 +145,8 @@ import {
     renderBackgroundAgentNames,
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
+    renderTuiStatusSegments,
+    tuiStatusSnapshot,
 } from "./status.ts";
 import {
     createTuiSettingsPickerView,
@@ -4641,14 +4643,33 @@ export async function startTui(
                 ? TUI_ACCENT
                 : TUI_MUTED;
         const statusLine = statusNotice ?? lifecycleHint;
-        const statusDetailsLine = renderTuiStatusDetailsLine(
-            state.modelSettings,
-            state.approvalMode,
-            state.context,
-            process.cwd(),
-            0,
-            state.effortSubstitution,
+        // Pull on repaint: the renderer is handed the snapshot and answers
+        // synchronously, or it does not answer at all. Nothing here waits on
+        // an extension, and a renderer that fails leaves the built-in line.
+        const extensionSegments = clientExtensionRegistry?.renderStatusLine(
+            tuiStatusSnapshot(
+                state.modelSettings,
+                state.approvalMode,
+                state.context,
+                process.cwd(),
+                runningBackgroundAgents,
+                state.working
+                    ? "working"
+                    : pendingUiRequest === undefined
+                        ? "idle"
+                        : "waiting",
+            ),
         );
+        const statusDetailsLine = extensionSegments === undefined
+            ? renderTuiStatusDetailsLine(
+                state.modelSettings,
+                state.approvalMode,
+                state.context,
+                process.cwd(),
+                0,
+                state.effortSubstitution,
+            )
+            : renderTuiStatusSegments(extensionSegments);
         const runningNames = runningBackgroundAgentNames === ""
             ? []
             : runningBackgroundAgentNames
