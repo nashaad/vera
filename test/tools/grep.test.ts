@@ -208,3 +208,48 @@ test("missing ripgrep produces a clean error, never a bash fallback", async () =
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("grep caps a very long matching line and says so", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
+    try {
+        await writeFile(join(workspace, "a.txt"), `${"x".repeat(64 * 1024)} needle\n`);
+
+        const result = await grepTool.execute(
+            { pattern: "needle", path: ".", output_mode: "content" },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+
+        expect(result.kind).toBe("output");
+        if (result.kind === "output") {
+            expect(result.output).toContain("[vera] line truncated");
+            expect(result.output).toContain("long line cut to");
+            expect(result.output.length).toBeLessThan(8 * 1024);
+        }
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("grep keeps only the requested window of a large result set", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
+    try {
+        const lines = Array.from({ length: 3000 }, (_, index) => `match ${index}`);
+        await writeFile(join(workspace, "a.txt"), `${lines.join("\n")}\n`);
+
+        const result = await grepTool.execute(
+            { pattern: "match", path: ".", output_mode: "content", max_results: 5 },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+
+        expect(result.kind).toBe("output");
+        if (result.kind === "output") {
+            expect(result.output).toContain("showing 1-5 of 3000");
+            expect(result.output).toContain("pass offset=5 for more");
+            expect(result.output.split("\n").length).toBeLessThan(10);
+        }
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});

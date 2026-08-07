@@ -85,3 +85,28 @@ test("bash force-kills a command tree that ignores termination", async () => {
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("a command that writes far past the capture limit still exits", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
+
+    try {
+        // 8 MiB, well past the 1 MiB budget, so the child would block on a
+        // full pipe if the discarded bytes were not still being read.
+        const result = await runBash(
+            "yes 0123456789012345678901234567890123456789012345678901234567890123"
+                + " | head -c 8388608; echo; echo TAILMARK",
+            workspace,
+        );
+
+        expect(result.kind).toBe("output");
+        if (result.kind === "output") {
+            expect(result.isError).toBe(false);
+            expect(result.output.startsWith("0123456789")).toBe(true);
+            expect(result.output).toContain("bytes omitted from the middle of stdout");
+            expect(result.output.trimEnd().endsWith("TAILMARK")).toBe(true);
+            expect(result.output.length).toBeLessThan(1024 * 1024);
+        }
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+}, 30_000);
