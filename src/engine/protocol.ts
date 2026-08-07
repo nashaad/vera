@@ -627,6 +627,18 @@ export interface ImageAttachmentRejectedUpdate {
     readonly error: string;
 }
 
+/**
+ * A prompt the agent will not run, answered to the client that sent it.
+ *
+ * Sent rather than thrown so a client that tries stays connected and reads
+ * why. The bounded print-mode agent is the case that needs it: its turn is
+ * the host's, and a second prompt from an onlooker would change the run.
+ */
+export interface PromptRejectedUpdate {
+    readonly type: "prompt_rejected";
+    readonly reason: string;
+}
+
 export type ImageAttachmentReplyUpdate =
     | ImageAttachedUpdate
     | ImageAttachmentRejectedUpdate;
@@ -658,7 +670,8 @@ export type AgentUpdate =
     | PermissionsRejectedUpdate
     | SessionNameReplyUpdate
     | TimelineReplyUpdate
-    | ImageAttachmentReplyUpdate;
+    | ImageAttachmentReplyUpdate
+    | PromptRejectedUpdate;
 
 export interface AgentUpdateSender {
     send(update: AgentUpdate): void;

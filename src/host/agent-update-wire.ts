@@ -30,6 +30,13 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? parseImageAttachmentReply(value, update)
             : undefined;
     }
+    if (update.type === "prompt_rejected") {
+        return update.seq === undefined
+                && typeof update.reason === "string"
+                && update.reason.trim().length > 0
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (!isSequence(update.seq)) {
         return undefined;
     }

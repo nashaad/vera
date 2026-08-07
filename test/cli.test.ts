@@ -343,3 +343,62 @@ test("vera reports a damaged config without a runtime stack trace", async () => 
     );
     expect(errorOutput).not.toContain("    at ");
 });
+
+test("vera -p prints the final reply and exits zero", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    let output = "";
+    let errors = "";
+
+    expect(await runCli(["-p", "explain this repo"], {
+        runOnce: async (request) => {
+            requests.push({ ...request });
+            return {
+                agentId: "bounded",
+                sessionPath: "/sessions/bounded.jsonl",
+                text: "It is a coding agent.",
+                outcome: "completed" as const,
+                notes: [],
+            };
+        },
+        stdout: { write: (text) => output += text },
+        stderr: { write: (text) => errors += text },
+    })).toBe(0);
+
+    expect(requests).toMatchObject([{
+        workspace: process.cwd(),
+        prompt: "explain this repo",
+    }]);
+    expect(requests[0]?.approvalMode).toBeUndefined();
+    expect(output).toBe("It is a coding agent.\n");
+    expect(errors).toBe("");
+});
+
+test("vera -p passes an approval mode through and fails on a turn error", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    let output = "";
+    let errors = "";
+
+    expect(await runCli(
+        ["-p", "do the thing", "--permission-mode", "full_access"],
+        {
+            runOnce: async (request) => {
+                requests.push({ ...request });
+                return {
+                    agentId: "bounded",
+                    sessionPath: "/sessions/bounded.jsonl",
+                    text: "",
+                    outcome: "error" as const,
+                    error: "Provider is not connected",
+                    notes: ["Denied bash: a print-mode run never waits."],
+                };
+            },
+            stdout: { write: (text) => output += text },
+            stderr: { write: (text) => errors += text },
+        },
+    )).toBe(1);
+
+    expect(requests[0]?.approvalMode).toBe("full_access");
+    expect(output).toBe("");
+    expect(errors).toContain("Denied bash");
+    expect(errors).toContain("Provider is not connected");
+});

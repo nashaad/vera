@@ -10,6 +10,10 @@ import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
+    runOnceThroughHost,
+    type RunOnceOutcome,
+} from "../../src/host/run-once-client.ts";
+import {
     createHostLockfile,
     HostProtocolMismatchError,
 } from "../../src/host/lockfile.ts";
@@ -37,6 +41,11 @@ export interface CliDependencies {
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
+    readonly runOnce?: (request: {
+        readonly workspace: string;
+        readonly prompt: string;
+        readonly approvalMode?: string;
+    }) => Promise<RunOnceOutcome>;
     readonly runTui?: (
         target: TuiStartTarget,
         options?: TuiStartOptions,
@@ -103,6 +112,28 @@ export async function runCli(
     ) {
         await runTui({ type: "resume", sessionPath: args[1] }, tuiOptions);
         return 0;
+    }
+
+    const printRequest = parsePrintRequest(args);
+    if (printRequest !== undefined) {
+        const result = await (dependencies.runOnce ?? runOnceOnResidentHost)({
+            workspace: process.cwd(),
+            prompt: printRequest.prompt,
+            ...(printRequest.approvalMode === undefined
+                ? {}
+                : { approvalMode: printRequest.approvalMode }),
+        });
+        if (result.text.length > 0) {
+            output.write(`${result.text}\n`);
+        }
+        for (const note of result.notes) {
+            errorOutput.write(`${note}\n`);
+        }
+        if (result.outcome === "completed") {
+            return 0;
+        }
+        errorOutput.write(`${result.error ?? `Turn ${result.outcome}`}\n`);
+        return 1;
     }
 
     if (args.length === 1 && args[0] === "ls") {
@@ -183,6 +214,41 @@ export async function runCli(
 
     errorOutput.write(renderCliUsage());
     return 1;
+}
+
+interface PrintRequest {
+    readonly prompt: string;
+    readonly approvalMode?: string;
+}
+
+function parsePrintRequest(
+    args: readonly string[],
+): PrintRequest | undefined {
+    if (args[0] !== "-p" || typeof args[1] !== "string" || args[1].length === 0) {
+        return undefined;
+    }
+    if (args.length === 2) {
+        return { prompt: args[1] };
+    }
+    if (
+        args.length === 4
+        && args[2] === "--permission-mode"
+        && typeof args[3] === "string"
+        && args[3].length > 0
+    ) {
+        return { prompt: args[1], approvalMode: args[3] };
+    }
+    return undefined;
+}
+
+async function runOnceOnResidentHost(request: {
+    readonly workspace: string;
+    readonly prompt: string;
+    readonly approvalMode?: string;
+}): Promise<RunOnceOutcome> {
+    const { findOrStartResidentHost } = await import("../host/launch.ts");
+    const host = await findOrStartResidentHost();
+    return runOnceThroughHost(host.socket_path, request);
 }
 
 function parseExportRequest(

@@ -41,6 +41,14 @@ export class AgentCommandQueueFullError extends Error {
 
 export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
+    /**
+     * Why an attached client may not prompt this agent, when it may not.
+     *
+     * A bounded run's turn belongs to whoever started it. Clients still
+     * attach and read everything; the refusal is what keeps watching from
+     * becoming steering.
+     */
+    readonly clientPromptRefusal?: string;
     readonly createAttachmentId?: () => string;
     readonly attachImage?: (
         path: string,
@@ -151,6 +159,16 @@ export class ResidentAgent {
                 }
                 if (this.isClosed || this.terminalFailure !== undefined) {
                     throw new ResidentAgentClosedError();
+                }
+                if (
+                    command.type === "prompt"
+                    && this.options.clientPromptRefusal !== undefined
+                ) {
+                    outgoing.push({
+                        type: "prompt_rejected",
+                        reason: this.options.clientPromptRefusal,
+                    });
+                    return;
                 }
                 if (command.type === "attach_image") {
                     void this.attachImage(
@@ -397,6 +415,9 @@ export class ResidentAgent {
             || update.type === "image_attachment_rejected"
         ) {
             throw new Error("Image attachment replies must target one attachment");
+        }
+        if (update.type === "prompt_rejected") {
+            throw new Error("Prompt refusals must target one attachment");
         }
         if (!Number.isSafeInteger(update.seq) || update.seq < 0) {
             throw new Error(
