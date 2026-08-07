@@ -1,0 +1,188 @@
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+import type { ProviderFailure } from "../model/provider-failure.ts";
+
+/** Why a request was kept. */
+export type FailedRequestOutcome = "provider_error" | "empty_response";
+
+export interface FailedRequestDetail {
+    readonly provider: string;
+    readonly api: string;
+    readonly model: string;
+    readonly outcome: FailedRequestOutcome;
+    readonly error?: string;
+    readonly failure?: ProviderFailure;
+    /** The body as it was handed to the provider client. */
+    readonly request: unknown;
+    /** Raw chunks the provider sent before it failed, oldest first. */
+    readonly response: readonly unknown[];
+    readonly responseTruncated?: boolean;
+}
+
+/** Writes one capture and answers with its path, or nothing when it wrote none. */
+export type FailedRequestCapture = (
+    detail: FailedRequestDetail,
+) => string | undefined;
+
+export interface FailedRequestCaptureOptions {
+    readonly sessionId: string;
+    readonly directory?: string;
+    readonly maxCaptures?: number;
+    readonly maxBytes?: number;
+    readonly now?: () => Date;
+}
+
+export const DEFAULT_MAX_CAPTURES_PER_SESSION = 5;
+export const DEFAULT_MAX_CAPTURE_BYTES = 256 * 1024;
+
+export function defaultCaptureDirectory(): string {
+    return join(homedir(), ".vera", "logs", "captures");
+}
+
+/**
+ * A per-session sink for provider requests that failed.
+ *
+ * Both caps are load-bearing rather than tidiness: a turn that retries against
+ * a provider returning the same error would otherwise write one file per
+ * attempt, and a request carrying a long transcript is megabytes each time.
+ * A failed write answers with nothing, so a full disk loses the capture and
+ * not the turn.
+ */
+export function createFailedRequestCapture(
+    options: FailedRequestCaptureOptions,
+): FailedRequestCapture {
+    const directory = options.directory ?? defaultCaptureDirectory();
+    const maxCaptures = options.maxCaptures ?? DEFAULT_MAX_CAPTURES_PER_SESSION;
+    const maxBytes = options.maxBytes ?? DEFAULT_MAX_CAPTURE_BYTES;
+    const now = options.now ?? (() => new Date());
+    let written = 0;
+
+    return (detail) => {
+        if (written >= maxCaptures) {
+            return undefined;
+        }
+        const index = written + 1;
+        const path = join(directory, `${options.sessionId}-${index}.json`);
+        try {
+            mkdirSync(directory, { recursive: true, mode: 0o700 });
+            chmodSync(directory, 0o700);
+            writeFileSync(
+                path,
+                serializeCapture(
+                    {
+                        format_version: 1,
+                        timestamp: now().toISOString(),
+                        session_id: options.sessionId,
+                        capture: index,
+                        max_captures: maxCaptures,
+                        ...detail,
+                    },
+                    maxBytes,
+                ),
+                { encoding: "utf8", mode: 0o600 },
+            );
+        } catch {
+            return undefined;
+        }
+        written = index;
+        return path;
+    };
+}
+
+interface CaptureFile extends FailedRequestDetail {
+    readonly format_version: 1;
+    readonly timestamp: string;
+    readonly session_id: string;
+    readonly capture: number;
+    readonly max_captures: number;
+}
+
+/**
+ * The capture as JSON, never longer than `maxBytes`.
+ *
+ * Parts are dropped whole so the file stays parseable: clipping the encoded
+ * text would leave a JSON document nothing can read, which is the one thing a
+ * capture cannot afford to be.
+ */
+function serializeCapture(file: CaptureFile, maxBytes: number): string {
+    const full = encode(redactSecrets(file));
+    if (byteLength(full) <= maxBytes) {
+        return full;
+    }
+    const withoutResponse = encode(redactSecrets({
+        ...file,
+        response: [],
+        omitted: "response exceeded the capture byte cap",
+    }));
+    if (byteLength(withoutResponse) <= maxBytes) {
+        return withoutResponse;
+    }
+    return encode(redactSecrets({
+        ...file,
+        request: null,
+        response: [],
+        omitted: "request and response exceeded the capture byte cap",
+    }));
+}
+
+function encode(value: unknown): string {
+    return `${JSON.stringify(value, undefined, 2)}\n`;
+}
+
+function byteLength(value: string): number {
+    return Buffer.byteLength(value, "utf8");
+}
+
+export const REDACTED = "[redacted]";
+
+const SECRET_KEY = new RegExp(
+    "^("
+    + "authorization|proxy-authorization|www-authenticate"
+    + "|cookie|set-cookie"
+    + "|x-api-key|api[-_]?key|apikey"
+    + "|access[-_]?token|refresh[-_]?token|id[-_]?token"
+    + "|client[-_]?secret|secret|password"
+    + ")$",
+    "i",
+);
+
+const BEARER = /\bBearer\s+[\w\-._~+/]+=*/gi;
+const KEY_LITERAL = /\bsk-[A-Za-z0-9\-_]{8,}/g;
+
+/**
+ * Credentials out, message content in.
+ *
+ * The bodies here are the user's own conversation, which is the whole reason
+ * the file is worth reading, so only the fields and literals that carry a
+ * provider credential are replaced. The literal pass matters because a key
+ * reaches a capture inside an error string as often as it does under a header
+ * name.
+ */
+export function redactSecrets(value: unknown): unknown {
+    if (typeof value === "string") {
+        return value.replace(BEARER, `Bearer ${REDACTED}`)
+            .replace(KEY_LITERAL, REDACTED);
+    }
+    if (Array.isArray(value)) {
+        return value.map((entry) => redactSecrets(entry));
+    }
+    if (value instanceof Error) {
+        return redactSecrets({
+            name: value.name,
+            message: value.message,
+            ...(value.stack === undefined ? {} : { stack: value.stack }),
+        });
+    }
+    if (typeof value !== "object" || value === null) {
+        return value;
+    }
+    const redacted: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        redacted[key] = SECRET_KEY.test(key)
+            ? REDACTED
+            : redactSecrets(entry);
+    }
+    return redacted;
+}
