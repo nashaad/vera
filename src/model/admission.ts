@@ -428,7 +428,9 @@ function probeCandidates(
  * is dropped rather than carried through: an unrecognized level cannot be
  * recorded as a fact about a ladder rung.
  */
-function ladderLevelForWire(providerEffort: string): EffortLevel | undefined {
+export function ladderLevelForWire(
+    providerEffort: string,
+): EffortLevel | undefined {
     if (providerEffort === "none") {
         return "off";
     }
