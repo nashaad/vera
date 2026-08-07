@@ -3,6 +3,10 @@ import type { ChatRequestEffort } from "@openrouter/sdk/models";
 
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
+import type {
+    FailedRequestCapture,
+    FailedRequestOutcome,
+} from "./failed-request-capture.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import { resolveReasoningSelection } from "../model/reasoning-effort.ts";
@@ -15,6 +19,7 @@ import {
     type SendOpenRouterChat,
 } from "./openrouter-wire.ts";
 import type {
+    AssistantMessage,
     ModelAdapter,
     ModelRequest,
     ModelReasoningEffort,
@@ -29,6 +34,8 @@ export interface OpenRouterAdapterOptions {
         string,
         ReadonlyMap<ModelReasoningEffort, string>
     >;
+    /** Where a failed request is kept. Absent keeps nothing. */
+    readonly captureFailedRequest?: FailedRequestCapture;
 }
 
 export interface ChatProviderProfile {
@@ -57,6 +64,7 @@ export class OpenRouterAdapter implements ModelAdapter {
             ReadonlyMap<ModelReasoningEffort, string>
         >,
         private readonly profile: ChatProviderProfile = OPENROUTER_PROFILE,
+        private readonly captureFailedRequest?: FailedRequestCapture,
     ) {
         this.supportsImageInput = profile.supportsImageInput ?? false;
     }
@@ -75,6 +83,25 @@ export class OpenRouterAdapter implements ModelAdapter {
         };
         const decoder = new OpenRouterStreamDecoder(source, stream);
         stream.push({ type: "start" });
+        // Held by reference and never encoded unless the request fails, so a
+        // turn that works pays two array writes and nothing else.
+        const rawChunks: unknown[] = [];
+        let rawTruncated = false;
+        let sentRequest: unknown;
+        const capture = (
+            outcome: FailedRequestOutcome,
+            detail: { error?: string; failure?: ProviderFailure },
+        ): string | undefined =>
+            this.captureFailedRequest?.({
+                provider: this.profile.provider,
+                api: this.profile.api,
+                model: request.model,
+                outcome,
+                ...detail,
+                request: sentRequest,
+                response: rawChunks,
+                ...(rawTruncated ? { responseTruncated: true } : {}),
+            });
 
         try {
             throwIfAborted(request.signal);
@@ -118,21 +145,44 @@ export class OpenRouterAdapter implements ModelAdapter {
                     : { tools: encodeOpenRouterTools(request.tools) }),
             };
 
+            sentRequest = providerRequest;
+
             const chunks = await this.sendChat(providerRequest, request.signal);
             for await (const chunk of chunks) {
                 throwIfAborted(request.signal);
+                if (this.captureFailedRequest !== undefined) {
+                    if (rawChunks.length < MAX_CAPTURED_CHUNKS) {
+                        rawChunks.push(chunk);
+                    } else {
+                        rawTruncated = true;
+                    }
+                }
                 decoder.accept(chunk);
             }
 
             const message = decoder.finish();
             if (message.stopReason === "error") {
-                const error = new Error("OpenRouter stopped with an error");
+                const path = capture("provider_error", {
+                    error: "the provider ended the stream with an error",
+                });
+                const error = new Error(
+                    withCapturePath("OpenRouter stopped with an error", path),
+                );
                 stream.push({
                     type: "error",
                     error,
                     message: { ...message, errorMessage: error.message },
                 });
             } else {
+                // A turn that produced nothing readable is a failure the user
+                // can see and the logs cannot explain, so the request is kept
+                // even though the stream itself never reported an error. The
+                // turn's own outcome is left alone.
+                if (isEmptyResponse(message)) {
+                    capture("empty_response", {
+                        error: `the provider returned no content (stop reason ${message.stopReason})`,
+                    });
+                }
                 stream.push({ type: "done", message });
             }
         } catch (value) {
@@ -146,10 +196,23 @@ export class OpenRouterAdapter implements ModelAdapter {
                         value,
                     );
             const stopReason = request.signal?.aborted ? "aborted" : "error";
+            // An abort is the user's own doing, not a provider failure, so it
+            // writes nothing.
+            const path = stopReason === "aborted"
+                ? undefined
+                : capture("provider_error", {
+                    error: error.message,
+                    ...(error instanceof ProviderFailureError
+                        ? { failure: error.failure }
+                        : {}),
+                });
             stream.push({
                 type: "error",
                 error,
-                message: decoder.partial(stopReason, error.message),
+                message: decoder.partial(
+                    stopReason,
+                    withCapturePath(error.message, path),
+                ),
             });
         }
     }
@@ -188,7 +251,34 @@ export function createOpenRouterAdapter(
             },
             { signal },
         );
-    }, options.reasoningMappings, OPENROUTER_PROFILE);
+    }, options.reasoningMappings, OPENROUTER_PROFILE, options.captureFailedRequest);
+}
+
+/**
+ * How much of a stream is kept for a capture. The chunks that explain a
+ * failure are at one end or the other, and a long answer that then fails is
+ * not worth holding in full.
+ */
+const MAX_CAPTURED_CHUNKS = 200;
+
+/**
+ * A turn that ends with nothing to read. Reasoning alone counts as empty
+ * because it is not what the client renders as the answer, which is the shape
+ * a "no visible response" turn arrives in.
+ */
+function isEmptyResponse(message: AssistantMessage): boolean {
+    if (message.stopReason === "aborted") {
+        return false;
+    }
+    return message.content.every((block) =>
+        block.type === "thinking"
+        || (block.type === "text" && block.text.trim().length === 0)
+    );
+}
+
+/** Names the capture so whoever reads the error can open the request. */
+function withCapturePath(message: string, path: string | undefined): string {
+    return path === undefined ? message : `${message} (request captured at ${path})`;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
