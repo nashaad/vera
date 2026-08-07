@@ -109,7 +109,8 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
                     + "For tasks with more than a couple of steps, keep your "
                     + "todo list as todo.md here (the file is the list, chat "
                     + "is optional): create it when you start, check items "
-                    + "off as you go, re-read it after compaction.\n"
+                    + "off and strike them through as you go, re-read it "
+                    + "after compaction.\n"
                     + "The OS deletes this directory; keep nothing you need "
                     + "later.",
             },
