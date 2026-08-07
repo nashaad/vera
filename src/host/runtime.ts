@@ -295,8 +295,8 @@ export async function startResidentHost(
             // Read per attach, not once at startup, because `arc init` can
             // mint the node id while the host runs. arc stamps events with
             // (node id, ARC_SESSION); the attach pairs this actor with the
-            // agent id, so a session posting under ARC_SESSION set to its
-            // agent id is not woken by its own posts.
+            // session's minted identity name, so a session posting under
+            // ARC_SESSION set to its name is not woken by its own posts.
             inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
         }),
         sessionPathForId: (agentId) =>
@@ -327,7 +327,7 @@ export async function startResidentHost(
             subsystemEnabled: inboxEnabled(options.config),
             causedByKnownSession: (entry) =>
                 entry.session !== null
-                && registry.find(entry.session) !== undefined,
+                && registry.agentIdForArcSession(entry.session) !== undefined,
         });
         inboxDelivery?.setSpawnScan(() => spawn!.scan());
     }

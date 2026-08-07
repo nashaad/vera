@@ -22,7 +22,7 @@ export const bashTool: RegisteredTool = {
         if (typeof command !== "string") {
             throw new Error("bash tool requires a string command");
         }
-        return runBash(command, context.workspace, signal);
+        return runBash(command, context.workspace, signal, context.env);
     },
 };
 
@@ -30,6 +30,7 @@ export async function runBash(
     command: string,
     workspace: string,
     signal?: AbortSignal,
+    env?: Readonly<Record<string, string>>,
 ): Promise<ToolOutput> {
     signal?.throwIfAborted();
     const subprocess = Bun.spawn(["bash", "-lc", command], {
@@ -37,6 +38,7 @@ export async function runBash(
         stdout: "pipe",
         stderr: "pipe",
         detached: process.platform !== "win32",
+        ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
     });
     const stop = (): void => {
         try {

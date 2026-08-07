@@ -7,6 +7,12 @@ export class ToolRuntime {
     readonly workspace: string;
     /** Where captured pre-images land, for messages that point at them. */
     readonly stashDirectory: string | undefined;
+    /**
+     * Extra variables layered over the inherited environment in every shell
+     * this session's tools spawn. The owner chooses the variables; the tools
+     * layer only carries them.
+     */
+    readonly env: Readonly<Record<string, string>> | undefined;
     private readonly fileSnapshots = new Map<string, string>();
     private readonly preimageRecorder: PreimageRecorder | undefined;
     private mutationTail: Promise<void> = Promise.resolve();
@@ -15,10 +21,12 @@ export class ToolRuntime {
         workspace: string,
         preimageRecorder?: PreimageRecorder,
         stashDirectory?: string,
+        env?: Readonly<Record<string, string>>,
     ) {
         this.workspace = workspace;
         this.preimageRecorder = preimageRecorder;
         this.stashDirectory = stashDirectory;
+        this.env = env;
     }
 
     recordFileSnapshot(path: string, content: string): void {
