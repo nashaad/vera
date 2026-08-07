@@ -13,6 +13,9 @@ import {
     type WatchRuntimeContext,
 } from "../../src/watch/source.ts";
 import type { JsonObject } from "../../src/extensions/contributions.ts";
+import { ConsumerRegistry } from "../../src/host/consumers.ts";
+import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
+import type { PendingDelivery } from "../../src/store/session-store.ts";
 
 function sseResponse(frames: readonly string[], status = 200): Response {
     const stream = new ReadableStream<Uint8Array>({
@@ -203,6 +206,103 @@ describe("arc connector", () => {
         });
 
         await expect(connector.run(ctx)).rejects.toThrow(WatchFatalError);
+        inbox.close();
+    });
+});
+
+describe("self-echo through the arc connector", () => {
+    /**
+     * arc stamps a post's event with the poster's node id as `actor` and its
+     * `ARC_SESSION` as `session`; the host attaches a session's consumer with
+     * (arc node id, agent id) as the self-echo pair. This drives the real
+     * connector over both halves of the acceptance: the session's own post is
+     * suppressed, anything else still wakes it.
+     */
+    test("a session's own arc posts do not wake it; another session's do", async () => {
+        const inbox = Inbox.open(":memory:");
+        const consumers = new ConsumerRegistry(inbox, "vera-host");
+        const coordinator = new InboxDeliveryCoordinator(consumers);
+        const recorded: PendingDelivery[] = [];
+        let wakes = 0;
+        const session = coordinator.attach({
+            label: "agent-1",
+            actor: "node-a",
+            session: "agent-1",
+            target: {
+                recordDelivery: (delivery) => {
+                    recorded.push(delivery);
+                    return Promise.resolve(true);
+                },
+                pendingDeliveryIds: () => [],
+            },
+            triggerTurn: () => {
+                wakes += 1;
+            },
+            minWakeIntervalMs: 0,
+        });
+        const admission = new WatchAdmission({
+            inbox,
+            watchId: "vera.arc/main",
+            address: null,
+            flood: "shed",
+        });
+        const controller = new AbortController();
+        const ctx: WatchRuntimeContext = {
+            watchId: "vera.arc/main",
+            sourceFamily: "arc",
+            config: { server: "https://arc.local" },
+            address: null,
+            flood: "shed",
+            signal: controller.signal,
+            cursor: () => admission.cursor(),
+            admit: async (events) => {
+                admission.admit(events);
+            },
+            checkpoint: (checkpoint) => {
+                admission.checkpoint(checkpoint.cursor);
+            },
+            recordGap: (reason, detail) => {
+                admission.recordGap(reason, detail);
+            },
+            healthy: () => undefined,
+        };
+        const connector = createArcConnector({
+            fetch: async () =>
+                sseResponse([
+                    arcFrame(1, {
+                        seq: 1,
+                        kind: "post",
+                        issue_id: "nash-99",
+                        actor: "node-a",
+                        session: "agent-1",
+                        payload: JSON.stringify({ excerpt: "my own post" }),
+                        ts: "2026-08-07T10:00:00Z",
+                    }),
+                    arcFrame(2, {
+                        seq: 2,
+                        kind: "post",
+                        issue_id: "nash-99",
+                        actor: "node-a",
+                        session: "agent-2",
+                        payload: JSON.stringify({ excerpt: "a sibling reply" }),
+                        ts: "2026-08-07T10:00:01Z",
+                    }),
+                ]),
+        });
+
+        await connector.run(ctx);
+        await coordinator.pumpAll();
+
+        expect(wakes).toBe(1);
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0]!.content).toContain("a sibling reply");
+        expect(recorded[0]!.content).not.toContain("my own post");
+        // Suppressed is not lost: the offset moved past the session's own
+        // entry, so it never comes back as a later wake either.
+        expect(session.consumer.lag()).toBe(0);
+
+        session.release();
+        coordinator.close();
         inbox.close();
     });
 });
