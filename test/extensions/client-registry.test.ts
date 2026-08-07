@@ -1527,3 +1527,284 @@ test("the preset cycle names the slot it lands on and steps over dead slots", as
 
     await registry.close();
 });
+
+/**
+ * The pool as the extension sees it: one named entry and one plain one, both
+ * offered by a connected provider so availability answers runnable.
+ */
+function poolWithFrosty(
+    frosty: { readonly provider: string; readonly model: string },
+): Pick<VeraClientModelSettingsSnapshot, "availableModels" | "pooled"> {
+    const models = [
+        { ...frosty, poolName: "frosty" },
+        { provider: "openrouter", model: "kimi-k3", poolName: undefined },
+    ];
+    return {
+        availableModels: models.map((entry) => ({
+            provider: entry.provider,
+            model: entry.model,
+            label: entry.model,
+            description: "",
+            levels: [],
+        })),
+        pooled: models.map((entry) => ({
+            provider: entry.provider,
+            model: entry.model,
+            label: entry.model,
+            ...(entry.poolName === undefined
+                ? {}
+                : { poolName: entry.poolName }),
+            available: true,
+            verified: true,
+            levels: [],
+        })),
+    };
+}
+
+test("a preset holding a pool name resolves through the pool on every use", async () => {
+    const extension = join(import.meta.dir, "../../extensions/model-presets");
+    const preferences = new Map<string, JsonValue>([[
+        "vera.model-presets:slots",
+        [
+            { name: "frosty", reasoningEffort: "high" },
+            // Saved by an earlier build, in the id form and with the disk
+            // spelling of the effort. It has to keep working.
+            { provider: "openrouter", model: "kimi-k3", reasoning_effort: "low" },
+            null,
+            null,
+        ],
+    ]]);
+    const updates: unknown[] = [];
+    const notices: string[] = [];
+    let frosty = { provider: "ollama", model: "qwen3:1.7b" };
+    let settings: VeraClientModelSettingsSnapshot = {
+        provider: "openrouter",
+        model: "kimi-k3",
+        reasoningEffort: "low",
+        ...poolWithFrosty(frosty),
+    };
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        notice: {
+            post(_extensionId, text) {
+                notices.push(text);
+            },
+        },
+        preferences: {
+            async get(namespace, key) {
+                return preferences.get(`${namespace}:${key}`);
+            },
+            async set(namespace, key, value) {
+                preferences.set(`${namespace}:${key}`, value);
+            },
+            async delete(namespace, key) {
+                preferences.delete(`${namespace}:${key}`);
+            },
+        },
+        modelSettings: {
+            current: () => settings,
+            async update(patch) {
+                updates.push(patch);
+                settings = {
+                    provider: patch.provider!,
+                    model: patch.model!,
+                    reasoningEffort: patch.reasoningEffort!,
+                    ...poolWithFrosty(frosty),
+                };
+                return { status: "accepted", settings };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                return { outcome: "cancelled" };
+            },
+        },
+    });
+
+    const workspace = createDirectory();
+    await registry.invokeKeybinding("cycle-preset", workspace);
+    expect(updates).toEqual([{
+        provider: "ollama",
+        model: "qwen3:1.7b",
+        reasoningEffort: "high",
+    }]);
+    expect(notices).toEqual(["preset 1: frosty · high"]);
+
+    // The name is pointed at another entry. The slot follows it, which is the
+    // reason it stores the name rather than the id the name resolved to.
+    frosty = { provider: "ollama", model: "qwen3:8b" };
+    settings = { ...settings, ...poolWithFrosty(frosty) };
+    await registry.invokeKeybinding("cycle-preset", workspace);
+    await registry.invokeKeybinding("cycle-preset", workspace);
+    expect(updates.slice(1)).toEqual([
+        // The model stopped matching the slot it came from, so the cycle
+        // restarts at slot 1, which now stands for a different model.
+        { provider: "ollama", model: "qwen3:8b", reasoningEffort: "high" },
+        { provider: "openrouter", model: "kimi-k3", reasoningEffort: "low" },
+    ]);
+
+    await registry.close();
+});
+
+test("a preset whose pool name is gone reads as stale and refuses to apply", async () => {
+    const extension = join(import.meta.dir, "../../extensions/model-presets");
+    const preferences = new Map<string, JsonValue>([[
+        "vera.model-presets:slots",
+        [
+            { name: "frosty", reasoningEffort: "high" },
+            { provider: "openrouter", model: "kimi-k3", reasoningEffort: "low" },
+            { provider: "openrouter", model: "kimi-k3", reasoningEffort: "high" },
+            null,
+        ],
+    ]]);
+    const updates: unknown[] = [];
+    const notices: string[] = [];
+    const requests: VeraClientPickerRequest[] = [];
+    const results: VeraClientPickerResult[] = [
+        { outcome: "selected", rowId: "slot-1", actionId: "choose" },
+    ];
+    let index = 0;
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        notice: {
+            post(_extensionId, text) {
+                notices.push(text);
+            },
+        },
+        preferences: {
+            async get(namespace, key) {
+                return preferences.get(`${namespace}:${key}`);
+            },
+            async set(namespace, key, value) {
+                preferences.set(`${namespace}:${key}`, value);
+            },
+            async delete(namespace, key) {
+                preferences.delete(`${namespace}:${key}`);
+            },
+        },
+        modelSettings: {
+            // The pool still runs kimi-k3, but nothing in it is named frosty
+            // now: the name was taken away, or two entries claim it.
+            current: () => ({
+                provider: "openrouter",
+                model: "kimi-k3",
+                reasoningEffort: "low",
+                availableModels: poolWithFrosty({
+                    provider: "ollama",
+                    model: "qwen3:1.7b",
+                }).availableModels,
+                pooled: [],
+            }),
+            async update(patch) {
+                updates.push(patch);
+                return {
+                    status: "accepted",
+                    settings: {
+                        provider: patch.provider!,
+                        model: patch.model!,
+                        reasoningEffort: patch.reasoningEffort!,
+                    },
+                };
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request(_extensionId, request) {
+                requests.push(request);
+                return results[index++] ?? { outcome: "cancelled" };
+            },
+        },
+    });
+
+    const workspace = createDirectory();
+    await registry.invokeCommand("preset", "", workspace);
+    expect(requests[0]?.rows[0]?.description).toBe("frosty · high · stale name");
+    // Enter on the stale slot has to say so. Leaving the model where it is
+    // without a word would read as the key having done nothing.
+    expect(updates).toEqual([]);
+    expect(notices).toEqual(["preset 1: no pooled model named frosty"]);
+
+    // The cycle steps over it to the next slot that can still be applied.
+    await registry.invokeKeybinding("cycle-preset", workspace);
+    expect(updates).toEqual([{
+        provider: "openrouter",
+        model: "kimi-k3",
+        reasoningEffort: "high",
+    }]);
+    // Stale is not a reason to lose the slot: the name may come back.
+    expect((preferences.get("vera.model-presets:slots") as unknown[])[0])
+        .toEqual({ name: "frosty", reasoningEffort: "high" });
+
+    await registry.close();
+});
+
+test("saving the model you are on stores its pool name when it has one", async () => {
+    const saved = await saveCurrentIntoFirstSlot({
+        provider: "ollama",
+        model: "qwen3:1.7b",
+        reasoningEffort: "high",
+        ...poolWithFrosty({ provider: "ollama", model: "qwen3:1.7b" }),
+    });
+
+    expect(saved).toEqual({ name: "frosty", reasoningEffort: "high" });
+});
+
+test("saving an unnamed model stores the id, since there is no name to keep", async () => {
+    const saved = await saveCurrentIntoFirstSlot({
+        provider: "openrouter",
+        model: "kimi-k3",
+        reasoningEffort: "low",
+        ...poolWithFrosty({ provider: "ollama", model: "qwen3:1.7b" }),
+    });
+
+    expect(saved).toEqual({
+        provider: "openrouter",
+        model: "kimi-k3",
+        reasoningEffort: "low",
+    });
+});
+
+/** Opens the preset picker, saves into slot 1, and returns what was stored. */
+async function saveCurrentIntoFirstSlot(
+    current: VeraClientModelSettingsSnapshot,
+): Promise<unknown> {
+    const extension = join(import.meta.dir, "../../extensions/model-presets");
+    const preferences = new Map<string, JsonValue>();
+    const results: VeraClientPickerResult[] = [
+        { outcome: "selected", rowId: "slot-1", actionId: "save" },
+        { outcome: "cancelled" },
+    ];
+    let index = 0;
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        notice: { post() {} },
+        preferences: {
+            async get(namespace, key) {
+                return preferences.get(`${namespace}:${key}`);
+            },
+            async set(namespace, key, value) {
+                preferences.set(`${namespace}:${key}`, value);
+            },
+            async delete(namespace, key) {
+                preferences.delete(`${namespace}:${key}`);
+            },
+        },
+        modelSettings: {
+            current: () => current,
+            async update() {
+                throw new Error("saving a preset changed the model");
+            },
+            subscribe: () => () => undefined,
+        },
+        picker: {
+            async request() {
+                return results[index++] ?? { outcome: "cancelled" };
+            },
+        },
+    });
+
+    await registry.invokeCommand("preset", "", createDirectory());
+    await registry.close();
+    return (preferences.get("vera.model-presets:slots") as unknown[])[0];
+}

@@ -1,12 +1,37 @@
-type Preset = {
-    provider: string;
-    model: string;
+// A preset holds either a pool entry's name or a `provider/model` id. The name
+// is the entry's identity, so a slot that holds one follows a rename or a
+// re-pointed entry instead of pinning whatever the name meant when it was
+// saved. A slot only ever holds one of the two forms, never both.
+
+interface NamedPreset {
+    readonly name: string;
     // A level id, not a fixed vocabulary: each model names its own levels, so
     // a preset saved on one model can hold a word another has never heard of.
-    reasoningEffort: string;
-};
+    readonly reasoningEffort: string;
+}
+
+interface IdPreset {
+    readonly provider: string;
+    readonly model: string;
+    readonly reasoningEffort: string;
+}
+
+type Preset = NamedPreset | IdPreset;
 
 type Slot = Preset | null;
+
+interface ModelTarget {
+    readonly provider: string;
+    readonly model: string;
+}
+
+/**
+ * What a slot can do right now. `stale` belongs to the name form alone: the
+ * name resolves to nothing, so there is no model to switch to and no id left
+ * to fall back on. `unavailable` still knows its model; only the provider is
+ * missing, and it may come back.
+ */
+type SlotState = "ready" | "unavailable" | "stale";
 
 /** Where the slot you are on is remembered, since the model cannot say. */
 const CURRENT_SLOT_KEY = "current-slot";
@@ -48,11 +73,11 @@ export function activateClient(vera: any): void {
             const position = filled.findIndex((entry) => entry.index === at);
             // A model that came from somewhere else leaves position at -1,
             // which starts the cycle at the first filled slot.
-            // Cycling passes over a slot whose model cannot run: the key is
-            // meant to land somewhere, and a slot that would be refused is a
-            // dead stop. It keeps its contents, since the provider may return.
+            // Cycling passes over a slot the key could not land on: a model no
+            // provider offers, or a name the pool no longer has. Both keep
+            // their contents, since either can come back.
             const runnable = filled.filter((entry) =>
-                entry.index === at || isRunnable(entry.slot)
+                entry.index === at || slotState(entry.slot) === "ready"
             );
             const pool = runnable.length > 1 ? runnable : filled;
             const at2 = pool.findIndex((entry) => entry.index === at);
@@ -74,9 +99,7 @@ export function activateClient(vera: any): void {
                     label: `Slot ${index + 1}`,
                     description: slot === null
                         ? "empty · ⏎ saves the current model"
-                        : isRunnable(slot)
-                        ? presetLabel(slot)
-                        : `${presetLabel(slot)} · unavailable`,
+                        : slotDescription(slot),
                     current: index === currentIndex,
                 })),
                 selectedId: selectedId
@@ -133,20 +156,71 @@ export function activateClient(vera: any): void {
      * "which slot am I on" is not recoverable from the model afterwards.
      */
     async function applySlot(index: number, preset: Preset): Promise<void> {
+        const target = resolveTarget(preset);
+        // A stale name has nothing to apply, and quietly leaving the model
+        // where it is would read as the key doing nothing. Naming the name is
+        // the only way the user can tell which slot to fix.
+        if (target === undefined) {
+            vera.ui.notice(
+                `preset ${index + 1}: no pooled model named ${
+                    (preset as NamedPreset).name
+                }`,
+            );
+            return;
+        }
         // Said before the update goes out: shift+tab is a key with no other
         // surface, so without this a refusal is the first thing the user hears
         // about the slot the key landed on.
         vera.ui.notice(`preset ${index + 1}: ${presetLabel(preset)}`);
-        await vera.modelSettings.update(preset);
+        await vera.modelSettings.update({
+            provider: target.provider,
+            model: target.model,
+            reasoningEffort: preset.reasoningEffort,
+        });
         await vera.preferences.set(CURRENT_SLOT_KEY, index);
     }
 
-    /** Whether a slot's model could be switched to right now. */
-    function isRunnable(preset: Preset): boolean {
-        return vera.modelSettings.availability({
-            provider: preset.provider,
-            model: preset.model,
-        }).runnable;
+    /**
+     * The model a slot stands for, or undefined when a name no longer resolves.
+     *
+     * Resolved on every use rather than at save, against the pool as it is
+     * now: a renamed, re-pointed or unpooled entry has to reach the slot that
+     * named it. An ambiguous name resolves to nothing here because the pool
+     * drops a repeated name before it reaches this list.
+     */
+    function resolveTarget(preset: Preset): ModelTarget | undefined {
+        if (!isNamed(preset)) {
+            return { provider: preset.provider, model: preset.model };
+        }
+        const pooled = vera.modelSettings.current()?.pooled ?? [];
+        const entry = pooled.find(
+            (candidate: { poolName?: string }) =>
+                candidate.poolName === preset.name,
+        );
+        return entry === undefined
+            ? undefined
+            : { provider: entry.provider, model: entry.model };
+    }
+
+    /** Whether a slot could be switched to right now, and why not. */
+    function slotState(preset: Preset): SlotState {
+        const target = resolveTarget(preset);
+        if (target === undefined) {
+            return "stale";
+        }
+        return vera.modelSettings.availability(target).runnable
+            ? "ready"
+            : "unavailable";
+    }
+
+    function slotDescription(preset: Preset): string {
+        const state = slotState(preset);
+        if (state === "ready") {
+            return presetLabel(preset);
+        }
+        return `${presetLabel(preset)} · ${
+            state === "stale" ? "stale name" : "unavailable"
+        }`;
     }
 
     /**
@@ -173,17 +247,58 @@ export function activateClient(vera: any): void {
         );
     }
 
+    /**
+     * The dials as they stand, in the form a slot should keep them. A model
+     * the user has named is stored by that name: the name is what saving it
+     * meant, and the id it resolves to is the pool's business afterwards.
+     */
     function currentPreset(): Preset | undefined {
         const settings = vera.modelSettings.current();
-        return settings?.provider === undefined
-                || settings.model === undefined
-                || settings.reasoningEffort === undefined
-            ? undefined
-            : {
-                provider: settings.provider,
-                model: settings.model,
-                reasoningEffort: settings.reasoningEffort,
-            };
+        if (
+            settings?.provider === undefined
+            || settings.model === undefined
+            || settings.reasoningEffort === undefined
+        ) {
+            return undefined;
+        }
+        const pooled = settings.pooled ?? [];
+        const named = pooled.find(
+            (candidate: ModelTarget & { poolName?: string }) =>
+                candidate.provider === settings.provider
+                && candidate.model === settings.model,
+        );
+        return named?.poolName === undefined ? {
+            provider: settings.provider,
+            model: settings.model,
+            reasoningEffort: settings.reasoningEffort,
+        } : {
+            name: named.poolName,
+            reasoningEffort: settings.reasoningEffort,
+        };
+    }
+
+    /**
+     * Whether two presets put the same dials on. Compared after resolution, so
+     * a slot holding a name still matches the model it points at however that
+     * model was reached. Two stale slots never match: neither stands for a
+     * model, so neither can be the one you are on.
+     */
+    function samePreset(
+        left: Preset | undefined,
+        right: Preset | undefined,
+    ): boolean {
+        if (
+            left === undefined || right === undefined
+            || left.reasoningEffort !== right.reasoningEffort
+        ) {
+            return false;
+        }
+        const leftTarget = resolveTarget(left);
+        const rightTarget = resolveTarget(right);
+        return leftTarget !== undefined
+            && rightTarget !== undefined
+            && leftTarget.provider === rightTarget.provider
+            && leftTarget.model === rightTarget.model;
     }
 
     async function loadSlots(): Promise<Slot[]> {
@@ -195,17 +310,29 @@ export function activateClient(vera: any): void {
     }
 }
 
+function isNamed(preset: Preset): preset is NamedPreset {
+    return "name" in preset;
+}
+
 function asPreset(value: unknown): Preset | null {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return null;
     }
+    const name = Reflect.get(value, "name");
     const provider = Reflect.get(value, "provider");
     const model = Reflect.get(value, "model");
     const reasoningEffort = Reflect.get(value, "reasoningEffort")
         ?? Reflect.get(value, "reasoning_effort");
-    return typeof provider === "string"
-            && typeof model === "string"
-            && isEffort(reasoningEffort)
+    if (!isEffort(reasoningEffort)) {
+        return null;
+    }
+    // The name wins when both forms are present. A hand-written slot carrying
+    // an id beside a name would otherwise keep the id after the name moved,
+    // which is the drift the name form exists to avoid.
+    if (typeof name === "string" && name.length > 0) {
+        return { name, reasoningEffort };
+    }
+    return typeof provider === "string" && typeof model === "string"
         ? { provider, model, reasoningEffort }
         : null;
 }
@@ -220,17 +347,9 @@ function isEffort(
         || value === "max";
 }
 
-function samePreset(
-    left: Preset | undefined,
-    right: Preset | undefined,
-): boolean {
-    return left !== undefined
-        && right !== undefined
-        && left.provider === right.provider
-        && left.model === right.model
-        && left.reasoningEffort === right.reasoningEffort;
-}
-
 function presetLabel(preset: Preset): string {
-    return `${preset.model.split("/").at(-1)} · ${preset.reasoningEffort}`;
+    const model = isNamed(preset)
+        ? preset.name
+        : preset.model.split("/").at(-1);
+    return `${model} · ${preset.reasoningEffort}`;
 }
