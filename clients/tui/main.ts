@@ -871,6 +871,11 @@ export async function startTui(
     });
     transcript.add(placeholder);
 
+    // Parallel arrays: every push/pop on one must pair with the other. If they
+    // drift, the kind-churn check in renderState compares against stale kinds
+    // and tears down and rebuilds the transcript tail on every repaint, which
+    // shows up as whole markdown blocks blanking for a frame while streaming
+    // (recreated blocks paint nothing until the tree-sitter worker returns).
     const entryNodes: (TextRenderable | MarkdownRenderable | BoxRenderable)[] = [];
     const entryNodeKinds: TuiTranscriptEntry["kind"][] = [];
 
