@@ -43,7 +43,6 @@ import {
 import {
     EngineEventBus,
     createJsonlEventLogger,
-    defaultEventLogPath,
 } from "./events.ts";
 import type { PoolAdmissionVerdict } from "./events.ts";
 import {

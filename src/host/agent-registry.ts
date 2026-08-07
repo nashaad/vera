@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
-import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
+import { EngineEventBus } from "../engine/events.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import {
     builtInPermissionMode,
@@ -212,7 +212,7 @@ export interface AgentRegistryOptions {
      */
     readonly readPool?: (projectRoot?: string) => readonly PooledModel[];
     readonly sessionPathForId?: (agentId: string) => string;
-    readonly eventLogPathForId?: (agentId: string) => string;
+    readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     /**
      * Writes the pool entry for one model, and probes it first when asked.
@@ -1321,7 +1321,10 @@ export class AgentRegistry {
     private start(
         store: SessionStore,
         kind: RegisteredAgentKind,
-        eventLogPath = this.options.eventLogPathForId?.(store.header.id),
+        eventLogPath = this.options.eventLogPathForId?.(
+            store.header.id,
+            store.header.cwd,
+        ),
         parentId?: string,
         clientPromptRefusal?: string,
     ): ResidentAgent {
