@@ -10,6 +10,11 @@
       "panel": "#16161E",
       "element": "#1D1F2A"
     },
+    "muted-blue": {
+      "accent": "#02A2FF", "text": "#CDD6F4", "muted": "#175B8B",
+      "notice": "#FEFC59", "success": "#A7E3A1", "background": "#0F1117",
+      "panel": "#171B23", "element": "#2C2D31"
+    },
     "orng": {
       "accent": "#EC5B2B", "text": "#eeeeee", "muted": "#808080",
       "notice": "#EC5B2B", "success": "#6ba1e6", "background": "#0a0a0a",

@@ -4,6 +4,7 @@ import themeCatalog from "../../config/tui-themes.json" with { type: "json" };
 export type TuiThemeName =
     | "default"
     | "system"
+    | "muted-blue"
     | "orng"
     | "palenight"
     | "synthwave"
