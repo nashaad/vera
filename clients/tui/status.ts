@@ -101,7 +101,7 @@ function renderTuiStatusSegment(segment: StatusLineSegment): string {
                 } running`;
         case "turn":
             return segment.state === "idle" ? "" : segment.state;
-        case "note":
+        case "free_note":
             return segment.text;
     }
 }
