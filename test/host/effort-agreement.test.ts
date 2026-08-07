@@ -133,6 +133,86 @@ test("an unnamed level resolves the same way across the layers", async () => {
     }
 });
 
+/**
+ * The coerced level is the whole answer to what is running, so the level that
+ * was asked for rides along beside it and stays there: a client reads it on
+ * every later snapshot, not only on the reply to the change.
+ */
+test("a coerced level publishes what was asked for until a clean change", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-effort-asked-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: GLM,
+        reasoningEffort: "high",
+        approvalMode: "auto",
+        readPool: () => [pooledGlm(["high", "medium", "low"])],
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+
+        const coerced = await registry.updateModelSettings(agent.id, {
+            reasoningEffort: "xhigh",
+        });
+        expect(coerced).toMatchObject({
+            reasoningEffort: "medium",
+            requestedReasoningEffort: "xhigh",
+        });
+
+        attachment.send({ type: "get_model_settings", requestId: "standing" });
+        const standing = await receiveModelSettings(attachment);
+        expect(standing.settings).toMatchObject({
+            reasoningEffort: "medium",
+            requestedReasoningEffort: "xhigh",
+        });
+
+        const clean = await registry.updateModelSettings(agent.id, {
+            reasoningEffort: "low",
+        });
+        expect(clean).toMatchObject({ reasoningEffort: "low" });
+        expect(clean?.requestedReasoningEffort).toBeUndefined();
+
+        attachment.send({ type: "get_model_settings", requestId: "cleared" });
+        const cleared = await receiveModelSettings(attachment);
+        expect(cleared.settings.requestedReasoningEffort).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+/** A level the model publishes is never annotated, whatever else changed. */
+test("a published level publishes no requested level", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-effort-unasked-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: GLM,
+        reasoningEffort: "high",
+        approvalMode: "auto",
+        readPool: () => [pooledGlm(["high", "medium", "low"])],
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const changed = await registry.updateModelSettings(agent.id, {
+            reasoningEffort: "medium",
+        });
+        expect(changed?.requestedReasoningEffort).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 async function receiveModelSettings(
     attachment: AgentAttachment,
 ): Promise<ModelSettingsUpdate> {

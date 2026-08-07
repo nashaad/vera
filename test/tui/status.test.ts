@@ -22,6 +22,25 @@ test("TUI status line shows host-reported model and reasoning", () => {
     );
 });
 
+test("TUI status stands the coerced level beside the one asked for", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "z-ai/glm-5.2",
+        reasoningEffort: "medium",
+        requestedReasoningEffort: "xhigh",
+    }, "auto", undefined, "/workspace")).toBe(
+        "z-ai/glm-5.2 · reasoning medium (asked xhigh) · /workspace · auto",
+    );
+});
+
+test("TUI status drops the note once the host publishes no requested level", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "z-ai/glm-5.2",
+        reasoningEffort: "low",
+    }, "auto", undefined, "/workspace")).toBe(
+        "z-ai/glm-5.2 · reasoning low · /workspace · auto",
+    );
+});
+
 test("TUI status marks a character-counted measurement as approximate", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",

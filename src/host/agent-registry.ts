@@ -463,6 +463,14 @@ interface RegisteredAgentEntry {
     readonly eventLogPath: string;
     readonly parentId?: string;
     modelSettings: ModelTurnSettings;
+    /**
+     * The level the last settings change asked for when it had to be coerced.
+     * Held beside the settings rather than inside them because it describes
+     * the request, not the choice, and must not reach the session store. It
+     * is cleared by the next change that needs no coercion, which is what
+     * makes the client's note disappear on its own.
+     */
+    requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;
     inbound?: InboundCommandRouter;
     run: Promise<void>;
@@ -858,6 +866,10 @@ export class AgentRegistry {
         // A model that publishes no levels at all is the one case an
         // effort-only patch still refuses: there is no dial to move, and
         // there the level is the whole request.
+        // The level asked for, kept so the client can say what it asked for
+        // beside what it got. Undefined again the moment a change validates
+        // as published, which is how the note clears.
+        let requestedReasoningEffort: ModelReasoningEffort | undefined;
         if (
             reasoningEffort !== undefined
             && !published.efforts.includes(reasoningEffort)
@@ -869,11 +881,15 @@ export class AgentRegistry {
             ) {
                 return undefined;
             }
+            const requested = reasoningEffort;
             reasoningEffort = inferReasoningSelection(
-                reasoningEffort,
+                requested,
                 published.efforts,
                 published.defaultLevel,
             ).providerEffort;
+            if (reasoningEffort !== undefined && reasoningEffort !== requested) {
+                requestedReasoningEffort = requested;
+            }
         }
         const settings: ModelTurnSettings = {
             provider,
@@ -888,6 +904,7 @@ export class AgentRegistry {
         this.defaultProvider = settings.provider ?? this.defaultProvider;
         this.defaultReasoningEffort = settings.reasoningEffort;
         entry.modelSettings = settings;
+        entry.requestedReasoningEffort = requestedReasoningEffort;
         return settingsForClient(
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
@@ -895,6 +912,7 @@ export class AgentRegistry {
             this.options.availableModels,
             this.options.readPool?.(entry.store.header.cwd),
             this.options.subagentModel,
+            entry.requestedReasoningEffort,
         );
     }
 
@@ -942,6 +960,7 @@ export class AgentRegistry {
                 this.options.availableModels,
                 this.options.readPool?.(agentEntry.store.header.cwd),
                 this.options.subagentModel,
+                agentEntry.requestedReasoningEffort,
             ),
         };
     }
@@ -1014,6 +1033,7 @@ export class AgentRegistry {
             this.options.availableModels,
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
+            agentEntry.requestedReasoningEffort,
         );
     }
 
@@ -1045,6 +1065,7 @@ export class AgentRegistry {
             this.options.availableModels,
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
+            agentEntry.requestedReasoningEffort,
         );
     }
 
@@ -1411,6 +1432,7 @@ export class AgentRegistry {
                     this.options.availableModels,
                     this.options.readPool?.(store.header.cwd),
                     this.options.subagentModel,
+                    entry.requestedReasoningEffort,
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -1908,6 +1930,7 @@ function settingsForClient(
     models: readonly SuggestedModel[] = availableModels(),
     pooled: readonly PooledModel[] = [],
     subagentModel?: SpawnModelDefault,
+    requestedReasoningEffort?: ModelReasoningEffort,
 ): ModelTurnSettings {
     const contextWindow = contextWindowForModel(provider, settings.model, models);
     const { efforts } = publishedReasoningLevels(
@@ -1920,10 +1943,17 @@ function settingsForClient(
     // model has no levels at all; serving it anyway shows a dial the model
     // cannot have. Same emptiness rule as `reasoningEffortForModel`.
     const { reasoningEffort, ...rest } = settings;
+    const served = efforts.length > 0 && reasoningEffort !== undefined;
     return {
         ...rest,
-        ...(efforts.length > 0 && reasoningEffort !== undefined
-            ? { reasoningEffort }
+        ...(served ? { reasoningEffort } : {}),
+        // Only alongside a level that is actually served, and only while the
+        // two still disagree: on its own it would name a level nothing is
+        // running at.
+        ...(served
+                && requestedReasoningEffort !== undefined
+                && requestedReasoningEffort !== reasoningEffort
+            ? { requestedReasoningEffort }
             : {}),
         availableReasoningEfforts: efforts,
         availableModels: availableModelsWithLevels(models),

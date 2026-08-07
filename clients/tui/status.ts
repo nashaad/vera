@@ -132,11 +132,16 @@ export function renderTuiStatusDetailsLine(
     // What is running now, with what was asked for behind it: this line
     // reports the session as it stands, so the effective level leads and the
     // request is the annotation on it.
+    // A settings change the host had to coerce says the same thing standing,
+    // for as long as the coerced level is the one in effect: the host stops
+    // sending the requested level once a change validates without coercion.
     const thinking = settings === undefined
         ? "loading"
         : substituted
             ? `${substitution!.effective ?? "none"} (asked ${requested})`
-            : requested;
+            : settings.requestedReasoningEffort === undefined
+                ? requested
+                : `${requested} (asked ${settings.requestedReasoningEffort})`;
     const permissions = approvalMode === undefined
         ? "permissions loading"
         : renderPermissions(approvalMode);

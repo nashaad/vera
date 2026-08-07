@@ -132,6 +132,11 @@ export interface VeraClientModelSettingsSnapshot {
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
+    /**
+     * The level the user asked for, present only while the model does not
+     * publish it and `reasoningEffort` is the substitute in effect.
+     */
+    readonly requestedReasoningEffort?: ModelReasoningEffort;
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
     readonly availableModels?: readonly VeraClientAvailableModel[];
     /** The pool: the models the user admitted, newest first. */
