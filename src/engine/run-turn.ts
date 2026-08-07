@@ -292,6 +292,12 @@ export interface RunHeadlessLoopOptions {
     readonly disabledPromptContributions?: readonly string[];
     /** Hooks for the session's turns; absent means none registered. */
     readonly hooks?: ToolHooks;
+    /**
+     * Variables layered over the inherited environment in the shells this
+     * session's tools spawn. The owner chooses the variables; the engine
+     * passes them through opaquely.
+     */
+    readonly toolEnv?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -620,7 +626,11 @@ export async function runHeadlessLoop(
                 ) => runCompaction(signal, false, pendingMessages),
             }),
         deliveryInbox: store,
-        toolRuntime: newStashingToolRuntime(store.header.cwd, store.header.id),
+        toolRuntime: newStashingToolRuntime(
+            store.header.cwd,
+            store.header.id,
+            options.toolEnv,
+        ),
         inbound,
         events,
         hooks: options.hooks ?? new ToolHooks(),
