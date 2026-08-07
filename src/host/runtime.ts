@@ -57,6 +57,7 @@ import { ToolHooks } from "../engine/hooks.ts";
 import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
+import { readArcNodeId } from "./arc-identity.ts";
 import {
     startWatchRuntimeIfEnabled,
     type WatchRuntime,
@@ -99,6 +100,8 @@ export interface StartResidentHostOptions {
     readonly inboxPath?: string;
     /** Replaces the built-in connector set, so tests never reach a real arc. */
     readonly watchConnectors?: readonly WatchConnector[];
+    /** Overrides arc's per-user config path, so tests never read the real one. */
+    readonly arcConfigPath?: string;
     /** Supplies a watch its bearer token. Definitions never carry one. */
     readonly watchSecret?: WatchSecretResolver;
     /** Overrides `~/.vera/spawn-consent.json`, so tests never read the real one. */
@@ -287,7 +290,15 @@ export async function startResidentHost(
                 disabledPromptContributions:
                     options.config.disabled_prompt_contributions,
             }),
-        ...(inboxDelivery === undefined ? {} : { inboxDelivery }),
+        ...(inboxDelivery === undefined ? {} : {
+            inboxDelivery,
+            // Read per attach, not once at startup, because `arc init` can
+            // mint the node id while the host runs. arc stamps events with
+            // (node id, ARC_SESSION); the attach pairs this actor with the
+            // agent id, so a session posting under ARC_SESSION set to its
+            // agent id is not woken by its own posts.
+            inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
+        }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogEnabled(options.config)
