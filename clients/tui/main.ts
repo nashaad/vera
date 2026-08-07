@@ -187,6 +187,7 @@ import {
     tuiChordOwner,
     tuiKeyHint,
 } from "./keymap.ts";
+import { createRenderCoalescer } from "./render-coalescer.ts";
 import {
     createAuthStorage,
     unreadableAuthStoragePath,
@@ -1098,6 +1099,7 @@ export async function startTui(
 
     renderer.on(CliRenderEvents.DESTROY, () => {
         shuttingDown = true;
+        renderCoalescer.stop();
         clearInterval(statusTimer);
         clearInterval(backgroundAgentTimer);
         const picker = pendingExtensionPicker;
@@ -1120,6 +1122,8 @@ export async function startTui(
                 );
             });
     });
+
+    const renderCoalescer = createRenderCoalescer({ render: renderState });
 
     const statusTimer = setInterval(() => {
         renderStatus();
@@ -2733,7 +2737,9 @@ export async function startTui(
                         activity = "ready";
                     }
                 }
-                renderState();
+                // State is applied per update above; the repaint is what
+                // coalesces, so a burst of deltas paints once a frame.
+                renderCoalescer.request(update.type);
 
                 if (update.type === "agent_failed") {
                     focusActiveSurface();
