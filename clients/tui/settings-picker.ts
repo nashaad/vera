@@ -364,6 +364,7 @@ export function tuiPermissionModeDescription(
 const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "default", label: "Default", description: "Vera's original palette" },
     { value: "system", label: "System", description: "inherit terminal colors" },
+    { value: "muted-blue", label: "Muted Blue", description: "subdued blue, selective highlights" },
     { value: "orng", label: "Orng", description: "warm orange on black" },
     { value: "palenight", label: "Palenight", description: "soft blue and purple" },
     { value: "synthwave", label: "Synthwave", description: "bright cyan and neon" },

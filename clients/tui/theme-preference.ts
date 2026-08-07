@@ -294,6 +294,7 @@ function boundedInteger(
 export function isTuiThemeName(value: unknown): value is TuiThemeName {
     return value === "default"
         || value === "system"
+        || value === "muted-blue"
         || value === "orng"
         || value === "palenight"
         || value === "synthwave"

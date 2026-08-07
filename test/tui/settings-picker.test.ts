@@ -933,6 +933,7 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
     expect(themes.options.map((option) => option.value)).toEqual([
         "default",
         "system",
+        "muted-blue",
         "orng",
         "palenight",
         "synthwave",
