@@ -36,7 +36,7 @@ export interface AttachInboxConsumerRequest {
      * on the (actor, session) pair, so a null actor suppresses nothing.
      */
     readonly actor?: string | null;
-    /** The session id entries caused by this session carry. */
+    /** The session value entries caused by this session carry. */
     readonly session: string;
     readonly target: InboxDeliveryTarget;
     /** Wakes the session. Called only after a delivery is durably recorded. */

@@ -13,6 +13,12 @@ import {
     type WatchRuntimeContext,
 } from "../../src/watch/source.ts";
 import type { JsonObject } from "../../src/extensions/contributions.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { mintAgentName } from "../../src/host/agent-name.ts";
+import { runBash } from "../../src/tools/bash.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
 import type { PendingDelivery } from "../../src/store/session-store.ts";
@@ -300,6 +306,109 @@ describe("self-echo through the arc connector", () => {
         // Suppressed is not lost: the offset moved past the session's own
         // entry, so it never comes back as a later wake either.
         expect(session.consumer.lag()).toBe(0);
+
+        session.release();
+        coordinator.close();
+        inbox.close();
+    });
+
+    /**
+     * The host attaches a session's consumer with its minted identity name as
+     * the session half and injects the same name into the session's shells,
+     * so the whole loop is export-free: the shell environment supplies the
+     * value arc stamps on the post, and that post comes back suppressed.
+     * Matching uses `slug:hex4` alone, so a post whose ARC_SESSION grew a
+     * purpose tail is still the session's own post.
+     */
+    test("a minted name suppresses own posts even with a purpose tail", async () => {
+        const inbox = Inbox.open(":memory:");
+        const consumers = new ConsumerRegistry(inbox, "vera-host");
+        const coordinator = new InboxDeliveryCoordinator(consumers);
+        const name = mintAgentName(() => false);
+        const workspace = mkdtempSync(join(tmpdir(), "vera-arc-shell-"));
+        const echoed = await runBash(
+            'printf "%s" "$ARC_SESSION"',
+            workspace,
+            undefined,
+            { ARC_SESSION: `${name}:UAT-tester` },
+        );
+        rmSync(workspace, { recursive: true, force: true });
+        expect(echoed.output).toBe(`${name}:UAT-tester`);
+        const recorded: PendingDelivery[] = [];
+        let wakes = 0;
+        const session = coordinator.attach({
+            label: "agent-1",
+            actor: "node-a",
+            session: name,
+            target: {
+                recordDelivery: (delivery) => {
+                    recorded.push(delivery);
+                    return Promise.resolve(true);
+                },
+                pendingDeliveryIds: () => [],
+            },
+            triggerTurn: () => {
+                wakes += 1;
+            },
+            minWakeIntervalMs: 0,
+        });
+        const admission = new WatchAdmission({
+            inbox,
+            watchId: "vera.arc/main",
+            address: null,
+            flood: "shed",
+        });
+        const controller = new AbortController();
+        const ctx: WatchRuntimeContext = {
+            watchId: "vera.arc/main",
+            sourceFamily: "arc",
+            config: { server: "https://arc.local" },
+            address: null,
+            flood: "shed",
+            signal: controller.signal,
+            cursor: () => admission.cursor(),
+            admit: async (events) => {
+                admission.admit(events);
+            },
+            checkpoint: (checkpoint) => {
+                admission.checkpoint(checkpoint.cursor);
+            },
+            recordGap: (reason, detail) => {
+                admission.recordGap(reason, detail);
+            },
+            healthy: () => undefined,
+        };
+        const connector = createArcConnector({
+            fetch: async () =>
+                sseResponse([
+                    arcFrame(1, {
+                        seq: 1,
+                        kind: "post",
+                        issue_id: "nash-99",
+                        actor: "node-a",
+                        session: echoed.output,
+                        payload: JSON.stringify({ excerpt: "my own post" }),
+                        ts: "2026-08-07T10:00:00Z",
+                    }),
+                    arcFrame(2, {
+                        seq: 2,
+                        kind: "post",
+                        issue_id: "nash-99",
+                        actor: "node-a",
+                        session: "brisk-otter:1b2c",
+                        payload: JSON.stringify({ excerpt: "a sibling reply" }),
+                        ts: "2026-08-07T10:00:01Z",
+                    }),
+                ]),
+        });
+
+        await connector.run(ctx);
+        await coordinator.pumpAll();
+
+        expect(wakes).toBe(1);
+        expect(recorded).toHaveLength(1);
+        expect(recorded[0]!.content).toContain("a sibling reply");
+        expect(recorded[0]!.content).not.toContain("my own post");
 
         session.release();
         coordinator.close();
