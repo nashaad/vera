@@ -7,11 +7,13 @@ import {
     configuredSubagentModel,
     configuredCompaction,
     configuredReviewers,
+    eventLogEnabled,
     updateVeraConfigDefaults,
     type VeraConfig,
 } from "../config.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
+import { defaultEventLogPath } from "../engine/events.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pooledModels } from "../model/catalog-view.ts";
 import type {
@@ -288,12 +290,14 @@ export async function startResidentHost(
         ...(inboxDelivery === undefined ? {} : { inboxDelivery }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
-        ...(eventLogDirectory === undefined
-            ? {}
-            : {
+        ...(eventLogEnabled(options.config)
+            ? {
                 eventLogPathForId: (agentId: string) =>
-                    join(eventLogDirectory, `${agentId}.jsonl`),
-            }),
+                    eventLogDirectory === undefined
+                        ? defaultEventLogPath(agentId)
+                        : join(eventLogDirectory, `${agentId}.jsonl`),
+            }
+            : {}),
     });
 
     // Second gate. It is read here rather than from `options.config` because

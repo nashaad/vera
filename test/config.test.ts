@@ -13,6 +13,7 @@ import {
     configuredModelFallback,
     configuredReviewer,
     configuredSubagentModel,
+    eventLogEnabled,
     loadOptionalVeraConfig,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -297,6 +298,42 @@ test("Vera config rejects a non-boolean experimental inbox flag", () => {
         schema_version: 1,
         model: "anthropic/example-model",
         experimental: { inbox: "yes" },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow();
+});
+
+test("Vera config reads the event log flag and defaults it on", () => {
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(eventLogEnabled(loadVeraConfig({ path: bare }))).toBe(true);
+
+    const off = temporaryConfigPath();
+    writeFileSync(off, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        event_log: { enabled: false },
+    }));
+    expect(eventLogEnabled(loadVeraConfig({ path: off }))).toBe(false);
+
+    const on = temporaryConfigPath();
+    writeFileSync(on, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        event_log: { enabled: true },
+    }));
+    expect(eventLogEnabled(loadVeraConfig({ path: on }))).toBe(true);
+});
+
+test("Vera config rejects a non-boolean event log flag", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        event_log: { enabled: "yes" },
     }));
 
     expect(() => loadVeraConfig({ path })).toThrow();

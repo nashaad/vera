@@ -387,10 +387,15 @@ export async function runHeadlessLoop(
         sessionAttachmentName(store),
     );
     events.subscribe(protocol);
-    events.subscribe(createJsonlEventLogger({
-        path: options.eventLogPath ?? defaultEventLogPath(sessionId),
-        sessionId,
-    }));
+    // A caller that names no path gets no log. The host names one for every
+    // agent it starts, so only direct engine callers opt out, and they cannot
+    // reach the home directory by omission.
+    if (options.eventLogPath !== undefined) {
+        events.subscribe(createJsonlEventLogger({
+            path: options.eventLogPath,
+            sessionId,
+        }));
+    }
     const messages = [...store.messages()];
     let inbound: InboundCommandRouter;
     // Assigned once the compaction closure exists, further down. Undefined

@@ -144,7 +144,7 @@ test("session trash accepts only idle unattached non-current sessions", async ()
             moved.push([
                 artifacts.sessionPath,
                 artifacts.attachmentsPath,
-                artifacts.eventLogPath,
+                artifacts.eventLogPath ?? "",
             ]);
         },
     });

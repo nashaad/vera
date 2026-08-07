@@ -109,6 +109,16 @@ export interface VeraConfig {
     readonly disabled_builtin_extensions?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
+    readonly event_log?: VeraEventLogConfig;
+}
+
+/**
+ * The per-session jsonl event log under `~/.vera/logs`.
+ *
+ * On by default because `vera inspect` reads it. Absent means on.
+ */
+export interface VeraEventLogConfig {
+    readonly enabled?: boolean;
 }
 
 /**
@@ -369,6 +379,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         config.disabled_prompt_contributions,
     );
     const experimental = parseExperimental(config.experimental);
+    const eventLog = parseEventLog(config.event_log);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -386,6 +397,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || disabledBuiltinExtensions === undefined
         || disabledPromptContributions === undefined
         || experimental === undefined
+        || eventLog === undefined
         || (hasModelCatalog && config.reviewer !== undefined)
         || (config.compaction !== undefined && compaction === undefined)
         ||
@@ -439,6 +451,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
                 disabled_prompt_contributions: disabledPromptContributions,
             }),
         ...(config.experimental === undefined ? {} : { experimental }),
+        ...(config.event_log === undefined ? {} : { event_log: eventLog }),
     };
 }
 
@@ -456,6 +469,25 @@ function parseExperimental(
         return undefined;
     }
     return raw.inbox === undefined ? {} : { inbox: raw.inbox };
+}
+
+function parseEventLog(value: unknown): VeraEventLogConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") {
+        return undefined;
+    }
+    return raw.enabled === undefined ? {} : { enabled: raw.enabled };
+}
+
+/** Absent config, absent block, and absent key all mean on. */
+export function eventLogEnabled(config: VeraConfig): boolean {
+    return config.event_log?.enabled !== false;
 }
 
 function parseStringList(value: unknown): readonly string[] | undefined {
