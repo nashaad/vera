@@ -39,6 +39,7 @@ import {
     type AuthStorage,
 } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import { defaultSessionDirectory } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
@@ -116,10 +117,18 @@ export async function startResidentHost(
             : { onFailure: options.onExtensionFailure }),
     });
     const createAdapter = options.createAdapter
-        ?? ((provider?: string) => createConfiguredModelAdapter({
-            ...options.config,
-            provider: (provider ?? options.config.provider) as VeraConfig["provider"],
-        }, { authStorage, log: hostLog }));
+        ?? ((provider?: string, captureFailedRequest?: FailedRequestCapture) =>
+            createConfiguredModelAdapter({
+                ...options.config,
+                provider: (provider ?? options.config.provider) as
+                    VeraConfig["provider"],
+            }, {
+                authStorage,
+                log: hostLog,
+                ...(captureFailedRequest === undefined
+                    ? {}
+                    : { captureFailedRequest }),
+            }));
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),

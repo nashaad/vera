@@ -7,6 +7,7 @@ import {
     type ChatProviderProfile,
 } from "./openrouter.ts";
 import type { OpenRouterChatRequest } from "./openrouter-wire.ts";
+import type { FailedRequestCapture } from "./failed-request-capture.ts";
 
 export interface OllamaAdapterOptions {
     readonly host?: string;
@@ -17,6 +18,7 @@ export interface OllamaAdapterOptions {
     readonly log?: (
         entry: { readonly type: string } & Record<string, unknown>,
     ) => void;
+    readonly captureFailedRequest?: FailedRequestCapture;
 }
 
 const OLLAMA_PROFILE: ChatProviderProfile = {
@@ -72,6 +74,7 @@ export function createOllamaAdapter(
         },
         undefined,
         OLLAMA_PROFILE,
+        options.captureFailedRequest,
     );
 }
 

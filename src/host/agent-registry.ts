@@ -76,6 +76,10 @@ import {
 } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
 import {
+    createFailedRequestCapture,
+    type FailedRequestCapture,
+} from "../providers/failed-request-capture.ts";
+import {
     type AgentAttachment,
     ResidentAgent,
 } from "./resident-agent.ts";
@@ -132,7 +136,22 @@ export interface RegisteredAgentSummary {
 }
 
 export interface AgentRegistryOptions {
-    readonly createAdapter: (provider?: string) => ModelAdapter;
+    /**
+     * The capture sink is passed alongside the provider because its caps are
+     * per session, and the session is known here rather than where the host
+     * builds its adapters.
+     */
+    readonly createAdapter: (
+        provider?: string,
+        captureFailedRequest?: FailedRequestCapture,
+    ) => ModelAdapter;
+    /**
+     * Where a session's failed provider requests are kept. Defaults to the
+     * per-user capture directory; a test points it somewhere it owns.
+     */
+    readonly createFailedRequestCapture?: (
+        sessionId: string,
+    ) => FailedRequestCapture;
     /**
      * Tells a running agent that a provider's credentials changed, so it stops
      * spending the key it started with. Absent in tests that never sign in.
@@ -848,9 +867,14 @@ export class AgentRegistry {
         parentId?: string,
     ): ResidentAgent {
         const storedFailure = store.agentFailure();
+        const captureFailedRequest = (
+            this.options.createFailedRequestCapture
+                ?? ((sessionId) => createFailedRequestCapture({ sessionId }))
+        )(store.header.id);
         const adapter = storedFailure === undefined
             ? new ProviderRoutingAdapter(
-                (provider) => this.options.createAdapter(provider),
+                (provider) =>
+                    this.options.createAdapter(provider, captureFailedRequest),
                 this.defaultProvider,
                 this.options.credentialFingerprint,
             )

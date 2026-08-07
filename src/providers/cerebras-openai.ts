@@ -5,6 +5,7 @@ import {
     type ChatProviderProfile,
 } from "./openrouter.ts";
 import type { OpenRouterChatRequest } from "./openrouter-wire.ts";
+import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import {
     decodeOpenAiSse,
     encodeOpenAiMessage,
@@ -17,6 +18,7 @@ export interface CerebrasAdapterOptions {
         init?: RequestInit,
     ) => Promise<Response>;
     readonly baseUrl?: string;
+    readonly captureFailedRequest?: FailedRequestCapture;
 }
 
 const CEREBRAS_PROFILE: ChatProviderProfile = {
@@ -63,6 +65,7 @@ export function createCerebrasAdapter(
         },
         undefined,
         CEREBRAS_PROFILE,
+        options.captureFailedRequest,
     );
 }
 
