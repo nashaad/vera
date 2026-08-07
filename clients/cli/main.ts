@@ -29,6 +29,7 @@ import {
     type SessionExportFormat,
 } from "../../src/session-export.ts";
 import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts";
+import { workspaceKey } from "../../src/workspace-key.ts";
 import { supportedLevels } from "../../src/model/effort-ladder.ts";
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
 import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
@@ -170,9 +171,24 @@ export async function runCli(
         return 1;
     }
 
-    if (args.length === 1 && args[0] === "ls") {
+    if (
+        args[0] === "ls"
+        && (args.length === 1 || (args.length === 2 && args[1] === "--all"))
+    ) {
+        const all = args.length === 2;
         const agents = await (dependencies.listAgents ?? listLiveAgents)();
-        output.write(renderAgentList(agents));
+        // Scoped by workspace key rather than by path equality, so a session
+        // started under a symlinked or differently-spelled path still lands in
+        // the workspace the user is standing in.
+        const here = workspaceKey(process.cwd());
+        output.write(renderAgentList(
+            all
+                ? agents
+                : agents.filter((agent) =>
+                    workspaceKey(agent.workspace) === here
+                ),
+            { all },
+        ));
         return 0;
     }
 
@@ -412,21 +428,34 @@ async function stopResidentHost(): Promise<number | undefined> {
 
 export function renderAgentList(
     agents: readonly RegisteredAgentSummary[],
+    options: { readonly all?: boolean; readonly now?: Date } = {},
 ): string {
     if (agents.length === 0) {
-        return "No live Vera agents.\n";
+        return options.all === true
+            ? "No live Vera agents.\n"
+            : "No Vera agents in this workspace. Use --all to see every one.\n";
     }
 
-    const rows = agents.map((agent) => [
-        agent.kind,
-        // `idle` here would mean "the host is holding this session", which is
-        // true of every session ever started and tells the reader nothing.
-        agent.status === "idle" && !agent.live ? "stopped" : agent.status,
-        agent.workspace,
-        agent.id,
-        agent.session_path,
-    ]);
-    const headings = ["KIND", "STATUS", "WORKSPACE", "AGENT", "SESSION"];
+    const now = options.now ?? new Date();
+    // The workspace column only earns its width when rows can differ in it.
+    const headings = options.all === true
+        ? ["KIND", "STATUS", "AGENT", "TITLE", "ACTIVE", "WORKSPACE"]
+        : ["KIND", "STATUS", "AGENT", "TITLE", "ACTIVE"];
+    const rows = agents.map((agent) => {
+        const row = [
+            agent.kind,
+            // `idle` here would mean "the host is holding this session", which
+            // is true of every session ever started and tells the reader
+            // nothing.
+            agent.status === "idle" && !agent.live ? "stopped" : agent.status,
+            // The id is still what every other command takes, so it stands in
+            // when a session predates naming.
+            agent.name ?? agent.id,
+            truncate(agent.title ?? "", 48),
+            relativeTime(agent.updated_at, now),
+        ];
+        return options.all === true ? [...row, agent.workspace] : row;
+    });
     const widths = headings.map((heading, index) =>
         Math.max(heading.length, ...rows.map((row) => row[index]?.length ?? 0))
     );
@@ -437,6 +466,29 @@ export function renderAgentList(
             .join("  ")
             .trimEnd())
         .join("\n") + "\n";
+}
+
+/** A title is a whole first prompt, which is too wide to sit in a column. */
+function truncate(value: string, limit: number): string {
+    return value.length <= limit ? value : `${value.slice(0, limit - 1)}\u2026`;
+}
+
+/** Coarse on purpose: the list answers "recent or not", not "how long". */
+function relativeTime(timestamp: string | undefined, now: Date): string {
+    if (timestamp === undefined) {
+        return "-";
+    }
+    const then = Date.parse(timestamp);
+    if (Number.isNaN(then)) {
+        return "-";
+    }
+    const seconds = Math.max(0, Math.round((now.getTime() - then) / 1000));
+    if (seconds < 60) return "just now";
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
 }
 
 async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {

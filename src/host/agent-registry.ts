@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 
 import { EngineEventBus } from "../engine/events.ts";
@@ -123,6 +124,12 @@ const CHILD_TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
 export interface RegisteredAgentSummary {
     readonly id: string;
+    /**
+     * The identity name this session posts under, `slug:hex4:purpose`. Carried
+     * on the listing because a list keyed by uuid is unreadable; the id stays
+     * because it is what every other command takes.
+     */
+    readonly name?: string;
     readonly workspace: string;
     readonly session_path: string;
     readonly kind: RegisteredAgentKind;
@@ -149,6 +156,13 @@ export interface RegisteredAgentSummary {
      * branch was taken is a fact about the transcript, not about the list.
      */
     readonly forked_from?: string;
+    /**
+     * Bytes the session transcript occupies on disk, absent when the file
+     * cannot be stat'd. Read fresh on every listing rather than tracked on
+     * append: compaction and trash rewrite the file behind the store, so a
+     * running total would drift with no event to correct it.
+     */
+    readonly size_bytes?: number;
 }
 
 export interface AgentRegistryOptions {
@@ -1232,6 +1246,16 @@ export class AgentRegistry {
     }
 
     list(): RegisteredAgentSummary[] {
+        const sizeOnDisk = (path: string): number | undefined => {
+            try {
+                return statSync(path).size;
+            } catch {
+                // A session whose file is gone still belongs on the list; it
+                // just has no size to report.
+                return undefined;
+            }
+        };
+
         return [...this.agents.values()]
             .map((entry) => {
                 const activeEntries = entry.store.activeEntries();
@@ -1250,8 +1274,10 @@ export class AgentRegistry {
                         .trim()
                     : undefined;
                 const title = entry.store.name() ?? fallbackTitle;
+                const size = sizeOnDisk(entry.store.path);
                 return {
                     id: entry.agent.id,
+                    name: entry.arcName,
                     workspace: entry.agent.workspace,
                     session_path: entry.store.path,
                     kind: entry.kind,
@@ -1294,6 +1320,7 @@ export class AgentRegistry {
                     updated_at: entry.store.agentFailure()?.timestamp
                         ?? activeEntries.at(-1)?.timestamp
                         ?? entry.store.header.timestamp,
+                    ...(size === undefined ? {} : { size_bytes: size }),
                 };
             })
             .sort((left, right) => left.id.localeCompare(right.id));
