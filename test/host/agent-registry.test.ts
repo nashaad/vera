@@ -18,6 +18,10 @@ import type {
     ToolApprovalUiRequestUpdate,
 } from "../../src/engine/protocol.ts";
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
+import {
+    agentNameKey,
+    parseAgentName,
+} from "../../src/host/agent-name.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
@@ -2736,6 +2740,83 @@ test("an inbox entry landing mid-turn waits for the turn boundary", async () => 
     } finally {
         await registry.close();
         inbox.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("every session gets a stable identity name the host can resolve", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-name-"));
+    await writeFile(join(root, "marker.txt"), "workspace marker");
+    const registry = createRegistry(() => readMarkerScript());
+
+    try {
+        const first = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "first.jsonl"),
+        });
+        const second = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "second.jsonl"),
+        });
+
+        const firstName = registry.arcNameOf(first.id);
+        const secondName = registry.arcNameOf(second.id);
+        expect(firstName).toBeDefined();
+        expect(parseAgentName(firstName!)).not.toBeNull();
+        expect(agentNameKey(firstName!)).not.toBe(agentNameKey(secondName!));
+        expect(registry.arcNameOf(first.id)).toBe(firstName!);
+
+        expect(registry.agentIdForArcSession(firstName!)).toBe(first.id);
+        expect(registry.agentIdForArcSession(`${firstName!}:UAT-tester`))
+            .toBe(first.id);
+        expect(registry.agentIdForArcSession(first.id)).toBe(first.id);
+        expect(registry.agentIdForArcSession("misty-wren:0000"))
+            .toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a session's shells carry its minted name as ARC_SESSION", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-shell-env-"));
+    const registry = createRegistry(() => [
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "echo-arc-session",
+                name: "bash",
+                input: { command: 'printf "%s" "$ARC_SESSION"' },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        textResponse("done"),
+    ]);
+    const firstSession = join(root, "first.jsonl");
+    const secondSession = join(root, "second.jsonl");
+
+    try {
+        const first = await registry.create({
+            workspace: root,
+            sessionPath: firstSession,
+        });
+        const second = await registry.create({
+            workspace: root,
+            sessionPath: secondSession,
+        });
+
+        await runPrompt(first.attach(), "say your name");
+        await runPrompt(second.attach(), "say your name");
+
+        expect(await toolResultText(firstSession))
+            .toBe(registry.arcNameOf(first.id)!);
+        expect(await toolResultText(secondSession))
+            .toBe(registry.arcNameOf(second.id)!);
+    } finally {
+        await registry.close();
         await rm(root, { recursive: true, force: true });
     }
 });
