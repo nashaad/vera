@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
     EngineEventBus,
     createJsonlEventLogger,
+    defaultEventLogPath,
     type EngineEvent,
 } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
@@ -162,6 +163,38 @@ test("a turn fans out to updates and a per-session event log", async () => {
         ]);
         expect((await stat(logDirectory)).mode & 0o777).toBe(0o700);
         expect((await stat(logPath)).mode & 0o777).toBe(0o600);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a turn given no event log path writes no log at all", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const sessionId = `unrouted-${process.pid}-${workspace.slice(-6)}`;
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "hello" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "say hello" });
+        await runTurn(new FauxAdapter([response]), sessionId, state);
+
+        await expect(stat(defaultEventLogPath(sessionId))).rejects.toThrow();
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

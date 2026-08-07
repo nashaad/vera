@@ -12,7 +12,7 @@ import trash from "trash";
 export interface SessionArtifacts {
     readonly sessionPath: string;
     readonly attachmentsPath: string;
-    readonly eventLogPath: string;
+    readonly eventLogPath?: string;
 }
 
 export interface TrashSessionArtifactsOptions {
@@ -78,7 +78,9 @@ async function existingArtifacts(
 ): Promise<Array<{ readonly path: string; readonly stagedName: string }>> {
     const candidates = [
         { path: artifacts.sessionPath, stagedName: "session.jsonl" },
-        { path: artifacts.eventLogPath, stagedName: "events.jsonl" },
+        ...(artifacts.eventLogPath === undefined
+            ? []
+            : [{ path: artifacts.eventLogPath, stagedName: "events.jsonl" }]),
         { path: artifacts.attachmentsPath, stagedName: "attachments" },
     ];
     const existing = [];

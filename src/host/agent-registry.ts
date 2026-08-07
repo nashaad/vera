@@ -472,7 +472,7 @@ interface RegisteredAgentEntry {
     readonly kind: RegisteredAgentKind;
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
-    readonly eventLogPath: string;
+    readonly eventLogPath?: string;
     readonly parentId?: string;
     modelSettings: ModelTurnSettings;
     /**
@@ -1277,8 +1277,7 @@ export class AgentRegistry {
     private start(
         store: SessionStore,
         kind: RegisteredAgentKind,
-        eventLogPath = this.options.eventLogPathForId?.(store.header.id)
-            ?? defaultEventLogPath(store.header.id),
+        eventLogPath = this.options.eventLogPathForId?.(store.header.id),
         parentId?: string,
         clientPromptRefusal?: string,
     ): ResidentAgent {
