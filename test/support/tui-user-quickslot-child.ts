@@ -38,7 +38,7 @@ void runHeadlessLoop(
                     }),
             };
             await Bun.write(
-                join(process.env.HOME ?? "", "user-preset-settings.json"),
+                join(process.env.HOME ?? "", "user-quickslot-settings.json"),
                 JSON.stringify(settings),
             );
             return settings;

@@ -206,11 +206,11 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "the bundled preset uses only public client extension seams",
+    "the bundled quickslot uses only public client extension seams",
     async () => {
-        const socket = `vera-user-preset-${process.pid}-${randomUUID()}`;
-        const session = "user-preset";
-        const home = mkdtempSync(join(tmpdir(), "vera-user-preset-"));
+        const socket = `vera-user-quickslot-${process.pid}-${randomUUID()}`;
+        const session = "user-quickslot";
+        const home = mkdtempSync(join(tmpdir(), "vera-user-quickslot-"));
         let pane = "";
 
         try {
@@ -218,12 +218,12 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-user-preset-child.ts",
+                "test/support/tui-user-quickslot-child.ts",
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/preset");
+            sendText(socket, session, "/quickslot");
             sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(socket, session, "Model presets");
+            pane = await waitForVisiblePane(socket, session, "Quickslots");
             expect(pane).toContain("Slot 1");
             expect(pane).toContain("empty");
 
@@ -242,20 +242,20 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "other · reasoning",
             );
-            sendText(socket, session, "/preset");
+            sendText(socket, session, "/quickslot");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "kimi-k3 · low");
             sendKey(socket, session, "Enter");
             for (let attempt = 0; attempt < 100; attempt += 1) {
                 const saved = JSON.parse(readFileSync(
-                    join(home, "user-preset-settings.json"),
+                    join(home, "user-quickslot-settings.json"),
                     "utf8",
                 ));
                 if (saved.model === "moonshotai/kimi-k3") break;
                 await Bun.sleep(20);
             }
             expect(JSON.parse(readFileSync(
-                join(home, "user-preset-settings.json"),
+                join(home, "user-quickslot-settings.json"),
                 "utf8",
             ))).toMatchObject({
                 provider: "openrouter",

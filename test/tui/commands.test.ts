@@ -310,10 +310,10 @@ test("extension command results preserve their typed presentation", () => {
     })).toBe("test.extension/check [warning]: check this");
 });
 
-test("preset is supplied by the bundled extension, not the core catalog", () => {
+test("quickslot is supplied by the bundled extension, not the core catalog", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
-    expect(registry.dispatch("/preset")).toBeUndefined();
+    expect(registry.dispatch("/quickslot")).toBeUndefined();
     expect(registry.suggestions("/p").map((command) => command.name))
         .toEqual(["permissions", "parent", "pool", "palette"]);
     expect(registry.dispatch("/p")).toBeUndefined();
@@ -325,13 +325,13 @@ test("preset is supplied by the bundled extension, not the core catalog", () => 
     expect(registry.dispatch("/pe")).toEqual({ type: "open_permissions_picker" });
 });
 
-test("the bundled preset can be explicitly disabled for a replacement", () => {
+test("the bundled quickslot can be explicitly disabled for a replacement", () => {
     const registry = createConfiguredBuiltinTuiCommandRegistry([
         "vera.model-presets",
     ]);
 
-    expect(registry.dispatch("/preset")).toBeUndefined();
+    expect(registry.dispatch("/quickslot")).toBeUndefined();
     expect(registry.registeredPaletteActions().some(
-        (action) => action.name === "preset",
+        (action) => action.name === "quickslot",
     )).toBe(false);
 });

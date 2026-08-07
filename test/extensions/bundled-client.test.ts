@@ -50,7 +50,7 @@ test("direct client extension calls have a fixed deadline", async () => {
     )).rejects.toThrow("timed out after 10ms");
 });
 
-test("model presets are a default bundled extension with no private tier", () => {
+test("quickslots are a default bundled extension with no private tier", () => {
     const [configured] = bundledClientExtensionConfigs([]);
 
     expect(configured?.enabled).toBe(true);

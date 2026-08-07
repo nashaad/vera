@@ -848,7 +848,7 @@ test("a finished choice returns to the menu, not to the pane it just answered", 
 
 test("extension picker renders its title, stable rows, and semantic action footer", async () => {
     const state = startTuiExtensionPicker(
-        "Model presets",
+        "Quickslots",
         [
             { id: "fast", label: "Fast", description: "quick model" },
             { id: "deep", label: "Deep", description: "reasoning model" },
@@ -864,7 +864,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
     );
 
     expect(state.kind).toBe("extension");
-    expect(state.title).toBe("Model presets");
+    expect(state.title).toBe("Quickslots");
     expect(state.extensionRows?.map((row) => row.id)).toEqual([
         "fast",
         "deep",
@@ -873,7 +873,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
     expect(state.selectedIndex).toBe(1);
 
     const frame = await pickerFrame(state);
-    expect(frame).toContain("Model presets");
+    expect(frame).toContain("Quickslots");
     expect(frame).toContain("Switching models may make the next turn slower.");
     expect(frame).toContain("Fast");
     expect(frame).toContain("Deep");

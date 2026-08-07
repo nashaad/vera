@@ -7,17 +7,20 @@ import {
 import type { ClientExtensionConfig } from "./client-registry.ts";
 
 const HELP_EXTENSION_ID = "vera.help";
-const MODEL_PRESETS_EXTENSION_ID = "vera.model-presets";
+// The id is the namespace saved slots live under, and the value users name in
+// `disabled_builtin_extensions`. It keeps the pre-quickslot spelling so neither
+// breaks.
+const QUICKSLOT_EXTENSION_ID = "vera.model-presets";
 const REASONING_CYCLE_EXTENSION_ID = "vera.reasoning-cycle";
 
 export function bundledClientExtensionConfigs(
     disabledIds: readonly string[],
 ): readonly ClientExtensionConfig[] {
     const configs: ClientExtensionConfig[] = [];
-    if (!disabledIds.includes(MODEL_PRESETS_EXTENSION_ID)) {
+    if (!disabledIds.includes(QUICKSLOT_EXTENSION_ID)) {
         configs.push({
             path: fileURLToPath(new URL(
-                "../../extensions/model-presets",
+                "../../extensions/quickslot",
                 import.meta.url,
             )),
             enabled: true,
