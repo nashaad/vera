@@ -17,9 +17,10 @@ const EXTENSION = join(
 );
 /** What the agent is told when a seat sits down. */
 function joined(alias: string, model: string): string {
-    return `[${alias} (${model}) joined this conversation as an advisor. It `
-        + "has no tools and sees only the recent thread. Its replies reach you only "
-        + "when quoted into a message like this one.]";
+    return `<system-note>\n${alias} (${model}) joined this conversation as `
+        + "an advisor. It has no tools and sees only the recent thread. Its "
+        + "replies reach the participants only when quoted into a message.\n"
+        + "</system-note>";
 }
 
 const WORKSPACE = "/tmp/workspace";
