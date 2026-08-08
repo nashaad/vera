@@ -601,7 +601,16 @@ export function tuiArgumentCompletion(
         return undefined;
     }
     const completed = sharedPrefix(suggestions);
-    return completed.length > prefix.length ? completed : undefined;
+    if (completed.length > prefix.length) {
+        return completed;
+    }
+    // Nothing left to type and the name is whole: Tab moves past it instead
+    // of doing nothing, so `as <alias>` can be typed straight after.
+    return suggestions.some((value) =>
+            value.toLowerCase() === prefix.toLowerCase()
+        )
+        ? `${prefix} `
+        : undefined;
 }
 
 /** Swaps the half-typed trailing argument for the chosen one. */

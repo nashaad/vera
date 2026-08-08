@@ -148,6 +148,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexShrink: 0,
         flexDirection: "column",
         paddingLeft: 1,
+        // Starts on the transcript's first line, not the frame's.
         paddingTop: 1,
         backgroundColor: theme.panel,
         visible: false,

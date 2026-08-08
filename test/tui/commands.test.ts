@@ -388,8 +388,9 @@ test("argument completion types only what every match shares", () => {
     const models = ["gpt-5.5", "gpt-5.5-codex", "sonnet"];
 
     expect(tuiArgumentCompletion(models, "g")).toBe("gpt-5.5");
-    // Already at the shared prefix: nothing left to type.
-    expect(tuiArgumentCompletion(models, "gpt-5.5")).toBeUndefined();
+    // Whole already: Tab steps past the name rather than doing nothing.
+    expect(tuiArgumentCompletion(models, "gpt-5.5")).toBe("gpt-5.5 ");
+    expect(tuiArgumentCompletion(models, "sonnet")).toBe("sonnet ");
     expect(tuiArgumentCompletion(models, "son")).toBe("sonnet");
     expect(tuiArgumentCompletion(models, "zzz")).toBeUndefined();
 });

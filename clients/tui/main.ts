@@ -264,7 +264,7 @@ import {
     tuiEntryMarginTop,
     type TuiTranscriptEntry,
 } from "./state.ts";
-import { resolveTuiTheme, VERA_TUI_THEME } from "./theme.ts";
+import { resolveTuiTheme, tuiRecessColor, VERA_TUI_THEME } from "./theme.ts";
 import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
@@ -1043,14 +1043,23 @@ export async function startTui(
     const composerBox = createTuiComposerPanel(renderer, composer);
 
     const bodyFocus = new TuiBodyFocusController();
+    // The conversation and everything under it: the sidebar sits beside this
+    // whole column, not just beside the transcript, so the split runs the
+    // full height with no seam under it.
+    const main = new BoxRenderable(renderer, {
+        id: "main",
+        flexGrow: 1,
+        height: "100%",
+        flexDirection: "column",
+        gap: 1,
+        paddingBottom: 0,
+    });
     const app = new BoxRenderable(renderer, {
         id: "app",
         width: "100%",
         height: "100%",
-        flexDirection: "column",
-        gap: 1,
+        flexDirection: "row",
         paddingTop: 1,
-        paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
         onMouseUp: () => {
@@ -1061,10 +1070,10 @@ export async function startTui(
     });
     const sidebar = createTuiSidebar({
         renderer,
-        transcript,
+        transcript: main,
         theme: {
             background: theme.background,
-            panel: theme.panel,
+            panel: tuiRecessColor(theme),
             muted: theme.muted,
             text: TUI_TEXT,
         },
@@ -1080,6 +1089,7 @@ export async function startTui(
         },
         onLayoutChanged: () => renderJumpToBottom(),
     });
+    main.add(transcript);
     app.add(sidebar.body);
     app.add(jumpToBottom);
     const overlayScrim = new BoxRenderable(renderer, {
@@ -1092,7 +1102,7 @@ export async function startTui(
         visible: false,
     });
     app.add(overlayScrim);
-    app.add(queuedPromptText);
+    main.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
@@ -1188,8 +1198,8 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
-    app.add(commandSuggestionsBox);
-    app.add(composerBox);
+    main.add(commandSuggestionsBox);
+    main.add(composerBox);
     app.add(statusText);
     app.add(backgroundStatusText);
     renderer.root.add(app);
