@@ -61,12 +61,19 @@ export interface VeraModelFallbackConfig {
  * Model used by the automatic approval reviewer in `auto`. Every
  * boundary crossing costs one of these calls, so it is configured separately
  * from the agent model rather than inheriting it.
+ *
+ * If escalation_model is configured, the fast model reviews first.
+ * Decisions with high/critical risk or denials are escalated to the
+ * escalation_model for final verification.
  */
 export interface VeraReviewerConfig {
     readonly provider?: VeraProviderId;
     readonly model: string;
     readonly reasoning_effort?: ModelReasoningEffort;
     readonly timeout_ms?: number;
+    readonly escalation_model?: string;
+    readonly escalation_provider?: VeraProviderId;
+    readonly escalation_reasoning_effort?: ModelReasoningEffort;
 }
 
 /**
@@ -634,6 +641,16 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
                 || !Number.isInteger(reviewer.timeout_ms)
                 || reviewer.timeout_ms < 1_000
                 || reviewer.timeout_ms > 600_000))
+        || (reviewer.escalation_model !== undefined
+            && (typeof reviewer.escalation_model !== "string"
+                || reviewer.escalation_model.trim().length === 0))
+        || (reviewer.escalation_provider !== undefined
+            && reviewer.escalation_provider !== "openrouter"
+            && reviewer.escalation_provider !== "openai-codex"
+            && reviewer.escalation_provider !== "ollama"
+            && reviewer.escalation_provider !== "cerebras")
+        || (reviewer.escalation_reasoning_effort !== undefined
+            && !isReasoningEffort(reviewer.escalation_reasoning_effort))
     ) {
         return undefined;
     }
@@ -648,6 +665,15 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeout_ms: reviewer.timeout_ms }),
+        ...(reviewer.escalation_model === undefined
+            ? {}
+            : { escalation_model: reviewer.escalation_model.trim() }),
+        ...(reviewer.escalation_provider === undefined
+            ? {}
+            : { escalation_provider: reviewer.escalation_provider as VeraProviderId }),
+        ...(reviewer.escalation_reasoning_effort === undefined
+            ? {}
+            : { escalation_reasoning_effort: reviewer.escalation_reasoning_effort }),
     };
 }
 
@@ -791,6 +817,22 @@ export function configuredReviewers(
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeoutMs: reviewer.timeout_ms }),
+        ...(reviewer.escalation_model === undefined
+            ? {}
+            : {
+                escalationModel: {
+                    model: reviewer.escalation_model,
+                    ...(reviewer.escalation_provider === undefined
+                        ? {}
+                        : { provider: reviewer.escalation_provider }),
+                    ...(reviewer.escalation_reasoning_effort === undefined
+                        ? {}
+                        : {
+                            reasoningEffort:
+                                reviewer.escalation_reasoning_effort,
+                        }),
+                },
+            }),
     };
     return configured;
 }

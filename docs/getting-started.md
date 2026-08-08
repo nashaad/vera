@@ -62,6 +62,29 @@ of that turn. OpenRouter resolves the configured effort against each model. On
 OpenAI Codex, a backup model Vera has no reasoning mapping for runs without an
 effort, and the primary keeps its own.
 
+## Auto-approval with escalation
+
+In `auto` approval mode, tool calls are reviewed automatically. To save cost,
+you can configure a fast review model that escalates suspicious requests to a
+stronger model for verification:
+
+```json
+{
+  "reviewer": {
+    "model": "anthropic/claude-haiku-4.5",
+    "provider": "openrouter",
+    "escalation_model": "anthropic/claude-opus-5",
+    "escalation_provider": "openrouter"
+  }
+}
+```
+
+The fast reviewer evaluates every request. If it gives a low-risk allow, the
+action proceeds immediately. If the decision is risky (deny, high/critical risk,
+or unclear authorization), the request escalates to the stronger model for a
+final ruling. This two-step flow keeps most reviews cheap while catching edge
+cases that need deeper reasoning.
+
 ## OpenRouter
 
 Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:
