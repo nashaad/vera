@@ -60,6 +60,7 @@ const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
 const CLIENT_CONSULT_CAPABILITY = "client.consult";
 const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
 const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
+const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
 /**
@@ -152,6 +153,14 @@ export interface ClientExtensionSidebarAdapter {
     close(extensionId: string): void;
 }
 
+/**
+ * Names the composer offers after an `@`. The extension owns the list because
+ * only it knows what it named; the client owns the typing.
+ */
+export interface ClientExtensionMentionsAdapter {
+    set(extensionId: string, names: readonly string[]): void;
+}
+
 export interface StartClientExtensionRegistryOptions {
     readonly extensions: readonly ClientExtensionConfig[];
     readonly preferences: ClientExtensionPreferencesAdapter;
@@ -161,6 +170,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly consult?: ClientExtensionConsultAdapter;
     readonly transcript?: ClientExtensionTranscriptAdapter;
     readonly sidebar?: ClientExtensionSidebarAdapter;
+    readonly mentions?: ClientExtensionMentionsAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -265,6 +275,19 @@ interface StatusLineOwner {
     failures: number;
 }
 
+/** A mention is one word: the composer completes a token, not a phrase. */
+function validateMentionNames(names: readonly string[]): readonly string[] {
+    if (!Array.isArray(names)) {
+        throw new Error("Mention names must be an array");
+    }
+    return names.map((name) => {
+        if (typeof name !== "string" || !/^[^\s@]+$/.test(name)) {
+            throw new Error(`Invalid mention name: ${String(name)}`);
+        }
+        return name;
+    });
+}
+
 export async function startClientExtensionRegistry(
     options: StartClientExtensionRegistryOptions,
 ): Promise<ClientExtensionRegistry> {
@@ -316,6 +339,7 @@ export async function startClientExtensionRegistry(
                 consult: options.consult,
                 transcript: options.transcript,
                 sidebar: options.sidebar,
+                mentions: options.mentions,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -581,6 +605,7 @@ interface ActivateClientExtensionOptions {
     readonly consult: ClientExtensionConsultAdapter | undefined;
     readonly transcript: ClientExtensionTranscriptAdapter | undefined;
     readonly sidebar: ClientExtensionSidebarAdapter | undefined;
+    readonly mentions: ClientExtensionMentionsAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
 
@@ -619,6 +644,15 @@ async function activateClientExtension(
             throw new Error("This client has no sidebar");
         }
         return options.sidebar;
+    };
+
+    const requireMentions = (): ClientExtensionMentionsAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_MENTIONS_CAPABILITY);
+        if (options.mentions === undefined) {
+            throw new Error("This client cannot complete mentions");
+        }
+        return options.mentions;
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
@@ -782,6 +816,12 @@ async function activateClientExtension(
                 },
                 close(): void {
                     requireSidebar().close(options.id);
+                },
+            }),
+            mentions: Object.freeze({
+                set(names: readonly string[]): void {
+                    const adapter = requireMentions();
+                    adapter.set(options.id, validateMentionNames(names));
                 },
             }),
         }),

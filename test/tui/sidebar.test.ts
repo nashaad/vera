@@ -17,7 +17,7 @@ test("the divider cannot be dragged past either side's floor", () => {
     );
     expect(clampSidebarWidth(2, 120)).toBe(MIN_SIDEBAR_WIDTH);
     // 120 - 30 transcript - 3 divider.
-    expect(clampSidebarWidth(500, 120)).toBe(87);
+    expect(clampSidebarWidth(500, 120)).toBe(89);
     expect(clampSidebarWidth(40.4, 120)).toBe(40);
 });
 
@@ -63,7 +63,7 @@ test("a drag that jumps clear of the divider still resizes the sidebar", async (
     const { setup, sidebar } = await openSidebar();
     try {
         // The divider sits between the transcript and the panel.
-        const dividerX = 120 - sidebar.width() - 2;
+        const dividerX = 120 - sidebar.width() - 1;
         await setup.flush();
         await setup.mockMouse.pressDown(dividerX, 5);
         // One report, landing well inside the transcript: what a fast drag or
@@ -102,7 +102,7 @@ test("a settled drag reports the width once", async () => {
     setup.renderer.root.add(sidebar.body);
     sidebar.open();
     try {
-        const dividerX = 120 - sidebar.width() - 2;
+        const dividerX = 120 - sidebar.width() - 1;
         await setup.flush();
         await setup.mockMouse.pressDown(dividerX, 5);
         await setup.mockMouse.emitMouseEvent("drag", 60, 5);

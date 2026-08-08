@@ -22,6 +22,8 @@ interface Harness {
     readonly blocks: VeraClientTranscriptBlock[];
     readonly notices: string[];
     readonly sidebar: { open: boolean; readonly blocks: VeraClientTranscriptBlock[] };
+    /** The last list of names the extension offered the composer. */
+    readonly mentions: string[];
     /** Resolves once every consult fired so far has posted its block. */
     settle(): Promise<void>;
 }
@@ -31,6 +33,7 @@ async function start(): Promise<Harness> {
     const blocks: VeraClientTranscriptBlock[] = [];
     const notices: string[] = [];
     const answers: Promise<unknown>[] = [];
+    let mentions: string[] = [];
     const sidebar: {
         open: boolean;
         readonly blocks: VeraClientTranscriptBlock[];
@@ -57,6 +60,11 @@ async function start(): Promise<Harness> {
             },
         },
         notice: { post: (_id, text) => notices.push(text) },
+        mentions: {
+            set(_id, names) {
+                mentions = [...names];
+            },
+        },
         transcript: { append: (_id, block) => blocks.push(block) },
         sidebar: {
             open() {
@@ -88,6 +96,9 @@ async function start(): Promise<Harness> {
     return {
         registry,
         consults,
+        get mentions() {
+            return mentions;
+        },
         blocks,
         notices,
         sidebar,
@@ -111,7 +122,7 @@ test("with no seats added every message goes straight to the agent", async () =>
     await harness.registry.close();
 });
 
-test("an addressed message goes to that seat alone and makes it incumbent", async () => {
+test("an addressed message goes to that seat alone, and only that one", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
 
@@ -126,21 +137,39 @@ test("an addressed message goes to that seat alone and makes it incumbent", asyn
     expect(harness.sidebar.blocks).toEqual([
         // Seating the model fills the column before it has said anything.
         { label: "m1 (gpt-5.5)", text: "Seated. Ask with @m1, or @all." },
+        // What was asked is filed beside what came back.
+        { label: "you \u2192 @m1", text: "what do you think" },
         { label: "m1 (gpt-5.5)", text: "gpt-5.5 says so" },
     ]);
     // The transcript stays the agent's: the seats talk beside it.
     expect(harness.blocks).toEqual([]);
 
-    // The bare follow-up stays with the seat that answered last.
+    // Addressing a seat is per message: the next one goes to the agent.
     expect(await harness.registry.interceptMessage({
         text: "say more",
         workspace: WORKSPACE,
         imageCount: 0,
-    })).toEqual({ kind: "handled" });
+    })).toEqual({
+        kind: "replace",
+        text: "[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\nsay more",
+    });
     await harness.settle();
-    expect(harness.consults).toHaveLength(2);
-    expect(harness.consults[1]?.messages.map((message) => message.content))
-        .toEqual(["what do you think", "gpt-5.5 says so", "say more"]);
+    expect(harness.consults).toHaveLength(1);
+    await harness.registry.close();
+});
+
+test("seats are offered to the composer as mentions", async () => {
+    const harness = await start();
+    expect(harness.mentions).toEqual([]);
+
+    await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
+    expect(harness.mentions).toEqual(["m1", "all"]);
+
+    await harness.registry.invokeCommand("add", "glm-5.2 as m2", WORKSPACE);
+    expect(harness.mentions).toEqual(["m1", "m2", "all"]);
+
+    await harness.registry.invokeCommand("drop", "m1", WORKSPACE);
+    expect(harness.mentions).toEqual(["m2", "all"]);
     await harness.registry.close();
 });
 
@@ -161,6 +190,8 @@ test("@all asks every seat at once and hands the agent the same message", async 
         .toEqual([
             "Seated. Ask with @m1, or @all.",
             "Seated. Ask with @m2, or @all.",
+            "which way",
+            "which way",
             "gpt-5.5 says so",
             "glm-5.2 says so",
         ]);

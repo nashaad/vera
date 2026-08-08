@@ -15,12 +15,8 @@ export const MIN_SIDEBAR_WIDTH = 20;
 /** The transcript keeps at least this much, whatever the divider is dragged to. */
 export const MIN_TRANSCRIPT_WIDTH = 30;
 export const DEFAULT_SIDEBAR_WIDTH = 44;
-/**
- * The divider draws nothing: the sidebar is its own colour, and these three
- * columns are only the grab target, because a one-column target is a line
- * rather than a handle.
- */
-const DIVIDER_WIDTH = 3;
+/** The grab strip: one column, so it reads as an edge and not as a bar. */
+const DIVIDER_WIDTH = 1;
 
 /**
  * Under this the split has no room for both halves, so the sidebar steps
@@ -155,8 +151,10 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexShrink: 0,
         flexDirection: "column",
         paddingLeft: 1,
-        // Starts on the transcript's first line, not the frame's.
+        // Starts on the transcript's first line, not the frame's, and keeps a
+        // line at the foot so the last block does not sit on the edge.
         paddingTop: 1,
+        paddingBottom: 1,
         backgroundColor: theme.panel,
         visible: false,
     });

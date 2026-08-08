@@ -1,8 +1,9 @@
 // One thread, several models.
 //
 // `/add <model> as <alias>` puts a second model in the conversation. From then
-// on `@alias` sends the message to that model, `@all` sends it to every model
-// at once, and a bare message goes to whoever answered last.
+// on `@alias` sends the message to that model and `@all` sends it to every
+// model at once. A message with no `@` goes to the agent, every time: talking
+// to a seat is something you ask for per message, not a mode you enter.
 //
 // The extra seats advise: they have no tools and nothing they say is written
 // to the session. What reaches the agent is the next message you write, with
@@ -23,7 +24,15 @@ export function activateClient(vera: any): void {
     let sidebarOpen = false;
     /** Replies each participant has not been shown yet, oldest first. */
     const unread = new Map<string, string[]>([[AGENT, []]]);
-    let incumbent = AGENT;
+
+    /** The composer completes these after an `@`. */
+    function offerMentions(): void {
+        try {
+            vera.ui.mentions.set([...seats.keys(), "all"]);
+        } catch {
+            // This client does not complete mentions. Typing still works.
+        }
+    }
 
     function takeUnread(participant: string): string {
         const waiting = unread.get(participant) ?? [];
@@ -42,6 +51,11 @@ export function activateClient(vera: any): void {
     }
 
     async function ask(seat: Seat, text: string): Promise<void> {
+        // What was asked, beside what came back: the column is a conversation,
+        // not a list of answers to questions that are somewhere else.
+        if (sidebarOpen) {
+            vera.ui.sidebar.append({ label: `you \u2192 @${seat.alias}`, text });
+        }
         seat.lane.push({
             role: "user",
             content: `${takeUnread(seat.alias)}${text}`,
@@ -99,6 +113,7 @@ export function activateClient(vera: any): void {
             }
             seats.set(alias, { alias, model, lane: [] });
             unread.set(alias, []);
+            offerMentions();
             if (!sidebarOpen) {
                 try {
                     vera.ui.sidebar.open();
@@ -125,17 +140,12 @@ export function activateClient(vera: any): void {
         usage: "/seats",
         run() {
             const rows = [...seats.values()].map((seat) =>
-                `@${seat.alias} ${seat.model}${
-                    incumbent === seat.alias ? " (incumbent)" : ""
-                }`
+                `@${seat.alias} ${seat.model}`
             );
             vera.ui.notice(
                 rows.length === 0
                     ? "No extra seats. /add <model> as <alias> adds one."
-                    : [
-                        `agent${incumbent === AGENT ? " (incumbent)" : ""}`,
-                        ...rows,
-                    ].join(" · "),
+                    : ["agent", ...rows].join(" · "),
             );
         },
     });
@@ -150,7 +160,7 @@ export function activateClient(vera: any): void {
                 throw new Error(`No seat named ${alias}`);
             }
             unread.delete(alias);
-            if (incumbent === alias) incumbent = AGENT;
+            offerMentions();
             if (seats.size === 0 && sidebarOpen) {
                 vera.ui.sidebar.close();
                 sidebarOpen = false;
@@ -167,11 +177,9 @@ export function activateClient(vera: any): void {
 
         if (target === "all") {
             for (const seat of seats.values()) void ask(seat, text);
-            incumbent = AGENT;
             return { kind: "replace", text: `${takeUnread(AGENT)}${text}` };
         }
         if (target !== undefined && seats.has(target)) {
-            incumbent = target;
             void ask(seats.get(target)!, text);
             return { kind: "handled" };
         }
@@ -179,11 +187,6 @@ export function activateClient(vera: any): void {
             // Held rather than passed through: a typo'd alias sent to the
             // agent is the one outcome nobody wanted.
             vera.ui.notice(`No seat named @${target}`);
-            return { kind: "handled" };
-        }
-        if (target === AGENT) incumbent = AGENT;
-        if (incumbent !== AGENT) {
-            void ask(seats.get(incumbent)!, text);
             return { kind: "handled" };
         }
         return { kind: "replace", text: `${takeUnread(AGENT)}${text}` };

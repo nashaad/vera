@@ -687,6 +687,8 @@ export async function startTui(
     let commandSuggestionIndex = 0;
     /** The argument values on offer, empty whenever the list is commands. */
     let argumentSuggestions: readonly string[] = [];
+    /** Names an extension offers after an `@`, replaced wholesale. */
+    let extensionMentions: readonly string[] = [];
     let workingSince: number | undefined;
     let phaseSince: number | undefined;
     let activity = "thinking";
@@ -800,6 +802,12 @@ export async function startTui(
                 sidebarOwner = undefined;
                 sidebar.close();
                 renderState();
+            },
+        },
+        mentions: {
+            set(_extensionId, names) {
+                extensionMentions = names;
+                renderCommandSuggestions();
             },
         },
         transcript: {
@@ -1615,14 +1623,13 @@ export async function startTui(
                 return;
             }
             if (key.name === "return" || key.name === "enter") {
-                const argument = commandRegistry
-                    .argumentPrefix(composer.plainText);
+                const typed = activeCompletion()?.prefix;
                 const selected = argumentSuggestions[commandSuggestionIndex];
                 // Already typed whole: there is nothing left to choose, so
                 // Enter sends the command instead of re-inserting the name.
                 if (
                     selected !== undefined
-                    && selected.toLowerCase() !== argument?.prefix.toLowerCase()
+                    && selected.toLowerCase() !== typed?.toLowerCase()
                 ) {
                     key.preventDefault();
                     key.stopPropagation();
@@ -1693,11 +1700,11 @@ export async function startTui(
         }
 
         if (tuiBindingId("composer", key) === "complete_command") {
-            const argument = commandRegistry.argumentPrefix(composer.plainText);
-            if (argument !== undefined) {
+            const completing = activeCompletion();
+            if (completing !== undefined) {
                 const completed = tuiArgumentCompletion(
-                    pooledModelNames(),
-                    argument.prefix,
+                    completing.values,
+                    completing.prefix,
                 );
                 key.preventDefault();
                 key.stopPropagation();
@@ -4957,15 +4964,37 @@ export async function startTui(
         return names;
     }
 
+    /**
+     * The half-typed token the composer can finish, and what it completes
+     * from. A command argument comes from the pool; an `@` comes from whoever
+     * claimed mentions.
+     */
+    function activeCompletion(): {
+        prefix: string;
+        values: readonly string[];
+    } | undefined {
+        const argument = commandRegistry.argumentPrefix(composer.plainText);
+        if (argument !== undefined) {
+            return { prefix: argument.prefix, values: pooledModelNames() };
+        }
+        if (extensionMentions.length === 0) return undefined;
+        const mention = /(?:^|\s)(@\S*)$/.exec(composer.plainText);
+        if (mention === null) return undefined;
+        return {
+            prefix: mention[1] ?? "",
+            values: extensionMentions.map((name) => `@${name}`),
+        };
+    }
+
     function renderCommandSuggestions(): void {
         if (composer.plainText.length === 0) {
             commandSuggestionIndex = 0;
         }
-        const argument = commandRegistry.argumentPrefix(composer.plainText);
-        if (argument !== undefined) {
+        const completing = activeCompletion();
+        if (completing !== undefined) {
             argumentSuggestions = tuiArgumentSuggestions(
-                pooledModelNames(),
-                argument.prefix,
+                completing.values,
+                completing.prefix,
             );
             commandSuggestionIndex = Math.min(
                 commandSuggestionIndex,
