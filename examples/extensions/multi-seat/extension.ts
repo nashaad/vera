@@ -20,6 +20,7 @@ interface Seat {
 
 export function activateClient(vera: any): void {
     const seats = new Map<string, Seat>();
+    let sidebarOpen = false;
     /** Replies each participant has not been shown yet, oldest first. */
     const unread = new Map<string, string[]>([[AGENT, []]]);
     let incumbent = AGENT;
@@ -52,10 +53,17 @@ export function activateClient(vera: any): void {
             });
             seat.lane.push({ role: "assistant", content: answer.text });
             fileReply(seat.alias, seat.model, answer.text);
-            vera.ui.transcript({
+            const block = {
                 label: `${seat.alias} (${seat.model})`,
                 text: answer.text,
-            });
+            };
+            // Beside the transcript when there is a sidebar to put it in, so
+            // the thread stays readable while the seats talk.
+            if (sidebarOpen) {
+                vera.ui.sidebar.append(block);
+            } else {
+                vera.ui.transcript(block);
+            }
         } catch (error) {
             // The seat keeps its lane: a failed round is a gap, not a reset.
             vera.ui.notice(
@@ -82,6 +90,15 @@ export function activateClient(vera: any): void {
             }
             seats.set(alias, { alias, model, lane: [] });
             unread.set(alias, []);
+            if (!sidebarOpen) {
+                try {
+                    vera.ui.sidebar.open("Seats");
+                    sidebarOpen = true;
+                } catch {
+                    // Another extension has it, or this client has none. The
+                    // replies land in the transcript instead.
+                }
+            }
             vera.ui.notice(`@${alias} is ${model}. @all asks everyone.`);
         },
     });
@@ -118,6 +135,10 @@ export function activateClient(vera: any): void {
             }
             unread.delete(alias);
             if (incumbent === alias) incumbent = AGENT;
+            if (seats.size === 0 && sidebarOpen) {
+                vera.ui.sidebar.close();
+                sidebarOpen = false;
+            }
             vera.ui.notice(`@${alias} left`);
         },
     });

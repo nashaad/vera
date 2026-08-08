@@ -94,6 +94,7 @@ import {
     createTuiQuestionView,
 } from "./question.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
+import { createTuiSidebar } from "./sidebar.ts";
 import { renderTuiDiagnostics } from "./diagnostics.ts";
 import {
     defaultStashRoot,
@@ -264,6 +265,8 @@ import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
+    loadTuiSidebarWidth,
+    saveTuiSidebarWidth,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
     loadTuiExtensionPreference,
@@ -557,6 +560,7 @@ export async function startTui(
     const activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
     const activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
+    const sidebarWidth = loadTuiSidebarWidth();
     let theme = await resolveTuiTheme(renderer, themeName);
     applyTuiTheme(theme);
 
@@ -706,6 +710,8 @@ export async function startTui(
         readonly resolve: (result: VeraClientConsultResult) => void;
         readonly reject: (reason: Error) => void;
     }>();
+    /** Which extension holds the sidebar, absent while nobody does. */
+    let sidebarOwner: string | undefined;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -757,6 +763,32 @@ export async function startTui(
         consult: {
             request: (_extensionId, request, signal) =>
                 requestExtensionConsult(request, signal),
+        },
+        sidebar: {
+            open(extensionId, title) {
+                if (
+                    sidebarOwner !== undefined && sidebarOwner !== extensionId
+                ) {
+                    throw new Error(`${sidebarOwner} is using the sidebar`);
+                }
+                sidebarOwner = extensionId;
+                sidebar.open(title);
+                renderState();
+            },
+            append(extensionId, block) {
+                requireSidebarOwner(extensionId);
+                sidebar.append(block.label, block.text);
+            },
+            clear(extensionId) {
+                requireSidebarOwner(extensionId);
+                sidebar.clear();
+            },
+            close(extensionId) {
+                requireSidebarOwner(extensionId);
+                sidebarOwner = undefined;
+                sidebar.close();
+                renderState();
+            },
         },
         transcript: {
             append(_extensionId, block) {
@@ -1021,7 +1053,28 @@ export async function startTui(
             }
         },
     });
-    app.add(transcript);
+    const sidebar = createTuiSidebar({
+        renderer,
+        transcript,
+        theme: {
+            background: theme.background,
+            border: theme.element,
+            muted: theme.muted,
+            text: TUI_TEXT,
+        },
+        syntaxStyle: markdownStyle,
+        ...(sidebarWidth === undefined ? {} : { initialWidth: sidebarWidth }),
+        onWidthChanged: (columns) => {
+            try {
+                saveTuiSidebarWidth(columns);
+            } catch {
+                // A width that could not be saved is not worth interrupting a
+                // drag over; the sidebar keeps it for this session.
+            }
+        },
+        onLayoutChanged: () => renderJumpToBottom(),
+    });
+    app.add(sidebar.body);
     app.add(jumpToBottom);
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
@@ -2971,6 +3024,12 @@ export async function startTui(
                 reject(error);
             });
         });
+    }
+
+    function requireSidebarOwner(extensionId: string): void {
+        if (sidebarOwner !== extensionId) {
+            throw new Error("The sidebar is not open for this extension");
+        }
     }
 
     function requestExtensionConsult(

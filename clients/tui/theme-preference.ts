@@ -23,6 +23,7 @@ interface TuiClientPreferences {
     readonly recent_session_id?: string;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
+    readonly sidebar_width?: number;
     // Spelled as it was when quickslots were called presets. Respelling the key
     // would leave every already-saved slot unreadable.
     readonly model_presets?: DiskQuickslots;
@@ -93,6 +94,22 @@ export function loadTuiActivityAnimationWidthPreference(
     path = tuiThemePreferencePath(),
 ): number | undefined {
     return loadTuiClientPreferences(path).animation_width;
+}
+
+export function loadTuiSidebarWidth(
+    path = tuiThemePreferencePath(),
+): number | undefined {
+    return loadTuiClientPreferences(path).sidebar_width;
+}
+
+export function saveTuiSidebarWidth(
+    columns: number,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        sidebar_width: columns,
+    }, path);
 }
 
 export function loadTuiQuickslots(
@@ -190,6 +207,11 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             // Absent quickslots stay absent rather than becoming four nulls, so
             // saving an unrelated preference does not grow the file with a
             // block the user never asked for.
+            const sidebarWidth = boundedInteger(
+                Reflect.get(value, "sidebar_width"),
+                20,
+                400,
+            );
             const quickslots = Reflect.get(value, "model_presets");
             const extensions = parseExtensionPreferences(
                 Reflect.get(value, "extensions"),
@@ -207,6 +229,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                     ? {}
                     : { animation_interval_ms: interval }),
                 ...(width === undefined ? {} : { animation_width: width }),
+                ...(sidebarWidth === undefined
+                    ? {}
+                    : { sidebar_width: sidebarWidth }),
                 ...(Array.isArray(quickslots)
                     ? {
                         model_presets: quickslotsForDisk(

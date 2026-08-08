@@ -310,6 +310,22 @@ export interface VeraClientExtensionUi {
      * Capability: `client.ui.transcript`.
      */
     transcript(block: VeraClientTranscriptBlock): void;
+    /**
+     * A region beside the transcript that this extension owns while it is
+     * open. One extension holds it at a time; opening it while another has it
+     * fails rather than taking it.
+     *
+     * Capability: `client.ui.sidebar`.
+     */
+    readonly sidebar: VeraClientExtensionSidebar;
+}
+
+export interface VeraClientExtensionSidebar {
+    open(title: string): void;
+    /** Adds a block to the bottom. Empty label or text is refused. */
+    append(block: VeraClientTranscriptBlock): void;
+    clear(): void;
+    close(): void;
 }
 
 export interface VeraClientExtensionKeybindings {
