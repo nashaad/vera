@@ -1189,7 +1189,7 @@ test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
     expect(folded.options.at(-1)?.label).toBe("openrouter (2)");
 });
 
-test("← closes a section and → opens it, and neither moves on a model row", () => {
+test("← closes a section and → opens it, from the heading or a row under it", () => {
     const state = { ...allTabWithRecommendations(), selectedIndex: 0 };
 
     const closed = handleTuiSettingsPickerKey(state, { name: "left" }).state!;
@@ -1201,9 +1201,12 @@ test("← closes a section and → opens it, and neither moves on a model row", 
     const open = handleTuiSettingsPickerKey(closed, { name: "right" }).state!;
     expect(open.collapsed).toEqual(["openrouter"]);
 
+    // From inside a section, ← closes the section the row belongs to rather
+    // than asking the user to walk back up to its heading first.
     const onModel = { ...state, selectedIndex: 1 };
-    expect(handleTuiSettingsPickerKey(onModel, { name: "left" }).handled)
-        .toBe(false);
+    const foldedFromRow = handleTuiSettingsPickerKey(onModel, { name: "left" });
+    expect(foldedFromRow.handled).toBe(true);
+    expect(foldedFromRow.state!.collapsed).toEqual(["openrouter", "Top picks"]);
 });
 
 test("⇧← folds every section and ⇧→ opens every one", () => {
