@@ -112,6 +112,52 @@ test("the repo's shipped copy parses", () => {
     expect(loadShippedModelFeed()).toBeDefined();
 });
 
+test("the repo's shipped copy carries curated rows, not an empty list", () => {
+    const shipped = loadShippedModelFeed();
+
+    expect(shipped?.models.length).toBeGreaterThan(0);
+    for (const model of shipped?.models ?? []) {
+        expect(model.provider.length).toBeGreaterThan(0);
+        expect(model.model.length).toBeGreaterThan(0);
+        expect(Number.isNaN(Date.parse(model.verified_at))).toBe(false);
+    }
+});
+
+test("the shipped copy stops vouching once it ages past the window", () => {
+    const shipped = loadShippedModelFeed();
+    const first = shipped?.models.find((model) => model.verdict === "added");
+    const stale = new Date(
+        Date.parse(first?.verified_at ?? VERIFIED_AT)
+        + FEED_FRESHNESS_MS
+        + 1_000,
+    );
+
+    expect(freshFeedRow(
+        shipped as ModelFeed,
+        first?.provider ?? "",
+        first?.model ?? "",
+        stale,
+    )).toBeUndefined();
+});
+
+test("a null optional field reads as absent rather than dropping the row", () => {
+    const parsed = parseModelFeed({
+        schema_version: 1,
+        generated_at: VERIFIED_AT,
+        models: [{
+            ...row(),
+            provider_default_level: null,
+            reason: null,
+            response_model: null,
+        }],
+    });
+
+    expect(parsed?.models).toHaveLength(1);
+    expect(parsed?.models[0]?.provider_default_level).toBeUndefined();
+    expect(parsed?.models[0]?.response_model).toBeUndefined();
+    expect(parsed?.models[0]?.reason).toBeUndefined();
+});
+
 test("a malformed row is dropped without costing the rest of the feed", () => {
     const parsed = parseModelFeed({
         schema_version: 1,
