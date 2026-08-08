@@ -519,7 +519,9 @@ function applyCompaction(
     update: CompactionUpdate,
 ): TuiState {
     if (update.phase === "started") {
-        return state;
+        return update.warning === undefined
+            ? state
+            : appendTuiNotice(state, update.warning);
     }
     if (update.outcome === "compacted") {
         return appendTuiNotice(
@@ -540,7 +542,9 @@ function applyCompaction(
         return appendTuiNotice(
             state,
             "Could not summarize: the model's context window is not known, "
-                + "so there is no size to summarize down to.",
+                + "so there is no size to summarize down to. Set "
+                + "compaction.target_tokens or compaction.trigger_tokens to "
+                + "give it one.",
         );
     }
     if (update.outcome === "no_boundary") {
