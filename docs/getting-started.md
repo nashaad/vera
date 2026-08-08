@@ -65,7 +65,7 @@ effort, and the primary keeps its own.
 ## Auto-approval with escalation
 
 In `auto` approval mode, tool calls are reviewed automatically. To save cost,
-you can configure a fast review model that escalates suspicious requests to a
+you can configure a fast review model that escalates uncertain requests to a
 stronger model for verification:
 
 ```json
@@ -74,16 +74,19 @@ stronger model for verification:
     "model": "anthropic/claude-haiku-4.5",
     "provider": "openrouter",
     "escalation_model": "anthropic/claude-opus-5",
-    "escalation_provider": "openrouter"
+    "escalation_provider": "openrouter",
+    "escalation_reasoning_effort": "high"
   }
 }
 ```
 
-The fast reviewer evaluates every request. If it gives a low-risk allow, the
-action proceeds immediately. If the decision is risky (deny, high/critical risk,
-or unclear authorization), the request escalates to the stronger model for a
-final ruling. This two-step flow keeps most reviews cheap while catching edge
-cases that need deeper reasoning.
+The fast reviewer rates its confidence (0-1 scale) in every decision. If
+confidence meets the threshold (default 0.8), the decision stands immediately.
+If confidence is lower, the request escalates to the stronger model for a
+confident final ruling. This approach lets the weaker model admit uncertainty
+and get expert verification, rather than trying to detect edge cases it doesn't
+understand. Most reviews stay fast and cheap; uncertain cases get the attention
+they need.
 
 ## OpenRouter
 
