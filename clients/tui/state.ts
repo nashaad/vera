@@ -1632,7 +1632,35 @@ function preserveLiveReviewEntries(
             entry.kind !== "thought" && entry.kind !== "thinking"
         )
         : canonical;
-    return restoreReasoningEntries(base, anchoredReasoningEntries(current));
+    return restoreReasoningEntries(
+        restoreDimmedPrefixes(base, current),
+        anchoredReasoningEntries(current),
+    );
+}
+
+/**
+ * A history rebuild carries the message the agent was sent, which is the
+ * replaced text; how much of it an extension injected is only known here. The
+ * live entry keeps that measure, so a rebuilt row takes it back by text.
+ */
+function restoreDimmedPrefixes(
+    rebuilt: readonly TuiTranscriptEntry[],
+    live: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    const dimmed = new Map<string, number>();
+    for (const entry of live) {
+        if (entry.kind === "user" && entry.dimmedPrefix !== undefined) {
+            dimmed.set(entry.text, entry.dimmedPrefix);
+        }
+    }
+    if (dimmed.size === 0) return rebuilt;
+    return rebuilt.map((entry) => {
+        if (entry.kind !== "user" || entry.dimmedPrefix !== undefined) {
+            return entry;
+        }
+        const prefix = dimmed.get(entry.text);
+        return prefix === undefined ? entry : { ...entry, dimmedPrefix: prefix };
+    });
 }
 
 interface AnchoredReasoning {
