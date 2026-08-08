@@ -323,6 +323,32 @@ test("the agent is told the last seat left, once the room is empty", async () =>
     await harness.registry.close();
 });
 
+test("a resumed conversation is told its old seats are gone", async () => {
+    const harness = await start();
+    // What a resumed thread carries: the note from a seating that happened
+    // before the restart, with no seat behind it any more.
+    harness.thread.push({
+        role: "user",
+        text: `${joined("m1", "gpt-5.5")}\n\nhello`,
+    });
+    const decision = await harness.registry.interceptMessage({
+        text: "still there?",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    expect(decision).toMatchObject({ kind: "replace" });
+    const text = (decision as { text: string }).text;
+    expect(text).toContain("seats do not survive a restart");
+    expect(text.endsWith("still there?")).toBe(true);
+    // Said once: the next message is the user's own words again.
+    expect(await harness.registry.interceptMessage({
+        text: "ok",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    await harness.registry.close();
+});
+
 test("removing every seat is one command, since the composer offers `all`", async () => {
     const harness = await start({ maxSeats: 2 });
     await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
