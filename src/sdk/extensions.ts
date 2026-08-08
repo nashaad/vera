@@ -104,6 +104,11 @@ export interface VeraClientExtensionCommandSpec {
     readonly palette?: VeraClientExtensionPaletteEntry;
     /** Human interaction owns the lifetime; TUI close still cancels it. */
     readonly interactive?: boolean;
+    /**
+     * What the first argument names, so the client can complete it. The
+     * client owns the list: `model` completes from the model pool.
+     */
+    readonly arguments?: "model";
     readonly run: VeraClientExtensionCommandHandler;
 }
 

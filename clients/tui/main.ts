@@ -121,7 +121,11 @@ import {
     createConfiguredBuiltinTuiCommandRegistry,
     extensionCommandResultText,
     registerExtensionTuiCommands,
+    renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
+    tuiArgumentCompletion,
+    tuiArgumentSuggestions,
+    tuiWithArgument,
     type TuiCommandAction,
     type TuiPaletteEntry,
 } from "./commands.ts";
@@ -675,6 +679,8 @@ export async function startTui(
     } | undefined;
     let sessionTrashPending = false;
     let commandSuggestionIndex = 0;
+    /** The argument values on offer, empty whenever the list is commands. */
+    let argumentSuggestions: readonly string[] = [];
     let workingSince: number | undefined;
     let phaseSince: number | undefined;
     let activity = "thinking";
@@ -1576,6 +1582,43 @@ export async function startTui(
         }
 
         if (
+            argumentSuggestions.length > 0
+            && commandSuggestionsBox.visible
+            && !key.ctrl
+            && !key.meta
+            && !key.super
+            && !key.hyper
+            && !key.shift
+        ) {
+            if (key.name === "up" || key.name === "down") {
+                key.preventDefault();
+                key.stopPropagation();
+                commandSuggestionIndex = key.name === "up"
+                    ? Math.max(0, commandSuggestionIndex - 1)
+                    : Math.min(
+                        argumentSuggestions.length - 1,
+                        commandSuggestionIndex + 1,
+                    );
+                renderCommandSuggestions();
+                return;
+            }
+            if (key.name === "return" || key.name === "enter") {
+                const selected = argumentSuggestions[commandSuggestionIndex];
+                if (selected !== undefined) {
+                    key.preventDefault();
+                    key.stopPropagation();
+                    // Chosen, not sent: the rest of the command is still
+                    // being typed.
+                    composer.setComposerText(
+                        tuiWithArgument(composer.plainText, selected),
+                    );
+                    renderCommandSuggestions();
+                    return;
+                }
+            }
+        }
+
+        if (
             composer.plainText === "/"
             && commandSuggestionsBox.visible
             && !key.ctrl
@@ -1631,6 +1674,22 @@ export async function startTui(
         }
 
         if (tuiBindingId("composer", key) === "complete_command") {
+            const argument = commandRegistry.argumentPrefix(composer.plainText);
+            if (argument !== undefined) {
+                const completed = tuiArgumentCompletion(
+                    pooledModelNames(),
+                    argument.prefix,
+                );
+                key.preventDefault();
+                key.stopPropagation();
+                if (completed !== undefined) {
+                    composer.setComposerText(
+                        tuiWithArgument(composer.plainText, completed),
+                    );
+                    renderCommandSuggestions();
+                }
+                return;
+            }
             const completion = commandRegistry.completion(composer.plainText);
             if (completion !== undefined) {
                 key.preventDefault();
@@ -4832,10 +4891,45 @@ export async function startTui(
         renderState();
     }
 
+    /** Every name the user could type for a pooled model, ids included. */
+    function pooledModelNames(): readonly string[] {
+        const names: string[] = [];
+        for (const entry of state.modelSettings?.pooled ?? []) {
+            if (entry.poolName !== undefined) {
+                names.push(entry.poolName);
+            }
+            names.push(entry.model);
+        }
+        return names;
+    }
+
     function renderCommandSuggestions(): void {
         if (composer.plainText.length === 0) {
             commandSuggestionIndex = 0;
         }
+        const argument = commandRegistry.argumentPrefix(composer.plainText);
+        if (argument !== undefined) {
+            argumentSuggestions = tuiArgumentSuggestions(
+                pooledModelNames(),
+                argument.prefix,
+            );
+            commandSuggestionIndex = Math.min(
+                commandSuggestionIndex,
+                Math.max(0, argumentSuggestions.length - 1),
+            );
+            commandSuggestionsText.content = renderTuiArgumentSuggestions(
+                argumentSuggestions,
+                commandSuggestionIndex,
+            );
+            commandSuggestionsBox.height = Math.max(
+                1,
+                argumentSuggestions.length,
+            );
+            commandSuggestionsBox.visible = argumentSuggestions.length > 0
+                && overlaysClearOfSuggestions();
+            return;
+        }
+        argumentSuggestions = [];
         const suggestions = commandRegistry.suggestions(composer.plainText);
         commandSuggestionIndex = Math.min(
             commandSuggestionIndex,
@@ -4852,7 +4946,11 @@ export async function startTui(
             ? suggestions.length
             : 1;
         commandSuggestionsBox.visible = suggestions.length > 0
-            && pendingUiRequest === undefined
+            && overlaysClearOfSuggestions();
+    }
+
+    function overlaysClearOfSuggestions(): boolean {
+        return pendingUiRequest === undefined
             && timelinePicker === undefined
             && settingsPicker === undefined
             && commandPalette === undefined

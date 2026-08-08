@@ -78,6 +78,7 @@ export function activateClient(vera: any): void {
         name: "add",
         description: "Add a model to this conversation as another seat",
         usage: "/add <model> as <alias>",
+        arguments: "model",
         run({ argumentsText }: { argumentsText: string }) {
             const match = /^(\S+)(?:\s+as\s+(\S+))?$/.exec(argumentsText.trim());
             if (match === null) {

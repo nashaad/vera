@@ -7,8 +7,11 @@ import {
     extensionCommandResultText,
     registerExtensionTuiCommands,
     renderTuiCommandSuggestions,
+    tuiArgumentCompletion,
+    tuiArgumentSuggestions,
     tuiCommandSuggestionsText,
     TuiCommandRegistry,
+    tuiWithArgument,
 } from "../../clients/tui/commands.ts";
 
 test("built-in TUI commands match the public command catalog", () => {
@@ -334,4 +337,64 @@ test("the bundled quickslot can be explicitly disabled for a replacement", () =>
     expect(registry.registeredPaletteActions().some(
         (action) => action.name === "quickslot",
     )).toBe(false);
+});
+
+test("only a declaring command completes its first argument", () => {
+    const registry = new TuiCommandRegistry();
+    registerExtensionTuiCommands(registry, [
+        {
+            name: "add",
+            description: "Add a seat",
+            usage: "/add <model> as <alias>",
+            source: "multi-seat",
+            arguments: "model",
+        },
+        {
+            name: "drop",
+            description: "Drop a seat",
+            usage: "/drop <alias>",
+            source: "multi-seat",
+        },
+    ], "client");
+
+    expect(registry.argumentPrefix("/add gpt")).toEqual({
+        kind: "model",
+        prefix: "gpt",
+    });
+    expect(registry.argumentPrefix("/add ")).toEqual({
+        kind: "model",
+        prefix: "",
+    });
+    // Past the first argument, and on a command that asks for nothing.
+    expect(registry.argumentPrefix("/add gpt-5.5 as m1")).toBeUndefined();
+    expect(registry.argumentPrefix("/drop m1")).toBeUndefined();
+    expect(registry.argumentPrefix("/add")).toBeUndefined();
+    expect(registry.argumentPrefix("hello /add gpt")).toBeUndefined();
+});
+
+test("argument suggestions put prefix matches ahead of the rest", () => {
+    const models = ["sonnet", "openai/gpt-5.5", "gpt-5.5-codex"];
+
+    expect(tuiArgumentSuggestions(models, "")).toEqual(models);
+    expect(tuiArgumentSuggestions(models, "gpt")).toEqual([
+        "gpt-5.5-codex",
+        "openai/gpt-5.5",
+    ]);
+    expect(tuiArgumentSuggestions(models, "SON")).toEqual(["sonnet"]);
+    expect(tuiArgumentSuggestions(models, "zzz")).toEqual([]);
+});
+
+test("argument completion types only what every match shares", () => {
+    const models = ["gpt-5.5", "gpt-5.5-codex", "sonnet"];
+
+    expect(tuiArgumentCompletion(models, "g")).toBe("gpt-5.5");
+    // Already at the shared prefix: nothing left to type.
+    expect(tuiArgumentCompletion(models, "gpt-5.5")).toBeUndefined();
+    expect(tuiArgumentCompletion(models, "son")).toBe("sonnet");
+    expect(tuiArgumentCompletion(models, "zzz")).toBeUndefined();
+});
+
+test("a chosen argument replaces the half-typed one", () => {
+    expect(tuiWithArgument("/add gpt", "gpt-5.5")).toBe("/add gpt-5.5");
+    expect(tuiWithArgument("/add ", "sonnet")).toBe("/add sonnet");
 });

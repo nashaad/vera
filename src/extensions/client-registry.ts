@@ -34,6 +34,8 @@ import {
     parseExtensionCommandBody,
     type ExtensionCommandBody,
     type ExtensionCommandResult,
+    isExtensionCommandArgumentKind,
+    type ExtensionCommandArgumentKind,
 } from "./commands.ts";
 import { loadExtensionManifest } from "./manifest.ts";
 import { runExtensionOperation } from "./operation.ts";
@@ -79,6 +81,7 @@ export interface ClientExtensionCommandDescriptor {
     readonly description: string;
     readonly usage: string;
     readonly source: string;
+    readonly arguments?: ExtensionCommandArgumentKind;
     readonly palette?: {
         readonly label: string;
         readonly description?: string;
@@ -635,6 +638,9 @@ async function activateClientExtension(
                         description: spec.description.trim(),
                         usage: spec.usage.trim(),
                         source: options.id,
+                        ...(spec.arguments === undefined
+                            ? {}
+                            : { arguments: spec.arguments }),
                         ...(spec.palette === undefined
                             ? {}
                             : { palette: structuredClone(spec.palette) }),
@@ -1082,6 +1088,8 @@ function validateCommandSpec(spec: VeraClientExtensionCommandSpec): void {
         || spec.usage.trim().length === 0
         || (spec.interactive !== undefined
             && typeof spec.interactive !== "boolean")
+        || (spec.arguments !== undefined
+            && !isExtensionCommandArgumentKind(spec.arguments))
         || typeof spec.run !== "function"
     ) {
         throw new Error("Invalid client extension command registration");
