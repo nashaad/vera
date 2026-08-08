@@ -111,6 +111,11 @@ export interface VeraConfig {
     readonly experimental?: VeraExperimentalConfig;
     readonly event_log?: VeraEventLogConfig;
     readonly tips?: VeraTipsConfig;
+    /**
+     * Where the curated model feed is fetched from. Absent means no fetch:
+     * the copy shipped with the build answers instead.
+     */
+    readonly model_feed_url?: string;
 }
 
 /**
@@ -392,6 +397,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const experimental = parseExperimental(config.experimental);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
+    const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -410,6 +416,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || disabledPromptContributions === undefined
         || experimental === undefined
         || eventLog === undefined
+        || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
         || (hasModelCatalog && config.reviewer !== undefined)
         || (config.compaction !== undefined && compaction === undefined)
         ||
@@ -465,7 +472,28 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.experimental === undefined ? {} : { experimental }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
+        ...(modelFeedUrl === undefined ? {} : { model_feed_url: modelFeedUrl }),
     };
+}
+
+/**
+ * Only `http` and `https` are accepted. Every other scheme reaches a different
+ * subsystem with the same call, and the feed is a network fetch.
+ */
+function parseModelFeedUrl(value: unknown): string | undefined {
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    let parsed: URL;
+    try {
+        parsed = new URL(trimmed);
+    } catch {
+        return undefined;
+    }
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+        ? trimmed
+        : undefined;
 }
 
 function parseExperimental(

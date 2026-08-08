@@ -8,6 +8,13 @@
  * probe is the escalation tool (verify on demand, or lazily on the first
  * capability error), not the gate.
  *
+ * A verify that finds a fresh curated-feed row for the model skips the probe
+ * call and records the feed's facts instead. The adapter is still built first,
+ * so a verify still requires a resolvable provider with credentials; only the
+ * call on the wire is saved. The feed answers compatibility, never health: the
+ * row says this model took these levels and called a tool, not that the
+ * endpoint is up or that the user's own key reaches it.
+ *
  * The copied map lands in the declared half of the entry, because the user
  * asked for this model and the catalog is what Vera knows about it. Only
  * probes and live rejections write `learned`.
@@ -17,6 +24,8 @@ import type { CatalogModel } from "./catalog-shape.ts";
 import { effectiveCatalog } from "./catalog.ts";
 import { isEffortLevel } from "./effort-ladder.ts";
 import { admitModel } from "./admission.ts";
+import { feedLearnedFacts, type FeedRowReader } from "./feed-cache.ts";
+import type { ModelFeedRow } from "./feed-shape.ts";
 import type { PoolFileModel } from "./pool-file.ts";
 import type { ModelAdapter } from "./types.ts";
 import {
@@ -24,6 +33,13 @@ import {
     recordLearned,
     PoolFileWriteRefusedError,
 } from "./pool-file-store.ts";
+
+/**
+ * The claim this step makes: the model is one Vera verified centrally, and the
+ * provider is configured here. It is not a claim that this model answered on
+ * this machine, so it does not say "verified" on its own.
+ */
+const FEED_STEP_LABEL = "In Vera's verified models";
 
 export type PoolAdmissionVerdict =
     | "added"
@@ -47,6 +63,11 @@ export interface PoolAdmissionOptions {
     readonly verify?: boolean;
     readonly onWriteRefused?: (error: PoolFileWriteRefusedError) => void;
     readonly createAdapter?: (provider: string) => ModelAdapter;
+    /**
+     * The curated feed's row for this model, when it has a fresh one. Absent
+     * reader and absent row both mean the local probe runs.
+     */
+    readonly readFeedRow?: FeedRowReader;
 }
 
 export interface PoolAdmissionOutcome {
@@ -72,6 +93,8 @@ export async function admitToPool(
         }, options);
         return refused ?? { verdict: "added" };
     }
+    // Built before the feed is consulted: an unconfigured provider fails the
+    // verify whether or not the feed carries the model.
     let adapter;
     try {
         if (options.createAdapter === undefined) {
@@ -88,6 +111,30 @@ export async function admitToPool(
                 ? error.message
                 : "provider is not configured",
         };
+    }
+    const feedRow = await freshRowOrUndefined(entry, options);
+    if (feedRow !== undefined) {
+        // The feed carries the same conclusions a probe would have written,
+        // marked `checked: "vera"`, so nothing goes on the wire and the two
+        // writes stay the two claims they are on the probed path.
+        onStep({
+            step: "feed",
+            label: FEED_STEP_LABEL,
+            status: "running",
+        });
+        const refused = refusedPoolWrite(() => {
+            addPoolModel(id, declaredPoolEntry(catalogModel));
+            recordLearned(id, feedLearnedFacts(feedRow));
+        }, options);
+        onStep({
+            step: "feed",
+            label: FEED_STEP_LABEL,
+            status: refused === undefined ? "passed" : "failed",
+            detail: refused === undefined
+                ? `provider configured, verified ${feedRow.verified_at}`
+                : refused.reason,
+        });
+        return refused ?? { verdict: "added" };
     }
     const verdict = await admitModel({
         adapter,
@@ -112,6 +159,21 @@ export async function admitToPool(
             ? { statusCode: verdict.statusCode }
             : {}),
     };
+}
+
+/** A reader that throws is a feed that is not there: probe locally instead. */
+async function freshRowOrUndefined(
+    entry: PoolAdmissionEntry,
+    options: PoolAdmissionOptions,
+): Promise<ModelFeedRow | undefined> {
+    if (options.readFeedRow === undefined) {
+        return undefined;
+    }
+    try {
+        return await options.readFeedRow(entry.provider, entry.model);
+    } catch {
+        return undefined;
+    }
 }
 
 function refusedPoolWrite(

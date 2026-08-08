@@ -339,6 +339,37 @@ test("Vera config rejects a non-boolean event log flag", () => {
     expect(() => loadVeraConfig({ path })).toThrow();
 });
 
+test("Vera config keeps an http model feed url and defaults it absent", () => {
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(loadVeraConfig({ path: bare }).model_feed_url).toBeUndefined();
+
+    const set = temporaryConfigPath();
+    writeFileSync(set, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        model_feed_url: " https://example.test/vera-curated.json ",
+    }));
+    expect(loadVeraConfig({ path: set }).model_feed_url)
+        .toBe("https://example.test/vera-curated.json");
+});
+
+test("Vera config rejects a model feed url that is not http", () => {
+    for (const url of ["", "not a url", "file:///etc/passwd", 7]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            model_feed_url: url,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
+});
+
 test("Vera config rejects malformed extension entries", () => {
     for (const extensions of [
         {},
