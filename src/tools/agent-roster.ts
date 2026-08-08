@@ -14,7 +14,7 @@ export const agentRosterTool: RegisteredTool = {
     definition: {
         name: "agent_roster",
         description: [
-            "List the other vera agent sessions live on this host in the",
+            "List the other vera agent sessions the host is holding in the",
             "current workspace. Each row is the agent's identity name, the",
             "time it was last active, its session id, and the path to its",
             "session log. There is no description of what a session is",
