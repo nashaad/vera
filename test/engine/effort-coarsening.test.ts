@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import type { EffortMap } from "../../src/model/effort-ladder.ts";
 import { requestModelWithRecovery } from "../../src/engine/recovery.ts";
 import {
+    coarsenAfterFailure,
     preflightEffort,
     type ModelEffortCoarsened,
 } from "../../src/engine/effort-coarsening.ts";
@@ -331,4 +332,30 @@ test("an adapter's own effort substitution is reported, not swallowed", async ()
         using: "medium",
         reason: 'the model does not offer effort "xhigh"',
     }]);
+});
+
+test("an image refusal is recorded and rescues no effort step", () => {
+    const learned: { key: string; fact: LearnedFact }[] = [];
+    const pool = fakePool(FULL_EFFORTS, (_ref, key, fact) => {
+        learned.push({ key, fact });
+    });
+    const ref: ModelRef = { provider: "openrouter", model: "glm-5.2" };
+
+    const coarsened = coarsenAfterFailure(
+        ref,
+        "high",
+        {
+            kind: "invalid_request",
+            resolution: "none",
+            statusCode: 400,
+            message: "glm-5.2 does not support image input",
+        },
+        new Set(),
+        { pool },
+    );
+
+    expect(coarsened).toBeUndefined();
+    expect(learned).toHaveLength(1);
+    expect(learned[0]?.key).toBe("images");
+    expect(learned[0]?.fact.ok).toBe(false);
 });
