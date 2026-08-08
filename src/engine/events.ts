@@ -236,6 +236,8 @@ export interface ContextMeasuredEvent {
 export interface CompactionStartedEvent {
     readonly type: "compaction_started";
     readonly strategy: string;
+    /** A configuration mismatch that makes this compaction wasteful. */
+    readonly warning?: string;
 }
 
 /**

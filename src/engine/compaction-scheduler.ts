@@ -31,6 +31,13 @@ export const COMPACTION_TRIGGER_FRACTION = 0.82;
  */
 export const POST_COMPACTION_TARGET_FRACTION = 0.45;
 
+/**
+ * Share of the token trigger a session with no known window compacts down to.
+ * Tighter than the ratio between the two fractions above, so a session that
+ * has no window to measure against lands well clear of the trigger it crossed.
+ */
+export const UNKNOWN_CAPACITY_TARGET_FRACTION = 0.35;
+
 /** A summary smaller than this cannot carry a session, so do not ask for one. */
 export const MIN_SUMMARY_TOKENS = 400;
 
@@ -52,25 +59,104 @@ export type CompactionOutcome =
         readonly after: number;
     };
 
+/**
+ * What a session compacts down to. Only consulted when the window is unknown:
+ * with a window, the target is a share of it.
+ */
+export interface CompactionBudget {
+    readonly trigger?: CompactionTrigger;
+    /** Absolute token target, overriding the one derived from the trigger. */
+    readonly targetTokens?: number;
+}
+
 export interface CompactionSchedulerOptions {
     readonly store: SessionStore;
     readonly strategy: CompactionStrategyDefinition;
     /** Slot name to bound model, already resolved from config routes. */
     readonly models: Readonly<Record<string, CompleteText>>;
     readonly diagnostics?: SessionCompactionDiagnostics;
+    readonly trigger?: CompactionTrigger;
+    readonly targetTokens?: number;
+}
+
+/**
+ * The whole request budget a compaction has to land under, before the fixed
+ * overhead and the retained turns are taken out of it.
+ *
+ * Undefined means there is nothing to size a summary against: no window, and
+ * no absolute target or trigger to derive one from.
+ */
+export function compactionTargetBudget(
+    measurement: ContextMeasurement,
+    budget?: CompactionBudget,
+): number | undefined {
+    if (measurement.capacity !== undefined) {
+        return Math.floor(
+            measurement.capacity * POST_COMPACTION_TARGET_FRACTION,
+        );
+    }
+    if (budget?.targetTokens !== undefined) {
+        return budget.targetTokens;
+    }
+    const triggerTokens = budget?.trigger?.tokens;
+    return triggerTokens === undefined
+        ? undefined
+        : Math.floor(triggerTokens * UNKNOWN_CAPACITY_TARGET_FRACTION);
+}
+
+/**
+ * When a session compacts. Both bounds are optional and either one firing is
+ * enough; `fraction` falls back to `COMPACTION_TRIGGER_FRACTION`.
+ */
+export interface CompactionTrigger {
+    /** Share of a known window. */
+    readonly fraction?: number;
+    /** Absolute token count. The only bound a session with no known window has. */
+    readonly tokens?: number;
 }
 
 export function shouldCompact(
     measurement: ContextMeasurement | undefined,
+    trigger?: CompactionTrigger,
 ): boolean {
-    if (measurement?.capacity === undefined) {
-        // No window means no fraction to compare against. Compacting on an
-        // absolute token count would fire on a model with room to spare and
-        // never fire on one without.
+    if (measurement === undefined) {
         return false;
     }
-    return measurement.tokens
-        >= measurement.capacity * COMPACTION_TRIGGER_FRACTION;
+    if (trigger?.tokens !== undefined && measurement.tokens >= trigger.tokens) {
+        return true;
+    }
+    if (measurement.capacity === undefined) {
+        // No window means no fraction to compare against, and no absolute
+        // bound was configured. Picking one here would fire on a model with
+        // room to spare and never fire on one without.
+        return false;
+    }
+    const fraction = trigger?.fraction ?? COMPACTION_TRIGGER_FRACTION;
+    return measurement.tokens >= measurement.capacity * fraction;
+}
+
+/**
+ * Why a compaction about to run cannot pay for itself, or undefined when it
+ * can. A target above the token trigger lands the request back above the
+ * trigger, so the next turn asks for another one.
+ */
+export function compactionBudgetWarning(
+    measurement: ContextMeasurement,
+    budget?: CompactionBudget,
+): string | undefined {
+    const triggerTokens = budget?.trigger?.tokens;
+    const target = compactionTargetBudget(measurement, budget);
+    if (
+        triggerTokens === undefined
+        || target === undefined
+        || target <= triggerTokens
+    ) {
+        return undefined;
+    }
+    return `Compaction targets ${target} tokens, above trigger_tokens`
+        + ` (${triggerTokens}). A summary that fits the target can still sit`
+        + ` above the trigger, so the next turn compacts again. Raise`
+        + ` trigger_tokens above ${target}.`;
 }
 
 /**
@@ -90,7 +176,8 @@ export async function compactSession(
     signal: AbortSignal,
 ): Promise<CompactionOutcome> {
     const capacity = measurement.capacity;
-    if (capacity === undefined) {
+    const budget = compactionTargetBudget(measurement, options);
+    if (budget === undefined) {
         return { outcome: "not_needed" };
     }
     const store = options.store;
@@ -122,9 +209,7 @@ export async function compactSession(
     );
     const suffix = active.slice(plan.boundaryIndex + 1)
         .map((entry) => entry.message);
-    const targetTokens = Math.floor(capacity * POST_COMPACTION_TARGET_FRACTION)
-        - overhead
-        - measureMessages(suffix);
+    const targetTokens = budget - overhead - measureMessages(suffix);
     if (targetTokens < MIN_SUMMARY_TOKENS) {
         return {
             outcome: "no_boundary",
@@ -190,7 +275,7 @@ export async function compactSession(
             projection,
             measured: {
                 inputTokens: after,
-                contextWindow: capacity,
+                ...(capacity === undefined ? {} : { contextWindow: capacity }),
                 estimated: measurement.estimated,
             },
             ...(options.diagnostics === undefined

@@ -152,6 +152,15 @@ export interface VeraCompactionConfig {
     readonly strategy: string;
     readonly models: Readonly<Record<string, string>>;
     readonly timeout_ms?: number;
+    /** Share of a known window at which compaction fires. */
+    readonly trigger_fraction?: number;
+    /**
+     * Absolute token count at which compaction fires, whichever comes first.
+     * The only bound that applies when the model's window is unknown.
+     */
+    readonly trigger_tokens?: number;
+    /** Token target for a session whose window is unknown. */
+    readonly target_tokens?: number;
 }
 
 export interface ResolvedCompactionProfile {
@@ -161,6 +170,9 @@ export interface ResolvedCompactionProfile {
     /** Slot name to the route it came from. Diagnostic only. */
     readonly routes: Readonly<Record<string, string>>;
     readonly timeout_ms?: number;
+    readonly trigger_fraction?: number;
+    readonly trigger_tokens?: number;
+    readonly target_tokens?: number;
 }
 
 export function parseCompactionConfig(
@@ -173,6 +185,9 @@ export function parseCompactionConfig(
     const strategy = value.strategy;
     const models = value.models;
     const timeout = value.timeout_ms;
+    const triggerFraction = value.trigger_fraction;
+    const triggerTokens = value.trigger_tokens;
+    const targetTokens = value.target_tokens;
     if (
         typeof strategy !== "string"
         || !isStrategyId(strategy)
@@ -182,6 +197,19 @@ export function parseCompactionConfig(
                 || !Number.isInteger(timeout)
                 || timeout < 1_000
                 || timeout > 600_000))
+        || (triggerFraction !== undefined
+            && (typeof triggerFraction !== "number"
+                || !Number.isFinite(triggerFraction)
+                || triggerFraction <= 0
+                || triggerFraction > 1))
+        || (triggerTokens !== undefined
+            && (typeof triggerTokens !== "number"
+                || !Number.isInteger(triggerTokens)
+                || triggerTokens < 1))
+        || (targetTokens !== undefined
+            && (typeof targetTokens !== "number"
+                || !Number.isInteger(targetTokens)
+                || targetTokens < 1))
     ) {
         return undefined;
     }
@@ -200,6 +228,15 @@ export function parseCompactionConfig(
         strategy,
         models: slots,
         ...(timeout === undefined ? {} : { timeout_ms: timeout }),
+        ...(triggerFraction === undefined
+            ? {}
+            : { trigger_fraction: triggerFraction }),
+        ...(triggerTokens === undefined
+            ? {}
+            : { trigger_tokens: triggerTokens }),
+        ...(targetTokens === undefined
+            ? {}
+            : { target_tokens: targetTokens }),
     };
 }
 
@@ -224,6 +261,15 @@ export function resolveCompactionProfile(
         ...(compaction.timeout_ms === undefined
             ? {}
             : { timeout_ms: compaction.timeout_ms }),
+        ...(compaction.trigger_fraction === undefined
+            ? {}
+            : { trigger_fraction: compaction.trigger_fraction }),
+        ...(compaction.trigger_tokens === undefined
+            ? {}
+            : { trigger_tokens: compaction.trigger_tokens }),
+        ...(compaction.target_tokens === undefined
+            ? {}
+            : { target_tokens: compaction.target_tokens }),
     };
 }
 
