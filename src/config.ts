@@ -74,6 +74,8 @@ export interface VeraReviewerConfig {
     readonly escalation_model?: string;
     readonly escalation_provider?: VeraProviderId;
     readonly escalation_reasoning_effort?: ModelReasoningEffort;
+    /** 0-1; escalate when the fast reviewer's weakest confidence metric is below this. Default 0.8. */
+    readonly escalation_confidence_threshold?: number;
 }
 
 /**
@@ -651,6 +653,11 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
             && reviewer.escalation_provider !== "cerebras")
         || (reviewer.escalation_reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.escalation_reasoning_effort))
+        || (reviewer.escalation_confidence_threshold !== undefined
+            && (typeof reviewer.escalation_confidence_threshold !== "number"
+                || !Number.isFinite(reviewer.escalation_confidence_threshold)
+                || reviewer.escalation_confidence_threshold < 0
+                || reviewer.escalation_confidence_threshold > 1))
     ) {
         return undefined;
     }
@@ -674,6 +681,12 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         ...(reviewer.escalation_reasoning_effort === undefined
             ? {}
             : { escalation_reasoning_effort: reviewer.escalation_reasoning_effort }),
+        ...(reviewer.escalation_confidence_threshold === undefined
+            ? {}
+            : {
+                escalation_confidence_threshold:
+                    reviewer.escalation_confidence_threshold,
+            }),
     };
 }
 
@@ -832,6 +845,12 @@ export function configuredReviewers(
                                 reviewer.escalation_reasoning_effort,
                         }),
                 },
+            }),
+        ...(reviewer.escalation_confidence_threshold === undefined
+            ? {}
+            : {
+                confidenceThreshold:
+                    reviewer.escalation_confidence_threshold,
             }),
     };
     return configured;
