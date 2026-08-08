@@ -1,4 +1,5 @@
-import { BoxRenderable, TextRenderable } from "@opentui/core";
+import { BoxRenderable, StyledText, TextRenderable } from "@opentui/core";
+import { fg } from "@opentui/core";
 import type { RenderContext } from "@opentui/core";
 
 import type { TuiTranscriptEntry } from "./state.ts";
@@ -42,9 +43,17 @@ export function createTuiUserEntry(
         bg: TUI_ELEMENT,
         flexShrink: 0,
     }));
+    // What an extension prepended renders muted, so the user's own words
+    // stand apart from the machinery that rode along with them.
+    const dimmed = entry.kind === "diff" ? 0 : entry.dimmedPrefix ?? 0;
     line.add(new TextRenderable(renderer, {
         id: `${id}-text`,
-        content: entry.text,
+        content: dimmed > 0 && dimmed < entry.text.length
+            ? new StyledText([
+                fg(TUI_MUTED)(entry.text.slice(0, dimmed)),
+                fg(TUI_TEXT)(entry.text.slice(dimmed)),
+            ])
+            : entry.text,
         fg: TUI_TEXT,
         bg: TUI_ELEMENT,
         flexGrow: 1,
