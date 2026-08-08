@@ -1339,7 +1339,7 @@ export function createTuiSettingsPickerView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: 2,
+        top: PICKER_TOP_OFFSET,
         left: "10%",
         width: "80%",
         height: 8,
@@ -1361,6 +1361,7 @@ export function createTuiSettingsPickerView(
             nodes = [];
             box.title = undefined;
             if (state.kind === "theme") {
+                box.top = PICKER_TOP_OFFSET;
                 box.left = "20%";
                 box.width = "60%";
                 box.height = state.allOptions.length + DIALOG_CHROME_HEIGHT;
@@ -1369,7 +1370,11 @@ export function createTuiSettingsPickerView(
             }
             // A session is recognised by its title, and titles are the one row
             // value with no natural length, so this list gets the whole
-            // terminal rather than the inset card the settings panes use.
+            // terminal rather than the inset card the settings panes use. It
+            // starts at the top edge too: an inset card is read against the
+            // scrimmed transcript around it, but a full-width panel with a
+            // strip of transcript over it reads as a row that leaked through.
+            box.top = state.kind === "session" ? 0 : PICKER_TOP_OFFSET;
             box.left = state.kind === "session" ? 0 : "10%";
             box.width = state.kind === "session" ? "100%" : "80%";
             renderListPickerRows(
@@ -1412,7 +1417,8 @@ function pickerMaxRows(
     return Math.max(LIST_MIN_ROWS, Math.floor(lines / rowLines));
 }
 
-// Where the card's top edge sits, matching `box.top` below.
+// Where an inset card's top edge sits. The full-width session list sits at 0
+// instead, so this is the smaller of the two row budgets.
 const PICKER_TOP_OFFSET = 2;
 
 /**
