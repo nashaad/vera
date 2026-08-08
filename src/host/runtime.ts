@@ -466,8 +466,15 @@ async function discoverAvailableModels(
     authStorage: AuthStorage,
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
-    catalog.push(...await discoveredOllamaModels({ log: hostLog }));
-    const openrouter = await discoveredOpenRouterModels(config);
+    // Asked together rather than one after another: each provider caps its own
+    // wait, and the host is not discoverable until all of them have answered,
+    // so serial waits add up into the client's startup deadline.
+    const [ollama, openrouter, cerebras] = await Promise.all([
+        discoveredOllamaModels({ log: hostLog }),
+        discoveredOpenRouterModels(config),
+        discoveredCerebrasModels(config, { authStorage }),
+    ]);
+    catalog.push(...ollama);
     if (openrouter.length > 0) {
         // The fetched list supersedes the shipped entries, which name the same
         // models with staler facts. Nothing is dropped when the fetch comes back
@@ -480,7 +487,7 @@ async function discoverAvailableModels(
         }
         catalog.push(...openrouter);
     }
-    catalog.push(...await discoveredCerebrasModels(config, { authStorage }));
+    catalog.push(...cerebras);
     catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
