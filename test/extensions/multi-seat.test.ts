@@ -181,6 +181,10 @@ test("an addressed message goes to that seat alone, and only that one", async ()
         kind: "replace",
         text: `${joined("m1", "gpt-5.5")}\n\n`
             + "[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\nsay more",
+        // What the extension put above the message, so the client can show
+        // the user's own words alone.
+        injectedPrefix: `${joined("m1", "gpt-5.5")}\n\n`
+            .concat("[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\n").length,
     });
     await harness.settle();
     expect(harness.consults).toHaveLength(1);
@@ -256,9 +260,8 @@ test("a failed consult files into the seat's column, and the lane keeps the ask"
         imageCount: 0,
     })).toEqual({
         kind: "replace",
-        text: `${joined("m1", "down-model")}
-
-moving on`,
+        text: `${joined("m1", "down-model")}\n\nmoving on`,
+        injectedPrefix: `${joined("m1", "down-model")}\n\n`.length,
     });
     await harness.registry.close();
 });
@@ -335,6 +338,9 @@ test("@all asks every seat at once and hands the agent the same message", async 
         kind: "replace",
         text: `${joined("m1", "gpt-5.5")}\n\n${joined("m2", "glm-5.2")}`
             + "\n\nwhich way",
+        injectedPrefix:
+            `${joined("m1", "gpt-5.5")}\n\n${joined("m2", "glm-5.2")}\n\n`
+                .length,
     });
     await harness.settle();
     expect(harness.consults.map((request) => request.model))
@@ -370,6 +376,8 @@ test("the agent's next message carries the replies it has not seen", async () =>
         kind: "replace",
         text: `${joined("m1", "gpt-5.5")}\n\n`
             + "[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\ngo with that",
+        injectedPrefix: `${joined("m1", "gpt-5.5")}\n\n`
+            .concat("[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\n").length,
     });
 
     // Quoted once: the agent has read it now.

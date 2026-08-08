@@ -12,15 +12,15 @@ import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/multi-seat");
 
 /** What a seat is: a model the user already admitted, and its provider. */
-const POOLED = [{
+const POOLED = ["advisor", "second", "broken"].map((poolName) => ({
     provider: "faux",
-    model: "faux-advisor",
-    label: "faux-advisor",
-    poolName: "advisor",
+    model: `faux-${poolName}`,
+    label: `faux-${poolName}`,
+    poolName,
     available: true,
     verified: true,
     levels: [],
-}];
+}));
 
 const channel = createInProcessChannel();
 void runHeadlessLoop(
@@ -40,6 +40,9 @@ void runHeadlessLoop(
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         async consult(request) {
+            if (request.model === "faux-broken") {
+                throw new Error("provider is down");
+            }
             return {
                 text: `SEAT SAW ${request.messages.at(-1)?.content ?? ""}`,
                 model: request.model,
@@ -62,7 +65,7 @@ const client: TuiAgentClient = {
 
 await startTui({
     client,
-    clientExtensions: [{ path: EXTENSION, enabled: true, config: null }],
+    clientExtensions: [{ path: EXTENSION, enabled: true, config: { maxSeats: 2 } }],
 });
 
 function response(text: string): AssistantMessage {
