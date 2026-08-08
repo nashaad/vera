@@ -251,6 +251,59 @@ describe("DriveRecorder", () => {
     });
 });
 
+describe("budget_warning", () => {
+    test("carries the engine's own warning verbatim", () => {
+        const recorder = new DriveRecorder(["one"]);
+        recorder.beginTurn();
+        recorder.observe({
+            type: "compaction",
+            phase: "started",
+            strategy: "vera/full-summary",
+            warning: "Compaction targets 73728 tokens, above trigger_tokens",
+            seq: 1,
+        });
+        recorder.observe({ type: "turn_finished", seq: 2 });
+        expect(buildReport(recorder).budget_warning).toBe(
+            "Compaction targets 73728 tokens, above trigger_tokens",
+        );
+    });
+
+    test("is null when nothing configured a mismatch", () => {
+        const recorder = new DriveRecorder(["one"]);
+        recorder.beginTurn();
+        recorder.observe(measured(900, 1000));
+        recorder.observe({ type: "turn_finished", seq: 1 });
+        expect(buildReport(recorder).budget_warning).toBeNull();
+    });
+
+    test("reports a mismatch the trigger never fired", () => {
+        const recorder = new DriveRecorder(["one"]);
+        recorder.beginTurn();
+        recorder.observe(measured(900, 163_840));
+        recorder.observe({ type: "turn_finished", seq: 1 });
+        const report = recorder.build({
+            provider: "openrouter",
+            model: "some/model",
+            approval_mode: "ask",
+            budget: { triggerTokens: 8000 },
+            capacity: { mode: "catalog" },
+            bound: { trigger: { tokens: 8000 } },
+        });
+        expect(report.budget_warning).toContain("above trigger_tokens");
+        expect(report.summary.compactions_attempted).toBe(0);
+    });
+});
+
+function buildReport(recorder: DriveRecorder) {
+    return recorder.build({
+        provider: "openrouter",
+        model: "some/model",
+        approval_mode: "ask",
+        budget: {},
+        capacity: { mode: "catalog" },
+    });
+}
+
 describe("effectiveThresholds", () => {
     test("falls back to the engine constants when nothing is configured", () => {
         expect(effectiveThresholds({})).toEqual({
