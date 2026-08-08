@@ -1110,7 +1110,6 @@ export async function startTui(
         width: "100%",
         height: "100%",
         flexDirection: "column",
-        gap: 1,
         paddingTop: 1,
         paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),

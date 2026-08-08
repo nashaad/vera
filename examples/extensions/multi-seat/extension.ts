@@ -27,6 +27,7 @@ export function activateClient(vera: any): void {
     /** How many seats may be filled at once. One unless the config says more. */
     const maxSeats: number = vera.config?.maxSeats ?? 1;
     let sidebarOpen = false;
+    let saidThreadUnreadable = false;
     /** Replies each participant has not been shown yet, oldest first. */
     const unread = new Map<string, string[]>([[AGENT, []]]);
 
@@ -70,6 +71,14 @@ export function activateClient(vera: any): void {
         try {
             turns = [...vera.thread.read()].slice(-THREAD_TURNS);
         } catch {
+            // A client without the capability still works, but blind seats
+            // are worth a sentence, once, rather than a silent degrade.
+            if (!saidThreadUnreadable) {
+                saidThreadUnreadable = true;
+                vera.ui.notice(
+                    "This client cannot share the thread; seats answer blind.",
+                );
+            }
             return base;
         }
         if (turns.length === 0) {
@@ -170,11 +179,17 @@ export function activateClient(vera: any): void {
             }
             // The agent meets the seat before it is quoted one: a quote from a
             // name it has never heard reads as a stray paste.
+            // Delivered inside the next user turn because the wire has no
+            // mid-thread system role (Anthropic-shaped providers take system
+            // text as a top-level parameter only). The tag marks it as
+            // ambient fact rather than the user's own words.
             unread.get(AGENT)!.push(
-                `[${alias} (${model}) joined this conversation as an advisor. `
-                    + "It has no tools and sees only the recent thread. Its replies "
-                    + "reach you only when quoted into a message like this "
-                    + "one.]",
+                "<system-note>\n"
+                    + `${alias} (${model}) joined this conversation as an `
+                    + "advisor. It has no tools and sees only the recent "
+                    + "thread. Its replies reach the participants only when "
+                    + "quoted into a message.\n"
+                    + "</system-note>",
             );
             vera.ui.notice(`@${alias} is ${model}. @all asks everyone.`);
         },
@@ -206,7 +221,9 @@ export function activateClient(vera: any): void {
                 throw new Error(`No seat named ${alias}`);
             }
             unread.delete(alias);
-            unread.get(AGENT)!.push(`[${alias} left the conversation.]`);
+            unread.get(AGENT)!.push(
+                `<system-note>\n${alias} left the conversation.\n</system-note>`,
+            );
             offerMentions();
             if (seats.size === 0 && sidebarOpen) {
                 vera.ui.sidebar.close();
