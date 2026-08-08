@@ -5104,8 +5104,10 @@ export async function startTui(
         commandSuggestionsText.content = renderTuiCommandSuggestions(
             suggestions,
             composer.plainText === "/" ? commandSuggestionIndex : -1,
-            typeof upper.width === "number" && upper.width > 0
-                ? upper.width
+            // Less the box's own horizontal padding, or the last word of a
+            // just-too-long row wraps anyway.
+            typeof upper.width === "number" && upper.width > 2
+                ? upper.width - 2
                 : undefined,
         );
         // Leave room for every matching command. The old fixed three-row box
