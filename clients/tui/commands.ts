@@ -11,7 +11,7 @@ import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
 
 /** What a command's first argument names, so the composer can complete it. */
-export type TuiCommandArgumentKind = "model";
+export type TuiCommandArgumentKind = "model" | "mention";
 
 export interface TuiCommandCatalogEntry {
     readonly name: string;

@@ -37,7 +37,7 @@ export interface ExtensionCommandResult {
  * `model` today: the client owns the pool, the extension only says it wants a
  * model there.
  */
-export type ExtensionCommandArgumentKind = "model";
+export type ExtensionCommandArgumentKind = "model" | "mention";
 
 export interface ExtensionCommandDescriptor {
     readonly name: string;
@@ -50,7 +50,7 @@ export interface ExtensionCommandDescriptor {
 export function isExtensionCommandArgumentKind(
     value: unknown,
 ): value is ExtensionCommandArgumentKind {
-    return value === "model";
+    return value === "model" || value === "mention";
 }
 
 export class ExtensionCommandUnavailableError extends Error {}

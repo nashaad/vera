@@ -107,9 +107,10 @@ export interface VeraClientExtensionCommandSpec {
     readonly interactive?: boolean;
     /**
      * What the first argument names, so the client can complete it. The
-     * client owns the list: `model` completes from the model pool.
+     * client owns the list: `model` completes from the model pool, and
+     * `mention` from the names this extension offered the composer.
      */
-    readonly arguments?: "model";
+    readonly arguments?: "model" | "mention";
     readonly run: VeraClientExtensionCommandHandler;
 }
 

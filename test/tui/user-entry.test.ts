@@ -48,3 +48,25 @@ test("attachments show as file chips under the message", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("the band leaves out what an extension injected", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const note = "<system-note>\nsomeone joined\n</system-note>\n\n";
+    setup.renderer.root.add(createTuiUserEntry(
+        setup.renderer,
+        "entry-0",
+        { kind: "user", text: `${note}hi @all`, dimmedPrefix: note.length },
+        0,
+    ));
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("hi @all");
+        // The model was sent the note; the band is what the user said.
+        expect(frame).not.toContain("system-note");
+        expect(frame).not.toContain("joined");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
