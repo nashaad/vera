@@ -391,6 +391,7 @@ const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "nightowl", label: "Night Owl", description: "deep blue, low glare" },
     { value: "github", label: "GitHub", description: "GitHub dark palette" },
     { value: "midnight-blue", label: "Midnight Blue", description: "navy, gold, and cool white" },
+    { value: "midnight-blue-ii", label: "Midnight Blue II", description: "gold accent, blue code" },
 ];
 
 export function startTuiSettingsPicker(
@@ -2001,7 +2002,7 @@ function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
         : "No conversations found";
 }
 
-const THEME_LABEL_WIDTH = 11;
+const THEME_LABEL_WIDTH = 17;
 
 function renderThemePickerRows(
     renderer: RenderContext,

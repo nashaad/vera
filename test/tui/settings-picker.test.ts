@@ -940,6 +940,7 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         "nightowl",
         "github",
         "midnight-blue",
+        "midnight-blue-ii",
     ]);
     expect(themes.options[themes.selectedIndex]?.value).toBe("nightowl");
     let filtered = themes;
@@ -984,6 +985,11 @@ test("theme picker renders as a borderless palette card with swatches", async ()
         // Persisted theme carries the current-dot; every row shows a swatch.
         expect(frame).toContain("● Default");
         expect(frame).toContain("██ ██ ██ ██");
+        const rows = frame.split("\n");
+        const defaultRow = rows.find((row) => row.includes("Default"));
+        const midnightBlueIiRow = rows.find((row) => row.includes("Midnight Blue II"));
+        expect(midnightBlueIiRow?.indexOf("██ ██ ██ ██"))
+            .toBe(defaultRow?.indexOf("██ ██ ██ ██"));
         // System is terminal-derived, so it shows a neutral placeholder swatch.
         expect(frame).toContain("░░ ░░ ░░ ░░");
         expect(frame).toContain("↑↓ move · ⏎ apply · esc cancel");
