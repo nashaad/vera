@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     derivedModelName,
+    parseCompactionConfig,
     parseModelCatalogConfig,
     resolveReviewerProfile,
 } from "../../src/config/model-catalog.ts";
@@ -134,4 +135,53 @@ test("duplicate final model names are rejected even when configs match", () => {
         {},
         {},
     )).toBeUndefined();
+});
+
+test("compaction trigger bounds parse, and defaults stay absent when unset", () => {
+    const routes = { summarizer: ["primary"] };
+    expect(parseCompactionConfig(
+        { strategy: "vera/full-summary", models: { summarizer: "summarizer" } },
+        routes,
+    )).toEqual({
+        strategy: "vera/full-summary",
+        models: { summarizer: "summarizer" },
+    });
+    expect(parseCompactionConfig(
+        {
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+            trigger_fraction: 0.2,
+            trigger_tokens: 30_000,
+            target_tokens: 10_000,
+        },
+        routes,
+    )).toEqual({
+        strategy: "vera/full-summary",
+        models: { summarizer: "summarizer" },
+        trigger_fraction: 0.2,
+        trigger_tokens: 30_000,
+        target_tokens: 10_000,
+    });
+});
+
+test("out-of-range compaction trigger bounds are rejected", () => {
+    const routes = { summarizer: ["primary"] };
+    const base = {
+        strategy: "vera/full-summary",
+        models: { summarizer: "summarizer" },
+    };
+    for (const trigger of [
+        { trigger_fraction: 0 },
+        { trigger_fraction: 1.5 },
+        { trigger_fraction: "0.5" },
+        { trigger_tokens: 0 },
+        { trigger_tokens: 1.5 },
+        { trigger_tokens: "30000" },
+        { target_tokens: 0 },
+        { target_tokens: 1.5 },
+        { target_tokens: "10000" },
+    ]) {
+        expect(parseCompactionConfig({ ...base, ...trigger }, routes))
+            .toBeUndefined();
+    }
 });

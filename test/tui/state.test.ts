@@ -1616,3 +1616,25 @@ test("an extension block keeps its label out of the markdown", () => {
     });
     expect(plainText(renderTuiEntry(entries[0]!))).toBe("[m1] (gpt-5.5)");
 });
+
+test("TUI shows a compaction budget warning when the run starts", () => {
+    const warned = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "started",
+        strategy: "vera/full-summary",
+        warning: "Compaction targets 90000 tokens, above trigger_tokens (5000).",
+        seq: 1,
+    });
+    const quiet = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "started",
+        strategy: "vera/full-summary",
+        seq: 1,
+    });
+
+    expect(warned.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "Compaction targets 90000 tokens, above trigger_tokens (5000).",
+    });
+    expect(quiet.entries).toEqual([]);
+});
