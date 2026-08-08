@@ -1112,6 +1112,7 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
+        marginBottom: 1,
         visible: false,
     });
 
@@ -1369,9 +1370,9 @@ export async function startTui(
     app.add(sessionTrashConfirmView.box);
     app.add(composerTipText);
     upper.add(commandSuggestionsBox);
-    // Last, so it sits against the composer: the suggestions open and
-    // close under the typing, and the quote must not move when they do.
-    upper.add(quoteText);
+    // Beside the composer rather than in the column above it: the column ends
+    // where the sidebar starts, and the line is too long to be cut there.
+    app.add(quoteText);
     app.add(composerBox);
     app.add(statusBackdrop);
     app.add(statusText);
