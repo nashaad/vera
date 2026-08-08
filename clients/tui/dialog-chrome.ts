@@ -36,9 +36,11 @@ export const DIALOG_GUTTER_WIDTH = 3;
 export const DIALOG_GUTTER = " ".repeat(DIALOG_GUTTER_WIDTH);
 
 // The card chrome that surrounds a variable-height row list: the header line,
-// the three-line search block, the footer with its separating blank line, and
-// the card's own top padding.
-export const DIALOG_CHROME_HEIGHT = 9;
+// the three-line search block, the footer's separating blank line and its
+// first line, and the card's own top padding. The footer's second line is
+// spare room for a hint row that wraps, so it is not counted here: on the
+// common single-line footer it would leave a blank row under the card.
+export const DIALOG_CHROME_HEIGHT = 7;
 
 // Below this height an overlay cannot spare a row. The question overlay draws
 // the same line for its own height cap, so "short" means one thing in the TUI
