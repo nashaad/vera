@@ -314,7 +314,13 @@ export function activateClient(vera: any): void {
     }
 
     vera.messages.intercept((message: { text: string }) => {
-        if (seats.size === 0) return undefined;
+        // An empty room can still owe the agent a note: the last seat leaving
+        // is exactly the thing it has not been told yet.
+        if (seats.size === 0) {
+            return unread.get(AGENT)!.length === 0 ? undefined : toAgent(
+                message.text,
+            );
+        }
         const addressed = /^@(\S+)\s+([\s\S]+)$/.exec(message.text);
         const target = addressed?.[1];
         const text = addressed?.[2] ?? message.text;

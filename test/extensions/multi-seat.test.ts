@@ -300,6 +300,29 @@ test("removing a seat says so in its column", async () => {
     await harness.registry.close();
 });
 
+test("the agent is told the last seat left, once the room is empty", async () => {
+    const harness = await start({ maxSeats: 2 });
+    await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
+    // A message first, so the join note is spent and only the leaving is owed.
+    await harness.registry.interceptMessage({
+        text: "hello",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    await harness.registry.invokeCommand("remove", "m1", WORKSPACE);
+    const note = "<system-note>\nm1 left the conversation.\n</system-note>\n\n";
+    expect(await harness.registry.interceptMessage({
+        text: "is it just us",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({
+        kind: "replace",
+        text: `${note}is it just us`,
+        injectedPrefix: note.length,
+    });
+    await harness.registry.close();
+});
+
 test("removing every seat is one command, since the composer offers `all`", async () => {
     const harness = await start({ maxSeats: 2 });
     await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
