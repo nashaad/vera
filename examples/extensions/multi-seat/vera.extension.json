@@ -1,0 +1,13 @@
+{
+  "id": "vera.multi-seat",
+  "version": "1.0.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "client.commands.register",
+    "client.consult",
+    "client.messages.intercept",
+    "client.ui.notice",
+    "client.ui.transcript"
+  ]
+}
