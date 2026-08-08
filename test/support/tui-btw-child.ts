@@ -13,10 +13,10 @@ import {
     type ModelAdapter,
 } from "../../src/model/types.ts";
 
-const EXTENSION = join(import.meta.dir, "../../examples/extensions/advisor");
+const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
 
 /** What a seat is: a model the user already admitted, and its provider. */
-const POOLED = ["advisor", "second", "broken"].map((poolName) => ({
+const POOLED = ["guest", "second", "broken"].map((poolName) => ({
     provider: "faux",
     model: `faux-${poolName}`,
     label: `faux-${poolName}`,

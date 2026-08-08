@@ -2302,21 +2302,21 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-btw-child.ts",
                 100,
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
 
             // The pool owns the list the argument completes from.
-            sendText(socket, session, "/add ");
-            pane = await waitForVisiblePane(socket, session, "advisor");
+            sendText(socket, session, "/btw ");
+            pane = await waitForVisiblePane(socket, session, "guest");
 
-            sendText(socket, session, "advisor as m1");
+            sendText(socket, session, "guest as m1");
             sendKey(socket, session, "Enter");
             // Seating fills the column before the seat has said anything.
             pane = await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
-            expect(pane).toContain("m1 (faux-advisor)");
+            expect(pane).toContain("m1 (faux-guest)");
 
             // An addressed message goes to the seat alone: the ask and the
             // answer are filed beside the transcript, not in it.
@@ -2325,8 +2325,8 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "SEAT SAW");
             expect(pane).toContain("you \u2192 @m1");
 
-            // The next message to the agent carries the seating note and the
-            // reply, and the band shows only what was typed.
+            // The next message to the agent carries the user's words alone:
+            // nothing the seat said crosses on its own.
             sendText(socket, session, "go on");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
@@ -2359,7 +2359,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-btw-child.ts",
                 100,
                 30,
             );
@@ -2411,18 +2411,15 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-injecting-child.ts",
                 100,
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/add advisor as m1");
-            sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
 
             sendText(socket, session, "first");
             sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
+            pane = await waitForVisiblePane(socket, session, "AGENT SAW THE HEAD");
             expect(pane).not.toContain("system-note");
 
             // Every later turn rebuilds the transcript from the canonical
@@ -2461,12 +2458,12 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-btw-child.ts",
                 100,
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/add advisor as m1");
+            sendText(socket, session, "/btw guest as m1");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
 
@@ -2480,7 +2477,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 (visible) =>
                     visible.includes("Start a conversation")
-                    && !visible.includes("faux-advisor"),
+                    && !visible.includes("faux-guest"),
                 "an empty conversation with no sidebar",
             );
 
@@ -2515,15 +2512,15 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-btw-child.ts",
                 100,
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/add advisor as m1");
+            sendText(socket, session, "/btw guest as m1");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
-            sendText(socket, session, "/add second as m2");
+            sendText(socket, session, "/btw second as m2");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @m2");
 
@@ -2532,7 +2529,7 @@ test.skipIf(!tmuxAvailable)(
             // Both seats answer in the column, and the agent answers in the
             // transcript: `@all` is everyone, not only the seats.
             pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
-            expect(pane).toContain("m1 (faux-advisor)");
+            expect(pane).toContain("m1 (faux-guest)");
             expect(pane).toContain("m2 (faux-second)");
             // What the agent was sent is not what the band shows.
             expect(pane).toContain("which ordering");
@@ -2563,16 +2560,16 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-btw-child.ts",
                 100,
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/add advisor as frosty");
+            sendText(socket, session, "/btw guest as frosty");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @frosty");
             // A second seat, so the column outlives the one being removed.
-            sendText(socket, session, "/add second as m2");
+            sendText(socket, session, "/btw second as m2");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @m2");
 
@@ -2606,7 +2603,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "the agent hears that the last seat left, on the next message",
+    "the agent is not told that a seat left",
     async () => {
         const socket = `vera-seat-left-${process.pid}-${randomUUID()}`;
         const session = "seat-left";
@@ -2618,18 +2615,14 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-btw-child.ts",
                 100,
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/add advisor as m1");
+            sendText(socket, session, "/btw guest as m1");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
-            // Spends the joining note, so what follows can only be the leaving.
-            sendText(socket, session, "hello");
-            sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "AGENT ANSWERED");
 
             sendText(socket, session, "/remove m1");
             sendKey(socket, session, "Enter");
@@ -2637,14 +2630,13 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "is it just us");
             sendKey(socket, session, "Enter");
-            // The room being empty is not a reason to keep the agent guessing.
-            pane = await waitForVisiblePane(
-                socket,
-                session,
-                "AGENT SAW A SEAT LEAVE",
-            );
+            // One way both ways: the agent is never told who sat down or got
+            // up, so the faux agent, which answers with what it was sent, sees
+            // the user's words and nothing else.
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
             expect(pane).toContain("is it just us");
             expect(pane).not.toContain("system-note");
+            expect(pane).not.toContain("AGENT SAW A SEAT LEAVE");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
@@ -2671,12 +2663,12 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-advisor-child.ts",
+                "test/support/tui-btw-child.ts",
                 100,
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/add broken as m1");
+            sendText(socket, session, "/btw broken as m1");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
 
