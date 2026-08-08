@@ -1085,6 +1085,14 @@ export async function startTui(
     const composerBox = createTuiComposerPanel(renderer, composer);
 
     const bodyFocus = new TuiBodyFocusController();
+    // Everything the sidebar sits beside: the conversation and what hangs off
+    // it, but not the composer, so the split ends where typing begins.
+    const upper = new BoxRenderable(renderer, {
+        id: "upper",
+        flexGrow: 1,
+        flexDirection: "column",
+        gap: 1,
+    });
     const app = new BoxRenderable(renderer, {
         id: "app",
         width: "100%",
@@ -1103,7 +1111,7 @@ export async function startTui(
     });
     const sidebar = createTuiSidebar({
         renderer,
-        transcript,
+        transcript: upper,
         theme: {
             background: theme.background,
             panel: tuiRecessColor(theme),
@@ -1122,11 +1130,27 @@ export async function startTui(
                 // drag over; the sidebar keeps it for this session.
             }
         },
+        // Clicking the column is how you talk to it: with one seat there is no
+        // question who, and typing the name again is the part nobody wants.
+        onPanelClick: () => {
+            const first = extensionMentions[0];
+            if (first === undefined) return;
+            if (/(?:^|\s)@\S*$/.test(composer.plainText)) return;
+            composer.setComposerText(
+                composer.plainText.length === 0
+                    ? `@${first} `
+                    : `${composer.plainText} @${first} `,
+            );
+            composer.focus();
+            renderCommandSuggestions();
+            renderState();
+        },
         onLayoutChanged: () => {
             renderJumpToBottom();
             renderSidebarJump();
         },
     });
+    upper.add(transcript);
     app.add(sidebar.body);
     app.add(jumpToBottom);
     app.add(sidebarJump);
@@ -1140,7 +1164,7 @@ export async function startTui(
         visible: false,
     });
     app.add(overlayScrim);
-    app.add(queuedPromptText);
+    upper.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
@@ -1236,7 +1260,7 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
-    app.add(commandSuggestionsBox);
+    upper.add(commandSuggestionsBox);
     app.add(composerBox);
     app.add(statusText);
     app.add(backgroundStatusText);
