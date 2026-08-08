@@ -5,6 +5,11 @@ export type PreimageRecorder = (
 
 export class ToolRuntime {
     readonly workspace: string;
+    /**
+     * The directory project-scoped state is keyed on. Equal to the workspace
+     * unless the owner resolved a repository root for it.
+     */
+    readonly instructionRoot: string;
     /** Where captured pre-images land, for messages that point at them. */
     readonly stashDirectory: string | undefined;
     /**
@@ -22,8 +27,10 @@ export class ToolRuntime {
         preimageRecorder?: PreimageRecorder,
         stashDirectory?: string,
         env?: Readonly<Record<string, string>>,
+        instructionRoot?: string,
     ) {
         this.workspace = workspace;
+        this.instructionRoot = instructionRoot ?? workspace;
         this.preimageRecorder = preimageRecorder;
         this.stashDirectory = stashDirectory;
         this.env = env;

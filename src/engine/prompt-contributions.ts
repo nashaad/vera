@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ModelTool } from "../model/types.ts";
+import type { MemorySnapshot } from "./memory.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
@@ -28,6 +29,7 @@ export interface PromptContributionInput {
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
 }
@@ -42,6 +44,7 @@ export interface StablePromptContributionInput {
 export interface ContextualPromptContributionInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
 }
@@ -163,6 +166,24 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             };
         },
     },
+    {
+        id: "core.memory",
+        owner: "core",
+        target: "contextual",
+        contribute: (input) => {
+            const snapshot = input.memory;
+            if (
+                snapshot === undefined
+                || (snapshot.files.length === 0 && snapshot.warnings.length === 0)
+            ) {
+                return null;
+            }
+            return {
+                title: "Memory",
+                content: renderMemory(snapshot),
+            };
+        },
+    },
 ];
 
 export function collectBuiltInPromptContributions(
@@ -254,6 +275,24 @@ function formatLocalDate(date: Date): string {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+}
+
+function renderMemory(snapshot: MemorySnapshot): string {
+    const sections = snapshot.files.map((file) =>
+        [
+            "Memory index. Each line points to a file under "
+                + `\`${file.dir}\`; read a file when its hook is relevant `
+                + "to the task.",
+            file.content,
+        ].join("\n")
+    );
+    if (snapshot.warnings.length > 0) {
+        sections.push([
+            "### Loading diagnostics",
+            ...snapshot.warnings.map((warning) => `- ${warning}`),
+        ].join("\n"));
+    }
+    return sections.join("\n\n");
 }
 
 function renderProjectInstructions(

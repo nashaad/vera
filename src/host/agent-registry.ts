@@ -1,8 +1,11 @@
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { realpath } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { EngineEventBus } from "../engine/events.ts";
+import type { InstructionRoot } from "../engine/memory.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import {
     builtInPermissionMode,
@@ -447,6 +450,31 @@ function describeRunOnceModel(options: RunOnceOptions): string {
     return options.reasoningEffort === undefined
         ? `Model ${options.modelRef}`
         : `Model ${options.modelRef} at effort ${options.reasoningEffort}`;
+}
+
+/**
+ * The checkout a workspace belongs to, so every worktree of one project reads
+ * the same project-scoped state. A directory that is not a repository resolves
+ * to itself, which is an ordinary case rather than a failure.
+ */
+export function resolveInstructionRoot(workspace: string): InstructionRoot {
+    try {
+        const git = spawnSync(
+            "git",
+            ["rev-parse", "--git-common-dir"],
+            { cwd: workspace, encoding: "utf8" },
+        );
+        const output = git.status === 0 ? git.stdout.trim() : "";
+        if (output.length > 0) {
+            return {
+                path: dirname(resolve(workspace, output)),
+                source: "git",
+            };
+        }
+    } catch {
+        // git is not required to run a session.
+    }
+    return { path: workspace, source: "workspace" };
 }
 
 function substitutionNote(update: ModelSubstitutionUpdate): string {
@@ -1443,6 +1471,7 @@ export class AgentRegistry {
                 : { clientPromptRefusal }),
         });
         const events = new EngineEventBus();
+        const instructionRoot = resolveInstructionRoot(store.header.cwd);
         const storedSettings = store.modelSettings();
         const entry: RegisteredAgentEntry = {
             agent,
@@ -1499,6 +1528,7 @@ export class AgentRegistry {
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
+            instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),
             ...(this.options.disabledPromptContributions === undefined
                 ? {}
@@ -1584,6 +1614,7 @@ export class AgentRegistry {
                 // so arc stamps the session's posts with it and self-echo
                 // suppression matches with no manual export.
                 toolEnv: { ARC_SESSION: entry.arcName },
+                instructionRoot,
                 modelFallback: this.options.modelFallback,
                 ...(this.options.createEffortPool === undefined
                     ? {}

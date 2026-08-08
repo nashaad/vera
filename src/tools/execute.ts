@@ -25,6 +25,7 @@ import { webFetchTool } from "./web-fetch.ts";
 import { catalogSearchTool } from "./catalog-search.ts";
 import { poolAddTool } from "./pool-add.ts";
 import { agentRosterTool } from "./agent-roster.ts";
+import { memoryWriteTool } from "./memory-write.ts";
 import {
     limitToolResult,
     type ToolResultSpill,
@@ -40,6 +41,7 @@ const ordinaryTools: readonly RegisteredTool[] = [
     listTool,
     webFetchTool,
     catalogSearchTool,
+    memoryWriteTool,
 ];
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,
