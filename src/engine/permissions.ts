@@ -234,6 +234,14 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        // Writes only inside Vera's own memory directories, which the tool
+        // resolves itself from the scope and the instruction root; no input
+        // of the call names a path.
+        name: "routine.memory_write",
+        when: { operation: "memory.write" },
+        then: "allow",
+    },
+    {
         name: "routine.read",
         when: { verb: "read" },
         then: "allow",
@@ -407,6 +415,7 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "git.pull",
     "git.push",
     "git.remote_update",
+    "memory.write",
     "web.fetch",
 ]);
 

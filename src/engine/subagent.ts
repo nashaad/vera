@@ -13,6 +13,7 @@ import {
 import { EngineEventBus } from "./events.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
+import type { InstructionRoot } from "./memory.ts";
 import {
     createInProcessChannel,
     type InProcessChannel,
@@ -49,6 +50,11 @@ import {
 export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly workspace: string;
+    /**
+     * The parent's instruction root, handed down so a child keys project
+     * memory where its parent does. Absent falls back to the workspace.
+     */
+    readonly instructionRoot?: InstructionRoot;
     /** Shared with children: one session, one scratch space. */
     readonly scratchDir?: string;
     readonly disabledPromptContributions?: readonly string[];
@@ -310,6 +316,8 @@ export interface RunSubagentOptions {
     readonly model: string;
     readonly description: string;
     readonly workspace: string;
+    /** Inherited from the parent. Absent falls back to the workspace. */
+    readonly instructionRoot?: InstructionRoot;
     readonly scratchDir?: string;
     readonly disabledPromptContributions?: readonly string[];
     readonly approvalMode: ApprovalMode;
@@ -378,6 +386,9 @@ export function createSubagentEffectApplier(
                 model: resolved.model,
                 description: effect.description,
                 workspace: options.workspace,
+                ...(options.instructionRoot === undefined
+                    ? {}
+                    : { instructionRoot: options.instructionRoot }),
                 ...(options.scratchDir === undefined
                     ? {}
                     : { scratchDir: options.scratchDir }),
@@ -440,10 +451,18 @@ export async function runSubagent(
             sessionAttachmentName(store),
         );
         events.subscribe(protocol);
+        const instructionRoot: InstructionRoot = options.instructionRoot
+            ?? { path: options.workspace, source: "workspace" };
         const state: RunTurnState = {
             messages: [],
             store,
-            toolRuntime: newStashingToolRuntime(options.workspace, sessionId),
+            toolRuntime: newStashingToolRuntime(
+                options.workspace,
+                sessionId,
+                undefined,
+                instructionRoot.path,
+            ),
+            instructionRoot,
             inbound: new InboundCommandRouter(channel.engine, events),
             events,
             hooks: new ToolHooks(),
