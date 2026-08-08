@@ -1,5 +1,5 @@
 {
-  "id": "vera.advisor",
+  "id": "vera.btw",
   "version": "1.0.0",
   "sdk": "1",
   "entrypoint": "./extension.ts",
