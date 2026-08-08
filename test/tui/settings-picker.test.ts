@@ -939,6 +939,7 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         "synthwave",
         "nightowl",
         "github",
+        "midnight-blue",
     ]);
     expect(themes.options[themes.selectedIndex]?.value).toBe("nightowl");
     let filtered = themes;

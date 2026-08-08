@@ -390,6 +390,7 @@ const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "synthwave", label: "Synthwave", description: "bright cyan and neon" },
     { value: "nightowl", label: "Night Owl", description: "deep blue, low glare" },
     { value: "github", label: "GitHub", description: "GitHub dark palette" },
+    { value: "midnight-blue", label: "Midnight Blue", description: "navy, gold, and cool white" },
 ];
 
 export function startTuiSettingsPicker(
