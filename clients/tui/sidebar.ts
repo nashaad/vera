@@ -109,12 +109,16 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             dragging = true;
         },
     });
+    // A drawn rule, not a filled column: a background block reads as a bar,
+    // and the split should be a hairline.
     const dividerLine = new BoxRenderable(renderer, {
         id: "sidebar-divider-line",
         width: 1,
         height: "100%",
         marginLeft: 1,
-        backgroundColor: theme.border,
+        border: ["left"],
+        borderStyle: "single",
+        borderColor: theme.border,
     });
     divider.add(dividerLine);
 
