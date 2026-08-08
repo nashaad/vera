@@ -18,6 +18,8 @@ const THREAD_TURNS = 12;
 interface Seat {
     readonly alias: string;
     readonly model: string;
+    /** Which provider serves this model. A seat is always fully addressed. */
+    readonly provider: string;
     /** What this seat has been told and has said, in its own order. */
     readonly lane: { role: "user" | "assistant"; content: string }[];
 }
@@ -30,6 +32,23 @@ export function activateClient(vera: any): void {
     let saidThreadUnreadable = false;
     /** Replies each participant has not been shown yet, oldest first. */
     const unread = new Map<string, string[]>([[AGENT, []]]);
+
+    /**
+     * The pool entry a name refers to, by the user's own name for it or by the
+     * model id. A seat can only be a model the user already admitted: an
+     * ad-hoc id has no provider behind it, so it would be sent to whichever
+     * provider happens to be the default and be rejected there.
+     */
+    function pooled(name: string): { model: string; provider: string } | undefined {
+        const entries = vera.modelSettings.current()?.pooled ?? [];
+        const match = entries.find((entry: any) =>
+            entry.poolName === name || entry.model === name
+            || `${entry.provider}/${entry.model}` === name
+        );
+        return match === undefined
+            ? undefined
+            : { model: match.model, provider: match.provider };
+    }
 
     /** The composer completes these after an `@`. */
     function offerMentions(): void {
@@ -103,6 +122,7 @@ export function activateClient(vera: any): void {
         try {
             const answer = await vera.consult({
                 model: seat.model,
+                provider: seat.provider,
                 systemPrompt: seatBrief(),
                 messages: seat.lane.map((turn) => ({ ...turn })),
             });
@@ -153,12 +173,19 @@ export function activateClient(vera: any): void {
                         + "time. /remove <alias> frees one.",
                 );
             }
-            const model = match[1]!;
-            const alias = match[2] ?? model;
+            const requested = match[1]!;
+            const entry = pooled(requested);
+            if (entry === undefined) {
+                throw new Error(
+                    `${requested} is not in the model pool. /model adds one.`,
+                );
+            }
+            const model = entry.model;
+            const alias = match[2] ?? requested;
             if (alias === AGENT || seats.has(alias)) {
                 throw new Error(`${alias} is already taken`);
             }
-            seats.set(alias, { alias, model, lane: [] });
+            seats.set(alias, { alias, model, provider: entry.provider, lane: [] });
             unread.set(alias, []);
             offerMentions();
             if (!sidebarOpen) {

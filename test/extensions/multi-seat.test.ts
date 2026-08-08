@@ -60,7 +60,17 @@ async function start(config: JsonValue = null): Promise<Harness> {
             async delete() {},
         },
         modelSettings: {
-            current: () => undefined,
+            // A pool with the models the tests seat, so `/add` can resolve
+            // them: an unpooled name is refused.
+            current: () => ({
+                provider: "openai",
+                model: "gpt-5.5",
+                pooled: [
+                    { provider: "openai", model: "gpt-5.5", label: "gpt-5.5", available: true, verified: true, levels: [] },
+                    { provider: "zai", model: "glm-5.2", label: "glm-5.2", available: true, verified: true, levels: [] },
+                    { provider: "ollama", model: "down-model", label: "down-model", available: true, verified: true, levels: [] },
+                ],
+            }),
             async update() {
                 return { status: "rejected" as const, reason: "unavailable" as const };
             },
@@ -246,6 +256,28 @@ test("a failed consult files into the seat's column, and the lane keeps the ask"
 
 moving on`,
     });
+    await harness.registry.close();
+});
+
+test("a model that is not in the pool cannot be seated", async () => {
+    const harness = await start();
+    // The pool is what a seat can be: an id typed from memory has no provider
+    // behind it, so it would be sent to the default one and rejected there.
+    expect(harness.registry.invokeCommand("add", "gpt-9 as m1", WORKSPACE))
+        .rejects.toThrow("not in the model pool");
+    await harness.registry.close();
+});
+
+test("a seat is consulted at the provider its pool entry names", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("add", "glm-5.2 as m1", WORKSPACE);
+    await harness.registry.interceptMessage({
+        text: "@m1 hello",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    await harness.settle();
+    expect(harness.consults[0]?.provider).toBe("zai");
     await harness.registry.close();
 });
 
