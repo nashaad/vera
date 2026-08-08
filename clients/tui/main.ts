@@ -634,6 +634,7 @@ export async function startTui(
         (settings: NonNullable<typeof state.modelSettings>) => void
     >();
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
+    let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
@@ -927,7 +928,9 @@ export async function startTui(
 
     const composer = createTuiComposer(
         renderer,
-        submitPrompt,
+        // Called with the editor's value, which is not what submitPrompt's
+        // parameter means.
+        () => submitPrompt(),
         attachPastedImage,
     );
     composer.onImageChipRemoved = (requestId) => {
@@ -1776,17 +1779,34 @@ export async function startTui(
     void loadExtensionCommands();
     requestSessionSettings();
 
-    function submitPrompt(): void {
+    /**
+     * `interceptedText` carries the text an extension asked to send instead of
+     * what the user typed. Its presence is also what stops a second trip
+     * through the interceptors.
+     */
+    function submitPrompt(interceptedText?: string): void {
         if (
             promptSubmitting
             || sessionSwitchPending
             || pendingSessionRename
             || extensionCommandPending
+            || messageInterceptPending
         ) {
             return;
         }
-        const prompt = composer.expandedText().trim();
+        const prompt = interceptedText ?? composer.expandedText().trim();
         if (prompt.length === 0 && pendingImages.length === 0) {
+            return;
+        }
+        // Slash commands belong to the client's own registry, so they never
+        // reach an interceptor. Everything else is offered once.
+        if (
+            interceptedText === undefined
+            && prompt.length > 0
+            && !prompt.startsWith("/")
+            && clientExtensionRegistry?.hasMessageInterceptors() === true
+        ) {
+            offerMessageToExtensions(prompt);
             return;
         }
 
@@ -2504,6 +2524,41 @@ export async function startTui(
             type: "prompt",
             content: prompt,
             ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
+        });
+    }
+
+    /**
+     * A handled message still enters submit history and clears the composer:
+     * the user submitted it, and an extension acting on it is not a reason to
+     * lose the text or leave it sitting in the box.
+     */
+    function offerMessageToExtensions(prompt: string): void {
+        messageInterceptPending = true;
+        renderStatus();
+        void clientExtensionRegistry!.interceptMessage({
+            text: prompt,
+            workspace: client.workspace ?? process.cwd(),
+            imageCount: pendingImages.length,
+        }).then((decision) => {
+            messageInterceptPending = false;
+            if (shuttingDown) return;
+            if (decision.kind === "handled") {
+                if (composer.expandedText().trim() === prompt) {
+                    composer.rememberSubmittedText(prompt);
+                    composer.clearComposer();
+                }
+                renderState();
+                return;
+            }
+            submitPrompt(decision.kind === "replace" ? decision.text : prompt);
+        }).catch((error) => {
+            messageInterceptPending = false;
+            if (shuttingDown) return;
+            state = appendTuiNotice(
+                state,
+                error instanceof Error ? error.message : String(error),
+            );
+            renderState();
         });
     }
 

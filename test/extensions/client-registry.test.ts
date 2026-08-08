@@ -937,6 +937,90 @@ function contributionSource(
     `;
 }
 
+test("a message interceptor sees submitted messages and can replace or handle them", async () => {
+    const extension = createExtension("client.seats", [
+        "client.messages.intercept",
+    ], `
+        export function activateClient(vera) {
+            vera.messages.intercept((message) => {
+                if (message.text.startsWith("@all ")) {
+                    return { kind: "handled" };
+                }
+                if (message.text.startsWith("@m1 ")) {
+                    return {
+                        kind: "replace",
+                        text: message.text.slice("@m1 ".length),
+                    };
+                }
+                return undefined;
+            });
+        }
+    `);
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+    });
+
+    expect(registry.hasMessageInterceptors()).toBe(true);
+    const outgoing = { workspace: "/tmp/workspace", imageCount: 0 };
+    expect(await registry.interceptMessage({ ...outgoing, text: "@all hello" }))
+        .toEqual({ kind: "handled" });
+    expect(await registry.interceptMessage({ ...outgoing, text: "@m1 hello" }))
+        .toEqual({ kind: "replace", text: "hello" });
+    // Returning nothing must not swallow the message.
+    expect(await registry.interceptMessage({ ...outgoing, text: "hello" }))
+        .toEqual({ kind: "pass" });
+    await registry.close();
+});
+
+test("a failing message interceptor passes the message through", async () => {
+    const extension = createExtension("client.broken", [
+        "client.messages.intercept",
+    ], `
+        export function activateClient(vera) {
+            vera.messages.intercept(() => {
+                throw new Error("interceptor exploded");
+            });
+        }
+    `);
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(await registry.interceptMessage({
+        text: "hello",
+        workspace: "/tmp/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(failures.map((failure) => failure.extensionId)).toEqual([
+        "client.broken",
+    ]);
+    await registry.close();
+});
+
+test("intercepting messages requires the capability", async () => {
+    const extension = createExtension("client.undeclared", [
+        "client.ui.notice",
+    ], `
+        export function activateClient(vera) {
+            vera.messages.intercept(() => undefined);
+        }
+    `);
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(registry.hasMessageInterceptors()).toBe(false);
+    expect(failures[0]?.message).toContain("client.messages.intercept");
+    await registry.close();
+});
+
 function createExtension(
     id: string,
     capabilities: readonly string[],
