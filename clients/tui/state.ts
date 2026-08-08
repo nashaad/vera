@@ -39,6 +39,7 @@ export type TuiTranscriptEntryKind =
     | "review"
     | "notice"
     | "notification"
+    | "extension_label"
     | "substitution"
     | "diff";
 
@@ -857,10 +858,10 @@ export function appendTuiExtensionBlock(
     label: string,
     text: string,
 ): TuiState {
-    return appendEntry(state, {
-        kind: "notification",
-        text: `**${label}**\n\n${text}`,
-    });
+    return appendEntry(
+        appendEntry(state, { kind: "extension_label", text: label }),
+        { kind: "notification", text },
+    );
 }
 
 export function failTuiConnection(state: TuiState, message: string): TuiState {
@@ -987,6 +988,11 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             bold(fg(TUI_NOTICE)(`${SUBSTITUTION_MARKER} `)),
             fg(TUI_NOTICE)(entry.text),
         ]);
+    }
+    if (entry.kind === "extension_label") {
+        // Styled rather than markdown: a label is a name, and a name with a
+        // bracket or an asterisk in it must survive being displayed.
+        return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
     if (entry.kind === "notice" || entry.kind === "review") {
         return new StyledText([fg(TUI_NOTICE)(entry.text)]);
