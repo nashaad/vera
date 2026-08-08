@@ -2357,6 +2357,59 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "the agent hears that the last seat left, on the next message",
+    async () => {
+        const socket = `vera-seat-left-${process.pid}-${randomUUID()}`;
+        const session = "seat-left";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-left-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/add advisor as m1");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+            // Spends the joining note, so what follows can only be the leaving.
+            sendText(socket, session, "hello");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "AGENT ANSWERED");
+
+            sendText(socket, session, "/remove m1");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "@m1 left");
+
+            sendText(socket, session, "is it just us");
+            sendKey(socket, session, "Enter");
+            // The room being empty is not a reason to keep the agent guessing.
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "AGENT SAW A SEAT LEAVE",
+            );
+            expect(pane).toContain("is it just us");
+            expect(pane).not.toContain("system-note");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "a seat that cannot answer says so where its answer would have been",
     async () => {
         const socket = `vera-seat-failure-${process.pid}-${randomUUID()}`;
