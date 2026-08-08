@@ -323,6 +323,22 @@ export interface VeraClientExtensionUi {
      * Capability: `client.ui.sidebar`.
      */
     readonly sidebar: VeraClientExtensionSidebar;
+    /**
+     * Names the composer completes after an `@`. The extension is the only one
+     * that knows what it named, so it hands the list over; the client decides
+     * how completing feels.
+     *
+     * Capability: `client.ui.mentions`.
+     */
+    readonly mentions: VeraClientExtensionMentions;
+}
+
+export interface VeraClientExtensionMentions {
+    /**
+     * Replaces the whole list. Each name is one word, with no `@` on it and no
+     * whitespace in it.
+     */
+    set(names: readonly string[]): void;
 }
 
 export interface VeraClientExtensionSidebar {

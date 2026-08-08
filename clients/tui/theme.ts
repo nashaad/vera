@@ -97,12 +97,12 @@ export function tuiRecessColor(theme: TuiTheme): string {
  * because the only thing it has to say is that it can be moved.
  */
 export function tuiHandleColor(theme: TuiTheme): string {
-    return mixHex(theme.background, theme.text, 0.14);
+    return mixHex(theme.background, theme.text, 0.07);
 }
 
 /** The strip while it is held. */
 export function tuiHandleActiveColor(theme: TuiTheme): string {
-    return mixHex(theme.background, theme.text, 0.38);
+    return mixHex(theme.background, theme.text, 0.30);
 }
 
 function paletteColor(
