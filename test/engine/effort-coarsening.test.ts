@@ -51,6 +51,7 @@ function fakePool(
                 efforts: resolved,
             };
         },
+        resolveImageSupport: () => undefined,
         recordLearned(ref, key, fact) {
             if (key.startsWith("efforts.")) {
                 forbidden.add(key.slice("efforts.".length));

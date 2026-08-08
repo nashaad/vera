@@ -116,6 +116,8 @@ export interface TuiSettingsPickerOption {
     readonly poolName?: string;
     /** True on a pool row whose model cannot run right now. */
     readonly unavailable?: boolean;
+    /** Set only when a source says the model takes images. */
+    readonly images?: boolean;
     /** True on a pool row with no probe or rejection evidence behind it. */
     readonly unverified?: boolean;
     /** True on a model Vera's shipped curation recommends. */
@@ -1987,6 +1989,12 @@ function optionMeta(
     if (option.recommendedLevel !== undefined) {
         separated({ text: option.recommendedLevel });
     }
+    // Only a yes is worth a word. The question this answers is whether an
+    // attachment will go through, so the mark being there is the answer and
+    // its absence means do not count on it.
+    if (option.images === true) {
+        separated({ text: "images", tone: "positive" });
+    }
     // An unverified row runs like any other. The word says only that no probe
     // has established what the model can do yet; a probed pool row says so
     // too, so verifying visibly changes the row.
@@ -2197,6 +2205,7 @@ function modelOptions(
             ...(held !== undefined && !held.entry.verified
                 ? { unverified: true }
                 : {}),
+            ...(held?.entry.imageSupport === true ? { images: true } : {}),
         };
     };
     const runnable = (available ?? []).map((model) => {
@@ -2252,6 +2261,7 @@ function modelOptions(
             unavailable: true,
             ...recommendationMarks(entry),
             ...(entry.verified ? {} : { unverified: true }),
+            ...(entry.imageSupport === true ? { images: true } : {}),
         }];
     });
     return [...runnable, ...orphanEntries].toSorted((left, right) =>

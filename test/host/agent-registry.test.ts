@@ -2574,6 +2574,7 @@ test("the pool is built from the agent's own workspace", async () => {
             roots.push(projectRoot);
             return {
                 resolveEffort: (_ref, requested) => ({ requested, efforts: {} }),
+                resolveImageSupport: () => undefined,
                 recordLearned: () => {},
             };
         },
