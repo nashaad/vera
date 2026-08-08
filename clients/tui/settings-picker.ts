@@ -1276,7 +1276,7 @@ export function handleTuiSettingsPickerKey(
         if (closed === (key.name === "left")) {
             return unchanged(state, true);
         }
-        return toggledSection(state, heading.section!);
+        return toggledSection(state, heading.section);
     }
     if (key.name === "up") {
         const next = {
@@ -2455,14 +2455,14 @@ function sectionLabels(
  */
 function enclosingSection(
     state: TuiAnySettingsPickerState,
-): TuiSettingsPickerOption | undefined {
+): (TuiSettingsPickerOption & { readonly section: string }) | undefined {
     if (state.kind !== "model") {
         return undefined;
     }
     for (let index = state.selectedIndex; index >= 0; index--) {
         const option = state.options[index];
         if (option?.section !== undefined) {
-            return option;
+            return { ...option, section: option.section };
         }
     }
     return undefined;
