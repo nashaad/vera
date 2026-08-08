@@ -5,8 +5,10 @@
 
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type { CompactionBudget } from "../../src/engine/compaction-scheduler.ts";
 import {
     COMPACTION_TRIGGER_FRACTION,
+    compactionBudgetWarning,
     MIN_SUMMARY_TOKENS,
     POST_COMPACTION_TARGET_FRACTION,
     RETAINED_USER_TURNS,
@@ -229,6 +231,18 @@ export interface DriveReport {
     readonly approval_mode: string;
     readonly capacity: CapacityOverride;
     readonly thresholds: EffectiveThresholds;
+    /**
+     * The engine's own warning that the configured budget cannot pay for
+     * itself, verbatim, or null when there is none.
+     *
+     * Taken from the `compaction` update when a compaction ran, which is the
+     * only time the engine emits it. A run that configured the mismatch but
+     * never crossed the trigger has no update to read, so the same exported
+     * check is applied to the last measurement instead: the trap is a fact
+     * about the configuration, and a scenario that never fired it is exactly
+     * the one that would otherwise look green.
+     */
+    readonly budget_warning: string | null;
     readonly session_path?: string;
     readonly turns: readonly TurnReport[];
     readonly summary: {
@@ -261,6 +275,7 @@ export class DriveRecorder {
     private readonly turns: MutableTurn[] = [];
     private context: ContextMeasurement | undefined;
     private failure: string | undefined;
+    private budgetWarning: string | undefined;
 
     constructor(private readonly prompts: readonly string[]) {}
 
@@ -275,6 +290,12 @@ export class DriveRecorder {
             this.context = update.measurement;
             if (turn !== undefined) {
                 turn.context = update.measurement;
+            }
+            return false;
+        }
+        if (update.type === "compaction" && update.phase === "started") {
+            if (update.warning !== undefined) {
+                this.budgetWarning = update.warning;
             }
             return false;
         }
@@ -329,9 +350,11 @@ export class DriveRecorder {
         readonly approval_mode: string;
         readonly capacity: CapacityOverride;
         readonly budget: BudgetOverrides;
+        /** What was bound, for the warning the engine never got to emit. */
+        readonly bound?: CompactionBudget;
         readonly session_path?: string;
     }): DriveReport {
-        const { budget, ...rest } = header;
+        const { budget, bound, ...rest } = header;
         const turns = this.turns.map((turn, index) => ({
             index,
             prompt: this.prompts[index] ?? "",
@@ -345,6 +368,11 @@ export class DriveRecorder {
         return {
             ...rest,
             thresholds: effectiveThresholds(budget),
+            budget_warning: this.budgetWarning
+                ?? (this.context === undefined
+                    ? undefined
+                    : compactionBudgetWarning(this.context, bound))
+                ?? null,
             turns,
             summary: {
                 turns: turns.length,
