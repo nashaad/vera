@@ -7,7 +7,11 @@ import {
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+} from "../../src/model/types.ts";
 
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/multi-seat");
 
@@ -22,10 +26,30 @@ const POOLED = ["advisor", "second", "broken"].map((poolName) => ({
     levels: [],
 }));
 
+/** Answers with what it was actually sent, so a hidden note is still visible
+ * somewhere a test can read it. */
+const agent: ModelAdapter = {
+    stream(request) {
+        const last = request.messages.filter((message) =>
+            message.role === "user"
+        ).at(-1);
+        const text = typeof last?.content === "string"
+            ? last.content
+            : JSON.stringify(last?.content ?? "");
+        return new FauxAdapter([
+            response(
+                text.includes("left the conversation")
+                    ? "AGENT SAW A SEAT LEAVE"
+                    : "AGENT ANSWERED",
+            ),
+        ]).stream(request);
+    },
+};
+
 const channel = createInProcessChannel();
 void runHeadlessLoop(
     channel.engine,
-    new FauxAdapter([response("AGENT ANSWERED")]),
+    agent,
     "test",
     "high",
     {
