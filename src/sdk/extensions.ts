@@ -302,6 +302,14 @@ export interface VeraClientExtensionUi {
      * Capability: `client.ui.notice`.
      */
     notice(text: string): void;
+    /**
+     * Write a labeled block into the transcript, for text long enough that a
+     * notice line would not carry it: another model's answer, a summary, a
+     * rendered result. Markdown is rendered.
+     *
+     * Capability: `client.ui.transcript`.
+     */
+    transcript(block: VeraClientTranscriptBlock): void;
 }
 
 export interface VeraClientExtensionKeybindings {
@@ -344,6 +352,19 @@ export interface VeraClientExtensionStatusLineSpec {
 export type VeraClientStatusLineRenderer = (
     snapshot: VeraClientStatusSnapshot,
 ) => readonly VeraClientStatusSegment[];
+
+/**
+ * A block an extension writes into the transcript the user is reading.
+ *
+ * It is a view, not a message: nothing here reaches the model, and it is gone
+ * when the conversation changes. An extension that wants the agent to see the
+ * text puts it in a message instead.
+ */
+export interface VeraClientTranscriptBlock {
+    /** Names the source, rendered above the text. */
+    readonly label: string;
+    readonly text: string;
+}
 
 /**
  * A second model's read on the conversation, outside the turn.

@@ -14,6 +14,7 @@ import type {
     VeraClientExtensionStatusLineSpec,
     VeraClientMessageDecision,
     VeraClientConsultRequest,
+    VeraClientTranscriptBlock,
     VeraClientConsultResult,
     VeraClientMessageInterceptor,
     VeraClientStatusLineRenderer,
@@ -55,6 +56,7 @@ const CLIENT_NOTICE_CAPABILITY = "client.ui.notice";
 const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
 const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
 const CLIENT_CONSULT_CAPABILITY = "client.consult";
+const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
 /**
@@ -134,6 +136,10 @@ export interface ClientExtensionNoticeAdapter {
     post(extensionId: string, text: string): void;
 }
 
+export interface ClientExtensionTranscriptAdapter {
+    append(extensionId: string, block: VeraClientTranscriptBlock): void;
+}
+
 export interface StartClientExtensionRegistryOptions {
     readonly extensions: readonly ClientExtensionConfig[];
     readonly preferences: ClientExtensionPreferencesAdapter;
@@ -141,6 +147,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly picker: ClientExtensionPickerAdapter;
     readonly notice: ClientExtensionNoticeAdapter;
     readonly consult?: ClientExtensionConsultAdapter;
+    readonly transcript?: ClientExtensionTranscriptAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -294,6 +301,7 @@ export async function startClientExtensionRegistry(
                 picker: options.picker,
                 notice: options.notice,
                 consult: options.consult,
+                transcript: options.transcript,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -557,6 +565,7 @@ interface ActivateClientExtensionOptions {
     readonly picker: ClientExtensionPickerAdapter;
     readonly notice: ClientExtensionNoticeAdapter;
     readonly consult: ClientExtensionConsultAdapter | undefined;
+    readonly transcript: ClientExtensionTranscriptAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
 
@@ -724,6 +733,15 @@ async function activateClientExtension(
                 requireAvailable();
                 requireCapability(CLIENT_NOTICE_CAPABILITY);
                 options.notice.post(options.id, validateNoticeText(text));
+            },
+            transcript(block: VeraClientTranscriptBlock): void {
+                requireAvailable();
+                requireCapability(CLIENT_TRANSCRIPT_CAPABILITY);
+                const validated = validateTranscriptBlock(block);
+                if (options.transcript === undefined) {
+                    throw new Error("This client has no transcript to write to");
+                }
+                options.transcript.append(options.id, validated);
             },
         }),
         keybindings: Object.freeze({
@@ -1277,6 +1295,20 @@ function validateConsultRequest(request: VeraClientConsultRequest): void {
             throw new Error("Consult message content must not be empty");
         }
     }
+}
+
+function validateTranscriptBlock(
+    block: VeraClientTranscriptBlock,
+): VeraClientTranscriptBlock {
+    const label = typeof block?.label === "string" ? block.label.trim() : "";
+    const text = typeof block?.text === "string" ? block.text.trim() : "";
+    if (label.length === 0) {
+        throw new Error("Client extension transcript block must have a label");
+    }
+    if (text.length === 0) {
+        throw new Error("Client extension transcript block must have text");
+    }
+    return { label, text };
 }
 
 function currentAvailableModel(

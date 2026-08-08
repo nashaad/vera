@@ -237,6 +237,7 @@ import {
     TUI_NOTICE,
     TUI_TEXT,
     applyTuiTheme,
+    appendTuiExtensionBlock,
     appendTuiNotice,
     appendTuiThought,
     dropTuiThinking,
@@ -756,6 +757,12 @@ export async function startTui(
         consult: {
             request: (_extensionId, request, signal) =>
                 requestExtensionConsult(request, signal),
+        },
+        transcript: {
+            append(_extensionId, block) {
+                state = appendTuiExtensionBlock(state, block.label, block.text);
+                renderState();
+            },
         },
         notice: {
             post(_extensionId, text) {
