@@ -18,6 +18,8 @@ import type {
     VeraClientTranscriptBlock,
     VeraClientConsultResult,
     VeraClientMessageInterceptor,
+    VeraClientExtensionTipSpec,
+    VeraClientTipContext,
     VeraClientStatusLineRenderer,
     VeraClientModelSettingsListener,
     VeraClientModelSettingsPatch,
@@ -63,6 +65,10 @@ const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
 const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
 const CLIENT_THREAD_CAPABILITY = "client.thread.read";
+const CLIENT_TIPS_CAPABILITY = "client.tips.register";
+
+/** What an extension tip waits, in client launches, when it names no cooldown. */
+const DEFAULT_TIP_COOLDOWN_LAUNCHES = 10;
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
 /**
@@ -91,6 +97,22 @@ export interface ClientExtensionCommandDescriptor {
         readonly group?: "Session" | "Settings" | "Extensions";
         readonly keyHint?: string;
     };
+}
+
+/**
+ * A tip an extension offered, already namespaced by the extension that owns
+ * it so its id cannot collide with the client's own.
+ */
+export interface ClientExtensionTipDescriptor {
+    readonly id: string;
+    readonly text: string;
+    readonly cooldownLaunches: number;
+    readonly source: string;
+    /**
+     * Safe to call during a repaint: a `when` that throws or answers with a
+     * non-boolean is read as "not now".
+     */
+    isRelevant(context: VeraClientTipContext): boolean;
 }
 
 export interface ClientExtensionKeybindingDescriptor {
@@ -192,6 +214,7 @@ export interface StartClientExtensionRegistryOptions {
 export interface ClientExtensionRegistry {
     commands(): readonly ClientExtensionCommandDescriptor[];
     keybindings(): readonly ClientExtensionKeybindingDescriptor[];
+    tips(): readonly ClientExtensionTipDescriptor[];
     invokeCommand(
         name: string,
         argumentsText: string,
@@ -250,6 +273,10 @@ interface RegisteredCommand {
     readonly interactive: boolean;
 }
 
+interface RegisteredTip {
+    readonly descriptor: ClientExtensionTipDescriptor;
+}
+
 interface RegisteredKeybinding {
     readonly descriptor: ClientExtensionKeybindingDescriptor;
     readonly run: VeraClientExtensionKeybindingHandler;
@@ -265,6 +292,7 @@ interface LoadedClientExtension {
     readonly path: string;
     readonly commands: readonly RegisteredCommand[];
     readonly keybindings: readonly RegisteredKeybinding[];
+    readonly tips: readonly RegisteredTip[];
     readonly statusLine: VeraClientStatusLineRenderer | undefined;
     readonly messageInterceptor: VeraClientMessageInterceptor | undefined;
     readonly conversationListeners: readonly (() => void)[];
@@ -319,6 +347,7 @@ export async function startClientExtensionRegistry(
     const extensionIds = new Set<string>();
     const commands = new Map<string, CommandOwner>();
     const keybindings = new Map<string, KeybindingOwner>();
+    const tips = new Map<string, RegisteredTip>();
     const statusLineBudgetMs = options.statusLineBudgetMs
         ?? DEFAULT_STATUS_LINE_BUDGET_MS;
     let statusLine: StatusLineOwner | undefined;
@@ -385,6 +414,9 @@ export async function startClientExtensionRegistry(
                     keybinding,
                 });
             }
+            for (const tip of extension.tips) {
+                tips.set(tip.descriptor.id, tip);
+            }
         } catch (error) {
             let message = errorMessage(error);
             if (extension !== undefined) {
@@ -407,6 +439,9 @@ export async function startClientExtensionRegistry(
             return [...commands.values()].map(
                 ({ command }) => command.descriptor,
             );
+        },
+        tips(): readonly ClientExtensionTipDescriptor[] {
+            return [...tips.values()].map(({ descriptor }) => descriptor);
         },
         keybindings(): readonly ClientExtensionKeybindingDescriptor[] {
             return [...keybindings.values()].map(
@@ -608,6 +643,7 @@ export async function startClientExtensionRegistry(
     async function close(): Promise<void> {
         commands.clear();
         keybindings.clear();
+        tips.clear();
         statusLine = undefined;
         const failures: string[] = [];
         for (const extension of loaded.toReversed()) {
@@ -650,8 +686,10 @@ async function activateClientExtension(
 ): Promise<LoadedClientExtension> {
     const commands: RegisteredCommand[] = [];
     const keybindings: RegisteredKeybinding[] = [];
+    const tips: RegisteredTip[] = [];
     const commandNames = new Set<string>();
     const keybindingIds = new Set<string>();
+    const tipIds = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
     const conversationListeners: (() => void)[] = [];
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
@@ -891,6 +929,39 @@ async function activateClientExtension(
                 });
             },
         }),
+        tips: Object.freeze({
+            register(spec: VeraClientExtensionTipSpec): void {
+                requireRegistrationPhase(phase, "tips");
+                requireCapability(CLIENT_TIPS_CAPABILITY);
+                validateTipSpec(spec);
+                if (tipIds.has(spec.id)) {
+                    throw new Error(
+                        `Duplicate client extension tip: ${spec.id}`,
+                    );
+                }
+                tipIds.add(spec.id);
+                const when = spec.when;
+                tips.push({
+                    descriptor: {
+                        // Namespaced on the way in, so an extension cannot
+                        // take over a client tip's cooldown by reusing its id.
+                        id: `${options.id}:${spec.id}`,
+                        text: spec.text.trim(),
+                        cooldownLaunches: spec.cooldownLaunches
+                            ?? DEFAULT_TIP_COOLDOWN_LAUNCHES,
+                        source: options.id,
+                        isRelevant(context) {
+                            if (when === undefined) return true;
+                            try {
+                                return when(structuredClone(context)) === true;
+                            } catch {
+                                return false;
+                            }
+                        },
+                    },
+                });
+            },
+        }),
         statusLine: Object.freeze({
             register(spec: VeraClientExtensionStatusLineSpec): void {
                 requireRegistrationPhase(phase, "status line renderers");
@@ -1011,6 +1082,7 @@ async function activateClientExtension(
         path: options.path,
         commands,
         keybindings,
+        tips,
         statusLine,
         messageInterceptor,
         disposers,
@@ -1216,6 +1288,22 @@ function validateKeybindingSpec(
         || typeof spec.run !== "function"
     ) {
         throw new Error("Invalid client extension keybinding registration");
+    }
+}
+
+function validateTipSpec(spec: VeraClientExtensionTipSpec): void {
+    if (
+        typeof spec !== "object"
+        || spec === null
+        || !isRegistrationId(spec.id)
+        || typeof spec.text !== "string"
+        || spec.text.trim().length === 0
+        || (spec.cooldownLaunches !== undefined
+            && (!Number.isInteger(spec.cooldownLaunches)
+                || spec.cooldownLaunches < 0))
+        || (spec.when !== undefined && typeof spec.when !== "function")
+    ) {
+        throw new Error("Invalid client extension tip registration");
     }
 }
 
