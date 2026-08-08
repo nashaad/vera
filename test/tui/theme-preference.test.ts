@@ -156,6 +156,15 @@ test("midnight blue is accepted as a persisted theme", () => {
     expect(loadTuiThemePreference(path)).toBe("midnight-blue");
 });
 
+test("Midnight Blue II is accepted as a persisted theme", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
+    const path = join(directory, "tui.json");
+
+    saveTuiThemePreference("midnight-blue-ii", path);
+
+    expect(loadTuiThemePreference(path)).toBe("midnight-blue-ii");
+});
+
 test("extension preferences are isolated and share the atomic client file", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-tui-extension-"));
     const path = join(directory, "tui.json");

@@ -87,6 +87,22 @@ test("midnight blue maps its editor and syntax palette to TUI roles", async () =
     });
 });
 
+test("Midnight Blue II remixes the source palette around its gold accent", async () => {
+    const renderer = { async getPalette() { return terminalColors(); } };
+
+    expect(await resolveTuiTheme(renderer, "midnight-blue-ii")).toEqual({
+        accent: "#F9D768",
+        text: "#B2CCD6",
+        muted: "#65737E",
+        notice: "#F37D3B",
+        success: "#C3E88D",
+        code: "#82AAFF",
+        background: "#14171C",
+        panel: "#283246",
+        element: "#222F47",
+    });
+});
+
 test("muted blue uses Codex transcript, inline code, and detail colors", async () => {
     const renderer = { async getPalette() { return terminalColors(); } };
     const theme = await resolveTuiTheme(renderer, "muted-blue");

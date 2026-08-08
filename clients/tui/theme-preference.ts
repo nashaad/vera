@@ -302,7 +302,8 @@ export function isTuiThemeName(value: unknown): value is TuiThemeName {
         || value === "synthwave"
         || value === "nightowl"
         || value === "github"
-        || value === "midnight-blue";
+        || value === "midnight-blue"
+        || value === "midnight-blue-ii";
 }
 
 export function isTuiActivityAnimation(

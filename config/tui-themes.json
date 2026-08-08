@@ -52,6 +52,12 @@
       "notice": "#F9D768", "success": "#C3E88D", "code": "#9b92ea",
       "background": "#14171C",
       "panel": "#252933", "element": "#2C4069"
+    },
+    "midnight-blue-ii": {
+      "accent": "#F9D768", "text": "#B2CCD6", "muted": "#65737E",
+      "notice": "#F37D3B", "success": "#C3E88D", "code": "#82AAFF",
+      "background": "#14171C",
+      "panel": "#283246", "element": "#222F47"
     }
   }
 }
