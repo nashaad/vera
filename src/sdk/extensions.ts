@@ -84,6 +84,7 @@ export interface VeraClientExtensionApi {
     readonly ui: VeraClientExtensionUi;
     readonly keybindings: VeraClientExtensionKeybindings;
     readonly statusLine: VeraClientExtensionStatusLine;
+    readonly messages: VeraClientExtensionMessages;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 
@@ -342,3 +343,43 @@ export interface VeraClientExtensionStatusLineSpec {
 export type VeraClientStatusLineRenderer = (
     snapshot: VeraClientStatusSnapshot,
 ) => readonly VeraClientStatusSegment[];
+
+export interface VeraClientExtensionMessages {
+    /**
+     * See each message the user submits before the client sends it.
+     *
+     * Slash commands never reach an interceptor: `/name` is dispatched by the
+     * client's own registry, so an interceptor sees only what would otherwise
+     * become a prompt.
+     */
+    intercept(handler: VeraClientMessageInterceptor): void;
+}
+
+export interface VeraClientOutgoingMessage {
+    /** The submitted text, with image chips and collapsed pastes expanded. */
+    readonly text: string;
+    readonly workspace: string;
+    /** How many images travel with the message; their bytes are not exposed. */
+    readonly imageCount: number;
+}
+
+/**
+ * What the client does with a submitted message.
+ *
+ * `pass` and an absent decision mean the same thing, so an interceptor that
+ * returns nothing cannot accidentally swallow a message. `replace` sends the
+ * given text instead; the client keeps the original in submit history, since
+ * that is what the user typed and would want to recall.
+ */
+export type VeraClientMessageDecision =
+    | { readonly kind: "pass" }
+    | { readonly kind: "handled" }
+    | { readonly kind: "replace"; readonly text: string };
+
+export type VeraClientMessageInterceptor = (
+    message: VeraClientOutgoingMessage,
+    signal: AbortSignal,
+) =>
+    | VeraClientMessageDecision
+    | undefined
+    | Promise<VeraClientMessageDecision | undefined>;

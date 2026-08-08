@@ -12,6 +12,8 @@ import type {
     VeraClientExtensionKeybindingSpec,
     VeraClientExtensionModule,
     VeraClientExtensionStatusLineSpec,
+    VeraClientMessageDecision,
+    VeraClientMessageInterceptor,
     VeraClientStatusLineRenderer,
     VeraClientModelSettingsListener,
     VeraClientModelSettingsPatch,
@@ -49,6 +51,7 @@ const CLIENT_MODEL_SETTINGS_CAPABILITY = "client.model_settings";
 const CLIENT_PICKER_CAPABILITY = "client.ui.picker";
 const CLIENT_NOTICE_CAPABILITY = "client.ui.notice";
 const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
+const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
 /**
@@ -150,6 +153,21 @@ export interface ClientExtensionRegistry {
         workspace: string,
         signal?: AbortSignal,
     ): Promise<void>;
+    /**
+     * Whether any loaded extension intercepts messages. Lets a client skip the
+     * async hop on every submit when nothing is listening.
+     */
+    hasMessageInterceptors(): boolean;
+    /**
+     * Offer a submitted message to each interceptor in load order and return
+     * the first decision that is not `pass`. An interceptor that fails is
+     * treated as `pass`, so a broken extension cannot stop the user talking to
+     * the agent.
+     */
+    interceptMessage(
+        message: OutgoingClientMessage,
+        signal?: AbortSignal,
+    ): Promise<VeraClientMessageDecision>;
     /** The extension that owns the status line, absent while nobody does. */
     statusLineOwner(): string | undefined;
     /**
@@ -161,6 +179,12 @@ export interface ClientExtensionRegistry {
         snapshot: StatusLineSnapshot,
     ): readonly StatusLineSegment[] | undefined;
     close(): Promise<void>;
+}
+
+export interface OutgoingClientMessage {
+    readonly text: string;
+    readonly workspace: string;
+    readonly imageCount: number;
 }
 
 interface RegisteredCommand {
@@ -185,6 +209,7 @@ interface LoadedClientExtension {
     readonly commands: readonly RegisteredCommand[];
     readonly keybindings: readonly RegisteredKeybinding[];
     readonly statusLine: VeraClientStatusLineRenderer | undefined;
+    readonly messageInterceptor: VeraClientMessageInterceptor | undefined;
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveInvocation>;
     readonly invocationSignal: AsyncLocalStorage<AbortSignal>;
@@ -370,6 +395,60 @@ export async function startClientExtensionRegistry(
                 signal,
             );
         },
+        hasMessageInterceptors(): boolean {
+            return closing === undefined
+                && loaded.some((extension) =>
+                    extension.messageInterceptor !== undefined
+                    && !extension.disposing
+                );
+        },
+        async interceptMessage(
+            message: OutgoingClientMessage,
+            signal?: AbortSignal,
+        ): Promise<VeraClientMessageDecision> {
+            if (closing !== undefined) {
+                return { kind: "pass" };
+            }
+            for (const extension of loaded) {
+                const intercept = extension.messageInterceptor;
+                if (intercept === undefined || extension.disposing) {
+                    continue;
+                }
+                let returned: unknown;
+                try {
+                    returned = await invokeTracked(
+                        extension,
+                        (operationSignal) => intercept(
+                            { ...message },
+                            operationSignal,
+                        ),
+                        handlerTimeoutMs,
+                        `Client extension ${extension.id} message interceptor`,
+                        signal,
+                    );
+                } catch (error) {
+                    safelyReportFailure(options.onFailure, {
+                        path: extension.path,
+                        extensionId: extension.id,
+                        message: `message interceptor failed: ${errorMessage(error)}`,
+                    });
+                    continue;
+                }
+                const decision = parseMessageDecision(returned);
+                if (decision === undefined) {
+                    safelyReportFailure(options.onFailure, {
+                        path: extension.path,
+                        extensionId: extension.id,
+                        message: "message interceptor returned an invalid decision",
+                    });
+                    continue;
+                }
+                if (decision.kind !== "pass") {
+                    return decision;
+                }
+            }
+            return { kind: "pass" };
+        },
         statusLineOwner(): string | undefined {
             return statusLine?.extension.id;
         },
@@ -477,6 +556,7 @@ async function activateClientExtension(
     const disposers: VeraExtensionDisposer[] = [];
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
     let statusLine: VeraClientStatusLineRenderer | undefined;
+    let messageInterceptor: VeraClientMessageInterceptor | undefined;
     let phase: "activating" | "active" | "unavailable" = "activating";
     let activationCompletion: Promise<unknown> | undefined;
     let activationSettled = false;
@@ -665,6 +745,23 @@ async function activateClientExtension(
                 statusLine = spec.render;
             },
         }),
+        messages: Object.freeze({
+            intercept(handler: VeraClientMessageInterceptor): void {
+                requireRegistrationPhase(phase, "message interceptors");
+                requireCapability(CLIENT_MESSAGE_INTERCEPT_CAPABILITY);
+                if (typeof handler !== "function") {
+                    throw new Error(
+                        "Client extension message interceptor must be a function",
+                    );
+                }
+                if (messageInterceptor !== undefined) {
+                    throw new Error(
+                        `Extension ${options.id} registered more than one message interceptor`,
+                    );
+                }
+                messageInterceptor = handler;
+            },
+        }),
         onDispose(dispose: VeraExtensionDisposer): void {
             requireRegistrationPhase(phase, "disposal");
             if (typeof dispose !== "function") {
@@ -722,6 +819,7 @@ async function activateClientExtension(
         commands,
         keybindings,
         statusLine,
+        messageInterceptor,
         disposers,
         activeInvocations: new Set(),
         invocationSignal,
@@ -1154,4 +1252,30 @@ function safelyReportFailure(
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * An absent decision is `pass`: an interceptor that only wanted to look at the
+ * message returns nothing, and that must not swallow it.
+ */
+function parseMessageDecision(
+    value: unknown,
+): VeraClientMessageDecision | undefined {
+    if (value === undefined || value === null) {
+        return { kind: "pass" };
+    }
+    if (typeof value !== "object") {
+        return undefined;
+    }
+    const kind = Reflect.get(value, "kind");
+    if (kind === "pass" || kind === "handled") {
+        return { kind };
+    }
+    if (kind !== "replace") {
+        return undefined;
+    }
+    const text = Reflect.get(value, "text");
+    return typeof text === "string" && text.trim().length > 0
+        ? { kind: "replace", text }
+        : undefined;
 }
