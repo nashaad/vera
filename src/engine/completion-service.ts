@@ -111,8 +111,13 @@ export function createRoutedCompletionService(
                     // A truncated answer is not a cheaper answer. A summary cut
                     // at the token ceiling would be accepted as a projection and
                     // silently lose whatever came after the cut.
+                    // The provider's own message when it left one: "stopped
+                    // with error" alone names no cause to act on.
                     lastReason = `${candidate.model} stopped with `
-                        + `${message.stopReason}`;
+                        + `${message.stopReason}`
+                        + (message.errorMessage === undefined
+                            ? ""
+                            : `: ${message.errorMessage}`);
                     continue;
                 }
                 const text = message.content

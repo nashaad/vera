@@ -83,6 +83,15 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
     };
 }
 
+/**
+ * A ground that sits under the conversation rather than on top of it, for a
+ * region that is beside the transcript instead of part of it. Darker than the
+ * background, because a lighter panel reads as a card in front.
+ */
+export function tuiRecessColor(theme: TuiTheme): string {
+    return mixHex(theme.background, "#000000", 0.45);
+}
+
 function paletteColor(
     colors: TerminalColors,
     index: number,

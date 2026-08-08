@@ -124,6 +124,8 @@ test("an addressed message goes to that seat alone and makes it incumbent", asyn
     expect(harness.consults.map((request) => request.model)).toEqual(["gpt-5.5"]);
     expect(harness.sidebar.open).toBe(true);
     expect(harness.sidebar.blocks).toEqual([
+        // Seating the model fills the column before it has said anything.
+        { label: "m1 (gpt-5.5)", text: "Seated. Ask with @m1, or @all." },
         { label: "m1 (gpt-5.5)", text: "gpt-5.5 says so" },
     ]);
     // The transcript stays the agent's: the seats talk beside it.
@@ -155,8 +157,13 @@ test("@all asks every seat at once and hands the agent the same message", async 
     await harness.settle();
     expect(harness.consults.map((request) => request.model))
         .toEqual(["gpt-5.5", "glm-5.2"]);
-    expect(harness.sidebar.blocks.map((block) => block.label))
-        .toEqual(["m1 (gpt-5.5)", "m2 (glm-5.2)"]);
+    expect(harness.sidebar.blocks.map((block) => block.text))
+        .toEqual([
+            "Seated. Ask with @m1, or @all.",
+            "Seated. Ask with @m2, or @all.",
+            "gpt-5.5 says so",
+            "glm-5.2 says so",
+        ]);
     await harness.registry.close();
 });
 

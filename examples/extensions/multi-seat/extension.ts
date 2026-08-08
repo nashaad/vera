@@ -66,11 +66,19 @@ export function activateClient(vera: any): void {
             }
         } catch (error) {
             // The seat keeps its lane: a failed round is a gap, not a reset.
-            vera.ui.notice(
-                `${seat.alias} could not answer: ${
-                    error instanceof Error ? error.message : String(error)
-                }`,
-            );
+            const reason = error instanceof Error
+                ? error.message
+                : String(error);
+            // Filed where the seat speaks, so a failed round reads in place
+            // rather than as a notice about a column that stayed blank.
+            if (sidebarOpen) {
+                vera.ui.sidebar.append({
+                    label: `${seat.alias} (${seat.model})`,
+                    text: `Could not answer: ${reason}`,
+                });
+            } else {
+                vera.ui.notice(`${seat.alias} could not answer: ${reason}`);
+            }
         }
     }
 
@@ -99,6 +107,13 @@ export function activateClient(vera: any): void {
                     // Another extension has it, or this client has none. The
                     // replies land in the transcript instead.
                 }
+            }
+            if (sidebarOpen) {
+                // An empty column says nothing about who is in the room.
+                vera.ui.sidebar.append({
+                    label: `${alias} (${model})`,
+                    text: "Seated. Ask with @" + alias + ", or @all.",
+                });
             }
             vera.ui.notice(`@${alias} is ${model}. @all asks everyone.`);
         },
