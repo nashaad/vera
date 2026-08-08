@@ -84,6 +84,7 @@ export interface VeraClientExtensionApi {
     readonly ui: VeraClientExtensionUi;
     readonly keybindings: VeraClientExtensionKeybindings;
     readonly statusLine: VeraClientExtensionStatusLine;
+    readonly tips: VeraClientExtensionTips;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 
@@ -331,6 +332,42 @@ export interface VeraClientExtensionStatusLine {
 
 export interface VeraClientExtensionStatusLineSpec {
     readonly render: VeraClientStatusLineRenderer;
+}
+
+export interface VeraClientExtensionTips {
+    register(spec: VeraClientExtensionTipSpec): void;
+}
+
+/**
+ * A line the client may show in its own tip rotation.
+ *
+ * The text is fixed rather than rendered on demand: a tip is prose about a
+ * key, and a client that had to call out to paint one would be waiting on an
+ * extension in the middle of a frame. `when` is the only code the client runs,
+ * it is synchronous, and a `when` that throws is read as "not now" rather than
+ * taken as a failure worth telling the user about.
+ */
+export interface VeraClientExtensionTipSpec {
+    readonly id: string;
+    readonly text: string;
+    /**
+     * Client launches that must pass before this tip may repeat. Defaults to
+     * 10, which is deliberately shy: an extension's tip competes with the
+     * client's own for one line.
+     */
+    readonly cooldownLaunches?: number;
+    readonly when?: (context: VeraClientTipContext) => boolean;
+}
+
+/** What the client knows about itself when it asks for a tip. */
+export interface VeraClientTipContext {
+    /** How many times this client has been started, this start included. */
+    readonly launches: number;
+    readonly pooledCount: number;
+    readonly namedPoolCount: number;
+    readonly anyVerified: boolean;
+    /** Whether the model picker is the surface asking. */
+    readonly inModelPicker: boolean;
 }
 
 /**

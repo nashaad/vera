@@ -1808,3 +1808,107 @@ async function saveCurrentIntoFirstSlot(
     await registry.close();
     return (preferences.get("vera.model-presets:slots") as unknown[])[0];
 }
+
+
+test("a registered tip is namespaced, defaults its cooldown, and honours when", async () => {
+    const extension = createExtension(
+        "client.tipper",
+        ["client.tips.register"],
+        `
+            export function activateClient(vera) {
+                vera.tips.register({ id: "welcome", text: "  Try /help  " });
+                vera.tips.register({
+                    id: "pooled",
+                    text: "Name a pooled model",
+                    cooldownLaunches: 3,
+                    when: (context) => context.pooledCount > 0,
+                });
+                vera.tips.register({
+                    id: "broken",
+                    text: "Never shown",
+                    when: () => { throw new Error("nope"); },
+                });
+            }
+        `,
+    );
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+    });
+
+    const tips = registry.tips();
+    expect(tips.map((tip) => tip.id)).toEqual([
+        "client.tipper:welcome",
+        "client.tipper:pooled",
+        "client.tipper:broken",
+    ]);
+    expect(tips[0]?.text).toBe("Try /help");
+    expect(tips[0]?.cooldownLaunches).toBe(10);
+    expect(tips[1]?.cooldownLaunches).toBe(3);
+    expect(tips[0]?.source).toBe("client.tipper");
+
+    const context = {
+        launches: 1,
+        pooledCount: 0,
+        namedPoolCount: 0,
+        anyVerified: false,
+        inModelPicker: false,
+    };
+    expect(tips[0]?.isRelevant(context)).toBe(true);
+    expect(tips[1]?.isRelevant(context)).toBe(false);
+    expect(tips[1]?.isRelevant({ ...context, pooledCount: 2 })).toBe(true);
+    // A predicate that throws reads as "not now", not as a crash.
+    expect(tips[2]?.isRelevant(context)).toBe(false);
+
+    await registry.close();
+});
+
+test("a tip registration without the capability fails the extension", async () => {
+    const extension = createExtension(
+        "client.tip-undeclared",
+        ["client.commands.register"],
+        `
+            export function activateClient(vera) {
+                vera.tips.register({ id: "welcome", text: "Try /help" });
+            }
+        `,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(registry.tips()).toEqual([]);
+    expect(failures[0]?.message).toContain(
+        "did not declare client.tips.register",
+    );
+    await registry.close();
+});
+
+test("a duplicate tip id fails the extension", async () => {
+    const extension = createExtension(
+        "client.tip-dupe",
+        ["client.tips.register"],
+        `
+            export function activateClient(vera) {
+                vera.tips.register({ id: "welcome", text: "Try /help" });
+                vera.tips.register({ id: "welcome", text: "Try /help again" });
+            }
+        `,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(registry.tips()).toEqual([]);
+    expect(failures[0]?.message).toContain("Duplicate client extension tip");
+    await registry.close();
+});
