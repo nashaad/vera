@@ -792,6 +792,7 @@ export async function startTui(
             append(extensionId, block) {
                 requireSidebarOwner(extensionId);
                 sidebar.append(block.label, block.text);
+                renderSidebarJump();
             },
             clear(extensionId) {
                 requireSidebarOwner(extensionId);
@@ -948,6 +949,33 @@ export async function startTui(
     });
     jumpToBottom.add(jumpToBottomText);
 
+    // The sidebar gets the same pill, shortened: the column is narrow, and the
+    // key jumps the transcript, so there is nothing to name here but the way
+    // back down.
+    const SIDEBAR_JUMP_LABEL = " \u2193 Jump to bottom ";
+    const sidebarJumpText = new TextRenderable(renderer, {
+        id: "sidebar-jump-text",
+        content: SIDEBAR_JUMP_LABEL,
+        fg: theme.background,
+        bg: theme.accent,
+        width: "100%",
+        height: 1,
+    });
+    const sidebarJump = new BoxRenderable(renderer, {
+        id: "sidebar-jump",
+        position: "absolute",
+        width: SIDEBAR_JUMP_LABEL.length,
+        height: 1,
+        backgroundColor: theme.accent,
+        zIndex: 4,
+        visible: false,
+        onMouseDown: () => {
+            sidebar.scrollToBottom();
+            renderJumpToBottom();
+        },
+    });
+    sidebarJump.add(sidebarJumpText);
+
     const placeholder = new TextRenderable(renderer, {
         id: "placeholder",
         content: "Start a conversation with Vera.",
@@ -1094,10 +1122,14 @@ export async function startTui(
                 // drag over; the sidebar keeps it for this session.
             }
         },
-        onLayoutChanged: () => renderJumpToBottom(),
+        onLayoutChanged: () => {
+            renderJumpToBottom();
+            renderSidebarJump();
+        },
     });
     app.add(sidebar.body);
     app.add(jumpToBottom);
+    app.add(sidebarJump);
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
@@ -4923,6 +4955,9 @@ export async function startTui(
         jumpToBottomText.fg = theme.background;
         jumpToBottomText.bg = theme.accent;
         jumpToBottom.backgroundColor = theme.accent;
+        sidebarJumpText.fg = theme.background;
+        sidebarJumpText.bg = theme.accent;
+        sidebarJump.backgroundColor = theme.accent;
         commandSuggestionsText.fg = theme.text;
         composerBox.backgroundColor = theme.panel;
         composerBox.borderColor = theme.accent;
@@ -5111,11 +5146,27 @@ export async function startTui(
         );
     }
 
+    function renderSidebarJump(): void {
+        const visible = sidebar.isShown() && !sidebar.isFollowing()
+            && !anyOverlayOpen();
+        sidebarJump.visible = visible;
+        if (!visible) {
+            return;
+        }
+        const region = sidebar.bounds();
+        sidebarJump.top = region.y + region.height - 1;
+        sidebarJump.left = Math.max(
+            0,
+            region.x + region.width - SIDEBAR_JUMP_LABEL.length - 1,
+        );
+    }
+
     function renderStatus(): void {
         if (shuttingDown) {
             return;
         }
         renderJumpToBottom();
+        renderSidebarJump();
 
         let lifecycleHint = renderTuiIdleHint(
             READY_HINT,
