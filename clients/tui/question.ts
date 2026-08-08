@@ -19,6 +19,7 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import {
+    DIALOG_GUTTER_WIDTH,
     DIALOG_SHORT_TERMINAL_HEIGHT,
     dialogHeaderNode,
     dialogOptionRow,
@@ -85,7 +86,9 @@ export function createTuiQuestionView(
         id: "question-details-text",
         content: "",
         fg: TUI_TEXT,
-        width: "100%",
+        // The gutter the choice rows below already carry, so the question and
+        // the answers to it start on the same column.
+        marginLeft: DIALOG_GUTTER_WIDTH,
         height: "auto",
         wrapMode: "word",
         selectable: true,
@@ -150,7 +153,7 @@ export function createTuiQuestionView(
         id: "question-notes",
         content: "",
         fg: TUI_MUTED,
-        width: "100%",
+        marginLeft: DIALOG_GUTTER_WIDTH,
         height: "auto",
         marginTop: 1,
         flexShrink: 0,

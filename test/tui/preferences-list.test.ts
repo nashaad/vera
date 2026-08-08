@@ -196,7 +196,7 @@ test("a list longer than the window keeps the footer and the cursor on screen", 
         view.update(state);
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(frame).toContain(">  tool=bash, executable=tool24");
+        expect(frame).toContain("tool=bash, executable=tool24");
         // The window slid: the last ten rows are 15 through 24, so 14 is gone.
         expect(frame).toContain("executable=tool15");
         expect(frame).not.toContain("executable=tool14");

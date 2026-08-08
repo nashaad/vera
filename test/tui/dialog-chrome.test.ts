@@ -13,6 +13,7 @@ import {
     DIALOG_SHORT_TERMINAL_HEIGHT,
     dialogBottomOffset,
     dialogOptionRow,
+    dialogOptionRows,
 } from "../../clients/tui/dialog-chrome.ts";
 import {
     TUI_BACKGROUND,
@@ -104,6 +105,92 @@ test("an affirmative fact in the meta column is toned apart from the rest", asyn
         expect(chunkFor(active, "verified")?.fg).toEqual(
             chunkFor(active, "openrouter · ")?.fg,
         );
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+/** The label column, which is the row's first child when it has no leading. */
+function labelText(row: BoxRenderable): string {
+    const label = row.getChildren()[0] as TextRenderable;
+    return (label.content as StyledText).chunks[0]!.text.toString();
+}
+
+test("the label column is capped so a long name ends in an ellipsis", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        // The meta column does not shrink. Left uncapped, the label column
+        // would run past the width and the layout would cut the name mid-word.
+        const rows = dialogOptionRows(setup.renderer, [
+            {
+                label: "Anthropic Claude Opus 4.5 (long)",
+                meta: "openrouter · images · unverified",
+                active: false,
+            },
+            { label: "fatty", meta: "openai-codex · unverified", active: false },
+        ], 48);
+
+        expect(labelText(rows[0]!)).toBe("Anthropic Claude O…");
+        // A meta column too wide for what is left is clipped here too, so it
+        // ends in an ellipsis rather than being cut off by the right edge.
+        expect(metaChunks(rows[0]!).map((chunk) => chunk.text.toString()).join(""))
+            .toBe("  openrouter · images · unve…");
+        // Short names keep their text and the column stays one width.
+        expect(labelText(rows[1]!)).toBe("fatty              ");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a meta column cut on a part boundary still says a fact is missing", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        const [row] = dialogOptionRows(setup.renderer, [{
+            label: "OpenAI: GPT-5.4 Mini",
+            meta: [
+                { text: "openrouter · " },
+                { text: "top pick", tone: "positive" },
+                { text: " · images · " },
+                { text: "unverified" },
+            ],
+            active: false,
+        }], 40);
+        const meta = metaChunks(row!)
+            .map((chunk) => chunk.text.toString()).join("");
+
+        // "unverified" was dropped whole, so without this the column would end
+        // on a clean "· " and read as the complete list.
+        expect(meta.trimEnd().endsWith("…")).toBe(true);
+        expect(meta).not.toContain("unverified");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a card row puts its meta on a second line under the label", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        const [row] = dialogOptionRows(setup.renderer, [{
+            label: "GLM-5.2",
+            meta: [
+                { text: "openrouter · " },
+                { text: "verified", tone: "positive" },
+            ],
+            active: false,
+            card: true,
+        }], 60);
+        const chunks = metaChunks(
+            (row!.getChildren().at(-1) as BoxRenderable),
+        );
+
+        // Left under the label rather than pushed to the right edge, so no run
+        // of padding separates the two lines.
+        expect(chunks[0]?.text.toString()).toBe("openrouter · ");
+        expect(chunkFor(chunks, "verified")?.fg).toEqual(
+            parseColor(TUI_SUCCESS),
+        );
+        // Label line, meta line, and the blank line to the next card.
+        expect(row!.height).toBe(3);
     } finally {
         setup.renderer.destroy();
     }

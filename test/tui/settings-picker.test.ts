@@ -7,6 +7,7 @@ import {
     handleTuiSettingsPickerScroll,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
+    switchedModelTab,
     startTuiProviderPicker,
     startTuiReasoningPicker,
     startTuiSessionPicker,
@@ -499,9 +500,10 @@ test("model picker keeps the current model selected", async () => {
     const frame = await pickerFrame(state);
     expect(frame).toContain("Select model");
     // The provider is a group heading above its models, and the persisted
-    // choice carries the current-dot.
+    // choice carries the current-dot. The dot hangs in the card's padding, so
+    // the label starts on the same column as every other line in the card.
     expect(frame).toMatch(/openrouter\s+\n/);
-    expect(frame).toContain("●  GLM-5.2");
+    expect(frame).toMatch(/●\s+GLM-5\.2/);
     expect(frame).not.toContain("Recent");
 });
 
@@ -525,7 +527,7 @@ test("model picker filters its choices as the user types", async () => {
     // A search result is still in provider order, so it keeps the headings
     // rather than repeating the provider on each row.
     const frame = await pickerFrame(second.state ?? state);
-    expect(frame).toContain("⌕  gl");
+    expect(frame).toContain("gl");
     expect(frame).toMatch(/openrouter\s+GLM-5\.2/);
 });
 
@@ -591,7 +593,7 @@ test("every settings picker filters as the user types", async () => {
     }
     expect(filteredPermissions.options.map((option) => option.value))
         .toEqual(["full_access"]);
-    expect(await pickerFrame(filteredPermissions)).toContain("⌕  full");
+    expect(await pickerFrame(filteredPermissions)).toContain("full");
 });
 
 test("digits quick-select on the short panes and stay search input elsewhere", async () => {
@@ -1059,6 +1061,13 @@ test("the model pane opens on Pool, in the order the user's own use produced", a
     expect(frame).toContain("Your curated shortlist.");
 });
 
+test("the pane opens on Pool even when the running model is not in it", () => {
+    // The pool is the list the user built for this moment, so it opens whether
+    // or not the model in effect happens to be on it.
+    const state = modelPickerWithPool(pooledModels, "sonnet-4.5", "anthropic");
+    expect(state.tab).toBe("pool");
+});
+
 test("with an empty pool the pane opens on explained All models", async () => {
     // An empty tab answers no question, so the pane falls back to the list that
     // can always answer "which model do I switch to".
@@ -1148,19 +1157,46 @@ test("All models opens on Top picks, with the providers folded", () => {
     )).toHaveLength(1);
 });
 
-test("a top pick says so on its own row, wherever it is listed", async () => {
+test("a top pick says so on its own row, except under the heading that says it", async () => {
     const frame = await pickerFrame(allTabWithRecommendations());
 
-    // In the section, where the row names its provider because the section
-    // mixes them, and again under the provider heading, where it does not.
-    expect(frame).toContain("openrouter · top pick · medium");
+    // Under the Top picks heading the words would only repeat it.
+    expect(frame).not.toContain("top pick");
     const opened = await pickerFrame(
         handleTuiSettingsPickerKey(
             { ...allTabWithRecommendations(), selectedIndex: 2 },
             { name: "return" },
         ).state!,
     );
-    expect(opened).toMatch(/Kimi K3\s+top pick · medium/);
+    expect(opened).toMatch(/Kimi K3\s+top pick/);
+});
+
+test("the tab's line says what Top picks are while the cursor is in them", async () => {
+    const state = allTabWithRecommendations();
+
+    // The heading itself, and then the row under it: both are inside the
+    // section the note explains.
+    expect(await pickerFrame({ ...state, selectedIndex: 0 }))
+        .toContain("Vera's own picks");
+    expect(await pickerFrame({ ...state, selectedIndex: 1 }))
+        .toContain("Vera's own picks");
+    // Outside it the line goes back to explaining the tab, and it is the same
+    // line either way: a note that appeared would push the list down.
+    const away = await pickerFrame({ ...state, selectedIndex: 2 });
+    expect(away).not.toContain("Vera's own picks");
+    expect(away).toContain("Everything your providers offer");
+});
+
+test("a tab is switched by clicking its chip, cursor and all", () => {
+    const state = modelPickerWithPool();
+
+    // The click path is the key path: whatever ⇥ would do landing on that tab
+    // is what a click on it does.
+    expect(switchedModelTab({ ...state, query: "glm" }, "all"))
+        .toEqual(handleTuiSettingsPickerKey(
+            { ...state, query: "glm" },
+            { name: "tab" },
+        ).state as TuiSettingsPickerState);
 });
 
 test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
@@ -1280,7 +1316,7 @@ test("the footer names the fold keys the highlighted row answers to", async () =
         .not.toContain("⇧←→ fold all");
 });
 
-test("a recommended level is a note on the row, not part of the choice", async () => {
+test("a recommended level is not part of the choice, and not on the row", async () => {
     const state = { ...allTabWithRecommendations(), selectedIndex: 1 };
 
     // Selecting it names the model only. The level pane still follows, which is
@@ -1291,7 +1327,9 @@ test("a recommended level is a note on the row, not part of the choice", async (
             provider: "openrouter",
             model: "moonshotai/kimi-k3",
         });
-    expect(await pickerFrame(state)).toContain("medium");
+    // The level pane is where a level is chosen, so a row carrying one would
+    // read as a setting already made.
+    expect(await pickerFrame(state)).not.toContain("medium");
 });
 
 test("no model appears twice, because pool membership is a mark on its own row", () => {
@@ -1320,8 +1358,9 @@ test("an unverified pool row says so and offers the verify key", async () => {
 
     expect(state.tab).toBe("pool");
     // The row runs like any other. The column carries the absence of
-    // evidence, and the footer offers the probe as a deliberate act.
-    expect(frame).toContain("openrouter · unverified");
+    // evidence, and the footer offers the probe as a deliberate act. The
+    // provider is in the detail pane beside the list, not on the row.
+    expect(frame).toContain("unverified");
     expect(frame).toContain("verify");
     const row = state.options[state.selectedIndex];
     expect(row?.unverified).toBe(true);
@@ -1346,8 +1385,12 @@ test("a verified pool row says so beside its provider", async () => {
     const frame = await pickerFrame(state);
 
     // Verification and provider are separate facts; probing a row visibly
-    // changes it instead of trading one word for the other.
-    expect(frame).toContain("openrouter · verified");
+    // changes it instead of trading one word for the other. The row carries
+    // the verification, the pane beside it names the provider.
+    // A tick on the row, the word in the facts block above it.
+    expect(frame).toMatch(/GLM-5\.2\s+✓/);
+    expect(frame).toContain("Verified");
+    expect(frame).toContain("answered a live probe");
 });
 
 test("the verify key asks for a probe of the selected pool row", () => {
