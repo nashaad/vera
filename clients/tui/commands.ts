@@ -548,12 +548,19 @@ function sharedPrefix(values: readonly string[]): string {
 export function renderTuiCommandSuggestions(
     commands: readonly TuiCommandCatalogEntry[],
     selectedIndex = -1,
+    maxWidth?: number,
 ): StyledText {
     const chunks: TextChunk[] = [];
     const commandWidth = Math.max(
         0,
         ...commands.map((command) => command.name.length),
     );
+    // Each row stays one row: a description that would wrap is cut with an
+    // ellipsis instead, because a wrapped row breaks the one-line-per-command
+    // height the box is sized by.
+    const descriptionWidth = maxWidth === undefined
+        ? Number.POSITIVE_INFINITY
+        : Math.max(1, maxWidth - (2 + 1 + commandWidth + 2));
     commands.forEach((command, index) => {
         const active = index === selectedIndex;
         if (index > 0) {
@@ -565,7 +572,10 @@ export function renderTuiCommandSuggestions(
         chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(
             `/${command.name.padEnd(commandWidth)}`,
         ));
-        chunks.push(fg(TUI_MUTED)(`  ${command.description}`));
+        const description = command.description.length > descriptionWidth
+            ? `${command.description.slice(0, Math.max(0, descriptionWidth - 1))}\u2026`
+            : command.description;
+        chunks.push(fg(TUI_MUTED)(`  ${description}`));
     });
     return new StyledText(chunks);
 }

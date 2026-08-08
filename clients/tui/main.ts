@@ -1159,6 +1159,7 @@ export async function startTui(
         onLayoutChanged: () => {
             renderJumpToBottom();
             renderSidebarJump();
+            renderCommandSuggestions();
         },
     });
     upper.add(transcript);
@@ -5091,6 +5092,9 @@ export async function startTui(
         commandSuggestionsText.content = renderTuiCommandSuggestions(
             suggestions,
             composer.plainText === "/" ? commandSuggestionIndex : -1,
+            typeof upper.width === "number" && upper.width > 0
+                ? upper.width
+                : undefined,
         );
         // Leave room for every matching command. The old fixed three-row box
         // clipped the catalog to its first entry, which made the other slash
