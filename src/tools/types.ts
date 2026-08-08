@@ -56,12 +56,22 @@ export interface PoolAddEffect {
     readonly models: readonly string[];
 }
 
+/**
+ * Reads the host's live session table for the caller's workspace. It carries
+ * no arguments because the workspace is the caller's own, and it stores
+ * nothing: the answer only exists while the host does.
+ */
+export interface AgentRosterEffect {
+    readonly type: "agent_roster";
+}
+
 export type ToolEffect =
     | SpawnSubagentEffect
     | SpawnAsyncSubagentEffect
     | MessageSubagentEffect
     | NotifyParentEffect
-    | PoolAddEffect;
+    | PoolAddEffect
+    | AgentRosterEffect;
 
 export interface AskUserChoice {
     readonly id: string;

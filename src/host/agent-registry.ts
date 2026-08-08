@@ -83,6 +83,7 @@ import { createSessionBranch } from "../store/session-branch.ts";
 import type { UserMessage } from "../model/types.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import { agentNameKey, mintAgentName } from "./agent-name.ts";
+import { workspaceKey } from "../workspace-key.ts";
 import type {
     InboxDeliveryCoordinator,
     InboxDeliverySession,
@@ -1083,6 +1084,59 @@ export class AgentRegistry {
         return { kind: "output", output: lines.join("\n"), isError: failed };
     }
 
+    /**
+     * The `agent_roster` tool's effect: the host's live session table, cut to
+     * the caller's workspace and to the sessions still running in it.
+     *
+     * Every field is observed. The name was minted when the session
+     * registered, the activity time is the last thing written to that
+     * session's log, and the path is where the log lives. Nothing here is
+     * declared by an agent and nothing is stored, so a host that is gone and
+     * an empty roster mean the same thing.
+     */
+    private applyAgentRosterEffect(callerId: string): Promise<ToolOutput> {
+        const caller = this.agents.get(callerId);
+        if (caller === undefined) {
+            return Promise.resolve({
+                kind: "output",
+                output: "This session is no longer registered with the host.",
+                isError: true,
+            });
+        }
+        // Keyed rather than path-compared, so a session started under a
+        // symlinked or differently-spelled path lands in the same workspace.
+        const here = workspaceKey(caller.agent.workspace);
+        const rows = this.list().filter((agent) =>
+            agent.id !== callerId
+            && workspaceKey(agent.workspace) === here
+            && agent.status !== "closed"
+            && agent.status !== "failed"
+            && agent.status !== "completed"
+        );
+        if (rows.length === 0) {
+            return Promise.resolve({
+                kind: "output",
+                output: "No other agents in this workspace.",
+                isError: false,
+            });
+        }
+        const lines = rows.map((agent) => [
+            `name=${agent.name ?? "(unnamed)"}`,
+            `last_activity=${agent.updated_at ?? "(unknown)"}`,
+            `session_id=${agent.id}`,
+            `session_path=${agent.session_path}`,
+        ].join("  "));
+        return Promise.resolve({
+            kind: "output",
+            output: [
+                `${rows.length} other agent${rows.length === 1 ? "" : "s"} `
+                    + "in this workspace:",
+                ...lines,
+            ].join("\n"),
+            isError: false,
+        });
+    }
+
     async poolRemove(
         id: string,
         entry: { readonly provider: string; readonly model: string },
@@ -1507,6 +1561,9 @@ export class AgentRegistry {
             if (effect.type === "pool_add") {
                 return this.applyPoolAddEffect(effect);
             }
+            if (effect.type === "agent_roster") {
+                return this.applyAgentRosterEffect(agent.id);
+            }
             return applySubagentEffect(effect, signal, context);
         };
         entry.run = runHeadlessLoop(
@@ -1548,8 +1605,9 @@ export class AgentRegistry {
                         "spawn_async_subagent",
                         "message_subagent",
                         "pool_add",
+                        "agent_roster",
                     ]
-                    : ["notify_parent"],
+                    : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
                 extensionTools: this.options.extensionTools,
                 onInboundReady: (inbound) => {
