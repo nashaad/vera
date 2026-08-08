@@ -44,6 +44,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             socketPath,
             lockPath: join(root, "host.json"),
             sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
         });
         try {
             expect(await requestHostShutdownIfIdle(
@@ -206,6 +207,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             socketPath,
             lockPath: join(root, "host.json"),
             sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
         });
         const agent = await host.registry.create({
             id: "agent-1",
@@ -303,6 +305,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             socketPath: join(root, "host.sock"),
             lockPath: join(root, "host.json"),
             sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
         });
 
         try {
@@ -350,6 +353,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             socketPath,
             lockPath: join(root, "host.json"),
             sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
         });
         const agent = await host.registry.create({
             id: "rewind-agent",
@@ -734,6 +738,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             socketPath: join(root, "host.sock"),
             lockPath: join(root, "host.json"),
             sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
         });
 
         try {

@@ -22,6 +22,7 @@ interface OpenRouterModelMetadata {
     readonly id: string;
     readonly contextLength: number;
     readonly supportedParameters: readonly string[];
+    readonly inputModalities: readonly string[];
     readonly supportedEfforts: readonly string[];
 }
 
@@ -75,6 +76,7 @@ for (const suggested of catalog.suggested_models) {
         ...suggested,
         context_window: modelMetadata.contextLength,
         tool_support: true,
+        image_support: modelMetadata.inputModalities.includes("image"),
         reasoning,
     });
 }
@@ -122,6 +124,11 @@ async function discoverOpenRouterModels(
             id: model.id,
             contextLength: model.context_length as number,
             supportedParameters: strings(model.supported_parameters),
+            inputModalities: strings(
+                Array.isArray(asRecord(model.architecture)?.input_modalities)
+                    ? asRecord(model.architecture)!.input_modalities as unknown[]
+                    : [],
+            ),
             supportedEfforts: strings(supportedEfforts),
         });
     }
@@ -149,6 +156,7 @@ function discoveryReport(
             ...suggested,
             context_window: metadata.contextLength,
             tool_support: metadata.supportedParameters.includes("tools"),
+            image_support: metadata.inputModalities.includes("image"),
             candidate_reasoning: reasoningCombinations(
                 metadata,
                 "unverified",

@@ -95,6 +95,71 @@ test("resident agents resolve relative file paths from their fixed workspaces", 
     }
 });
 
+test("agent_roster reports the workspace's other live sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-roster-"));
+    const here = join(root, "here");
+    const elsewhere = join(root, "elsewhere");
+    await mkdir(here);
+    await mkdir(elsewhere);
+
+    const registry = createRegistry(() => agentRosterScript());
+    const callerSession = join(root, "caller.jsonl");
+
+    try {
+        const caller = await registry.create({
+            id: "caller",
+            workspace: here,
+            sessionPath: callerSession,
+        });
+        await registry.create({
+            id: "peer",
+            workspace: here,
+            sessionPath: join(root, "peer.jsonl"),
+        });
+        await registry.create({
+            id: "stranger",
+            workspace: elsewhere,
+            sessionPath: join(root, "stranger.jsonl"),
+        });
+
+        await runPrompt(caller.attach(), "who else is here");
+
+        const roster = await toolResultText(callerSession) ?? "";
+        const peer = registry.list().find((agent) => agent.id === "peer");
+        expect(roster).toContain("1 other agent in this workspace:");
+        expect(roster).toContain(`name=${peer?.name}`);
+        expect(roster).toContain(`last_activity=${peer?.updated_at}`);
+        expect(roster).toContain("session_id=peer");
+        expect(roster).toContain(`session_path=${join(root, "peer.jsonl")}`);
+        expect(roster).not.toContain("session_id=caller");
+        expect(roster).not.toContain("session_id=stranger");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("agent_roster reports an empty workspace as empty", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-roster-alone-"));
+    const registry = createRegistry(() => agentRosterScript());
+    const callerSession = join(root, "caller.jsonl");
+
+    try {
+        const caller = await registry.create({
+            id: "caller",
+            workspace: root,
+            sessionPath: callerSession,
+        });
+        await runPrompt(caller.attach(), "who else is here");
+
+        expect(await toolResultText(callerSession))
+            .toBe("No other agents in this workspace.");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a listed session is live only while someone holds it", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-live-"));
     const registry = new AgentRegistry({
@@ -2172,6 +2237,24 @@ function readMarkerScript(): AssistantMessage[] {
     ];
 }
 
+function agentRosterScript(): AssistantMessage[] {
+    return [
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "read-roster",
+                name: "agent_roster",
+                input: {},
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        textResponse("done"),
+    ];
+}
+
 function bashScript(label: string): AssistantMessage[] {
     return [
         {
@@ -2574,6 +2657,7 @@ test("the pool is built from the agent's own workspace", async () => {
             roots.push(projectRoot);
             return {
                 resolveEffort: (_ref, requested) => ({ requested, efforts: {} }),
+                resolveImageSupport: () => undefined,
                 recordLearned: () => {},
             };
         },

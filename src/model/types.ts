@@ -298,8 +298,16 @@ export interface ModelStream extends AsyncIterable<ModelStreamEvent> {
 }
 
 export interface ModelAdapter {
+    /** The provider's blanket answer, used only when the model has none. */
     readonly supportsImageInput?: boolean;
-    supportsImageInputFor?(provider: string): boolean;
+    /**
+     * Per-model, because image support is a fact about a model and not about
+     * the endpoint it is reached through: one OpenRouter key serves models
+     * that take images and models that do not. Undefined means unstated, and
+     * the caller should let the request through rather than refuse it.
+     */
+    imageInputSupport?(model: string): boolean | undefined;
+    supportsImageInputFor?(provider: string, model: string): boolean;
     /**
      * Return a stream immediately. Provider failures belong in its terminal
      * error event so the engine can apply recovery without provider knowledge.

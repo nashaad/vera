@@ -9,6 +9,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { workspaceKey } from "../workspace-key.ts";
 import type { ContextMeasurement } from "./context-measurement.ts";
 import type { ToolResultTruncation } from "../tools/tool-result-limit.ts";
 import type {
@@ -478,8 +479,35 @@ export interface JsonlEventLoggerOptions {
     readonly now?: () => Date;
 }
 
-export function defaultEventLogPath(sessionId: string): string {
-    return join(homedir(), ".vera", "logs", `${sessionId}.jsonl`);
+/** The root every event log lives under, unless a caller names another. */
+export function eventLogRoot(): string {
+    return join(homedir(), ".vera", "logs");
+}
+
+/**
+ * Where a session's log lives when nobody names a path.
+ *
+ * Sharded by workspace so the directory stays readable: one flat directory
+ * held 1754 files and told you nothing about which project produced them.
+ */
+export function defaultEventLogPath(
+    sessionId: string,
+    cwd: string,
+    root: string = eventLogRoot(),
+): string {
+    return join(root, workspaceKey(cwd), `${sessionId}.jsonl`);
+}
+
+/**
+ * Where sessions logged before the layout was sharded. Read-only: nothing
+ * writes here any more, and the files are left in place rather than migrated,
+ * because migrating means guessing each old session's workspace.
+ */
+export function legacyEventLogPath(
+    sessionId: string,
+    root: string = eventLogRoot(),
+): string {
+    return join(root, `${sessionId}.jsonl`);
 }
 
 export function createJsonlEventLogger(

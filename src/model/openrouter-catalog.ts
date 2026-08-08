@@ -124,6 +124,8 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         return undefined;
     }
 
+    const imageSupport = readImageSupport(value.architecture);
+
     const label = typeof value.name === "string" && value.name.length > 0
         ? value.name
         : value.id;
@@ -137,6 +139,7 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
     return {
         id: value.id,
         label,
+        ...(imageSupport === undefined ? {} : { image_support: imageSupport }),
         ...(description === undefined ? {} : { description }),
         ...(contextWindow === undefined ? {} : { context_window: contextWindow }),
         tool_support: true,
@@ -165,6 +168,26 @@ const REASONING_LEVELS: readonly ReasoningLevel[] = [
     { id: "medium", label: "Medium" },
     { id: "low", label: "Low" },
 ];
+
+/**
+ * OpenRouter states input modalities per model under `architecture`. A listing
+ * that omits the field, or states modalities Vera cannot read, yields no
+ * answer rather than a false one: "text-only" and "unstated" are different
+ * claims, and only the first should keep an image from being sent.
+ */
+function readImageSupport(architecture: unknown): boolean | undefined {
+    if (!isRecord(architecture)) {
+        return undefined;
+    }
+    const modalities = architecture.input_modalities;
+    if (!Array.isArray(modalities) || modalities.length === 0) {
+        return undefined;
+    }
+    const named = modalities.filter((entry): entry is string =>
+        typeof entry === "string"
+    );
+    return named.length === 0 ? undefined : named.includes("image");
+}
 
 const DESCRIPTION_MAX_LENGTH = 96;
 
