@@ -3,26 +3,32 @@ import { expect, test } from "bun:test";
 import {
     quotedBlock,
     renderTuiQuote,
+    tuiQuoteMarker,
     withQuote,
 } from "../../clients/tui/quote.ts";
 
 test("no quote is an empty line", () => {
-    expect(renderTuiQuote(undefined)).toBe("");
+    expect(renderTuiQuote(undefined)).toEqual({ facts: "", keys: "" });
+});
+
+test("the mark blinks without the line changing width", () => {
+    expect(tuiQuoteMarker(0)).toBe("*");
+    expect(tuiQuoteMarker(700)).toBe(" ");
+    expect(tuiQuoteMarker(1300)).toBe("*");
+    expect(tuiQuoteMarker(700)).toHaveLength(tuiQuoteMarker(0).length);
 });
 
 test("the line names the speaker, the size, and the way out", () => {
-    expect(renderTuiQuote({ source: "frosty", text: "abcd" }))
-        .toBe(
-            "quoting frosty · 4 characters · copied · ⏎ sends it, "
-                + "@name aims it · esc drops",
-        );
+    expect(renderTuiQuote({ source: "frosty", text: "abcd" })).toEqual({
+        facts: "quoting frosty · 4 characters · copied",
+        keys: "⏎ sends it · @name aims it · esc clears it",
+    });
 });
 
 test("one character is not pluralised", () => {
-    expect(renderTuiQuote({ source: "agent", text: "x" }))
+    expect(renderTuiQuote({ source: "agent", text: "x" }).facts)
         .toBe(
-            "quoting agent · 1 character · copied · ⏎ sends it, "
-                + "@name aims it · esc drops",
+            "quoting agent · 1 character · copied",
         );
 });
 

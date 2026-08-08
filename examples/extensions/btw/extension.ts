@@ -51,7 +51,16 @@ export function activateClient(vera: any): void {
      * provider happens to be the default and be rejected there.
      */
     function pooled(name: string): { model: string; provider: string } | undefined {
-        const entries = vera.modelSettings.current()?.pooled ?? [];
+        const settings = vera.modelSettings.current();
+        // The model this conversation is already using. A second copy of it is
+        // the common case, and it is the only model the user is certain works
+        // here, so it has a name that does not have to be looked up.
+        if (name === "self" || name === "default") {
+            return settings === undefined
+                ? undefined
+                : { model: settings.model, provider: settings.provider };
+        }
+        const entries = settings?.pooled ?? [];
         const match = entries.find((entry: any) =>
             entry.poolName === name || entry.model === name
             || `${entry.provider}/${entry.model}` === name
@@ -206,55 +215,68 @@ export function activateClient(vera: any): void {
         }
     }
 
-    vera.commands.register({
-        name: "btw",
-        description: "Open a side conversation with another model",
-        usage: "/btw <model> as <alias>",
-        arguments: "model",
-        run({ argumentsText }: { argumentsText: string }) {
-            const match = /^(\S+)(?:\s+as\s+(\S+))?$/.exec(argumentsText.trim());
-            if (match === null) {
-                throw new Error("Usage: /btw <model> as <alias>");
+    /**
+     * Both names run this. `/consult` says what it does; `/btw` is the
+     * short one, and it is what the extension was called first.
+     */
+    function seat({ argumentsText }: { argumentsText: string }): void {
+        const match = /^(\S+)(?:\s+as\s+(\S+))?$/.exec(argumentsText.trim());
+        if (match === null) {
+            throw new Error("Usage: /consult <model> as <alias>");
+        }
+        if (seats.size >= maxSeats) {
+            throw new Error(
+                `${maxSeats} side conversation${maxSeats === 1 ? "" : "s"} at a `
+                    + "time. /remove <alias> frees one.",
+            );
+        }
+        const requested = match[1]!;
+        const entry = pooled(requested);
+        if (entry === undefined) {
+            throw new Error(
+                `${requested} is not in the model pool. /model adds one.`,
+            );
+        }
+        const model = entry.model;
+        // `self` names where the model came from, not the seat: a column
+        // headed "self" says nothing about who is in it.
+        const alias = match[2]
+            ?? (requested === "self" || requested === "default"
+                ? model
+                : requested);
+        if (alias === AGENT || seats.has(alias)) {
+            throw new Error(`${alias} is already taken`);
+        }
+        seats.set(alias, { alias, model, provider: entry.provider, lane: [] });
+        offerMentions();
+        if (!sidebarOpen) {
+            try {
+                vera.ui.sidebar.open();
+                sidebarOpen = true;
+            } catch {
+                // Another extension has it, or this client has none. The
+                // replies land in the transcript instead.
             }
-            if (seats.size >= maxSeats) {
-                throw new Error(
-                    `${maxSeats} side conversation${maxSeats === 1 ? "" : "s"} at a `
-                        + "time. /remove <alias> frees one.",
-                );
-            }
-            const requested = match[1]!;
-            const entry = pooled(requested);
-            if (entry === undefined) {
-                throw new Error(
-                    `${requested} is not in the model pool. /model adds one.`,
-                );
-            }
-            const model = entry.model;
-            const alias = match[2] ?? requested;
-            if (alias === AGENT || seats.has(alias)) {
-                throw new Error(`${alias} is already taken`);
-            }
-            seats.set(alias, { alias, model, provider: entry.provider, lane: [] });
-            offerMentions();
-            if (!sidebarOpen) {
-                try {
-                    vera.ui.sidebar.open();
-                    sidebarOpen = true;
-                } catch {
-                    // Another extension has it, or this client has none. The
-                    // replies land in the transcript instead.
-                }
-            }
-            if (sidebarOpen) {
-                // An empty column says nothing about who is in the room.
-                vera.ui.sidebar.append({
-                    label: `${alias} (${model})`,
-                    text: "Seated. Ask with @" + alias + ", or @all.",
-                });
-            }
-            vera.ui.notice(`@${alias} is ${model}. @all asks everyone.`);
-        },
-    });
+        }
+        if (sidebarOpen) {
+            // An empty column says nothing about who is in the room.
+            vera.ui.sidebar.append({
+                label: `${alias} (${model})`,
+                text: "Seated. Ask with @" + alias + ", or @all.",
+            });
+        }
+        vera.ui.notice(`@${alias} is ${model}. @all asks everyone.`);
+    }
+
+    for (const name of ["consult", "btw"]) {
+        vera.commands.register({
+            name,
+            description: "Ask another model, beside the conversation",
+            usage: `/${name} <model> as <alias>`,
+            arguments: "model",
+            run: seat,
+        });
+    }
 
     vera.commands.register({
         name: "seats",

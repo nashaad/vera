@@ -2365,7 +2365,7 @@ test.skipIf(!tmuxAvailable)(
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/");
-            await waitForVisiblePane(socket, session, "/seats");
+            await waitForVisiblePane(socket, session, "/consult");
             // Nothing chosen yet: the first row is where the list opened, not
             // a pick, so completing takes no command.
             sendKey(socket, session, "Tab");

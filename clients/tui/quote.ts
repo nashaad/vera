@@ -12,22 +12,41 @@ export interface TuiQuote {
     readonly text: string;
 }
 
+/** How long the mark above the composer spends lit, then dark. */
+const BLINK_PERIOD_MS = 600;
+
 /**
- * The line above the composer while a quote is waiting to be sent.
+ * The mark that draws the eye to a waiting quote.
  *
- * It says the selection was copied too, because the gesture used to only copy
- * and a chip appearing instead reads as the clipboard having been taken away.
- * The rest is what the next keystroke does: send it as it stands, put a name
- * in front to choose who reads it, or type and it goes along with the words.
+ * A space rather than nothing while it is dark, so the line does not shift by
+ * a column twice a second.
  */
-export function renderTuiQuote(quote: TuiQuote | undefined): string {
+export function tuiQuoteMarker(nowMs: number): string {
+    return Math.floor(nowMs / BLINK_PERIOD_MS) % 2 === 0 ? "*" : " ";
+}
+
+/**
+ * The line above the composer while a quote is waiting to be sent, in two
+ * parts: what is held, and what to do with it.
+ *
+ * They are drawn in different colours because they are different kinds of
+ * sentence. The first is a fact about the state, read once. The second is a
+ * list of keys, and a key nobody sees is a key nobody presses: the escape that
+ * clears the quote is the one that has to be legible, because it is the only
+ * way out.
+ */
+export function renderTuiQuote(
+    quote: TuiQuote | undefined,
+): { facts: string; keys: string } {
     if (quote === undefined) {
-        return "";
+        return { facts: "", keys: "" };
     }
     const count = [...quote.text].length;
-    return `quoting ${quote.source} · ${count} character`
-        + `${count === 1 ? "" : "s"} · copied · ⏎ sends it, @name aims it`
-        + " · esc drops";
+    return {
+        facts: `quoting ${quote.source} · ${count} character`
+            + `${count === 1 ? "" : "s"} · copied`,
+        keys: "⏎ sends it · @name aims it · esc clears it",
+    };
 }
 
 /** The quote as the recipient reads it, appended to the typed message. */
