@@ -363,6 +363,17 @@ export function tuiKeyHint(id: string): string {
     return TUI_KEYMAP.find((binding) => binding.id === id)?.hint ?? "";
 }
 
+/**
+ * A binding's chord on its own, without the label a footer hint carries.
+ *
+ * Prose names a key mid-sentence, where "^n name" would read as two words of
+ * the sentence rather than as one chord, so this returns the chord the way the
+ * table spells it.
+ */
+export function tuiKeyChord(id: string): string {
+    return TUI_KEYMAP.find((binding) => binding.id === id)?.keys[0] ?? "";
+}
+
 /** The chords a scope has already claimed, including the ones it inherits. */
 export function tuiClaimedChords(scope: TuiKeyScope): readonly string[] {
     return TUI_KEYMAP.filter((binding) => appliesIn(binding, scope))
