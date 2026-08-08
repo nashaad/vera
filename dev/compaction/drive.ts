@@ -238,6 +238,7 @@ async function main(): Promise<void> {
         approval_mode: args.approvalMode,
         capacity: args.capacity,
         budget: args.budget,
+        bound: compaction,
         session_path: sessionPath,
     });
     process.stdout.write(`${JSON.stringify(report)}\n`);
