@@ -48,6 +48,7 @@ import {
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import { relativeTime } from "../../src/relative-time.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
@@ -988,7 +989,7 @@ function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
     // A live session with nothing running is one someone has open, which is
     // worth saying: the rest of the column is how long ago a row was last
     // touched, and "3h" under a conversation being read right now is wrong.
-    return agent.live ? "open" : relativeSessionTime(agent.updated_at, now);
+    return agent.live ? "open" : relativeTime(agent.updated_at, now, "saved");
 }
 
 /**
@@ -1003,28 +1004,6 @@ function formatSessionSize(bytes: number): string {
         return `${Math.round(bytes / 1_000)}K`;
     }
     return `${(bytes / 1_000_000).toFixed(1)}M`;
-}
-
-function relativeSessionTime(value: string | undefined, now: Date): string {
-    const timestamp = value === undefined ? Number.NaN : Date.parse(value);
-    if (!Number.isFinite(timestamp)) {
-        return "saved";
-    }
-    const elapsedMinutes = Math.max(
-        0,
-        Math.floor((now.getTime() - timestamp) / 60_000),
-    );
-    if (elapsedMinutes < 1) {
-        return "just now";
-    }
-    if (elapsedMinutes < 60) {
-        return `${elapsedMinutes}m ago`;
-    }
-    const elapsedHours = Math.floor(elapsedMinutes / 60);
-    if (elapsedHours < 24) {
-        return `${elapsedHours}h ago`;
-    }
-    return `${Math.floor(elapsedHours / 24)}d ago`;
 }
 
 export function handleTuiSettingsPickerKey(

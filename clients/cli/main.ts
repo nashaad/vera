@@ -30,7 +30,7 @@ import {
 } from "../../src/session-export.ts";
 import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts";
 import { workspaceKey } from "../../src/workspace-key.ts";
-import { supportedLevels } from "../../src/model/effort-ladder.ts";
+import { relativeTime } from "../../src/relative-time.ts";import { supportedLevels } from "../../src/model/effort-ladder.ts";
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
 import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
 import { readUserPoolFile, removePoolModel } from "../../src/model/pool-file-store.ts";
@@ -452,7 +452,7 @@ export function renderAgentList(
             // when a session predates naming.
             agent.name ?? agent.id,
             truncate(agent.title ?? "", 48),
-            relativeTime(agent.updated_at, now),
+            relativeTime(agent.updated_at, now, "-"),
         ];
         return options.all === true ? [...row, agent.workspace] : row;
     });
@@ -473,23 +473,6 @@ function truncate(value: string, limit: number): string {
     return value.length <= limit ? value : `${value.slice(0, limit - 1)}\u2026`;
 }
 
-/** Coarse on purpose: the list answers "recent or not", not "how long". */
-function relativeTime(timestamp: string | undefined, now: Date): string {
-    if (timestamp === undefined) {
-        return "-";
-    }
-    const then = Date.parse(timestamp);
-    if (Number.isNaN(then)) {
-        return "-";
-    }
-    const seconds = Math.max(0, Math.round((now.getTime() - then) / 1000));
-    if (seconds < 60) return "just now";
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.round(hours / 24)}d ago`;
-}
 
 async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
     const host = await createHostLockfile().read();
