@@ -2,7 +2,13 @@
  * The compaction seam an unattended harness shells out to.
  *
  *     bun run dev/compaction/drive.ts --provider <provider> --model <id> \
- *         --prompts <file|-> [--capacity <tokens|unknown>]
+ *         --prompts <file|-> [--capacity <tokens|unknown>] \
+ *         [--trigger-tokens <n>] [--trigger-fraction <0..1>] \
+ *         [--target-tokens <n>]
+ *
+ * The budget flags are the profile knobs, so a scenario can fire compaction
+ * after a few small turns instead of filling a real window. Any of them builds
+ * a profile; none of them binds the way an unconfigured session does.
  *
  * Runs a scripted multi-turn session with compaction bound, which no shipped
  * entry point does: `vera -p` binds compaction but sends one prompt, and
@@ -27,8 +33,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { VeraConfig } from "../../src/config.ts";
+import type {
+    ResolvedCompactionProfile,
+    VeraCatalogModel,
+} from "../../src/config/model-catalog.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
+    DEFAULT_COMPACTION_STRATEGY_ID,
     bindCompaction,
 } from "../../src/engine/compaction-binding.ts";
 import type { MessageChannel } from "../../src/engine/message-channel.ts";
@@ -42,6 +53,7 @@ import { ProviderRoutingAdapter } from "../../src/providers/routing.ts";
 import { findProvider } from "../../src/providers/registry.ts";
 import {
     DriveRecorder,
+    hasBudgetOverride,
     parseArgs,
     parsePrompts,
     type CapacityOverride,
@@ -54,6 +66,58 @@ class ScriptEndedError extends Error {
         super("prompt script ended");
         this.name = "ScriptEndedError";
     }
+}
+
+/**
+ * The profile the budget knobs ride on. Built only when one was given, so a
+ * run without them binds exactly the way an unconfigured session does.
+ *
+ * Every slot the strategy declares is routed to the session's own model, which
+ * is what the default binding does anyway; the profile exists here to carry
+ * the trigger and target, not to route a summary somewhere else.
+ */
+function compactionProfileFor(
+    args: DriveArgs,
+): ResolvedCompactionProfile | undefined {
+    if (!hasBudgetOverride(args.budget)) {
+        return undefined;
+    }
+    const strategy = BUNDLED_COMPACTION_STRATEGIES.find(
+        (candidate) => candidate.id === DEFAULT_COMPACTION_STRATEGY_ID,
+    );
+    if (strategy === undefined) {
+        throw new Error("the default compaction strategy is not bundled");
+    }
+    // Only the string is read downstream, where it selects a routed adapter.
+    const provider = args.provider as VeraCatalogModel["provider"];
+    const entry: VeraCatalogModel = {
+        name: "drive",
+        provider,
+        model: args.model,
+        ...(args.effort === undefined
+            ? {}
+            : { reasoning_effort: args.effort as VeraCatalogModel["reasoning_effort"] }),
+    };
+    const slots: Record<string, readonly VeraCatalogModel[]> = {};
+    const routes: Record<string, string> = {};
+    for (const slot of strategy.models) {
+        slots[slot] = [entry];
+        routes[slot] = "drive";
+    }
+    return {
+        strategy: strategy.id,
+        slots,
+        routes,
+        ...(args.budget.triggerFraction === undefined
+            ? {}
+            : { trigger_fraction: args.budget.triggerFraction }),
+        ...(args.budget.triggerTokens === undefined
+            ? {}
+            : { trigger_tokens: args.budget.triggerTokens }),
+        ...(args.budget.targetTokens === undefined
+            ? {}
+            : { target_tokens: args.budget.targetTokens }),
+    };
 }
 
 /**
@@ -100,7 +164,7 @@ async function main(): Promise<void> {
         args.provider,
     );
     const compaction = bindCompaction(
-        undefined,
+        compactionProfileFor(args),
         adapter,
         { provider: args.provider, model: args.model },
         BUNDLED_COMPACTION_STRATEGIES,
@@ -173,6 +237,7 @@ async function main(): Promise<void> {
         ...(args.effort === undefined ? {} : { effort: args.effort }),
         approval_mode: args.approvalMode,
         capacity: args.capacity,
+        budget: args.budget,
         session_path: sessionPath,
     });
     process.stdout.write(`${JSON.stringify(report)}\n`);

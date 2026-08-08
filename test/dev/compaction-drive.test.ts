@@ -2,9 +2,18 @@ import { describe, expect, test } from "bun:test";
 
 import {
     DriveRecorder,
+    effectiveThresholds,
+    hasBudgetOverride,
     parseArgs,
     parsePrompts,
 } from "../../dev/compaction/report.ts";
+import {
+    COMPACTION_TRIGGER_FRACTION,
+    MIN_SUMMARY_TOKENS,
+    POST_COMPACTION_TARGET_FRACTION,
+    RETAINED_USER_TURNS,
+    UNKNOWN_CAPACITY_TARGET_FRACTION,
+} from "../../src/engine/compaction-scheduler.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 
 const REQUIRED = [
@@ -23,6 +32,7 @@ describe("parseArgs", () => {
             model: "some/model",
             promptsPath: "prompts.txt",
             capacity: { mode: "catalog" },
+            budget: {},
             approvalMode: "ask",
         });
     });
@@ -43,6 +53,7 @@ describe("parseArgs", () => {
             model: "some/model",
             promptsPath: "prompts.txt",
             capacity: { mode: "fixed", tokens: 8000 },
+            budget: {},
             approvalMode: "full_access",
             effort: "low",
             sessionPath: "/tmp/s.jsonl",
@@ -52,6 +63,33 @@ describe("parseArgs", () => {
     test("accepts an unknown capacity", () => {
         expect(parseArgs([...REQUIRED, "--capacity", "unknown"]).capacity)
             .toEqual({ mode: "unknown" });
+    });
+
+    test("collects the budget knobs", () => {
+        expect(parseArgs([
+            ...REQUIRED,
+            "--trigger-tokens",
+            "3000",
+            "--trigger-fraction",
+            "0.5",
+            "--target-tokens",
+            "900",
+        ]).budget).toEqual({
+            triggerFraction: 0.5,
+            triggerTokens: 3000,
+            targetTokens: 900,
+        });
+    });
+
+    test("rejects a budget knob outside its range", () => {
+        expect(() => parseArgs([...REQUIRED, "--trigger-tokens", "0"]))
+            .toThrow();
+        expect(() => parseArgs([...REQUIRED, "--target-tokens", "-1"]))
+            .toThrow();
+        expect(() => parseArgs([...REQUIRED, "--trigger-fraction", "1.5"]))
+            .toThrow();
+        expect(() => parseArgs([...REQUIRED, "--trigger-fraction", "0"]))
+            .toThrow();
     });
 
     test("rejects a capacity that is not a positive integer", () => {
@@ -122,6 +160,7 @@ describe("DriveRecorder", () => {
             provider: "openrouter",
             model: "some/model",
             approval_mode: "ask",
+            budget: {},
             capacity: { mode: "fixed", tokens: 1000 },
         });
         expect(report.turns[0]?.compactions).toEqual([]);
@@ -161,6 +200,7 @@ describe("DriveRecorder", () => {
             provider: "openrouter",
             model: "some/model",
             approval_mode: "ask",
+            budget: {},
             capacity: { mode: "catalog" },
         });
         expect(report.turns[0]?.compactions[0]).toEqual({
@@ -185,6 +225,7 @@ describe("DriveRecorder", () => {
             provider: "openrouter",
             model: "some/model",
             approval_mode: "ask",
+            budget: {},
             capacity: { mode: "catalog" },
         });
         expect(report.turns[0]?.outcome).toBe("error");
@@ -197,13 +238,53 @@ describe("DriveRecorder", () => {
             provider: "openrouter",
             model: "some/model",
             approval_mode: "ask",
+            budget: {},
             capacity: { mode: "unknown" },
         });
         expect(report.thresholds).toEqual({
             trigger_fraction: 0.82,
             target_fraction: 0.45,
+            unknown_capacity_target_fraction: 0.35,
             min_summary_tokens: 400,
             retained_user_turns: 2,
         });
+    });
+});
+
+describe("effectiveThresholds", () => {
+    test("falls back to the engine constants when nothing is configured", () => {
+        expect(effectiveThresholds({})).toEqual({
+            trigger_fraction: COMPACTION_TRIGGER_FRACTION,
+            target_fraction: POST_COMPACTION_TARGET_FRACTION,
+            unknown_capacity_target_fraction: UNKNOWN_CAPACITY_TARGET_FRACTION,
+            min_summary_tokens: MIN_SUMMARY_TOKENS,
+            retained_user_turns: RETAINED_USER_TURNS,
+        });
+    });
+
+    test("reports the configured knobs in place of the constants", () => {
+        expect(effectiveThresholds({
+            triggerFraction: 0.5,
+            triggerTokens: 3000,
+            targetTokens: 900,
+        })).toMatchObject({
+            trigger_fraction: 0.5,
+            trigger_tokens: 3000,
+            target_tokens: 900,
+        });
+    });
+
+    test("omits a knob that was not configured", () => {
+        expect(effectiveThresholds({ triggerTokens: 3000 }))
+            .not.toHaveProperty("target_tokens");
+    });
+});
+
+describe("hasBudgetOverride", () => {
+    test("is false only when every knob is absent", () => {
+        expect(hasBudgetOverride({})).toBe(false);
+        expect(hasBudgetOverride({ triggerTokens: 1 })).toBe(true);
+        expect(hasBudgetOverride({ triggerFraction: 0.5 })).toBe(true);
+        expect(hasBudgetOverride({ targetTokens: 900 })).toBe(true);
     });
 });
