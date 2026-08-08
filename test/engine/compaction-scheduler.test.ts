@@ -11,6 +11,7 @@ import {
     MIN_SUMMARY_TOKENS,
     shouldCompact,
     UNKNOWN_CAPACITY_TARGET_FRACTION,
+    UNKNOWN_CAPACITY_TRIGGER_TOKENS,
     type CompactionSchedulerOptions,
 } from "../../src/engine/compaction-scheduler.ts";
 import {
@@ -40,9 +41,35 @@ test("the trigger is a fraction of the window, so it fires on any model", () => 
     expect(COMPACTION_TRIGGER_FRACTION).toBeLessThan(1);
 });
 
-test("a session with no known window is never compacted on a token count alone", () => {
-    expect(shouldCompact({ tokens: 900_000, estimated: false })).toBe(false);
+test("a session with no known window compacts at the default token count", () => {
+    expect(shouldCompact({ tokens: 900_000, estimated: false })).toBe(true);
+    expect(shouldCompact({
+        tokens: UNKNOWN_CAPACITY_TRIGGER_TOKENS,
+        estimated: false,
+    })).toBe(true);
+    expect(shouldCompact({
+        tokens: UNKNOWN_CAPACITY_TRIGGER_TOKENS - 1,
+        estimated: false,
+    })).toBe(false);
     expect(shouldCompact(undefined)).toBe(false);
+});
+
+test("a configured token trigger wins over the default", () => {
+    const unknown = { tokens: 30_000, estimated: false };
+    expect(shouldCompact(unknown, { tokens: 30_000 })).toBe(true);
+    expect(shouldCompact(
+        { tokens: UNKNOWN_CAPACITY_TRIGGER_TOKENS, estimated: false },
+        { tokens: 500_000 },
+    )).toBe(false);
+});
+
+test("a known window ignores the default token trigger", () => {
+    expect(shouldCompact(measurement(8_100))).toBe(false);
+    expect(shouldCompact({
+        tokens: 50_000,
+        capacity: 200_000,
+        estimated: true,
+    })).toBe(false);
 });
 
 test("a configured fraction fires earlier than the default", () => {
@@ -297,11 +324,19 @@ test("an explicit target wins over the one derived from the trigger", () => {
     })).toBe(12_000);
 });
 
-test("an unknown window with nothing configured has no target at all", () => {
+test("an unknown window with nothing configured targets the default share", () => {
     const unknown: ContextMeasurement = { tokens: 30_000, estimated: false };
-    expect(compactionTargetBudget(unknown)).toBeUndefined();
+    expect(compactionTargetBudget(unknown)).toBe(35_000);
     expect(compactionTargetBudget(unknown, { trigger: { fraction: 0.2 } }))
-        .toBeUndefined();
+        .toBe(35_000);
+    expect(35_000).toBe(Math.floor(
+        UNKNOWN_CAPACITY_TRIGGER_TOKENS * UNKNOWN_CAPACITY_TARGET_FRACTION,
+    ));
+});
+
+test("the default trigger does not warn about its own derived target", () => {
+    const unknown: ContextMeasurement = { tokens: 30_000, estimated: false };
+    expect(compactionBudgetWarning(unknown)).toBeUndefined();
 });
 
 test("a session with no window compacts once it has a target to aim for", async () => {
@@ -323,7 +358,7 @@ test("a session with no window compacts once it has a target to aim for", async 
     expect(reopened.modelContext()[0]).toEqual(summary());
 });
 
-test("a session with no window and no target is left alone", async () => {
+test("a session with no window and nothing configured uses the default target", async () => {
     const store = await session(6);
     const result = await compactSession(
         options(store, () => ({ projection: [summary()] })),
@@ -331,7 +366,8 @@ test("a session with no window and no target is left alone", async () => {
         new AbortController().signal,
     );
 
-    expect(result.outcome).toBe("not_needed");
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()[0]).toEqual(summary());
 });
 
 test("a derived target too small for a summary asks for none", async () => {
