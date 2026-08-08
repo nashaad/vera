@@ -2857,6 +2857,7 @@ test("a refused reasoning effort coarsens the turn and is written down", async (
             }
             return { requested, efforts: resolved };
         },
+        resolveImageSupport: () => undefined,
         recordLearned(_ref, key, _fact) {
             learned.push(key);
             if (key.startsWith("efforts.")) {
@@ -2942,6 +2943,7 @@ test("a level the pool already forbids never reaches the provider", async () => 
                     : {}),
             };
         },
+        resolveImageSupport: () => undefined,
         recordLearned(): void {},
     };
     const channel = createInProcessChannel();

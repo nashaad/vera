@@ -122,23 +122,18 @@ test("the package bin runs help from outside the checkout", () => {
     }
 });
 
-test("vera ls renders resident agents from the host", async () => {
+test("vera ls names sessions and says when they were last active", async () => {
     const agents: RegisteredAgentSummary[] = [
         {
             id: "agent-a",
-            workspace: "/work/alpha",
+            name: "vera:a3f1",
+            workspace: process.cwd(),
             session_path: "/sessions/agent-a.jsonl",
             kind: "interactive",
             status: "working",
             live: true,
-        },
-        {
-            id: "agent-b",
-            workspace: "/work/beta",
-            session_path: "/sessions/agent-b.jsonl",
-            kind: "background",
-            status: "completed",
-            live: false,
+            title: "pool CLI verify pass",
+            updated_at: new Date(Date.now() - 4 * 60_000).toISOString(),
         },
     ];
     let output = "";
@@ -149,13 +144,63 @@ test("vera ls renders resident agents from the host", async () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(output).toContain("KIND         STATUS");
-    expect(output).toContain("interactive  working");
-    expect(output).toContain("background   completed");
-    expect(output).toContain("working    /work/alpha  agent-a");
-    expect(output).toContain("/work/alpha");
-    expect(output).toContain("/sessions/agent-a.jsonl");
-    expect(output).toContain("completed  /work/beta");
+    expect(output).toContain("KIND         STATUS   AGENT");
+    expect(output).toContain("vera:a3f1");
+    expect(output).toContain("pool CLI verify pass");
+    expect(output).toContain("4m ago");
+    // The session path was the widest column and only ever repeated the agent.
+    expect(output).not.toContain("/sessions/agent-a.jsonl");
+    // Every row would carry the same workspace, so it is not worth a column.
+    expect(output).not.toContain("WORKSPACE");
+});
+
+test("vera ls shows only this workspace until asked for all of them", async () => {
+    const agents: RegisteredAgentSummary[] = [
+        {
+            id: "agent-here",
+            workspace: process.cwd(),
+            session_path: "/sessions/agent-here.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: false,
+        },
+        {
+            id: "agent-elsewhere",
+            workspace: "/work/beta",
+            session_path: "/sessions/agent-elsewhere.jsonl",
+            kind: "background",
+            status: "completed",
+            live: false,
+        },
+    ];
+    let scoped = "";
+    let all = "";
+
+    expect(await runCli(["ls"], {
+        listAgents: async () => agents,
+        stdout: { write: (text) => scoped += text },
+    })).toBe(0);
+    expect(await runCli(["ls", "--all"], {
+        listAgents: async () => agents,
+        stdout: { write: (text) => all += text },
+    })).toBe(0);
+
+    expect(scoped).toContain("agent-here");
+    expect(scoped).not.toContain("agent-elsewhere");
+    expect(all).toContain("agent-here");
+    expect(all).toContain("agent-elsewhere");
+    expect(all).toContain("WORKSPACE");
+    expect(all).toContain("/work/beta");
+});
+
+test("an empty scoped list points at the flag that widens it", async () => {
+    let output = "";
+
+    expect(await runCli(["ls"], {
+        listAgents: async () => [],
+        stdout: { write: (text) => output += text },
+    })).toBe(0);
+    expect(output).toContain("--all");
 });
 
 test("vera ls calls a resident but unheld session stopped, not idle", async () => {
@@ -164,7 +209,7 @@ test("vera ls calls a resident but unheld session stopped, not idle", async () =
     const exitCode = await runCli(["ls"], {
         listAgents: async () => [{
             id: "agent-c",
-            workspace: "/work/gamma",
+            workspace: process.cwd(),
             session_path: "/sessions/agent-c.jsonl",
             kind: "interactive" as const,
             status: "idle" as const,

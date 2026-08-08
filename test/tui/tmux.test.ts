@@ -2079,6 +2079,94 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "agent_roster names the workspace's other session and not itself",
+    async () => {
+        const socket = `vera-roster-${process.pid}-${randomUUID()}`;
+        const session = "tui";
+        const home = mkdtempSync(join(tmpdir(), "vera-roster-"));
+        const readyPath = join(home, "host-ready");
+        const manifestPath = join(home, "roster-manifest.json");
+        let pane = "";
+        const hostProcess = Bun.spawn([
+            process.execPath,
+            "run",
+            "test/support/tui-roster-resident-host.ts",
+        ], {
+            cwd: process.cwd(),
+            env: {
+                ...process.env,
+                HOME: home,
+                VERA_TEST_READY_PATH: readyPath,
+                VERA_TEST_MANIFEST_PATH: manifestPath,
+            },
+            stdout: "ignore",
+            stderr: "pipe",
+        });
+
+        try {
+            await waitForFile(readyPath, hostProcess);
+            const manifest = JSON.parse(
+                readFileSync(manifestPath, "utf8"),
+            ) as Record<
+                string,
+                { name: string; session_path: string; updated_at: string }
+            >;
+            const caller = manifest["roster-caller"]!;
+            const peer = manifest["roster-peer"]!;
+            const stranger = manifest["roster-stranger"]!;
+
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "100",
+                "-y",
+                "30",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    shellQuote(process.execPath)
+                } run clients/cli/main.ts attach roster-caller`,
+            ]);
+            await waitForPane(socket, session, "Start a conversation");
+            sendText(socket, session, "who else is working here");
+            sendKey(socket, session, "Enter");
+            pane = await waitForPane(socket, session, "ROSTER");
+
+            // The transcript hard-wraps long identifiers at the pane width, so
+            // the assertions run against the pane with whitespace removed.
+            const flat = pane.replaceAll(/\s+/g, "");
+            expect(flat).toContain("1otheragentinthisworkspace:");
+            expect(flat).toContain(`name=${peer.name}`);
+            expect(flat).toContain(`last_activity=${peer.updated_at}`);
+            expect(flat).toContain("session_id=roster-peer");
+            expect(flat).toContain(`session_path=${peer.session_path}`);
+            expect(flat).not.toContain("session_id=roster-caller");
+            expect(flat).not.toContain(`name=${caller.name}`);
+            expect(flat).not.toContain("session_id=roster-stranger");
+            expect(flat).not.toContain(`name=${stranger.name}`);
+            expect(pane).not.toContain("Connection error");
+        } catch (error) {
+            pane = capturePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            if (hostProcess.exitCode === null) {
+                hostProcess.kill("SIGTERM");
+            }
+            await hostProcess.exited;
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "real TUI opens rewind through a detached resident host",
     async () => {
         const socket = `vera-resident-rewind-${process.pid}-${randomUUID()}`;

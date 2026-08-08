@@ -56,9 +56,11 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         }
     }
 
-    supportsImageInputFor(provider: string): boolean {
+    supportsImageInputFor(provider: string, model: string): boolean {
         try {
-            return this.adapter(provider).supportsImageInput !== false;
+            const adapter = this.adapter(provider);
+            const perModel = adapter.imageInputSupport?.(model);
+            return perModel ?? adapter.supportsImageInput !== false;
         } catch {
             // Unknown rather than unsupported: the turn should reach the stream
             // and fail there, with the reason, instead of being turned away

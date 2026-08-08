@@ -1,6 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 
-import { defaultEventLogPath } from "./engine/events.ts";
+import {
+    defaultEventLogPath,
+    legacyEventLogPath,
+} from "./engine/events.ts";
 import type { PromptContributionMetadata } from "./engine/prompt-contributions.ts";
 import type { ModelMessage, ModelTool } from "./model/types.ts";
 import { readSessionSnapshot } from "./store/session-store.ts";
@@ -36,9 +39,15 @@ interface LoggedModelRequest {
 export async function inspectLatestModelRequest(
     sessionPath: string,
     eventLogPath?: string,
+    eventLogRoot?: string,
 ): Promise<string> {
     const session = await readSessionSnapshot(sessionPath);
-    const path = eventLogPath ?? defaultEventLogPath(session.header.id);
+    const path = eventLogPath
+        ?? await resolveEventLogPath(
+            session.header.id,
+            session.header.cwd,
+            eventLogRoot,
+        );
     const source = await readFile(path, "utf8");
     const request = latestModelRequest(source, session.header.id, path);
     const inspected: InspectedModelRequest = {
@@ -243,4 +252,28 @@ function isReasoningEffort(value: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Prefers the sharded location and falls back to the flat one, so a session
+ * logged before the layout changed is still inspectable. The fallback path is
+ * returned unread when neither exists, leaving the caller's own read to
+ * produce the missing-file error.
+ */
+async function resolveEventLogPath(
+    sessionId: string,
+    cwd: string,
+    root?: string,
+): Promise<string> {
+    const sharded = root === undefined
+        ? defaultEventLogPath(sessionId, cwd)
+        : defaultEventLogPath(sessionId, cwd, root);
+    try {
+        await stat(sharded);
+        return sharded;
+    } catch {
+        return root === undefined
+            ? legacyEventLogPath(sessionId)
+            : legacyEventLogPath(sessionId, root);
+    }
 }

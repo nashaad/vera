@@ -6,6 +6,7 @@ import type { EffortPool } from "../../src/model/effort-pool.ts";
 function poolWith(efforts: Record<string, string | null>): EffortPool {
     return {
         resolveEffort: (_ref, requested) => ({ requested, efforts }),
+        resolveImageSupport: () => undefined,
         recordLearned: () => undefined,
     };
 }

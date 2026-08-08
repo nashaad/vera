@@ -54,6 +54,7 @@ async function bench(): Promise<Bench> {
                 socketPath: join(root, "h.sock"),
                 lockPath: join(root, "host.json"),
                 sessionDirectory: join(root, "sessions"),
+                eventLogDirectory: join(root, "logs"),
                 inboxPath,
                 spawnConsentPath: consentPath,
                 spawnSession: (request): Promise<SpawnedSession | null> => {

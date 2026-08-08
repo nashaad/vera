@@ -31,12 +31,16 @@ export interface ModelEffortCoarsened {
  *
  * Returns undefined whenever the failure is not a refusal of the effort
  * parameter, or the resolved data offers no other level. Refusals of other
- * capabilities (tools, thinking) are still recorded, because the fact is true
- * and useful, but they are not something an effort step can rescue.
+ * capabilities (tools, thinking, images) are still recorded, because the fact
+ * is true and useful, but they are not something an effort step can rescue.
+ *
+ * `requested` is absent when the request named no effort. There is then
+ * nothing to coarsen from, but the other capabilities are still refused on
+ * such requests and their facts are still recorded.
  */
 export function coarsenAfterFailure(
     ref: ModelRef,
-    requested: string,
+    requested: string | undefined,
     failure: ProviderFailure,
     alreadyTried: ReadonlySet<string>,
     options: EffortCoarseningOptions,
@@ -47,7 +51,7 @@ export function coarsenAfterFailure(
     }
 
     recordRejection(ref, requested, rejection, options);
-    if (rejection.parameter !== "reasoning_effort") {
+    if (rejection.parameter !== "reasoning_effort" || requested === undefined) {
         return undefined;
     }
 
@@ -75,15 +79,27 @@ export function coarsenAfterFailure(
     };
 }
 
+/**
+ * An effort learned key names the level that was refused. A request that
+ * carried no level has none to name, so the refusal is dropped rather than
+ * written against a level the model was never asked for. Every other
+ * capability is about the model itself and is recorded either way.
+ */
 function recordRejection(
     ref: ModelRef,
-    requested: string,
+    requested: string | undefined,
     rejection: CapabilityRejection,
     options: EffortCoarseningOptions,
 ): void {
-    const key = rejection.parameter === "reasoning_effort"
-        ? effortLearnedKey(requested)
-        : rejection.parameter;
+    let key: string;
+    if (rejection.parameter === "reasoning_effort") {
+        if (requested === undefined) {
+            return;
+        }
+        key = effortLearnedKey(requested);
+    } else {
+        key = rejection.parameter;
+    }
     options.pool.recordLearned(
         ref,
         key,

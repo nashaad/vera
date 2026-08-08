@@ -48,6 +48,7 @@ import {
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import { relativeTime } from "../../src/relative-time.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
@@ -92,6 +93,8 @@ export interface TuiSettingsPickerOption {
      */
     readonly activity?: string;
     readonly workspace?: string;
+    /** Transcript bytes on disk, shown beside the workspace on session rows. */
+    readonly sizeBytes?: number;
     /** True on the session the user is attached to right now. */
     readonly current?: boolean;
     /** The session this one was forked from, when the host reported one. */
@@ -114,6 +117,8 @@ export interface TuiSettingsPickerOption {
     readonly poolName?: string;
     /** True on a pool row whose model cannot run right now. */
     readonly unavailable?: boolean;
+    /** Set only when a source says the model takes images. */
+    readonly images?: boolean;
     /** True on a pool row with no probe or rejection evidence behind it. */
     readonly unverified?: boolean;
     /** True on a model Vera's shipped curation recommends. */
@@ -757,6 +762,9 @@ export function startTuiSessionPicker(
             sessionId: agent.id,
             activity: sessionActivity(agent, now),
             workspace: sessionWorkspace(agent),
+            ...(agent.size_bytes === undefined
+                ? {}
+                : { sizeBytes: agent.size_bytes }),
             ...(agent.id === currentAgentId ? { current: true } : {}),
             ...(agent.forked_from === undefined
                 ? {}
@@ -981,35 +989,21 @@ function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
     // A live session with nothing running is one someone has open, which is
     // worth saying: the rest of the column is how long ago a row was last
     // touched, and "3h" under a conversation being read right now is wrong.
-    return agent.live ? "open" : relativeSessionTime(agent.updated_at, now);
+    return agent.live ? "open" : relativeTime(agent.updated_at, now, "saved");
 }
 
-function relativeSessionTime(value: string | undefined, now: Date): string {
-    const timestamp = value === undefined ? Number.NaN : Date.parse(value);
-    if (!Number.isFinite(timestamp)) {
-        return "saved";
+/**
+ * Three significant figures at most, so the column stays the same width from
+ * a fresh session to a long one and the unit carries the magnitude.
+ */
+function formatSessionSize(bytes: number): string {
+    if (bytes < 1_000) {
+        return `${bytes}B`;
     }
-    const elapsedMinutes = Math.max(
-        0,
-        Math.floor((now.getTime() - timestamp) / 60_000),
-    );
-    if (elapsedMinutes < 1) {
-        return "just now";
+    if (bytes < 1_000_000) {
+        return `${Math.round(bytes / 1_000)}K`;
     }
-    if (elapsedMinutes < 60) {
-        return `${elapsedMinutes}m ago`;
-    }
-    const elapsedHours = Math.floor(elapsedMinutes / 60);
-    if (elapsedHours < 24) {
-        return `${elapsedHours}h ago`;
-    }
-    const elapsedDays = Math.floor(elapsedHours / 24);
-    return elapsedDays < 7
-        ? `${elapsedDays}d ago`
-        : new Date(timestamp).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-        });
+    return `${(bytes / 1_000_000).toFixed(1)}M`;
 }
 
 export function handleTuiSettingsPickerKey(
@@ -1922,7 +1916,14 @@ function optionMeta(
     option: TuiSettingsPickerOption,
 ): DialogMeta | undefined {
     if (state.kind === "session") {
-        return option.workspace;
+        if (option.sizeBytes === undefined) {
+            return option.workspace;
+        }
+        return [
+            { text: formatSessionSize(option.sizeBytes) },
+            { text: "  " },
+            { text: option.workspace ?? "" },
+        ];
     }
     if (state.kind !== "model") {
         return undefined;
@@ -1966,6 +1967,12 @@ function optionMeta(
     // what selecting the row does.
     if (option.recommendedLevel !== undefined) {
         separated({ text: option.recommendedLevel });
+    }
+    // Only a yes is worth a word. The question this answers is whether an
+    // attachment will go through, so the mark being there is the answer and
+    // its absence means do not count on it.
+    if (option.images === true) {
+        separated({ text: "images", tone: "positive" });
     }
     // An unverified row runs like any other. The word says only that no probe
     // has established what the model can do yet; a probed pool row says so
@@ -2177,6 +2184,7 @@ function modelOptions(
             ...(held !== undefined && !held.entry.verified
                 ? { unverified: true }
                 : {}),
+            ...(held?.entry.imageSupport === true ? { images: true } : {}),
         };
     };
     const runnable = (available ?? []).map((model) => {
@@ -2232,6 +2240,7 @@ function modelOptions(
             unavailable: true,
             ...recommendationMarks(entry),
             ...(entry.verified ? {} : { unverified: true }),
+            ...(entry.imageSupport === true ? { images: true } : {}),
         }];
     });
     return [...runnable, ...orphanEntries].toSorted((left, right) =>
