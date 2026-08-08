@@ -1112,7 +1112,6 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        paddingLeft: 2,
         visible: false,
     });
 
@@ -1265,7 +1264,6 @@ export async function startTui(
         visible: false,
     });
     app.add(overlayScrim);
-    upper.add(quoteText);
     upper.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
@@ -1371,6 +1369,9 @@ export async function startTui(
     app.add(sessionTrashConfirmView.box);
     app.add(composerTipText);
     upper.add(commandSuggestionsBox);
+    // Last, so it sits against the composer: the suggestions open and
+    // close under the typing, and the quote must not move when they do.
+    upper.add(quoteText);
     app.add(composerBox);
     app.add(statusBackdrop);
     app.add(statusText);
@@ -3881,7 +3882,11 @@ export async function startTui(
         composer.placeholder = extensionAddressee === undefined
             ? COMPOSER_PLACEHOLDER
             : `Message ${extensionAddressee}\u2026`;
-        quoteText.content = renderTuiQuote(pendingQuote);
+        // Indented by hand: the line is one row in a column that does not pad
+        // its children, and it has to start where the composer's text starts.
+        quoteText.content = pendingQuote === undefined
+            ? ""
+            : `  ${renderTuiQuote(pendingQuote)}`;
         quoteText.visible = pendingQuote !== undefined && !anyOverlayOpen();
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
@@ -5584,6 +5589,19 @@ export async function startTui(
                 state.effortSubstitution,
             )
             : renderTuiStatusSegments(extensionSegments);
+        // What an extension has made true of this conversation, said where the
+        // rest of the conversation's state is said. The sidebar is a whole
+        // column that arrived without being asked for, so the key that takes
+        // it away is only offered while it is there.
+        const extensionState = [
+            ...(extensionAddressee === undefined ? [] : [extensionAddressee]),
+            ...(sidebar.isOpen()
+                ? [sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"]
+                : []),
+        ];
+        const detailsLine = extensionState.length === 0
+            ? statusDetailsLine
+            : `${statusDetailsLine} · ${extensionState.join(" · ")}`;
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
@@ -5616,9 +5634,9 @@ export async function startTui(
                 activityAnimationWidth,
             );
         backgroundStatusText.content = agentSection.length === 0
-            ? statusDetailsLine
+            ? detailsLine
             : new StyledText([
-                fg(TUI_MUTED)(`${statusDetailsLine}\n`),
+                fg(TUI_MUTED)(`${detailsLine}\n`),
                 fg(TUI_ELEMENT)(
                     `${"·".repeat(Math.max(1, renderer.width - 4))}\n`,
                 ),
