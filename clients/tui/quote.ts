@@ -12,14 +12,22 @@ export interface TuiQuote {
     readonly text: string;
 }
 
-/** The line above the composer while a quote is waiting to be sent. */
+/**
+ * The line above the composer while a quote is waiting to be sent.
+ *
+ * It says the selection was copied too, because the gesture used to only copy
+ * and a chip appearing instead reads as the clipboard having been taken away.
+ * The rest is what the next keystroke does: send it as it stands, put a name
+ * in front to choose who reads it, or type and it goes along with the words.
+ */
 export function renderTuiQuote(quote: TuiQuote | undefined): string {
     if (quote === undefined) {
         return "";
     }
     const count = [...quote.text].length;
     return `quoting ${quote.source} · ${count} character`
-        + `${count === 1 ? "" : "s"} · esc to drop`;
+        + `${count === 1 ? "" : "s"} · copied · ⏎ sends it, @name aims it`
+        + " · esc drops";
 }
 
 /** The quote as the recipient reads it, appended to the typed message. */

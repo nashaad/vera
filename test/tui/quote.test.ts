@@ -12,12 +12,18 @@ test("no quote is an empty line", () => {
 
 test("the line names the speaker, the size, and the way out", () => {
     expect(renderTuiQuote({ source: "frosty", text: "abcd" }))
-        .toBe("quoting frosty · 4 characters · esc to drop");
+        .toBe(
+            "quoting frosty · 4 characters · copied · ⏎ sends it, "
+                + "@name aims it · esc drops",
+        );
 });
 
 test("one character is not pluralised", () => {
     expect(renderTuiQuote({ source: "agent", text: "x" }))
-        .toBe("quoting agent · 1 character · esc to drop");
+        .toBe(
+            "quoting agent · 1 character · copied · ⏎ sends it, "
+                + "@name aims it · esc drops",
+        );
 });
 
 test("the block attributes the text and marks every line", () => {
