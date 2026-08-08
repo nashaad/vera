@@ -24,6 +24,7 @@ import { notifyParentTool } from "./notify-parent.ts";
 import { webFetchTool } from "./web-fetch.ts";
 import { catalogSearchTool } from "./catalog-search.ts";
 import { poolAddTool } from "./pool-add.ts";
+import { agentRosterTool } from "./agent-roster.ts";
 import {
     limitToolResult,
     type ToolResultSpill,
@@ -48,6 +49,7 @@ const registeredTools: readonly RegisteredTool[] = [
     messageSubagentTool,
     notifyParentTool,
     poolAddTool,
+    agentRosterTool,
 ];
 for (const tool of registeredTools) {
     assertValidPermissionInputs(tool);
