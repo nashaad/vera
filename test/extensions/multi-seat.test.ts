@@ -18,7 +18,7 @@ const EXTENSION = join(
 /** What the agent is told when a seat sits down. */
 function joined(alias: string, model: string): string {
     return `[${alias} (${model}) joined this conversation as an advisor. It `
-        + "has no tools and cannot see this thread. Its replies reach you only "
+        + "has no tools and sees only the recent thread. Its replies reach you only "
         + "when quoted into a message like this one.]";
 }
 
@@ -32,6 +32,8 @@ interface Harness {
     readonly sidebar: { open: boolean; readonly blocks: VeraClientTranscriptBlock[] };
     /** The last list of names the extension offered the composer. */
     readonly mentions: string[];
+    /** What the thread adapter hands the extension; tests mutate it. */
+    readonly thread: { role: "user" | "assistant"; text: string }[];
     /** Resolves once every consult fired so far has posted its block. */
     settle(): Promise<void>;
 }
@@ -42,6 +44,7 @@ async function start(config: JsonValue = null): Promise<Harness> {
     const notices: string[] = [];
     const answers: Promise<unknown>[] = [];
     let mentions: string[] = [];
+    const thread: { role: "user" | "assistant"; text: string }[] = [];
     const sidebar: {
         open: boolean;
         readonly blocks: VeraClientTranscriptBlock[];
@@ -73,6 +76,7 @@ async function start(config: JsonValue = null): Promise<Harness> {
                 mentions = [...names];
             },
         },
+        thread: { read: () => thread.map((turn) => ({ ...turn })) },
         transcript: { append: (_id, block) => blocks.push(block) },
         sidebar: {
             open() {
@@ -107,6 +111,7 @@ async function start(config: JsonValue = null): Promise<Harness> {
         get mentions() {
             return mentions;
         },
+        thread,
         blocks,
         notices,
         sidebar,
@@ -164,6 +169,49 @@ test("an addressed message goes to that seat alone, and only that one", async ()
     });
     await harness.settle();
     expect(harness.consults).toHaveLength(1);
+    await harness.registry.close();
+});
+
+test("a seat's brief carries the tail of the thread, unchanged when the thread is", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
+
+    // An empty thread: the brief is just the seat's standing instructions.
+    await harness.registry.interceptMessage({
+        text: "@m1 hello",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    await harness.settle();
+    const bare = harness.consults[0]?.systemPrompt;
+    expect(bare).toContain("advisor");
+    expect(bare).not.toContain("main thread so far");
+
+    // Fourteen turns in the thread: the brief quotes the last twelve.
+    for (let index = 0; index < 7; index += 1) {
+        harness.thread.push({ role: "user", text: `question ${index}` });
+        harness.thread.push({ role: "assistant", text: `answer ${index}` });
+    }
+    await harness.registry.interceptMessage({
+        text: "@m1 and now",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    await harness.settle();
+    const brief = harness.consults[1]?.systemPrompt;
+    expect(brief).toContain("User: question 1\n\nAgent: answer 1");
+    expect(brief).toContain("Agent: answer 6");
+    expect(brief).not.toContain("question 0");
+
+    // The thread did not move: the brief is the same string, so the
+    // provider's prompt cache stays warm.
+    await harness.registry.interceptMessage({
+        text: "@m1 once more",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    await harness.settle();
+    expect(harness.consults[2]?.systemPrompt).toBe(brief as string);
     await harness.registry.close();
 });
 

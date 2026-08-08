@@ -85,6 +85,7 @@ export interface VeraClientExtensionApi {
     readonly keybindings: VeraClientExtensionKeybindings;
     readonly statusLine: VeraClientExtensionStatusLine;
     readonly messages: VeraClientExtensionMessages;
+    readonly thread: VeraClientExtensionThread;
     readonly consult: VeraClientExtensionConsult;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
@@ -412,6 +413,24 @@ export interface VeraClientTranscriptBlock {
  * different model's answer. A consult runs no tools, streams nothing, and adds
  * nothing to the session.
  */
+/**
+ * The conversation between the user and the agent, as this client shows it.
+ *
+ * Capability: `client.thread.read`.
+ */
+export interface VeraClientExtensionThread {
+    /**
+     * A snapshot of the thread, oldest first: what the user said and what the
+     * agent answered. Tool calls, notices, and extension output are not in it.
+     */
+    read(): readonly VeraClientThreadTurn[];
+}
+
+export interface VeraClientThreadTurn {
+    readonly role: "user" | "assistant";
+    readonly text: string;
+}
+
 export interface VeraClientExtensionConsult {
     (request: VeraClientConsultRequest): Promise<VeraClientConsultResult>;
 }

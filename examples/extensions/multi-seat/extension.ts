@@ -12,6 +12,9 @@
 
 const AGENT = "agent";
 
+/** How much of the thread a seat is shown. Older turns fall off the end. */
+const THREAD_TURNS = 12;
+
 interface Seat {
     readonly alias: string;
     readonly model: string;
@@ -52,6 +55,32 @@ export function activateClient(vera: any): void {
         }
     }
 
+    /**
+     * The seat's standing brief: who it is, plus the tail of the main thread.
+     * It rides in the system prompt because a system prompt is replaced on
+     * every call, never appended, so the thread cannot compound. The string is
+     * deterministic for an unchanged thread, which keeps the provider's prompt
+     * cache warm across back-to-back turns with the same seat.
+     */
+    function seatBrief(): string {
+        const base = "You are an advisor seated beside the user's main agent. "
+            + "You have no tools. Answer the user directly and briefly; what "
+            + "you say reaches the agent only if the user quotes it.";
+        let turns: { role: string; text: string }[];
+        try {
+            turns = [...vera.thread.read()].slice(-THREAD_TURNS);
+        } catch {
+            return base;
+        }
+        if (turns.length === 0) {
+            return base;
+        }
+        const thread = turns
+            .map((turn) => `${turn.role === "user" ? "User" : "Agent"}: ${turn.text}`)
+            .join("\n\n");
+        return `${base}\n\nThe main thread so far, most recent last:\n\n${thread}`;
+    }
+
     async function ask(seat: Seat, text: string): Promise<void> {
         // What was asked, beside what came back: the column is a conversation,
         // not a list of answers to questions that are somewhere else.
@@ -65,6 +94,7 @@ export function activateClient(vera: any): void {
         try {
             const answer = await vera.consult({
                 model: seat.model,
+                systemPrompt: seatBrief(),
                 messages: seat.lane.map((turn) => ({ ...turn })),
             });
             seat.lane.push({ role: "assistant", content: answer.text });
@@ -142,7 +172,7 @@ export function activateClient(vera: any): void {
             // name it has never heard reads as a stray paste.
             unread.get(AGENT)!.push(
                 `[${alias} (${model}) joined this conversation as an advisor. `
-                    + "It has no tools and cannot see this thread. Its replies "
+                    + "It has no tools and sees only the recent thread. Its replies "
                     + "reach you only when quoted into a message like this "
                     + "one.]",
             );
