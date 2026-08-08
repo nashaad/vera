@@ -1,7 +1,11 @@
 import type { ProviderFailure } from "./provider-failure.ts";
 
 /** The request parameter a provider refused. */
-export type CapabilityParameter = "reasoning_effort" | "thinking" | "tools";
+export type CapabilityParameter =
+    | "reasoning_effort"
+    | "thinking"
+    | "tools"
+    | "images";
 
 export interface CapabilityRejection {
     readonly parameter: CapabilityParameter;
@@ -54,6 +58,11 @@ const PARAMETER_PATTERNS: readonly ParameterPattern[] = [
     {
         parameter: "reasoning_effort",
         pattern: /reasoning[._\s-]?effort|reasoning\.effort|\beffort\b|reasoning_config/i,
+    },
+    {
+        parameter: "images",
+        pattern:
+            /\bimages?\b|image[_\s-]?url|image[_\s-]?input|\bvision\b|multimodal|input_modalities/i,
     },
     {
         parameter: "tools",

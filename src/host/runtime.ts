@@ -303,9 +303,9 @@ export async function startResidentHost(
             join(sessionDirectory, `${agentId}.jsonl`),
         ...(eventLogEnabled(options.config)
             ? {
-                eventLogPathForId: (agentId: string) =>
+                eventLogPathForId: (agentId: string, cwd: string) =>
                     eventLogDirectory === undefined
-                        ? defaultEventLogPath(agentId)
+                        ? defaultEventLogPath(agentId, cwd)
                         : join(eventLogDirectory, `${agentId}.jsonl`),
             }
             : {}),

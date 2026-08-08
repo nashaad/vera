@@ -33,6 +33,13 @@ export interface CatalogModel {
     readonly order?: number;
     readonly context_window?: number;
     readonly tool_support?: boolean;
+    /**
+     * Whether the model accepts image input, as the provider's own listing
+     * describes it. Absent means the listing did not say, which is not the
+     * same as no: a consumer that needs a definite answer falls through to
+     * what the pool learned from a probe.
+     */
+    readonly image_support?: boolean;
     readonly default_level?: ReasoningLevelId;
     /**
      * True on a model Vera's shipped curation recommends. A flag on the entry

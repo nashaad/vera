@@ -7,7 +7,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera", description: "Start a new agent in the current directory" },
     { usage: "vera -c", description: "Continue the most recent session" },
     { usage: "vera -p \"prompt\" [flags]", description: "Run one bounded turn and print the final reply" },
-    { usage: "vera ls", description: "List live resident agents" },
+    { usage: "vera ls [--all]", description: "List this workspace's agents, or every one" },
     { usage: "vera attach <agent-id>", description: "Attach to a live agent" },
     { usage: "vera resume <session-id|path>", description: "Resume a durable session" },
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },

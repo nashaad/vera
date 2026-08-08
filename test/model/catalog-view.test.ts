@@ -83,6 +83,7 @@ test("pool order is kept and levels the probe rejected drop away", () => {
             verified: true,
             description: "catalog description",
             contextWindow: 200_000,
+            imageSupport: true,
             levels: [{ id: "high", label: "High", description: "slow" }],
             defaultLevel: "high",
         },
@@ -135,6 +136,7 @@ test("an unprobed entry the provider lists is available but unverified", () => {
         verified: false,
         description: "catalog description",
         contextWindow: 200_000,
+        imageSupport: true,
         levels: [
             { id: "low", label: "Low" },
             { id: "high", label: "High", description: "slow" },
@@ -293,6 +295,7 @@ function fixture(): Fixture {
                 description: "catalog description",
                 order: 1,
                 context_window: 200_000,
+                image_support: true,
                 default_level: "high",
                 levels: [
                     { id: "low", label: "Low" },
@@ -378,4 +381,24 @@ test("a named entry carries its name to the clients", () => {
         .toBe("frosty");
     expect(pooled.find((entry) => entry.model === "no-levels")?.poolName)
         .toBeUndefined();
+});
+
+test("a pool row reports image support from whichever source knows", () => {
+    const options = fixture();
+    // The catalog says yes and nothing contradicts it.
+    admit(options, "test/with-levels", {});
+    // The probe answered for a model the catalog says nothing about.
+    admit(options, "test/no-levels", {
+        images: { ok: false, seen: SEEN, error: "no image input" },
+    });
+
+    const rows = pooledModels([
+        suggested("test", "with-levels"),
+        suggested("test", "no-levels"),
+    ], options);
+    const support = (model: string): boolean | undefined =>
+        rows.find((row) => row.model === model)?.imageSupport;
+
+    expect(support("with-levels")).toBe(true);
+    expect(support("no-levels")).toBe(false);
 });

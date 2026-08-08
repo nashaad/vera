@@ -21,6 +21,7 @@ import {
     type EffortLevel,
 } from "./effort-ladder.ts";
 import {
+    IMAGES_LEARNED_KEY,
     PROBE_LEARNED_KEY,
     TOOLS_LEARNED_KEY,
     type LearnedFact,
@@ -39,6 +40,16 @@ const PROBE_SENTINEL = "vera-admission-ok";
 const PROBE_MAX_TOKENS = 2_048;
 const PROBE_TIMEOUT_MS = 60_000;
 const PROBE_TOOL_NAME = "admission_probe";
+
+/**
+ * A 1x1 PNG. The smallest input that is a real image to a provider, so the
+ * answer is about whether the model takes images at all and never about the
+ * picture.
+ */
+const PROBE_IMAGE = Uint8Array.fromBase64(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+    + "2mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+);
 
 export type AdmissionStepStatus =
     | "running"
@@ -177,6 +188,24 @@ async function runAdmission(
     }
     toolStep("passed");
 
+    // Images are a capability, not a condition of entry: a text-only model is
+    // a perfectly good pooled model. So this step records what it found and
+    // never returns a verdict, and an outage during it leaves no image fact
+    // rather than a false one.
+    const imageStep = stepReporter(request, "image", "Accepts an image");
+    const imageOutcome = await probeImage(request, verified[0]);
+    if (imageOutcome !== undefined) {
+        learned[IMAGES_LEARNED_KEY] = imageOutcome.ok
+            ? { ok: true, seen, checked }
+            : { ok: false, seen, error: imageOutcome.reason, checked };
+        imageStep(
+            imageOutcome.ok ? "passed" : "failed",
+            ...(imageOutcome.ok ? [] : [imageOutcome.reason]),
+        );
+    } else {
+        imageStep("skipped");
+    }
+
     return {
         status: "added",
         learned: {
@@ -275,6 +304,51 @@ async function probeToolCall(
         return incompatible("did not call the probe tool");
     }
     return undefined;
+}
+
+/**
+ * Undefined when the provider was unreachable, which says nothing about the
+ * model. A rejection is an answer: it is the ordinary way a text-only model
+ * refuses an image.
+ */
+async function probeImage(
+    request: AdmissionRequest,
+    providerEffort: string | undefined,
+): Promise<{ readonly ok: true } | {
+    readonly ok: false;
+    readonly reason: string;
+} | undefined> {
+    let result;
+    try {
+        result = await probeOnce(request, {
+            maxTokens: PROBE_MAX_TOKENS,
+            ...(providerEffort === undefined
+                ? {}
+                : { reasoningEffort: providerEffort }),
+            messages: [{
+                role: "user",
+                content: [
+                    { type: "text", text: "Reply with one word." },
+                    {
+                        type: "image",
+                        mediaType: "image/png",
+                        data: PROBE_IMAGE,
+                    },
+                ],
+            }],
+        });
+    } catch (error) {
+        // An abort is the caller leaving, not a fact about the model, and it
+        // has to keep unwinding rather than be read as "no images".
+        request.signal?.throwIfAborted();
+        if (!(error instanceof AdmissionUnavailable)) {
+            throw error;
+        }
+        return undefined;
+    }
+    return result.kind === "incompatible"
+        ? { ok: false, reason: result.reason }
+        : { ok: true };
 }
 
 interface ProbeSuccess {

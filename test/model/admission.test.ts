@@ -128,6 +128,7 @@ test("every level verifies, and the response model is recorded verbatim", async 
         { kind: "text", text: SENTINEL, responseModel: "probe-model-v2" },
         { kind: "text", text: SENTINEL },
         { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
     ]);
     const steps: AdmissionStep[] = [];
 
@@ -163,11 +164,12 @@ test("every level verifies, and the response model is recorded verbatim", async 
                 wire: "probe-model-v2",
             },
             tools: { ok: true, seen, checked: "user_key" },
+            images: { ok: true, seen, checked: "user_key" },
         },
         droppedLevels: [],
     });
     expect(requests.map((request) => request.reasoningEffort))
-        .toEqual(["high", "low", "high"]);
+        .toEqual(["high", "low", "high", "high"]);
     expect(steps.map((step) => `${step.step}:${step.status}`)).toEqual([
         "level:high:running",
         "level:high:passed",
@@ -175,6 +177,8 @@ test("every level verifies, and the response model is recorded verbatim", async 
         "level:low:passed",
         "tool_call:running",
         "tool_call:passed",
+        "image:running",
+        "image:passed",
     ]);
 });
 
@@ -183,6 +187,7 @@ test("a level the key cannot use is dropped without failing the admission", asyn
         { kind: "failure", failure: userActionFailure(400) },
         { kind: "text", text: SENTINEL },
         { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
     ]);
 
     const verdict = await admitModel({
@@ -266,6 +271,7 @@ test("one retry-shaped failure is retried and the admission still succeeds", asy
         { kind: "text", text: SENTINEL },
         { kind: "text", text: SENTINEL },
         { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
     ]);
 
     const verdict = await admitModel({
@@ -277,7 +283,7 @@ test("one retry-shaped failure is retried and the admission still succeeds", asy
 
     expect(verdict).toMatchObject({ status: "added", droppedLevels: [] });
     expect(requests.map((request) => request.reasoningEffort))
-        .toEqual(["high", "high", "low", "high"]);
+        .toEqual(["high", "high", "low", "high", "high"]);
 });
 
 test("a model the catalog has never seen is swept across the whole ladder", async () => {
@@ -285,6 +291,7 @@ test("a model the catalog has never seen is swept across the whole ladder", asyn
     const { adapter, requests } = scriptedAdapter([
         ...sweep.map(() => ({ kind: "text", text: SENTINEL } as const)),
         { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
     ]);
 
     const verdict = await admitModel({
@@ -296,9 +303,10 @@ test("a model the catalog has never seen is swept across the whole ladder", asyn
     expect(verdict).toMatchObject({ status: "added" });
     if (verdict.status !== "added") throw new Error("expected added");
     expect(requests.map((request) => request.reasoningEffort))
-        .toEqual([...sweep, sweep[0]]);
+        .toEqual([...sweep, sweep[0], sweep[0]]);
     expect(Object.keys(verdict.learned).sort()).toEqual([
         ...sweep.map((level) => `efforts.${level}`).sort(),
+        "images",
         "probe",
         "tools",
     ].sort());
@@ -309,6 +317,7 @@ test("a model the catalog knows is probed only at its own levels", async () => {
         { kind: "text", text: SENTINEL },
         { kind: "text", text: SENTINEL },
         { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
     ]);
 
     const verdict = await admitModel({
@@ -320,7 +329,7 @@ test("a model the catalog knows is probed only at its own levels", async () => {
 
     expect(verdict).toMatchObject({ status: "added" });
     expect(requests.map((request) => request.reasoningEffort))
-        .toEqual(["high", "low", "high"]);
+        .toEqual(["high", "low", "high", "high"]);
 });
 
 test("a catalog level outside the ladder is never probed", async () => {
@@ -328,6 +337,7 @@ test("a catalog level outside the ladder is never probed", async () => {
         { kind: "text", text: SENTINEL },
         { kind: "text", text: SENTINEL },
         { kind: "tool_call", name: "admission_probe" },
+        { kind: "text", text: "ok" },
     ]);
     const steps: AdmissionStep[] = [];
 
@@ -350,7 +360,7 @@ test("a catalog level outside the ladder is never probed", async () => {
     });
 
     expect(requests.map((request) => request.reasoningEffort))
-        .toEqual(["xhigh", "medium", "xhigh"]);
+        .toEqual(["xhigh", "medium", "xhigh", "xhigh"]);
     expect(steps.map((step) => step.label)).toContain("Reasoning xhigh");
     expect(steps.map((step) => step.label)).not.toContain("Reasoning Ultra");
     expect(verdict.status).toBe("added");
@@ -358,8 +368,65 @@ test("a catalog level outside the ladder is never probed", async () => {
         expect(Object.keys(verdict.learned)).toEqual([
             "efforts.xhigh",
             "efforts.medium",
+            "images",
             "probe",
             "tools",
         ]);
     }
+});
+
+test("a model that refuses the image still enters the pool, with the refusal recorded", async () => {
+    const { adapter, requests } = scriptedAdapter([
+        { kind: "text", text: SENTINEL },
+        { kind: "text", text: SENTINEL },
+        { kind: "tool_call", name: "admission_probe" },
+        { kind: "failure", failure: userActionFailure(400) },
+    ]);
+    const steps: AdmissionStep[] = [];
+
+    const verdict = await admitModel({
+        adapter,
+        provider: "scripted",
+        model: "probe-model",
+        catalogModel: catalogModel(),
+        onStep: (step) => steps.push(step),
+        now: () => new Date("2026-08-01T00:00:00.000Z"),
+    });
+
+    // Text-only is a capability the pool records, not grounds for refusal.
+    expect(verdict).toMatchObject({ status: "added" });
+    if (verdict.status !== "added") throw new Error("expected added");
+    expect(verdict.learned.images).toMatchObject({ ok: false });
+    expect(steps.map((step) => `${step.step}:${step.status}`))
+        .toContain("image:failed");
+    // The probe sends a real image rather than asking about one.
+    expect(requests.at(-1)?.messages.at(0)?.content)
+        .toContainEqual(expect.objectContaining({ type: "image" }));
+});
+
+test("an outage during the image probe records no image fact at all", async () => {
+    const { adapter } = scriptedAdapter([
+        { kind: "text", text: SENTINEL },
+        { kind: "text", text: SENTINEL },
+        { kind: "tool_call", name: "admission_probe" },
+        { kind: "failure", failure: retryFailure() },
+        { kind: "failure", failure: retryFailure() },
+    ]);
+    const steps: AdmissionStep[] = [];
+
+    const verdict = await admitModel({
+        adapter,
+        provider: "scripted",
+        model: "probe-model",
+        catalogModel: catalogModel(),
+        onStep: (step) => steps.push(step),
+    });
+
+    // An outage is not a fact about the model, so nothing is written and the
+    // admission that already succeeded still stands.
+    expect(verdict).toMatchObject({ status: "added" });
+    if (verdict.status !== "added") throw new Error("expected added");
+    expect(verdict.learned.images).toBeUndefined();
+    expect(steps.map((step) => `${step.step}:${step.status}`))
+        .toContain("image:skipped");
 });

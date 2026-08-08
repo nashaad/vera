@@ -7,6 +7,10 @@ import {
     poolEffortLevels,
     type EffortLevelsLookup,
 } from "../model/effort-levels.ts";
+import {
+    poolImageSupport,
+    type ImageSupportLookup,
+} from "../model/image-support.ts";
 import { createPoolEffortPool } from "../model/effort-pool.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
@@ -27,6 +31,8 @@ export interface ConfiguredProviderOptions {
      * and request-time coarsening read.
      */
     readonly effortLevels?: EffortLevelsLookup;
+    /** The model's image support. Defaults to the same pool-over-catalog read. */
+    readonly imageSupport?: ImageSupportLookup;
     /** The workspace whose pool overlays the user's, when there is one. */
     readonly projectRoot?: string;
     /**
@@ -64,18 +70,21 @@ const ADAPTERS: Readonly<Record<
         ...(options.log === undefined ? {} : { log: options.log }),
         ...capture(options),
     }),
-    openrouter: (options) => createOpenRouterAdapter({
-        apiKey: requiredApiKey("openrouter", options),
-        effortLevels: options.effortLevels ?? poolEffortLevels({
-            provider: "openrouter",
-            pool: createPoolEffortPool(
-                options.projectRoot === undefined
-                    ? {}
-                    : { projectRoot: options.projectRoot },
-            ),
-        }),
-        ...capture(options),
-    }),
+    openrouter: (options) => {
+        const pool = createPoolEffortPool(
+            options.projectRoot === undefined
+                ? {}
+                : { projectRoot: options.projectRoot },
+        );
+        return createOpenRouterAdapter({
+            apiKey: requiredApiKey("openrouter", options),
+            effortLevels: options.effortLevels
+                ?? poolEffortLevels({ provider: "openrouter", pool }),
+            imageSupport: options.imageSupport
+                ?? poolImageSupport({ provider: "openrouter", pool }),
+            ...capture(options),
+        });
+    },
 };
 
 function capture(

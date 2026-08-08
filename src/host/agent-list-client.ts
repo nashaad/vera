@@ -35,6 +35,7 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
     const agent = asRecord(value);
     return typeof agent?.id === "string"
         && agent.id.length > 0
+        && (agent.name === undefined || typeof agent.name === "string")
         && typeof agent.workspace === "string"
         && agent.workspace.length > 0
         && typeof agent.session_path === "string"
@@ -62,6 +63,14 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
             || (
                 typeof agent.parent_id === "string"
                 && agent.parent_id.length > 0
+            )
+        )
+        && (
+            agent.size_bytes === undefined
+            || (
+                typeof agent.size_bytes === "number"
+                && Number.isSafeInteger(agent.size_bytes)
+                && agent.size_bytes >= 0
             )
         )
         && (

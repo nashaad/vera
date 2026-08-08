@@ -227,6 +227,13 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        // Reads in-memory state the owner already holds and reaches nothing
+        // outside it, so it is gated no harder than reading a file.
+        name: "routine.agent_roster",
+        when: { operation: "agent.roster" },
+        then: "allow",
+    },
+    {
         name: "routine.read",
         when: { verb: "read" },
         then: "allow",
@@ -391,6 +398,7 @@ const GIT_READ_SUBCOMMANDS = new Set(["log", "status", "diff", "show"]);
 
 export const CORE_PERMISSION_OPERATIONS = new Set([
     "agent.message",
+    "agent.roster",
     "agent.spawn",
     "git.clone",
     "git.commit",

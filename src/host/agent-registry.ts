@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 
-import { defaultEventLogPath, EngineEventBus } from "../engine/events.ts";
+import { EngineEventBus } from "../engine/events.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import {
     builtInPermissionMode,
@@ -82,6 +83,7 @@ import { createSessionBranch } from "../store/session-branch.ts";
 import type { UserMessage } from "../model/types.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import { agentNameKey, mintAgentName } from "./agent-name.ts";
+import { workspaceKey } from "../workspace-key.ts";
 import type {
     InboxDeliveryCoordinator,
     InboxDeliverySession,
@@ -123,6 +125,12 @@ const CHILD_TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
 export interface RegisteredAgentSummary {
     readonly id: string;
+    /**
+     * The identity name this session posts under, `slug:hex4:purpose`. Carried
+     * on the listing because a list keyed by uuid is unreadable; the id stays
+     * because it is what every other command takes.
+     */
+    readonly name?: string;
     readonly workspace: string;
     readonly session_path: string;
     readonly kind: RegisteredAgentKind;
@@ -149,6 +157,13 @@ export interface RegisteredAgentSummary {
      * branch was taken is a fact about the transcript, not about the list.
      */
     readonly forked_from?: string;
+    /**
+     * Bytes the session transcript occupies on disk, absent when the file
+     * cannot be stat'd. Read fresh on every listing rather than tracked on
+     * append: compaction and trash rewrite the file behind the store, so a
+     * running total would drift with no event to correct it.
+     */
+    readonly size_bytes?: number;
 }
 
 export interface AgentRegistryOptions {
@@ -212,7 +227,7 @@ export interface AgentRegistryOptions {
      */
     readonly readPool?: (projectRoot?: string) => readonly PooledModel[];
     readonly sessionPathForId?: (agentId: string) => string;
-    readonly eventLogPathForId?: (agentId: string) => string;
+    readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     /**
      * Writes the pool entry for one model, and probes it first when asked.
@@ -1069,6 +1084,59 @@ export class AgentRegistry {
         return { kind: "output", output: lines.join("\n"), isError: failed };
     }
 
+    /**
+     * The `agent_roster` tool's effect: the host's live session table, cut to
+     * the caller's workspace and to the sessions still running in it.
+     *
+     * Every field is observed. The name was minted when the session
+     * registered, the activity time is the last thing written to that
+     * session's log, and the path is where the log lives. Nothing here is
+     * declared by an agent and nothing is stored, so a host that is gone and
+     * an empty roster mean the same thing.
+     */
+    private applyAgentRosterEffect(callerId: string): Promise<ToolOutput> {
+        const caller = this.agents.get(callerId);
+        if (caller === undefined) {
+            return Promise.resolve({
+                kind: "output",
+                output: "This session is no longer registered with the host.",
+                isError: true,
+            });
+        }
+        // Keyed rather than path-compared, so a session started under a
+        // symlinked or differently-spelled path lands in the same workspace.
+        const here = workspaceKey(caller.agent.workspace);
+        const rows = this.list().filter((agent) =>
+            agent.id !== callerId
+            && workspaceKey(agent.workspace) === here
+            && agent.status !== "closed"
+            && agent.status !== "failed"
+            && agent.status !== "completed"
+        );
+        if (rows.length === 0) {
+            return Promise.resolve({
+                kind: "output",
+                output: "No other agents in this workspace.",
+                isError: false,
+            });
+        }
+        const lines = rows.map((agent) => [
+            `name=${agent.name ?? "(unnamed)"}`,
+            `last_activity=${agent.updated_at ?? "(unknown)"}`,
+            `session_id=${agent.id}`,
+            `session_path=${agent.session_path}`,
+        ].join("  "));
+        return Promise.resolve({
+            kind: "output",
+            output: [
+                `${rows.length} other agent${rows.length === 1 ? "" : "s"} `
+                    + "in this workspace:",
+                ...lines,
+            ].join("\n"),
+            isError: false,
+        });
+    }
+
     async poolRemove(
         id: string,
         entry: { readonly provider: string; readonly model: string },
@@ -1232,6 +1300,16 @@ export class AgentRegistry {
     }
 
     list(): RegisteredAgentSummary[] {
+        const sizeOnDisk = (path: string): number | undefined => {
+            try {
+                return statSync(path).size;
+            } catch {
+                // A session whose file is gone still belongs on the list; it
+                // just has no size to report.
+                return undefined;
+            }
+        };
+
         return [...this.agents.values()]
             .map((entry) => {
                 const activeEntries = entry.store.activeEntries();
@@ -1250,8 +1328,10 @@ export class AgentRegistry {
                         .trim()
                     : undefined;
                 const title = entry.store.name() ?? fallbackTitle;
+                const size = sizeOnDisk(entry.store.path);
                 return {
                     id: entry.agent.id,
+                    name: entry.arcName,
                     workspace: entry.agent.workspace,
                     session_path: entry.store.path,
                     kind: entry.kind,
@@ -1294,6 +1374,7 @@ export class AgentRegistry {
                     updated_at: entry.store.agentFailure()?.timestamp
                         ?? activeEntries.at(-1)?.timestamp
                         ?? entry.store.header.timestamp,
+                    ...(size === undefined ? {} : { size_bytes: size }),
                 };
             })
             .sort((left, right) => left.id.localeCompare(right.id));
@@ -1321,7 +1402,10 @@ export class AgentRegistry {
     private start(
         store: SessionStore,
         kind: RegisteredAgentKind,
-        eventLogPath = this.options.eventLogPathForId?.(store.header.id),
+        eventLogPath = this.options.eventLogPathForId?.(
+            store.header.id,
+            store.header.cwd,
+        ),
         parentId?: string,
         clientPromptRefusal?: string,
     ): ResidentAgent {
@@ -1477,6 +1561,9 @@ export class AgentRegistry {
             if (effect.type === "pool_add") {
                 return this.applyPoolAddEffect(effect);
             }
+            if (effect.type === "agent_roster") {
+                return this.applyAgentRosterEffect(agent.id);
+            }
             return applySubagentEffect(effect, signal, context);
         };
         entry.run = runHeadlessLoop(
@@ -1518,8 +1605,9 @@ export class AgentRegistry {
                         "spawn_async_subagent",
                         "message_subagent",
                         "pool_add",
+                        "agent_roster",
                     ]
-                    : ["notify_parent"],
+                    : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
                 extensionTools: this.options.extensionTools,
                 onInboundReady: (inbound) => {
