@@ -34,6 +34,7 @@ import type {
 } from "../../src/model/catalog-shape.ts";
 import {
     loadOptionalVeraConfig,
+    tipsEnabled as configuredTipsEnabled,
     type VeraExtensionConfig,
 } from "../../src/config.ts";
 import {
@@ -189,6 +190,16 @@ import {
     tuiChordOwner,
     tuiKeyHint,
 } from "./keymap.ts";
+import {
+    recordTuiTipShown,
+    selectTuiTip,
+    type TuiTipContext,
+} from "./tips.ts";
+import {
+    beginTuiTipLaunch,
+    saveTuiTipState,
+    type TuiTipState,
+} from "./tips-store.ts";
 import { createRenderCoalescer } from "./render-coalescer.ts";
 import {
     createAuthStorage,
@@ -915,6 +926,34 @@ export async function startTui(
         zIndex: 30,
     });
 
+    // Read here rather than passed in: tips are a client-side display choice,
+    // and the host has no say in them.
+    const tipsConfig = loadOptionalVeraConfig();
+    const tipsEnabled = tipsConfig === undefined
+        || configuredTipsEnabled(tipsConfig);
+    // Tips read their own launch counter on the way in, so the count advances
+    // once per start no matter how many tips the run goes on to show.
+    let tipState: TuiTipState = tipsEnabled
+        ? beginTuiTipLaunch()
+        : { launches: 0, history: {} };
+    // The line above the composer, cleared on the next submit. The overlay's
+    // own line is chosen separately: an overlay is a place the user went
+    // looking for keys, so it is allowed a tip even when the transcript one
+    // has already been spent this turn.
+    let composerTip: string | undefined;
+    let workingLastRender = false;
+    let pickerTipKind: string | undefined;
+
+    const composerTipText = new TextRenderable(renderer, {
+        id: "composer-tip",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        paddingLeft: 2,
+        visible: false,
+    });
+
     const queuedPromptText = new TextRenderable(renderer, {
         id: "queued-prompt",
         content: "",
@@ -1105,6 +1144,7 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
+    app.add(composerTipText);
     app.add(commandSuggestionsBox);
     app.add(composerBox);
     app.add(statusText);
@@ -1789,6 +1829,9 @@ export async function startTui(
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
         }
+        // Typing is the signal the tip has been read or ignored. The next one
+        // is picked in the gap after this turn, not now.
+        composerTip = undefined;
 
         const commandAction = prompt.length === 0
             ? undefined
@@ -3214,12 +3257,71 @@ export async function startTui(
         composer.focus();
     }
 
+    /**
+     * What the pool looks like right now, which is what every relevance
+     * predicate is written against. Read fresh each time rather than cached:
+     * pooling a model is exactly the kind of thing that should retire the tip
+     * telling you to pool one.
+     */
+    function tipContext(inModelPicker: boolean): TuiTipContext {
+        const pooled = state.modelSettings?.pooled ?? [];
+        return {
+            launches: tipState.launches,
+            pooledCount: pooled.length,
+            namedPoolCount: pooled.filter((entry) =>
+                entry.poolName !== undefined
+            ).length,
+            anyVerified: pooled.some((entry) => entry.verified),
+            inModelPicker,
+        };
+    }
+
+    /**
+     * A tip to show, recorded as shown. Returns nothing when tips are off,
+     * when nothing is eligible, or when the pool is exhausted for this launch.
+     */
+    function takeTip(inModelPicker: boolean): string | undefined {
+        if (!tipsEnabled) return undefined;
+        const tip = selectTuiTip(tipContext(inModelPicker), tipState.history);
+        if (tip === undefined) return undefined;
+        tipState = {
+            launches: tipState.launches,
+            history: recordTuiTipShown(
+                tip.id,
+                tipState.history,
+                tipState.launches,
+            ),
+        };
+        saveTuiTipState(tipState);
+        return tip.text(tipContext(inModelPicker));
+    }
+
     function renderState(): void {
         if (shuttingDown) {
             return;
         }
 
         placeholder.visible = state.entries.length === 0;
+        // The transcript tip appears in the gap after a turn, which is the one
+        // moment the user is reading rather than typing, and it is gone by the
+        // time the next turn starts. Armed by the turn ending rather than by
+        // the idle state itself, so the line does not come straight back in
+        // the frames between a submit and the turn actually starting.
+        if (tipsEnabled && workingLastRender && !state.working) {
+            composerTip = takeTip(false);
+        }
+        workingLastRender = state.working;
+        composerTipText.content = composerTip === undefined
+            ? new StyledText([])
+            // Text nodes lay their content out from column zero, so the
+            // indent the transcript rows share is written in rather than set
+            // as padding.
+            : new StyledText([
+                fg(TUI_ACCENT)("  Tip "),
+                fg(TUI_MUTED)(composerTip),
+            ]);
+        composerTipText.visible = composerTip !== undefined
+            && !anyOverlayOpen();
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
         approvalView.box.visible = pendingUiRequest?.request.type
@@ -3325,6 +3427,16 @@ export async function startTui(
         }
         if (timelinePicker !== undefined) {
             timelinePickerView.update(timelinePicker);
+        }
+        if (settingsPicker === undefined) {
+            pickerTipKind = undefined;
+            settingsPickerView.tip = undefined;
+        } else if (tipsEnabled && pickerTipKind !== settingsPicker.kind) {
+            // One tip per pane, chosen when the pane opens. Rechoosing on
+            // every keystroke would make the line flicker under the search
+            // query, and the pane is one place, not one place per row.
+            pickerTipKind = settingsPicker.kind;
+            settingsPickerView.tip = takeTip(settingsPicker.kind === "model");
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
