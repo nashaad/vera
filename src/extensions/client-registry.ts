@@ -146,7 +146,7 @@ export interface ClientExtensionTranscriptAdapter {
 
 export interface ClientExtensionSidebarAdapter {
     /** Throws when another extension already holds the sidebar. */
-    open(extensionId: string, title: string): void;
+    open(extensionId: string): void;
     append(extensionId: string, block: VeraClientTranscriptBlock): void;
     clear(extensionId: string): void;
     close(extensionId: string): void;
@@ -770,8 +770,8 @@ async function activateClientExtension(
                 options.transcript.append(options.id, validated);
             },
             sidebar: Object.freeze({
-                open(title: string): void {
-                    requireSidebar().open(options.id, validateSidebarTitle(title));
+                open(): void {
+                    requireSidebar().open(options.id);
                 },
                 append(block: VeraClientTranscriptBlock): void {
                     const adapter = requireSidebar();
@@ -1338,14 +1338,6 @@ function validateConsultRequest(request: VeraClientConsultRequest): void {
             throw new Error("Consult message content must not be empty");
         }
     }
-}
-
-function validateSidebarTitle(title: string): string {
-    const trimmed = typeof title === "string" ? title.trim() : "";
-    if (trimmed.length === 0) {
-        throw new Error("Client extension sidebar title must not be empty");
-    }
-    return trimmed;
 }
 
 function validateTranscriptBlock(

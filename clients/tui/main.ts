@@ -771,14 +771,14 @@ export async function startTui(
                 requestExtensionConsult(request, signal),
         },
         sidebar: {
-            open(extensionId, title) {
+            open(extensionId) {
                 if (
                     sidebarOwner !== undefined && sidebarOwner !== extensionId
                 ) {
                     throw new Error(`${sidebarOwner} is using the sidebar`);
                 }
                 sidebarOwner = extensionId;
-                sidebar.open(title);
+                sidebar.open();
                 renderState();
             },
             append(extensionId, block) {
@@ -1064,7 +1064,7 @@ export async function startTui(
         transcript,
         theme: {
             background: theme.background,
-            border: theme.element,
+            panel: theme.panel,
             muted: theme.muted,
             text: TUI_TEXT,
         },
@@ -1230,6 +1230,10 @@ export async function startTui(
     }, STATUS_REFRESH_INTERVAL_MS);
     watchBackgroundAgents(dependencies.client);
 
+    renderer.on(CliRenderEvents.RESIZE, () => {
+        sidebar.refit();
+        renderState();
+    });
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
         const copyableNodes = pendingUiRequest !== undefined
                 && isToolApprovalUiRequestUpdate(pendingUiRequest)
@@ -1706,6 +1710,18 @@ export async function startTui(
                 key.stopPropagation();
                 return;
             }
+        }
+
+        if (
+            tuiBindingId("global", key) === "toggle_sidebar"
+            && sidebar.isOpen()
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            sidebar.toggleHidden();
+            renderState();
+            return;
         }
 
         if (

@@ -188,7 +188,6 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "beside the transcript",
             );
-            expect(pane).toContain("Seats");
             // Both columns on one line: the split is a layout, not a takeover.
             expect(pane).toMatch(/Start a conversation.+m1 \(faux\)/);
 
@@ -200,7 +199,7 @@ test.skipIf(!tmuxAvailable)(
                 (visible) => !visible.includes("beside the transcript"),
                 "the sidebar to close",
             );
-            expect(pane).not.toContain("Seats");
+            expect(pane).not.toContain("m1 (faux)");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);

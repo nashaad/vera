@@ -16,14 +16,24 @@ export const MIN_SIDEBAR_WIDTH = 20;
 export const MIN_TRANSCRIPT_WIDTH = 30;
 export const DEFAULT_SIDEBAR_WIDTH = 44;
 /**
- * The divider is drawn one column wide and grabbed three: a one-column target
- * is a line, not a handle.
+ * The divider draws nothing: the sidebar is its own colour, and these three
+ * columns are only the grab target, because a one-column target is a line
+ * rather than a handle.
  */
 const DIVIDER_WIDTH = 3;
 
+/**
+ * Under this the split has no room for both halves, so the sidebar steps
+ * aside until the terminal is wide again. It stays open the whole time: this
+ * is layout, not a close.
+ */
+export const MIN_SPLIT_WIDTH = MIN_SIDEBAR_WIDTH + MIN_TRANSCRIPT_WIDTH
+    + DIVIDER_WIDTH;
+
 export interface TuiSidebarTheme {
     readonly background: string;
-    readonly border: string;
+    /** The sidebar's own ground: the split is a colour change, not a rule. */
+    readonly panel: string;
     readonly muted: string;
     readonly text: string;
 }
@@ -45,20 +55,24 @@ export interface TuiSidebar {
     /** Holds the transcript and the sidebar side by side. */
     readonly body: BoxRenderable;
     isOpen(): boolean;
-    open(title: string): void;
+    /** True while the split is actually drawn: false when narrow or hidden. */
+    isShown(): boolean;
+    /** Hides or restores the split without taking it from its owner. */
+    toggleHidden(): void;
+    open(): void;
     close(): void;
-    /** Replaces the title of an already open sidebar. */
-    setTitle(title: string): void;
     append(label: string, text: string): void;
     clear(): void;
+    /** Re-reads the terminal width; call it on resize. */
+    refit(): void;
     width(): number;
 }
 
 /**
  * A region beside the transcript that something other than the transcript owns.
  *
- * It is deliberately not a multi-seat pane: it takes a title and blocks of
- * text, so the next thing that needs a second column does not need a second
+ * It is deliberately not a multi-seat pane: it takes labelled blocks of text,
+ * so the next thing that needs a second column does not need a second
  * implementation.
  */
 export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
@@ -68,6 +82,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         renderer.terminalWidth,
     );
     let open = false;
+    // Hidden is the user's call, and outlives a resize: the sidebar stays out
+    // of the way until it is asked back.
+    let hidden = false;
     let blocks = 0;
 
     // The divider is grabbed on mouse-down, and every drag after that resizes
@@ -111,24 +128,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     });
     // A drawn rule, not a filled column: a background block reads as a bar,
     // and the split should be a hairline.
-    const dividerLine = new BoxRenderable(renderer, {
-        id: "sidebar-divider-line",
-        width: 1,
-        height: "100%",
-        marginLeft: 1,
-        border: ["left"],
-        borderStyle: "single",
-        borderColor: theme.border,
-    });
-    divider.add(dividerLine);
-
-    const title = new TextRenderable(renderer, {
-        id: "sidebar-title",
-        content: "",
-        fg: theme.muted,
-        width: "100%",
-        height: 1,
-    });
     const content = new ScrollBoxRenderable(renderer, {
         id: "sidebar-content",
         flexGrow: 1,
@@ -149,9 +148,10 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexShrink: 0,
         flexDirection: "column",
         paddingLeft: 1,
+        paddingTop: 1,
+        backgroundColor: theme.panel,
         visible: false,
     });
-    panel.add(title);
     panel.add(content);
 
     body.add(options.transcript);
@@ -166,28 +166,42 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         options.onLayoutChanged?.();
     }
 
+    function shown(): boolean {
+        return open && !hidden && renderer.terminalWidth >= MIN_SPLIT_WIDTH;
+    }
+
+    function apply(): void {
+        const visible = shown();
+        if (!visible) {
+            dragging = false;
+        }
+        panel.visible = visible;
+        divider.visible = visible;
+        options.onLayoutChanged?.();
+    }
+
     return {
         body,
         isOpen: () => open,
-        open(text: string): void {
+        isShown: shown,
+        toggleHidden(): void {
+            hidden = !hidden;
+            apply();
+        },
+        open(): void {
             open = true;
-            title.content = text;
+            hidden = false;
             // The terminal may have been resized while the sidebar was closed.
             resize(width);
-            panel.visible = true;
-            divider.visible = true;
-            options.onLayoutChanged?.();
+            apply();
         },
         close(): void {
             open = false;
-            dragging = false;
-            panel.visible = false;
-            divider.visible = false;
-            options.onLayoutChanged?.();
+            apply();
         },
-        setTitle(text: string): void {
-            title.content = text;
-            options.onLayoutChanged?.();
+        refit(): void {
+            resize(width);
+            apply();
         },
         append(label: string, text: string): void {
             blocks += 1;

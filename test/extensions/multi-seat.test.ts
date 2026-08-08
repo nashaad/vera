@@ -21,7 +21,7 @@ interface Harness {
     readonly consults: VeraClientConsultRequest[];
     readonly blocks: VeraClientTranscriptBlock[];
     readonly notices: string[];
-    readonly sidebar: { title?: string; readonly blocks: VeraClientTranscriptBlock[] };
+    readonly sidebar: { open: boolean; readonly blocks: VeraClientTranscriptBlock[] };
     /** Resolves once every consult fired so far has posted its block. */
     settle(): Promise<void>;
 }
@@ -32,9 +32,9 @@ async function start(): Promise<Harness> {
     const notices: string[] = [];
     const answers: Promise<unknown>[] = [];
     const sidebar: {
-        title?: string;
+        open: boolean;
         readonly blocks: VeraClientTranscriptBlock[];
-    } = { blocks: [] };
+    } = { open: false, blocks: [] };
     const registry = await startClientExtensionRegistry({
         extensions: [{ path: EXTENSION, enabled: true, config: null }],
         preferences: {
@@ -59,15 +59,15 @@ async function start(): Promise<Harness> {
         notice: { post: (_id, text) => notices.push(text) },
         transcript: { append: (_id, block) => blocks.push(block) },
         sidebar: {
-            open(_id, title) {
-                sidebar.title = title;
+            open() {
+                sidebar.open = true;
             },
             append: (_id, block) => sidebar.blocks.push(block),
             clear() {
                 sidebar.blocks.length = 0;
             },
             close() {
-                sidebar.title = undefined;
+                sidebar.open = false;
             },
         },
         consult: {
@@ -122,7 +122,7 @@ test("an addressed message goes to that seat alone and makes it incumbent", asyn
     })).toEqual({ kind: "handled" });
     await harness.settle();
     expect(harness.consults.map((request) => request.model)).toEqual(["gpt-5.5"]);
-    expect(harness.sidebar.title).toBe("Seats");
+    expect(harness.sidebar.open).toBe(true);
     expect(harness.sidebar.blocks).toEqual([
         { label: "m1 (gpt-5.5)", text: "gpt-5.5 says so" },
     ]);
