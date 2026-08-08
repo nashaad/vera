@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { StyledText } from "@opentui/core";
 
 import {
+    appendTuiExtensionBlock,
     appendTuiThought,
     toggleTuiThinking,
     toggleTuiToolDetails,
@@ -1573,4 +1574,22 @@ test("a named pool entry lists by its name, with the model id behind it", () => 
             levels: [],
         },
     ])).toContain("  frosty (z-ai/glm-5.2) · provider default");
+});
+
+test("an extension block keeps its label out of the markdown", () => {
+    const state = appendTuiExtensionBlock(
+        createTuiState(),
+        "[m1] (gpt-5.5)",
+        "answer with [brackets]",
+    );
+    const entries = state.entries.slice(-2);
+    expect(entries[0]).toEqual({
+        kind: "extension_label",
+        text: "[m1] (gpt-5.5)",
+    });
+    expect(entries[1]).toEqual({
+        kind: "notification",
+        text: "answer with [brackets]",
+    });
+    expect(plainText(renderTuiEntry(entries[0]!))).toBe("[m1] (gpt-5.5)");
 });

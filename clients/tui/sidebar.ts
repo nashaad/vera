@@ -2,6 +2,7 @@ import {
     BoxRenderable,
     MarkdownRenderable,
     ScrollBoxRenderable,
+    TextAttributes,
     TextRenderable,
     type CliRenderer,
     type MouseEvent,
@@ -69,11 +70,29 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     let open = false;
     let blocks = 0;
 
+    // The divider is grabbed on mouse-down, and every drag after that resizes
+    // wherever the pointer went. A fast drag reports its first motion well
+    // clear of the three columns, which is why the drag is not read off the
+    // divider itself.
+    let dragging = false;
+
     const body = new BoxRenderable(renderer, {
         id: "body",
         width: "100%",
         flexGrow: 1,
         flexDirection: "row",
+        onMouseDrag: (event: MouseEvent) => {
+            if (!dragging) return;
+            event.preventDefault();
+            event.stopPropagation();
+            resize(renderer.terminalWidth - event.x - 1);
+        },
+        onMouseUp: (event: MouseEvent) => {
+            if (!dragging) return;
+            dragging = false;
+            event.stopPropagation();
+            options.onWidthChanged?.(width);
+        },
     });
 
     const divider = new BoxRenderable(renderer, {
@@ -87,15 +106,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             // the divider would paint a selection across the transcript.
             event.preventDefault();
             event.stopPropagation();
-        },
-        onMouseDrag: (event: MouseEvent) => {
-            event.preventDefault();
-            event.stopPropagation();
-            resize(renderer.terminalWidth - event.x - 1);
-        },
-        onMouseDragEnd: (event: MouseEvent) => {
-            event.stopPropagation();
-            options.onWidthChanged?.(width);
+            dragging = true;
         },
     });
     const dividerLine = new BoxRenderable(renderer, {
@@ -165,6 +176,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
         close(): void {
             open = false;
+            dragging = false;
             panel.visible = false;
             divider.visible = false;
             options.onLayoutChanged?.();
@@ -175,15 +187,34 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
         append(label: string, text: string): void {
             blocks += 1;
-            content.add(
+            const block = new BoxRenderable(renderer, {
+                id: `sidebar-block-${blocks}`,
+                width: "100%",
+                flexDirection: "column",
+            });
+            // The label is drawn, not parsed: markdown would eat the brackets
+            // and asterisks that model names and aliases are full of.
+            block.add(
+                new TextRenderable(renderer, {
+                    id: `sidebar-block-${blocks}-label`,
+                    content: label,
+                    fg: theme.muted,
+                    attributes: TextAttributes.BOLD,
+                    width: "100%",
+                    wrapMode: "word",
+                }),
+            );
+            block.add(
                 new MarkdownRenderable(renderer, {
-                    id: `sidebar-block-${blocks}`,
-                    content: `**${label}**\n\n${text}`,
+                    id: `sidebar-block-${blocks}-text`,
+                    content: text,
                     syntaxStyle: options.syntaxStyle,
                     fg: theme.text,
                     width: "100%",
+                    marginTop: 1,
                 }),
             );
+            content.add(block);
             options.onLayoutChanged?.();
         },
         clear(): void {
