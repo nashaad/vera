@@ -64,6 +64,7 @@ const CLIENT_CONSULT_CAPABILITY = "client.consult";
 const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
 const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
+const CLIENT_ADDRESSING_CAPABILITY = "client.ui.addressing";
 const CLIENT_THREAD_CAPABILITY = "client.thread.read";
 const CLIENT_TIPS_CAPABILITY = "client.tips.register";
 
@@ -185,6 +186,14 @@ export interface ClientExtensionMentionsAdapter {
     set(extensionId: string, names: readonly string[]): void;
 }
 
+/**
+ * Who the next message goes to, when it is not the agent. A name to show, or
+ * nothing to go back to the usual recipient.
+ */
+export interface ClientExtensionAddressingAdapter {
+    set(extensionId: string, name: string | undefined): void;
+}
+
 /** The user-and-agent conversation as the client shows it, oldest first. */
 export interface ClientExtensionThreadAdapter {
     read(extensionId: string): readonly VeraClientThreadTurn[];
@@ -200,6 +209,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly transcript?: ClientExtensionTranscriptAdapter;
     readonly sidebar?: ClientExtensionSidebarAdapter;
     readonly mentions?: ClientExtensionMentionsAdapter;
+    readonly addressing?: ClientExtensionAddressingAdapter;
     readonly thread?: ClientExtensionThreadAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
@@ -385,6 +395,7 @@ export async function startClientExtensionRegistry(
                 transcript: options.transcript,
                 sidebar: options.sidebar,
                 mentions: options.mentions,
+                addressing: options.addressing,
                 thread: options.thread,
                 activationTimeoutMs,
             });
@@ -677,6 +688,7 @@ interface ActivateClientExtensionOptions {
     readonly transcript: ClientExtensionTranscriptAdapter | undefined;
     readonly sidebar: ClientExtensionSidebarAdapter | undefined;
     readonly mentions: ClientExtensionMentionsAdapter | undefined;
+    readonly addressing: ClientExtensionAddressingAdapter | undefined;
     readonly thread: ClientExtensionThreadAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
@@ -728,6 +740,15 @@ async function activateClientExtension(
             throw new Error("This client cannot complete mentions");
         }
         return options.mentions;
+    };
+
+    const requireAddressing = (): ClientExtensionAddressingAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_ADDRESSING_CAPABILITY);
+        if (options.addressing === undefined) {
+            throw new Error("This client cannot show who a message is for");
+        }
+        return options.addressing;
     };
 
     const requireThread = (): ClientExtensionThreadAdapter => {
@@ -906,6 +927,18 @@ async function activateClientExtension(
                 set(names: readonly string[]): void {
                     const adapter = requireMentions();
                     adapter.set(options.id, validateMentionNames(names));
+                },
+            }),
+            addressing: Object.freeze({
+                set(name: string | undefined): void {
+                    const adapter = requireAddressing();
+                    const shown = name?.trim();
+                    adapter.set(
+                        options.id,
+                        shown === undefined || shown.length === 0
+                            ? undefined
+                            : shown,
+                    );
                 },
             }),
         }),
@@ -1542,7 +1575,14 @@ function validateTranscriptBlock(
     if (text.length === 0) {
         throw new Error("Client extension transcript block must have text");
     }
-    return { label, text };
+    const speaker = typeof block?.speaker === "string"
+        ? block.speaker.trim()
+        : "";
+    return {
+        label,
+        text,
+        ...(speaker.length === 0 ? {} : { speaker }),
+    };
 }
 
 function currentAvailableModel(

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     isTranscriptSelection,
+    selectionSpeaker,
     type SelectionEntryNode,
     type SelectionTreeNode,
     type TranscriptSelection,
@@ -46,4 +47,44 @@ test("TUI selection rejects selected text from outside transcript entries", () =
     };
 
     expect(isTranscriptSelection(selection, [entry])).toBe(false);
+});
+
+const seatBlock: SelectionTreeNode = { parent: null };
+const seatChild: SelectionTreeNode = { parent: seatBlock };
+
+const sources = [
+    { node: entry as SelectionTreeNode, speaker: "agent" },
+    { node: seatBlock, speaker: "frosty" },
+];
+
+test("a selection is attributed to the block it sits inside", () => {
+    expect(selectionSpeaker({
+        anchor: { x: 0, y: 0 },
+        focus: { x: 4, y: 0 },
+        selectedRenderables: [seatChild],
+    }, sources)).toBe("frosty");
+});
+
+test("a selection spanning two speakers is attributed to neither", () => {
+    expect(selectionSpeaker({
+        anchor: { x: 0, y: 0 },
+        focus: { x: 4, y: 9 },
+        selectedRenderables: [seatChild, markdownChild],
+    }, sources)).toBeUndefined();
+});
+
+test("a selection outside every block has no speaker", () => {
+    expect(selectionSpeaker({
+        anchor: { x: 0, y: 0 },
+        focus: { x: 4, y: 0 },
+        selectedRenderables: [{ parent: null }],
+    }, sources)).toBeUndefined();
+});
+
+test("an empty selection has no speaker", () => {
+    expect(selectionSpeaker({
+        anchor: { x: 0, y: 0 },
+        focus: { x: 0, y: 0 },
+        selectedRenderables: [],
+    }, sources)).toBeUndefined();
 });

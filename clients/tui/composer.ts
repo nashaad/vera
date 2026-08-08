@@ -283,6 +283,9 @@ export class TuiComposer extends TextareaRenderable {
     }
 }
 
+/** What the composer says when the agent is the recipient. */
+export const COMPOSER_PLACEHOLDER = "Message Vera\u2026";
+
 export function createTuiComposer(
     renderer: RenderContext,
     onSubmit: () => void,
@@ -292,7 +295,7 @@ export function createTuiComposer(
         id: "composer",
         width: "100%",
         height: 3,
-        placeholder: "Message Vera…",
+        placeholder: COMPOSER_PLACEHOLDER,
         backgroundColor: TUI_PANEL,
         focusedBackgroundColor: TUI_PANEL,
         textColor: TUI_TEXT,

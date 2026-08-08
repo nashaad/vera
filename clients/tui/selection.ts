@@ -51,3 +51,49 @@ function belongsToEntry(
     }
     return false;
 }
+
+/** A region a selection can land in, and who a quotation from it names. */
+export interface SelectionSource {
+    readonly node: SelectionTreeNode;
+    readonly speaker: string;
+}
+
+/**
+ * Who the selected text belongs to, or nothing when it spans more than one of
+ * them. A quotation drawn from two speakers cannot be attributed to either.
+ */
+export function selectionSpeaker(
+    selection: TranscriptSelection,
+    sources: readonly SelectionSource[],
+): string | undefined {
+    if (selection.selectedRenderables.length === 0) {
+        return undefined;
+    }
+    let speaker: string | undefined;
+    for (const node of selection.selectedRenderables) {
+        const owner = ownerOf(node, sources);
+        if (owner === undefined) {
+            return undefined;
+        }
+        if (speaker !== undefined && speaker !== owner) {
+            return undefined;
+        }
+        speaker = owner;
+    }
+    return speaker;
+}
+
+function ownerOf(
+    node: SelectionTreeNode,
+    sources: readonly SelectionSource[],
+): string | undefined {
+    let current: SelectionTreeNode | null = node;
+    while (current !== null) {
+        const match = sources.find((source) => source.node === current);
+        if (match !== undefined) {
+            return match.speaker;
+        }
+        current = current.parent;
+    }
+    return undefined;
+}

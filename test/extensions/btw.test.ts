@@ -25,6 +25,8 @@ interface Harness {
     readonly sidebar: { open: boolean; readonly blocks: VeraClientTranscriptBlock[] };
     /** The last list of names the extension offered the composer. */
     readonly mentions: string[];
+    /** The name the composer is showing, or undefined for the agent. */
+    readonly addressee: string | undefined;
     /** What the thread adapter hands the extension; tests mutate it. */
     readonly thread: { role: "user" | "assistant"; text: string }[];
     /** Resolves once every consult fired so far has posted its block. */
@@ -37,6 +39,7 @@ async function start(config: JsonValue = null): Promise<Harness> {
     const notices: string[] = [];
     const answers: Promise<unknown>[] = [];
     let mentions: string[] = [];
+    let addressee: string | undefined;
     const thread: { role: "user" | "assistant"; text: string }[] = [];
     const sidebar: {
         open: boolean;
@@ -79,6 +82,11 @@ async function start(config: JsonValue = null): Promise<Harness> {
                 mentions = [...names];
             },
         },
+        addressing: {
+            set(_id, name) {
+                addressee = name;
+            },
+        },
         thread: { read: () => thread.map((turn) => ({ ...turn })) },
         transcript: { append: (_id, block) => blocks.push(block) },
         sidebar: {
@@ -115,6 +123,9 @@ async function start(config: JsonValue = null): Promise<Harness> {
         consults,
         get mentions() {
             return mentions;
+        },
+        get addressee() {
+            return addressee;
         },
         thread,
         blocks,
@@ -156,8 +167,8 @@ test("an addressed message goes to that seat alone, and only that one", async ()
         // Seating the model fills the column before it has said anything.
         { label: "m1 (gpt-5.5)", text: "Seated. Ask with @m1, or @all." },
         // What was asked is filed beside what came back.
-        { label: "you \u2192 @m1", text: "what do you think" },
-        { label: "m1 (gpt-5.5)", text: "gpt-5.5 says so" },
+        { label: "you \u2192 @m1", text: "what do you think", speaker: "you" },
+        { label: "m1 (gpt-5.5)", text: "gpt-5.5 says so", speaker: "m1" },
     ]);
     // The transcript stays the agent's: the seats talk beside it.
     expect(harness.blocks).toEqual([]);
@@ -230,9 +241,13 @@ test("a failed consult files into the seat's column, and the lane keeps the ask"
     await harness.settle();
     expect(harness.sidebar.blocks).toEqual([
         { label: "m1 (down-model)", text: "Seated. Ask with @m1, or @all." },
-        { label: "you \u2192 @m1", text: "you there" },
+        { label: "you \u2192 @m1", text: "you there", speaker: "you" },
         // The failure reads in place, where the answer would have been.
-        { label: "m1 (down-model)", text: "Could not answer: provider is down" },
+        {
+            label: "m1 (down-model)",
+            text: "Could not answer: provider is down",
+            speaker: "m1",
+        },
     ]);
     // The agent hears nothing, failure or answer alike.
     expect(await harness.registry.interceptMessage({
@@ -334,13 +349,13 @@ test("seats are offered to the composer as mentions", async () => {
     expect(harness.mentions).toEqual([]);
 
     await harness.registry.invokeCommand("btw", "gpt-5.5 as m1", WORKSPACE);
-    expect(harness.mentions).toEqual(["m1", "all"]);
+    expect(harness.mentions).toEqual(["m1", "all", "vera"]);
 
     await harness.registry.invokeCommand("btw", "glm-5.2 as m2", WORKSPACE);
-    expect(harness.mentions).toEqual(["m1", "m2", "all"]);
+    expect(harness.mentions).toEqual(["m1", "m2", "all", "vera"]);
 
     await harness.registry.invokeCommand("remove", "m1", WORKSPACE);
-    expect(harness.mentions).toEqual(["m2", "all"]);
+    expect(harness.mentions).toEqual(["m2", "all", "vera"]);
     await harness.registry.close();
 });
 
@@ -385,7 +400,79 @@ test("nothing a seat said reaches the agent on its own", async () => {
         text: "@agent go with that",
         workspace: WORKSPACE,
         imageCount: 0,
+    })).toEqual({ kind: "replace", text: "go with that" });
+    await harness.registry.close();
+});
+
+test("a bare address holds every message after it", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "gpt-5.5 as m1", WORKSPACE);
+
+    expect(await harness.registry.interceptMessage({
+        text: "@m1",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "handled" });
+    expect(harness.addressee).toBe("@m1");
+    // Nothing was asked: the address was where, not what.
+    expect(harness.consults).toHaveLength(0);
+
+    expect(await harness.registry.interceptMessage({
+        text: "what do you think",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "handled" });
+    await harness.settle();
+    expect(harness.consults).toHaveLength(1);
+    expect(harness.consults[0]?.messages.at(-1)?.content)
+        .toBe("what do you think");
+
+    // Let go, and the agent has the messages again.
+    expect(await harness.registry.interceptMessage({
+        text: "@vera",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "handled" });
+    expect(harness.addressee).toBeUndefined();
+    expect(await harness.registry.interceptMessage({
+        text: "carry on",
+        workspace: WORKSPACE,
+        imageCount: 0,
     })).toEqual({ kind: "pass" });
+    await harness.registry.close();
+});
+
+test("a held seat that leaves lets go of the composer", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "gpt-5.5 as m1", WORKSPACE);
+    await harness.registry.interceptMessage({
+        text: "@m1",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    expect(harness.addressee).toBe("@m1");
+
+    await harness.registry.invokeCommand("remove", "m1", WORKSPACE);
+    expect(harness.addressee).toBeUndefined();
+    expect(await harness.registry.interceptMessage({
+        text: "still here?",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    await harness.registry.close();
+});
+
+test("@all is asked once rather than held", async () => {
+    const harness = await start({ maxSeats: 2 });
+    await harness.registry.invokeCommand("btw", "gpt-5.5 as m1", WORKSPACE);
+
+    expect(await harness.registry.interceptMessage({
+        text: "@all",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "handled" });
+    expect(harness.addressee).toBeUndefined();
+    expect(harness.consults).toHaveLength(0);
     await harness.registry.close();
 });
 

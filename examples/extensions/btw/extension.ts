@@ -33,6 +33,16 @@ export function activateClient(vera: any): void {
     const maxSeats: number = vera.config?.maxSeats ?? 1;
     let sidebarOpen = false;
     let saidThreadUnreadable = false;
+    /**
+     * The seat every message goes to until told otherwise. Addressing one seat
+     * per message is right for a second opinion and wrong for a conversation,
+     * and a back-and-forth is what a seat turns into once its answer is worth
+     * following up on.
+     *
+     * The composer says whose name it is while it is set, because a mode you
+     * cannot see is a mode you send the wrong message in.
+     */
+    let sticky: string | undefined;
 
     /**
      * The pool entry a name refers to, by the user's own name for it or by the
@@ -55,6 +65,9 @@ export function activateClient(vera: any): void {
     function removeSeat(alias: string): void {
         const seat = seats.get(alias)!;
         seats.delete(alias);
+        if (sticky === alias) {
+            stickTo(undefined);
+        }
         if (sidebarOpen) {
             // The column says who is in the room, so it says when someone is
             // not: an ended lane should not read as one gone quiet.
@@ -70,11 +83,36 @@ export function activateClient(vera: any): void {
         }
     }
 
+    /** Latch onto a seat, or let go and go back to the agent. */
+    function stickTo(alias: string | undefined): void {
+        sticky = alias;
+        try {
+            vera.ui.addressing.set(alias === undefined ? undefined : `@${alias}`);
+        } catch {
+            // This client cannot show who a message is for. The notice below
+            // is then the only thing that says so, so it is not enough to
+            // stay in a mode the user cannot see.
+            if (alias !== undefined) {
+                sticky = undefined;
+                vera.ui.notice(
+                    `This client cannot show a held address; use @${alias} `
+                        + "on each message.",
+                );
+                return;
+            }
+        }
+        vera.ui.notice(
+            alias === undefined
+                ? "Back to the agent."
+                : `Holding @${alias}. @vera goes back to the agent.`,
+        );
+    }
+
     /** The composer completes these after an `@`. */
     function offerMentions(): void {
         try {
             vera.ui.mentions.set(
-                seats.size === 0 ? [] : [...seats.keys(), "all"],
+                seats.size === 0 ? [] : [...seats.keys(), "all", "vera"],
             );
         } catch {
             // This client does not complete mentions. Typing still works.
@@ -122,7 +160,11 @@ export function activateClient(vera: any): void {
         // What was asked, beside what came back: the column is a conversation,
         // not a list of answers to questions that are somewhere else.
         if (sidebarOpen) {
-            vera.ui.sidebar.append({ label: `you \u2192 @${seat.alias}`, text });
+            vera.ui.sidebar.append({
+                label: `you \u2192 @${seat.alias}`,
+                text,
+                speaker: "you",
+            });
         }
         seat.lane.push({ role: "user", content: text });
         try {
@@ -136,6 +178,7 @@ export function activateClient(vera: any): void {
             const block = {
                 label: `${seat.alias} (${seat.model})`,
                 text: answer.text,
+                speaker: seat.alias,
             };
             // Beside the transcript when there is a sidebar to put it in, so
             // the thread stays readable while the seats talk.
@@ -155,6 +198,7 @@ export function activateClient(vera: any): void {
                 vera.ui.sidebar.append({
                     label: `${seat.alias} (${seat.model})`,
                     text: `Could not answer: ${reason}`,
+                    speaker: seat.alias,
                 });
             } else {
                 vera.ui.notice(`${seat.alias} could not answer: ${reason}`);
@@ -257,6 +301,12 @@ export function activateClient(vera: any): void {
     vera.conversation.onChanged(() => {
         seats.clear();
         sidebarOpen = false;
+        sticky = undefined;
+        try {
+            vera.ui.addressing.set(undefined);
+        } catch {
+            // Nothing was being shown.
+        }
         offerMentions();
     });
 
@@ -264,8 +314,26 @@ export function activateClient(vera: any): void {
         if (seats.size === 0) {
             return undefined;
         }
+        // An address with nothing after it is not a message: it says where
+        // the ones after it are going.
+        const held = /^@(\S+)$/.exec(message.text.trim())?.[1];
+        if (held !== undefined) {
+            if (held === AGENT || held === "vera") {
+                stickTo(undefined);
+            } else if (held === "all") {
+                // Everyone at once is something you ask for, not somewhere you
+                // stay: held, it would make every message a broadcast.
+                vera.ui.notice("@all asks everyone once; it is not held.");
+            } else if (seats.has(held)) {
+                stickTo(held);
+            } else {
+                vera.ui.notice(`No seat named @${held}`);
+            }
+            return { kind: "handled" };
+        }
+
         const addressed = /^@(\S+)\s+([\s\S]+)$/.exec(message.text);
-        const target = addressed?.[1];
+        const target = addressed?.[1] ?? sticky;
         const text = addressed?.[2] ?? message.text;
 
         if (target === "all") {
@@ -279,7 +347,12 @@ export function activateClient(vera: any): void {
             void ask(seats.get(target)!, text);
             return { kind: "handled" };
         }
-        if (target !== undefined && target !== AGENT) {
+        if (addressed !== null && (target === AGENT || target === "vera")) {
+            // Named the agent for one message. The name was addressing, not
+            // words, so it does not travel with them.
+            return { kind: "replace", text };
+        }
+        if (target !== undefined && target !== AGENT && target !== "vera") {
             // Held rather than passed through: a typo'd alias sent to the
             // agent is the one outcome nobody wanted.
             vera.ui.notice(`No seat named @${target}`);

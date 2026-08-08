@@ -8,6 +8,7 @@
     "client.consult",
     "client.messages.intercept",
     "client.model_settings",
+    "client.ui.addressing",
     "client.ui.mentions",
     "client.thread.read",
     "client.ui.notice",
