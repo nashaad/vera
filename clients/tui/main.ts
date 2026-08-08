@@ -1741,13 +1741,18 @@ export async function startTui(
                 renderCommandSuggestions();
                 return;
             }
-            if (key.name === "return" || key.name === "enter") {
+            const runs = key.name === "return" || key.name === "enter";
+            const completes =
+                tuiBindingId("composer", key) === "complete_command";
+            if (runs || completes) {
                 const selected = suggestions[commandSuggestionIndex];
                 if (selected !== undefined) {
                     key.preventDefault();
                     key.stopPropagation();
                     composer.setComposerText(`/${selected.name}`);
-                    submitPrompt();
+                    // Completing picks the command and leaves it there, since
+                    // one that takes an argument is not finished being typed.
+                    if (runs) submitPrompt();
                     return;
                 }
             }

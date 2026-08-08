@@ -2254,6 +2254,51 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "tab picks the highlighted command without running it",
+    async () => {
+        const socket = `vera-command-tab-${process.pid}-${randomUUID()}`;
+        const session = "command-tab";
+        const home = mkdtempSync(join(tmpdir(), "vera-command-tab-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/");
+            await waitForVisiblePane(socket, session, "/seats");
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "Tab");
+            // Typed, not run: a command that takes an argument is not
+            // finished being typed when it is chosen.
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) =>
+                    visible.includes("/fork")
+                    && !visible.includes("Rewind the active conversation"),
+                "the chosen command alone in the composer",
+            );
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "@all reaches every seat and the agent in one message",
     async () => {
         const socket = `vera-seat-all-${process.pid}-${randomUUID()}`;
