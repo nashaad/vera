@@ -408,19 +408,6 @@ export interface VeraClientTranscriptBlock {
 }
 
 /**
- * A second model's read on the conversation, outside the turn.
- *
- * The named model answers or the call fails. Vera never substitutes another
- * one, because an extension that asked for a specific model has no use for a
- * different model's answer. A consult runs no tools, streams nothing, and adds
- * nothing to the session.
- */
-/**
- * The conversation between the user and the agent, as this client shows it.
- *
- * Capability: `client.thread.read`.
- */
-/**
  * The conversation this client is showing, as a thing that can be replaced.
  *
  * Switching conversations leaves an extension holding state about one the user
@@ -431,6 +418,11 @@ export interface VeraClientExtensionConversation {
     onChanged(listener: () => void): void;
 }
 
+/**
+ * The conversation between the user and the agent, as this client shows it.
+ *
+ * Capability: `client.thread.read`.
+ */
 export interface VeraClientExtensionThread {
     /**
      * A snapshot of the thread, oldest first: what the user said and what the
@@ -444,6 +436,14 @@ export interface VeraClientThreadTurn {
     readonly text: string;
 }
 
+/**
+ * A second model's read on the conversation, outside the turn.
+ *
+ * The named model answers or the call fails. Vera never substitutes another
+ * one, because an extension that asked for a specific model has no use for a
+ * different model's answer. A consult runs no tools, streams nothing, and adds
+ * nothing to the session.
+ */
 export interface VeraClientExtensionConsult {
     (request: VeraClientConsultRequest): Promise<VeraClientConsultResult>;
 }
