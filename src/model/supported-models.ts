@@ -25,6 +25,7 @@ export interface VerifiedReasoningCombination {
 export interface VerifiedModel extends SuggestedModel {
     readonly context_window: number;
     readonly tool_support: boolean;
+    readonly image_support?: boolean;
     readonly reasoning: readonly VerifiedReasoningCombination[];
 }
 

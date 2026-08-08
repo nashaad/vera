@@ -770,10 +770,11 @@ export async function runTurn(
         const imageCache = new Map<string, ImageContent>();
         try {
             if (
-                (modelSettings.provider !== undefined
-                    && adapter.supportsImageInputFor !== undefined
-                    ? !adapter.supportsImageInputFor(modelSettings.provider)
-                    : adapter.supportsImageInput === false)
+                !acceptsImageInput(
+                    adapter,
+                    modelSettings.provider,
+                    activeModel,
+                )
                 && userMessage?.content.some(
                     (block) => block.type === "image_attachment"
                 )
@@ -1951,4 +1952,22 @@ function remeasuredAgainst(
         estimated: measurement.estimated,
         ...(capacity === undefined ? {} : { capacity }),
     };
+}
+
+/**
+ * Routed providers answer per model and per provider at once; a single-provider
+ * adapter answers per model, then falls back to its blanket flag. An adapter
+ * with nothing to say lets the request through, so an unstated model fails with
+ * the provider's own reason rather than being turned away here.
+ */
+function acceptsImageInput(
+    adapter: ModelAdapter,
+    provider: string | undefined,
+    model: string,
+): boolean {
+    if (provider !== undefined && adapter.supportsImageInputFor !== undefined) {
+        return adapter.supportsImageInputFor(provider, model);
+    }
+    return adapter.imageInputSupport?.(model)
+        ?? adapter.supportsImageInput !== false;
 }

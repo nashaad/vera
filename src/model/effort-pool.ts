@@ -14,7 +14,7 @@ import {
     type EffortMap,
     isEffortLevel,
 } from "./effort-ladder.ts";
-import type { LearnedFact } from "./pool-file.ts";
+import { IMAGES_LEARNED_KEY, type LearnedFact } from "./pool-file.ts";
 import {
     loadPoolFile,
     type LoadPoolFileOptions,
@@ -53,6 +53,12 @@ export interface ResolvedEffort {
 export interface EffortPool {
     /** Resolves declared over learned over catalog for one model. */
     resolveEffort(ref: ModelRef, requested: string): ResolvedEffort;
+    /**
+     * Whether the model takes image input, declared over learned over
+     * catalog. Undefined when no source says either way, which is the only
+     * case a caller may answer from somewhere else.
+     */
+    resolveImageSupport(ref: ModelRef): boolean | undefined;
     /** Records a fact under a dotted key such as `efforts.xhigh`. */
     recordLearned(ref: ModelRef, key: string, fact: LearnedFact): void;
 }
@@ -129,6 +135,21 @@ export function createPoolEffortPool(
                 efforts,
                 ...(reason === undefined ? {} : { reason }),
             };
+        },
+        resolveImageSupport(ref) {
+            const lookup = lookupModel(
+                poolModelId(ref),
+                loadPoolFile(options).merged,
+                providerCatalog(ref.provider, options),
+            );
+            if (typeof lookup.entry?.images === "boolean") {
+                return lookup.entry.images;
+            }
+            const learned = lookup.entry?.learned?.[IMAGES_LEARNED_KEY];
+            if (learned !== undefined) {
+                return learned.ok;
+            }
+            return lookup.catalogModel?.image_support;
         },
         recordLearned(ref, key, fact) {
             try {

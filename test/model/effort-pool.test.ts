@@ -171,3 +171,39 @@ test("a declared level the provider rejected keeps working and says so", () => {
     expect(resolved.reason).toContain("the pool file declares effort \"xhigh\"");
     expect(resolved.reason).toContain("unsupported reasoning effort");
 });
+
+test("declared image support outranks what the probe learned", () => {
+    const path = poolPath({
+        models: {
+            "cerebras/m": {
+                images: true,
+                learned: { images: { ok: false, seen: "2026-08-01" } },
+            },
+        },
+    });
+
+    expect(createPoolEffortPool({ userPath: path, path })
+        .resolveImageSupport(REF)).toBe(true);
+});
+
+test("a learned image refusal answers when nothing is declared", () => {
+    const path = poolPath({
+        models: {
+            "cerebras/m": {
+                learned: { images: { ok: false, seen: "2026-08-01" } },
+            },
+        },
+    });
+
+    expect(createPoolEffortPool({ userPath: path, path })
+        .resolveImageSupport(REF)).toBe(false);
+});
+
+test("a model nothing knows about gives no image answer either way", () => {
+    const path = poolPath({ models: { "cerebras/m": {} } });
+
+    // Undefined rather than false: unstated is what lets the request through
+    // to the provider instead of being refused here.
+    expect(createPoolEffortPool({ userPath: path, path })
+        .resolveImageSupport(REF)).toBeUndefined();
+});
