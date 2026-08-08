@@ -14,6 +14,7 @@ import type {
     VeraClientExtensionStatusLineSpec,
     VeraClientMessageDecision,
     VeraClientConsultRequest,
+    VeraClientThreadTurn,
     VeraClientTranscriptBlock,
     VeraClientConsultResult,
     VeraClientMessageInterceptor,
@@ -61,6 +62,7 @@ const CLIENT_CONSULT_CAPABILITY = "client.consult";
 const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
 const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
+const CLIENT_THREAD_CAPABILITY = "client.thread.read";
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
 /**
@@ -161,6 +163,11 @@ export interface ClientExtensionMentionsAdapter {
     set(extensionId: string, names: readonly string[]): void;
 }
 
+/** The user-and-agent conversation as the client shows it, oldest first. */
+export interface ClientExtensionThreadAdapter {
+    read(extensionId: string): readonly VeraClientThreadTurn[];
+}
+
 export interface StartClientExtensionRegistryOptions {
     readonly extensions: readonly ClientExtensionConfig[];
     readonly preferences: ClientExtensionPreferencesAdapter;
@@ -171,6 +178,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly transcript?: ClientExtensionTranscriptAdapter;
     readonly sidebar?: ClientExtensionSidebarAdapter;
     readonly mentions?: ClientExtensionMentionsAdapter;
+    readonly thread?: ClientExtensionThreadAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -340,6 +348,7 @@ export async function startClientExtensionRegistry(
                 transcript: options.transcript,
                 sidebar: options.sidebar,
                 mentions: options.mentions,
+                thread: options.thread,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -606,6 +615,7 @@ interface ActivateClientExtensionOptions {
     readonly transcript: ClientExtensionTranscriptAdapter | undefined;
     readonly sidebar: ClientExtensionSidebarAdapter | undefined;
     readonly mentions: ClientExtensionMentionsAdapter | undefined;
+    readonly thread: ClientExtensionThreadAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
 
@@ -653,6 +663,15 @@ async function activateClientExtension(
             throw new Error("This client cannot complete mentions");
         }
         return options.mentions;
+    };
+
+    const requireThread = (): ClientExtensionThreadAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_THREAD_CAPABILITY);
+        if (options.thread === undefined) {
+            throw new Error("This client has no thread to read");
+        }
+        return options.thread;
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
@@ -891,6 +910,11 @@ async function activateClientExtension(
                     );
                 }
                 messageInterceptor = handler;
+            },
+        }),
+        thread: Object.freeze({
+            read(): readonly VeraClientThreadTurn[] {
+                return requireThread().read(options.id);
             },
         }),
         onDispose(dispose: VeraExtensionDisposer): void {

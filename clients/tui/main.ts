@@ -811,6 +811,18 @@ export async function startTui(
                 renderCommandSuggestions();
             },
         },
+        thread: {
+            read(_extensionId) {
+                return state.entries
+                    .filter((entry) =>
+                        (entry.kind === "user" || entry.kind === "assistant")
+                        && entry.text.length > 0)
+                    .map((entry) => ({
+                        role: entry.kind as "user" | "assistant",
+                        text: entry.text,
+                    }));
+            },
+        },
         transcript: {
             append(_extensionId, block) {
                 state = appendTuiExtensionBlock(state, block.label, block.text);
