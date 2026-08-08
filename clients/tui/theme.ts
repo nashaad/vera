@@ -9,7 +9,8 @@ export type TuiThemeName =
     | "palenight"
     | "synthwave"
     | "nightowl"
-    | "github";
+    | "github"
+    | "midnight-blue";
 
 export interface TuiTheme {
     readonly accent: string;

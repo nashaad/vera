@@ -71,6 +71,22 @@ test("named themes use the attributed OpenCode palettes exactly", async () => {
     expect((await resolveTuiTheme(renderer, "system")).background).toBe("#111111");
 });
 
+test("midnight blue maps its editor and syntax palette to TUI roles", async () => {
+    const renderer = { async getPalette() { return terminalColors(); } };
+
+    expect(await resolveTuiTheme(renderer, "midnight-blue")).toEqual({
+        accent: "#82AAFF",
+        text: "#EEFFFF",
+        muted: "#546E7A",
+        notice: "#F9D768",
+        success: "#C3E88D",
+        code: "#9b92ea",
+        background: "#14171C",
+        panel: "#252933",
+        element: "#2C4069",
+    });
+});
+
 test("muted blue uses Codex transcript, inline code, and detail colors", async () => {
     const renderer = { async getPalette() { return terminalColors(); } };
     const theme = await resolveTuiTheme(renderer, "muted-blue");
