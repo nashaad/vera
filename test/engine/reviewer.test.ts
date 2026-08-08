@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
     createRoutedToolReviewer,
     createToolReviewer,
+    createEscalatingToolReviewer,
     parseReviewDecision,
     type ToolReviewRequest,
 } from "../../src/engine/reviewer.ts";
@@ -634,4 +635,133 @@ test("a review that overlaps another runs on a fork and is not remembered", asyn
     // Only the trunk review was committed: one question and one answer, not
     // two of each interleaved into a conversation that never happened.
     expect(adapter.requests[2]!.messages).toHaveLength(3);
+});
+
+test("escalation reviewer skips escalation for low-risk allows", async () => {
+    // Fast reviewer gives a low-risk allow
+    const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
+        risk_level: "low",
+        user_authorization: "high",
+        outcome: "allow",
+        rationale: "Read-only operation.",
+    })));
+    const review = createEscalatingToolReviewer(adapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBeUndefined();
+    // Only one request should be made (fast reviewer only)
+    expect(adapter.requests).toHaveLength(1);
+    expect(adapter.requests[0]?.model).toBe("fast-model");
+});
+
+test("escalation reviewer escalates on denial", async () => {
+    // Fast reviewer denies, strong reviewer allows
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
+
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+
+            if (requestCount === 1) {
+                // Fast reviewer denies
+                stream.push({
+                    type: "done",
+                    message: assistantText(JSON.stringify({
+                        risk_level: "high",
+                        user_authorization: "unknown",
+                        outcome: "deny",
+                        rationale: "Suspicious command.",
+                    })),
+                });
+            } else {
+                // Strong reviewer allows after review
+                stream.push({
+                    type: "done",
+                    message: assistantText(JSON.stringify({
+                        risk_level: "medium",
+                        user_authorization: "medium",
+                        outcome: "allow",
+                        rationale: "Actually safe operation.",
+                    })),
+                });
+            }
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(decision.reason).toBe("Actually safe operation.");
+    // Two requests: fast reviewer + escalation to strong reviewer
+    expect(testAdapter.requests).toHaveLength(2);
+    expect(testAdapter.requests[0]?.model).toBe("fast-model");
+    expect(testAdapter.requests[1]?.model).toBe("strong-model");
+});
+
+test("escalation reviewer escalates on high/critical risk", async () => {
+    // Fast reviewer says high risk + allow (edge case but worth escalating)
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
+
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+
+            if (requestCount === 1) {
+                // Fast reviewer says high risk (escalate even though allowing)
+                stream.push({
+                    type: "done",
+                    message: assistantText(JSON.stringify({
+                        risk_level: "high",
+                        user_authorization: "medium",
+                        outcome: "allow",
+                        rationale: "Risky but allowed.",
+                    })),
+                });
+            } else {
+                // Strong reviewer confirms
+                stream.push({
+                    type: "done",
+                    message: assistantText(JSON.stringify({
+                        risk_level: "low",
+                        user_authorization: "high",
+                        outcome: "allow",
+                        rationale: "Safe after closer inspection.",
+                    })),
+                });
+            }
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(decision.reason).toBe("Safe after closer inspection.");
+    expect(testAdapter.requests).toHaveLength(2);
 });

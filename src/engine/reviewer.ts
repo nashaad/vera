@@ -24,6 +24,7 @@ export interface ToolReviewDecision {
     readonly reason: string;
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
+    readonly escalated?: boolean;
 }
 
 export type ReviewToolCall = (
@@ -41,6 +42,7 @@ export interface ToolReviewerSettings {
     readonly models: readonly ToolReviewerModelSettings[];
     readonly policy?: string;
     readonly timeoutMs?: number;
+    readonly escalationModel?: ToolReviewerModelSettings;
 }
 
 export interface CreateToolReviewerOptions {
@@ -59,22 +61,49 @@ export function createRoutedToolReviewer(
     settings: ToolReviewerSettings,
 ): ReviewToolCall {
     const reviewers = settings.models.map((model) =>
-        createToolReviewer({
-            adapter,
-            model: model.model,
-            ...(model.provider === undefined
-                ? {}
-                : { provider: model.provider }),
-            ...(model.reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: model.reasoningEffort }),
-            ...(settings.timeoutMs === undefined
-                ? {}
-                : { timeoutMs: settings.timeoutMs }),
-            ...(settings.policy === undefined
-                ? {}
-                : { policy: settings.policy }),
-        })
+        settings.escalationModel === undefined
+            ? createToolReviewer({
+                adapter,
+                model: model.model,
+                ...(model.provider === undefined
+                    ? {}
+                    : { provider: model.provider }),
+                ...(model.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: model.reasoningEffort }),
+                ...(settings.timeoutMs === undefined
+                    ? {}
+                    : { timeoutMs: settings.timeoutMs }),
+                ...(settings.policy === undefined
+                    ? {}
+                    : { policy: settings.policy }),
+            })
+            : createEscalatingToolReviewer({
+                adapter,
+                model: model.model,
+                ...(model.provider === undefined
+                    ? {}
+                    : { provider: model.provider }),
+                ...(model.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: model.reasoningEffort }),
+                ...(settings.timeoutMs === undefined
+                    ? {}
+                    : { timeoutMs: settings.timeoutMs }),
+                ...(settings.policy === undefined
+                    ? {}
+                    : { policy: settings.policy }),
+                escalationModel: settings.escalationModel.model,
+                ...(settings.escalationModel.provider === undefined
+                    ? {}
+                    : { escalationProvider: settings.escalationModel.provider }),
+                ...(settings.escalationModel.reasoningEffort === undefined
+                    ? {}
+                    : {
+                        escalationReasoningEffort:
+                            settings.escalationModel.reasoningEffort,
+                    }),
+            })
     );
     return async (request, signal) => {
         let unavailable: ToolReviewDecision | undefined;
@@ -90,6 +119,77 @@ export function createRoutedToolReviewer(
             reason: "The reviewer model route is empty.",
             riskLevel: "high",
             userAuthorization: "unknown",
+        };
+    };
+}
+
+export interface CreateEscalatingReviewerOptions
+    extends CreateToolReviewerOptions {
+    readonly escalationModel?: string;
+    readonly escalationProvider?: string;
+    readonly escalationReasoningEffort?: ModelReasoningEffort;
+}
+
+export function createEscalatingToolReviewer(
+    adapter: ModelAdapter,
+    options: CreateEscalatingReviewerOptions,
+): ReviewToolCall {
+    const fastReviewer = createToolReviewer({
+        adapter,
+        model: options.model,
+        ...(options.provider === undefined
+            ? {}
+            : { provider: options.provider }),
+        ...(options.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: options.reasoningEffort }),
+        ...(options.timeoutMs === undefined
+            ? {}
+            : { timeoutMs: options.timeoutMs }),
+        ...(options.policy === undefined
+            ? {}
+            : { policy: options.policy }),
+    });
+    if (
+        options.escalationModel === undefined
+        || options.escalationModel === options.model
+    ) {
+        return fastReviewer;
+    }
+    const strongReviewer = createToolReviewer({
+        adapter,
+        model: options.escalationModel,
+        ...(options.escalationProvider === undefined
+            ? {}
+            : { provider: options.escalationProvider }),
+        ...(options.escalationReasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: options.escalationReasoningEffort }),
+        ...(options.timeoutMs === undefined
+            ? {}
+            : { timeoutMs: options.timeoutMs }),
+        ...(options.policy === undefined
+            ? {}
+            : { policy: options.policy }),
+    });
+
+    return async (request, signal) => {
+        const fastDecision = await fastReviewer(request, signal);
+
+        if (
+            signal.aborted
+            || fastDecision.decision === "unavailable"
+            || (fastDecision.decision === "allow"
+                && fastDecision.riskLevel === "low"
+                && fastDecision.userAuthorization !== "unknown")
+        ) {
+            return fastDecision;
+        }
+
+        const strongDecision = await strongReviewer(request, signal);
+        return {
+            ...strongDecision,
+            escalated: true,
         };
     };
 }
