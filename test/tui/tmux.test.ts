@@ -71,11 +71,11 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Switch model");
             expect(pane).not.toContain("Rewind the active conversation");
             sendText(socket, session, "switch model");
-            pane = await waitForVisiblePane(socket, session, "⌕  switch model");
+            pane = await waitForVisiblePane(socket, session, "switch model");
             expect(pane).toContain("Switch model");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Select model");
-            expect(pane).not.toContain("⌕  switch model");
+            expect(pane).not.toContain("switch model");
             sendKey(socket, session, "Escape");
             await waitForVisiblePaneWhere(
                 socket,
@@ -89,10 +89,15 @@ test.skipIf(!tmuxAvailable)(
             // "recolor" is in no command name, so only description search finds
             // it: the reason the palette earns a place beside the composer.
             sendText(socket, session, "recolor");
-            pane = await waitForVisiblePane(
+            // Waiting for "recolor" alone matches the unfiltered list, whose
+            // description column already carries the word. The filtered list is
+            // the one without the rows the query dropped.
+            pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
-                "⌕  recolor",
+                (visible) => visible.includes("recolor")
+                    && !visible.includes("Rename conversation"),
+                "the filtered palette",
             );
             expect(pane).toContain("Change theme");
             expect(pane).toContain("/themes");
@@ -233,14 +238,14 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "C-p");
             await waitForVisiblePane(socket, session, "Commands");
             sendText(socket, session, "hello");
-            await waitForVisiblePane(socket, session, "⌕  hello");
+            await waitForVisiblePane(socket, session, "hello");
             pane = await waitForVisiblePane(
                 socket,
                 session,
                 "Say hello from an extension",
             );
             expect(pane).toContain("Extensions");
-            expect(pane).toContain("⌕  hello");
+            expect(pane).toContain("hello");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
@@ -359,7 +364,7 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Right");
             sendKey(socket, session, "Right");
             sendText(socket, session, "themes");
-            pane = await waitForVisiblePane(socket, session, "⌕  themes");
+            pane = await waitForVisiblePane(socket, session, "themes");
             expect(pane).toContain("/themes");
             expect(pane).not.toContain("/rename");
         } catch (error) {
