@@ -38,6 +38,29 @@ function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
 }
 
+test("what an extension injected is not drawn, and survives a rebuild", () => {
+    // The model is sent the note and the message; the band is what the user
+    // said, so the note is left out of it. Losing this makes an extension's
+    // machinery read as the user's own words.
+    const note = "<system-note>\ndugg joined\n</system-note>\n\n";
+    let state = beginTuiTurn(
+        createTuiState(),
+        `${note}hi @all`,
+        undefined,
+        note.length,
+    );
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("hi @all");
+
+    // A history rebuild carries the replaced text and knows nothing about the
+    // injection, so the live entry hands the measure back.
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [{ kind: "user", text: `${note}hi @all` }],
+        seq: 2,
+    });
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("hi @all");
+});
+
 test("a thought with no reasoning behind it carries no fold marker", () => {
     const state = appendTuiThought(createTuiState(), 3.04);
 

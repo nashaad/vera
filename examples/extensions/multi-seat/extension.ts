@@ -50,10 +50,35 @@ export function activateClient(vera: any): void {
             : { model: match.model, provider: match.provider };
     }
 
+    /** Empty the seat and say so where it spoke. */
+    function removeSeat(alias: string): void {
+        const seat = seats.get(alias)!;
+        seats.delete(alias);
+        unread.delete(alias);
+        if (sidebarOpen) {
+            // The column says who is in the room, so it says when someone is
+            // not: an ended lane should not read as one gone quiet.
+            vera.ui.sidebar.append({
+                label: `${alias} (${seat.model})`,
+                text: "Left the conversation.",
+            });
+        }
+        unread.get(AGENT)!.push(
+            `<system-note>\n${alias} left the conversation.\n</system-note>`,
+        );
+        offerMentions();
+        if (seats.size === 0 && sidebarOpen) {
+            vera.ui.sidebar.close();
+            sidebarOpen = false;
+        }
+    }
+
     /** The composer completes these after an `@`. */
     function offerMentions(): void {
         try {
-            vera.ui.mentions.set([...seats.keys(), "all"]);
+            vera.ui.mentions.set(
+                seats.size === 0 ? [] : [...seats.keys(), "all"],
+            );
         } catch {
             // This client does not complete mentions. Typing still works.
         }
@@ -82,10 +107,13 @@ export function activateClient(vera: any): void {
      * deterministic for an unchanged thread, which keeps the provider's prompt
      * cache warm across back-to-back turns with the same seat.
      */
-    function seatBrief(): string {
-        const base = "You are an advisor seated beside the user's main agent. "
-            + "You have no tools. Answer the user directly and briefly; what "
-            + "you say reaches the agent only if the user quotes it.";
+    function seatBrief(seat: Seat): string {
+        const base = `You are ${seat.alias}, an advisor seated beside the `
+            + "user's main agent. You are not that agent: the thread below is "
+            + "someone else's conversation, so never take its name or speak "
+            + "as it. You have no tools. Answer the user directly and "
+            + "briefly; what you say reaches the agent only if the user "
+            + "quotes it.";
         let turns: { role: string; text: string }[];
         try {
             turns = [...vera.thread.read()].slice(-THREAD_TURNS);
@@ -123,7 +151,7 @@ export function activateClient(vera: any): void {
             const answer = await vera.consult({
                 model: seat.model,
                 provider: seat.provider,
-                systemPrompt: seatBrief(),
+                systemPrompt: seatBrief(seat),
                 messages: seat.lane.map((turn) => ({ ...turn })),
             });
             seat.lane.push({ role: "assistant", content: answer.text });
@@ -245,29 +273,22 @@ export function activateClient(vera: any): void {
         name: "remove",
         description: "Remove a seat from this conversation",
         usage: "/remove <alias>",
+        arguments: "mention",
         run({ argumentsText }: { argumentsText: string }) {
             const alias = argumentsText.trim();
-            const seat = seats.get(alias);
-            if (seat === undefined || !seats.delete(alias)) {
+            // The composer completes this argument from the same names it
+            // completes an `@` from, and `all` is one of them.
+            if (alias === "all" && !seats.has("all")) {
+                for (const name of [...seats.keys()]) {
+                    removeSeat(name);
+                }
+                vera.ui.notice("Every seat left");
+                return;
+            }
+            if (!seats.has(alias)) {
                 throw new Error(`No seat named ${alias}`);
             }
-            unread.delete(alias);
-            if (sidebarOpen) {
-                // The column says who is in the room, so it says when someone
-                // is not: an ended lane should not read as one gone quiet.
-                vera.ui.sidebar.append({
-                    label: `${alias} (${seat.model})`,
-                    text: "Left the conversation.",
-                });
-            }
-            unread.get(AGENT)!.push(
-                `<system-note>\n${alias} left the conversation.\n</system-note>`,
-            );
-            offerMentions();
-            if (seats.size === 0 && sidebarOpen) {
-                vera.ui.sidebar.close();
-                sidebarOpen = false;
-            }
+            removeSeat(alias);
             vera.ui.notice(`@${alias} left`);
         },
     });

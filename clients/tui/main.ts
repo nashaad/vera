@@ -5058,7 +5058,13 @@ export async function startTui(
     } | undefined {
         const argument = commandRegistry.argumentPrefix(composer.plainText);
         if (argument !== undefined) {
-            return { prefix: argument.prefix, values: pooledModelNames() };
+            return {
+                prefix: argument.prefix,
+                // Bare names: the argument is the name itself, not a mention.
+                values: argument.kind === "mention"
+                    ? extensionMentions
+                    : pooledModelNames(),
+            };
         }
         if (extensionMentions.length === 0) return undefined;
         const mention = /(?:^|\s)(@\S*)$/.exec(composer.plainText);

@@ -199,7 +199,9 @@ test("a seat's brief carries the tail of the thread, unchanged when the thread i
     });
     await harness.settle();
     const bare = harness.consults[0]?.systemPrompt;
-    expect(bare).toContain("advisor");
+    // The seat is told who it is: reading the thread without that, a
+    // small model answers as the agent whose conversation it is.
+    expect(bare).toContain("You are m1, an advisor");
     expect(bare).not.toContain("main thread so far");
 
     // Fourteen turns in the thread: the brief quotes the last twelve.
@@ -292,6 +294,16 @@ test("removing a seat says so in its column", async () => {
         label: "m1 (gpt-5.5)",
         text: "Left the conversation.",
     });
+    await harness.registry.close();
+});
+
+test("removing every seat is one command, since the composer offers `all`", async () => {
+    const harness = await start({ maxSeats: 2 });
+    await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
+    await harness.registry.invokeCommand("add", "glm-5.2 as m2", WORKSPACE);
+    await harness.registry.invokeCommand("remove", "all", WORKSPACE);
+    expect(harness.mentions).toEqual([]);
+    expect(harness.sidebar.open).toBe(false);
     await harness.registry.close();
 });
 
