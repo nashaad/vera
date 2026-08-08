@@ -6,6 +6,11 @@ import type {
 } from "../model/types.ts";
 import { projectSystemPrompt } from "./assemble.ts";
 import {
+    memoryMetadata,
+    type MemoryMetadata,
+    type MemorySnapshot,
+} from "./memory.ts";
+import {
     projectInstructionMetadata,
     type ProjectInstructionMetadata,
     type ProjectInstructionSnapshot,
@@ -24,6 +29,7 @@ export interface ModelRequestSnapshot {
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions: ProjectInstructionSnapshot;
+    readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledPromptContributions?: readonly string[];
     readonly signal: AbortSignal;
@@ -35,6 +41,7 @@ export interface ProjectedModelRequest extends Omit<ModelRequest, "messages"> {
     readonly messages: readonly ModelMessage[];
     readonly tools: readonly ModelTool[];
     readonly projectInstructions: ProjectInstructionMetadata;
+    readonly memory?: MemoryMetadata;
 }
 
 export interface ModelRequestProjection {
@@ -74,6 +81,7 @@ export function projectModelRequest(
             : { scratchDir: snapshot.scratchDir }),
         date: snapshot.date,
         projectInstructions: snapshot.projectInstructions,
+        ...(snapshot.memory === undefined ? {} : { memory: snapshot.memory }),
         ...(snapshot.scratchState === undefined
             ? {}
             : { scratchState: snapshot.scratchState }),
@@ -96,6 +104,9 @@ export function projectModelRequest(
         projectInstructions: projectInstructionMetadata(
             snapshot.projectInstructions,
         ),
+        ...(snapshot.memory === undefined
+            ? {}
+            : { memory: memoryMetadata(snapshot.memory) }),
         signal: snapshot.signal,
     });
     return Object.freeze({

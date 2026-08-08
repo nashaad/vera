@@ -3,6 +3,7 @@ import { beforeAll, expect, test } from "bun:test";
 import { initBashParser } from "../../src/tools/bash-parser.ts";
 import {
     BUILT_IN_PERMISSION_MODES,
+    CORE_PERMISSION_OPERATIONS,
     decideToolPermission,
     extractPermissionActions,
     inspectPermissions,
@@ -810,4 +811,39 @@ test("the session scratch dir is canonical so realpathed tool paths match it", a
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
+});
+
+test("memory writes are routine and named in the decision record", () => {
+    const call = toolCall("memory_write", {
+        scope: "project",
+        file: "layout.md",
+        content: "Engine never imports UI.",
+        title: "Layout",
+        hook: "where each layer lives",
+    });
+    for (const mode of ["ask", "auto"] as const) {
+        const decision = decideToolPermission(
+            mode,
+            call,
+            workspace,
+            [],
+            { homeDirectory },
+        );
+        expect(decision).toEqual({
+            behavior: "allow",
+            actions: [{
+                action: {
+                    tool: "memory_write",
+                    verb: "unknown",
+                    operation: "memory.write",
+                },
+                outcome: "allow",
+                rule: "routine.memory_write",
+            }],
+        });
+    }
+});
+
+test("memory.write is a configurable operation", () => {
+    expect(CORE_PERMISSION_OPERATIONS.has("memory.write")).toBe(true);
 });
