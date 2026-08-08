@@ -637,13 +637,12 @@ test("a review that overlaps another runs on a fork and is not remembered", asyn
     expect(adapter.requests[2]!.messages).toHaveLength(3);
 });
 
-test("escalation reviewer skips escalation when confidence is high", async () => {
-    // Fast reviewer gives high-confidence decision
+test("escalation reviewer skips escalation when every metric is confident", async () => {
     const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
         risk_level: "low",
         user_authorization: "high",
         outcome: "allow",
-        confidence: 0.95,
+        confidence: { understanding: 0.95, risk: 0.9, authorization: 1 },
         rationale: "Read-only operation.",
     })));
     const review = createEscalatingToolReviewer(adapter, {
@@ -655,15 +654,22 @@ test("escalation reviewer skips escalation when confidence is high", async () =>
     const decision = await review(request, new AbortController().signal);
 
     expect(decision.decision).toBe("allow");
-    expect(decision.confidence).toBe(0.95);
+    // Overall confidence is the weakest metric.
+    expect(decision.confidence).toBe(0.9);
+    expect(decision.confidenceMetrics).toEqual({
+        understanding: 0.95,
+        risk: 0.9,
+        authorization: 1,
+    });
     expect(decision.escalated).toBeUndefined();
     // Only one request should be made (fast reviewer only, no escalation)
     expect(adapter.requests).toHaveLength(1);
     expect(adapter.requests[0]?.model).toBe("fast-model");
 });
 
-test("escalation reviewer escalates on low confidence", async () => {
-    // Fast reviewer is uncertain, strong reviewer verifies
+test("one weak metric escalates even when the others are certain", async () => {
+    // Sure it's low-risk, unsure the user authorized it: a blended scalar
+    // could average this out; per-metric confidence cannot.
     let requestCount = 0;
     const testAdapter = new (class implements ModelAdapter {
         requests: ModelRequest[] = [];
@@ -673,32 +679,32 @@ test("escalation reviewer escalates on low confidence", async () => {
             requestCount += 1;
             const stream = new ModelEventStream();
             stream.push({ type: "start" });
-
-            if (requestCount === 1) {
-                // Fast reviewer is uncertain (low confidence)
-                stream.push({
-                    type: "done",
-                    message: assistantText(JSON.stringify({
-                        risk_level: "medium",
+            stream.push({
+                type: "done",
+                message: assistantText(JSON.stringify(requestCount === 1
+                    ? {
+                        risk_level: "low",
                         user_authorization: "unknown",
                         outcome: "allow",
-                        confidence: 0.4,
-                        rationale: "Uncertain, might be suspicious.",
-                    })),
-                });
-            } else {
-                // Strong reviewer verifies with high confidence
-                stream.push({
-                    type: "done",
-                    message: assistantText(JSON.stringify({
+                        confidence: {
+                            understanding: 0.95,
+                            risk: 0.95,
+                            authorization: 0.3,
+                        },
+                        rationale: "Looks routine, authorization unclear.",
+                    }
+                    : {
                         risk_level: "low",
                         user_authorization: "high",
                         outcome: "allow",
-                        confidence: 0.95,
-                        rationale: "Safe after closer inspection.",
+                        confidence: {
+                            understanding: 1,
+                            risk: 0.95,
+                            authorization: 0.9,
+                        },
+                        rationale: "The transcript shows the user asked for this.",
                     })),
-                });
-            }
+            });
             return stream;
         }
     })();
@@ -712,17 +718,63 @@ test("escalation reviewer escalates on low confidence", async () => {
     const decision = await review(request, new AbortController().signal);
 
     expect(decision.decision).toBe("allow");
-    expect(decision.confidence).toBe(0.95);
     expect(decision.escalated).toBe(true);
-    expect(decision.reason).toBe("Safe after closer inspection.");
-    // Two requests: fast reviewer + escalation to strong reviewer
+    expect(decision.confidence).toBe(0.9);
     expect(testAdapter.requests).toHaveLength(2);
-    expect(testAdapter.requests[0]?.model).toBe("fast-model");
     expect(testAdapter.requests[1]?.model).toBe("strong-model");
 });
 
-test("escalation reviewer respects confidence threshold", async () => {
-    // Fast reviewer at exactly threshold boundary
+test("a reviewer that reports no confidence escalates", async () => {
+    // Defaulting a missing confidence to "certain" would let a model that
+    // ignores the field silently disable the escalation tier.
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
+
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: assistantText(JSON.stringify(requestCount === 1
+                    ? {
+                        risk_level: "low",
+                        user_authorization: "high",
+                        outcome: "allow",
+                        rationale: "No confidence reported.",
+                    }
+                    : {
+                        risk_level: "low",
+                        user_authorization: "high",
+                        outcome: "allow",
+                        confidence: {
+                            understanding: 1,
+                            risk: 1,
+                            authorization: 1,
+                        },
+                        rationale: "Verified.",
+                    })),
+            });
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.escalated).toBe(true);
+    expect(testAdapter.requests).toHaveLength(2);
+});
+
+test("a bare scalar confidence at the threshold does not escalate", async () => {
+    // A model that answers with one number instead of the per-metric object
+    // still gets the older scalar behavior, and >= threshold passes.
     const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
         risk_level: "low",
         user_authorization: "high",
@@ -738,9 +790,25 @@ test("escalation reviewer respects confidence threshold", async () => {
 
     const decision = await review(request, new AbortController().signal);
 
-    // At threshold, should not escalate (>= threshold passes)
     expect(decision.decision).toBe("allow");
     expect(decision.confidence).toBe(0.8);
+    expect(decision.confidenceMetrics).toBeUndefined();
     expect(decision.escalated).toBeUndefined();
     expect(adapter.requests).toHaveLength(1);
+});
+
+test("a malformed confidence object reads as no confidence", () => {
+    // Missing a metric is unreadable, not "assume the rest": the decision
+    // still parses, but without a confidence it escalates.
+    const decision = parseReviewDecision(JSON.stringify({
+        risk_level: "low",
+        user_authorization: "high",
+        outcome: "allow",
+        confidence: { understanding: 0.9, risk: 0.9 },
+        rationale: "Forgot a metric.",
+    }));
+
+    expect(decision?.decision).toBe("allow");
+    expect(decision?.confidence).toBeUndefined();
+    expect(decision?.confidenceMetrics).toBeUndefined();
 });

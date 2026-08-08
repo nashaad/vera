@@ -80,13 +80,19 @@ stronger model for verification:
 }
 ```
 
-The fast reviewer rates its confidence (0-1 scale) in every decision. If
-confidence meets the threshold (default 0.8), the decision stands immediately.
-If confidence is lower, the request escalates to the stronger model for a
-confident final ruling. This approach lets the weaker model admit uncertainty
-and get expert verification, rather than trying to detect edge cases it doesn't
-understand. Most reviews stay fast and cheap; uncertain cases get the attention
-they need.
+The fast reviewer rates its certainty on three metrics, each 0-1:
+
+- `understanding` — how completely it understood the action and its scope
+- `risk` — certainty in its risk rating
+- `authorization` — certainty about whether the user authorized the action
+
+Its overall confidence is the weakest of the three. If that meets the
+threshold (default 0.8, configurable with `escalation_confidence_threshold`),
+the decision stands immediately. If any metric falls below it — or the
+reviewer reports no confidence at all — the request escalates to the stronger
+model for a final ruling. The weaker model does not need to recognize edge
+cases it cannot understand; it only needs to notice which of its own
+judgments it is unsure of.
 
 ## OpenRouter
 
