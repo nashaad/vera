@@ -34,6 +34,10 @@ export interface TuiSidebarTheme {
     readonly background: string;
     /** The sidebar's own ground: the split is a colour change, not a rule. */
     readonly panel: string;
+    /** The strip between the two, the only part that says it can be dragged. */
+    readonly handle: string;
+    /** The same strip while it is held. */
+    readonly handleActive: string;
     readonly muted: string;
     readonly text: string;
 }
@@ -107,6 +111,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         onMouseUp: (event: MouseEvent) => {
             if (!dragging) return;
             dragging = false;
+            divider.backgroundColor = theme.handle;
             event.stopPropagation();
             options.onWidthChanged?.(width);
         },
@@ -118,16 +123,18 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         height: "100%",
         flexShrink: 0,
         visible: false,
+        backgroundColor: theme.handle,
         onMouseDown: (event: MouseEvent) => {
             // Claimed before the transcript's selection sees it, or dragging
             // the divider would paint a selection across the transcript.
             event.preventDefault();
             event.stopPropagation();
             dragging = true;
+            // Lit while held, so a drag that runs past the strip still shows
+            // what is being moved.
+            divider.backgroundColor = theme.handleActive;
         },
     });
-    // A drawn rule, not a filled column: a background block reads as a bar,
-    // and the split should be a hairline.
     const content = new ScrollBoxRenderable(renderer, {
         id: "sidebar-content",
         flexGrow: 1,
@@ -175,6 +182,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         const visible = shown();
         if (!visible) {
             dragging = false;
+            divider.backgroundColor = theme.handle;
         }
         panel.visible = visible;
         divider.visible = visible;

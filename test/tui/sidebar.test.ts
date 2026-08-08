@@ -47,6 +47,8 @@ async function openSidebar(width = 120, height = 12) {
         theme: {
             background: "#000000",
             panel: "#161616",
+            handle: "#333333",
+            handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
         },
@@ -89,6 +91,8 @@ test("a settled drag reports the width once", async () => {
         theme: {
             background: "#000000",
             panel: "#161616",
+            handle: "#333333",
+            handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
         },

@@ -92,6 +92,19 @@ export function tuiRecessColor(theme: TuiTheme): string {
     return mixHex(theme.background, "#000000", 0.45);
 }
 
+/**
+ * The grab strip between transcript and sidebar. Lighter than either side,
+ * because the only thing it has to say is that it can be moved.
+ */
+export function tuiHandleColor(theme: TuiTheme): string {
+    return mixHex(theme.background, theme.text, 0.14);
+}
+
+/** The strip while it is held. */
+export function tuiHandleActiveColor(theme: TuiTheme): string {
+    return mixHex(theme.background, theme.text, 0.38);
+}
+
 function paletteColor(
     colors: TerminalColors,
     index: number,

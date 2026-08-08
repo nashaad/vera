@@ -264,7 +264,13 @@ import {
     tuiEntryMarginTop,
     type TuiTranscriptEntry,
 } from "./state.ts";
-import { resolveTuiTheme, tuiRecessColor, VERA_TUI_THEME } from "./theme.ts";
+import {
+    resolveTuiTheme,
+    tuiHandleActiveColor,
+    tuiHandleColor,
+    tuiRecessColor,
+    VERA_TUI_THEME,
+} from "./theme.ts";
 import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
@@ -1043,23 +1049,14 @@ export async function startTui(
     const composerBox = createTuiComposerPanel(renderer, composer);
 
     const bodyFocus = new TuiBodyFocusController();
-    // The conversation and everything under it: the sidebar sits beside this
-    // whole column, not just beside the transcript, so the split runs the
-    // full height with no seam under it.
-    const main = new BoxRenderable(renderer, {
-        id: "main",
-        flexGrow: 1,
-        height: "100%",
-        flexDirection: "column",
-        gap: 1,
-        paddingBottom: 0,
-    });
     const app = new BoxRenderable(renderer, {
         id: "app",
         width: "100%",
         height: "100%",
-        flexDirection: "row",
+        flexDirection: "column",
+        gap: 1,
         paddingTop: 1,
+        paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
         onMouseUp: () => {
@@ -1070,10 +1067,12 @@ export async function startTui(
     });
     const sidebar = createTuiSidebar({
         renderer,
-        transcript: main,
+        transcript,
         theme: {
             background: theme.background,
             panel: tuiRecessColor(theme),
+            handle: tuiHandleColor(theme),
+            handleActive: tuiHandleActiveColor(theme),
             muted: theme.muted,
             text: TUI_TEXT,
         },
@@ -1089,7 +1088,6 @@ export async function startTui(
         },
         onLayoutChanged: () => renderJumpToBottom(),
     });
-    main.add(transcript);
     app.add(sidebar.body);
     app.add(jumpToBottom);
     const overlayScrim = new BoxRenderable(renderer, {
@@ -1102,7 +1100,7 @@ export async function startTui(
         visible: false,
     });
     app.add(overlayScrim);
-    main.add(queuedPromptText);
+    app.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
@@ -1198,8 +1196,8 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
-    main.add(commandSuggestionsBox);
-    main.add(composerBox);
+    app.add(commandSuggestionsBox);
+    app.add(composerBox);
     app.add(statusText);
     app.add(backgroundStatusText);
     renderer.root.add(app);
@@ -3124,10 +3122,33 @@ export async function startTui(
         }
     }
 
-    function requestExtensionConsult(
+    /**
+     * The user's own name for a pooled model, swapped for the id the provider
+     * knows. An extension is handed whatever was typed, and a pool name is the
+     * client's data to resolve.
+     */
+    function resolvePooledModel(
         request: VeraClientConsultRequest,
+    ): VeraClientConsultRequest {
+        const wanted = request.model.toLowerCase();
+        for (const entry of state.modelSettings?.pooled ?? []) {
+            if (entry.poolName?.toLowerCase() !== wanted) continue;
+            return {
+                ...request,
+                model: entry.model,
+                ...(request.provider === undefined
+                    ? { provider: entry.provider }
+                    : {}),
+            };
+        }
+        return request;
+    }
+
+    function requestExtensionConsult(
+        consultRequest: VeraClientConsultRequest,
         signal: AbortSignal,
     ): Promise<VeraClientConsultResult> {
+        const request = resolvePooledModel(consultRequest);
         if (signal.aborted) {
             return Promise.reject(signal.reason as Error);
         }
