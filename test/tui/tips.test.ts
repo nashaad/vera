@@ -114,3 +114,25 @@ test("a missing or damaged tips file reads as no history", () => {
     Bun.write(damaged, "{ not json");
     expect(loadTuiTipState(damaged)).toEqual({ launches: 0, history: {} });
 });
+
+test("an extension tip competes in the pool on the same terms", () => {
+    const extensionTip: TuiTip = {
+        id: "client.tipper:welcome",
+        text: () => "Try /help",
+        cooldownLaunches: 3,
+        isRelevant: () => true,
+    };
+    const pool = [...TUI_TIPS, extensionTip];
+    const now: TuiTipContext = { ...context, launches: 4 };
+
+    // Never shown beats everything shown, whoever registered it.
+    const history = Object.fromEntries(
+        TUI_TIPS.map((tip) => [tip.id, 4] as const),
+    );
+    expect(selectTuiTip(now, history, pool)?.id).toBe(extensionTip.id);
+
+    // And its own cooldown holds it back once it has been shown.
+    expect(
+        selectTuiTip(now, { ...history, [extensionTip.id]: 4 }, pool),
+    ).toBeUndefined();
+});

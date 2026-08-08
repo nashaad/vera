@@ -193,6 +193,8 @@ import {
 import {
     recordTuiTipShown,
     selectTuiTip,
+    TUI_TIPS,
+    type TuiTip,
     type TuiTipContext,
 } from "./tips.ts";
 import {
@@ -3277,12 +3279,35 @@ export async function startTui(
     }
 
     /**
+     * The built-in tips plus whatever extensions registered, read fresh so a
+     * later-loading extension's tips join the pool without a restart.
+     */
+    function tipPool(): readonly TuiTip[] {
+        const registered = clientExtensionRegistry?.tips() ?? [];
+        if (registered.length === 0) return TUI_TIPS;
+        return [
+            ...TUI_TIPS,
+            ...registered.map((descriptor) => ({
+                id: descriptor.id,
+                text: () => descriptor.text,
+                cooldownLaunches: descriptor.cooldownLaunches,
+                isRelevant: (context: TuiTipContext) =>
+                    descriptor.isRelevant(context),
+            })),
+        ];
+    }
+
+    /**
      * A tip to show, recorded as shown. Returns nothing when tips are off,
      * when nothing is eligible, or when the pool is exhausted for this launch.
      */
     function takeTip(inModelPicker: boolean): string | undefined {
         if (!tipsEnabled) return undefined;
-        const tip = selectTuiTip(tipContext(inModelPicker), tipState.history);
+        const tip = selectTuiTip(
+            tipContext(inModelPicker),
+            tipState.history,
+            tipPool(),
+        );
         if (tip === undefined) return undefined;
         tipState = {
             launches: tipState.launches,
