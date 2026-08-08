@@ -194,13 +194,13 @@ export async function requestModelWithRecovery(
                     && event.error instanceof ProviderFailureError
                 ) {
                     const failure = event.error.failure;
-                    // A refused level is evidence about the model, so it is
-                    // answered before the overload counters: it is neither an
-                    // overload nor something a plain retry would survive.
-                    if (
-                        options.coarsening !== undefined
-                        && activeRequest.reasoningEffort !== undefined
-                    ) {
+                    // A refused capability is evidence about the model, so it
+                    // is answered before the overload counters: it is neither
+                    // an overload nor something a plain retry would survive.
+                    // Asked on every failure, not only on requests carrying an
+                    // effort: image, tool and thinking refusals arrive on
+                    // requests that named no effort at all.
+                    if (options.coarsening !== undefined) {
                         coarsened = coarsenAfterFailure(
                             {
                                 provider: activeRequest.provider ?? "",
