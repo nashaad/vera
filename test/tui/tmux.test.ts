@@ -2273,6 +2273,13 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/");
             await waitForVisiblePane(socket, session, "/seats");
+            // Nothing chosen yet: the first row is where the list opened, not
+            // a pick, so completing takes no command.
+            sendKey(socket, session, "Tab");
+            await Bun.sleep(200);
+            pane = captureVisiblePane(socket, session);
+            expect(pane).toContain("Rewind the active conversation");
+
             sendKey(socket, session, "Down");
             sendKey(socket, session, "Tab");
             // Typed, not run: a command that takes an argument is not

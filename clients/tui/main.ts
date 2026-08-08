@@ -685,6 +685,8 @@ export async function startTui(
     } | undefined;
     let sessionTrashPending = false;
     let commandSuggestionIndex = 0;
+    /** Whether the highlighted row was chosen rather than merely first. */
+    let commandSuggestionMoved = false;
     /** The argument values on offer, empty whenever the list is commands. */
     let argumentSuggestions: readonly string[] = [];
     /** Names an extension offers after an `@`, replaced wholesale. */
@@ -1728,6 +1730,7 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 commandSuggestionIndex = Math.max(0, commandSuggestionIndex - 1);
+                commandSuggestionMoved = true;
                 renderCommandSuggestions();
                 return;
             }
@@ -1738,13 +1741,14 @@ export async function startTui(
                     suggestions.length - 1,
                     commandSuggestionIndex + 1,
                 );
+                commandSuggestionMoved = true;
                 renderCommandSuggestions();
                 return;
             }
             const runs = key.name === "return" || key.name === "enter";
             const completes =
                 tuiBindingId("composer", key) === "complete_command";
-            if (runs || completes) {
+            if (runs || (completes && commandSuggestionMoved)) {
                 const selected = suggestions[commandSuggestionIndex];
                 if (selected !== undefined) {
                     key.preventDefault();
@@ -5119,6 +5123,10 @@ export async function startTui(
         }
         argumentSuggestions = [];
         const suggestions = commandRegistry.suggestions(composer.plainText);
+        if (composer.plainText !== "/") {
+            // A list that just opened has a first row, not a chosen one.
+            commandSuggestionMoved = false;
+        }
         commandSuggestionIndex = Math.min(
             commandSuggestionIndex,
             Math.max(0, suggestions.length - 1),
