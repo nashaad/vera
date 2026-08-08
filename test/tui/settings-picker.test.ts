@@ -1091,8 +1091,10 @@ test("⇥ moves to All models, which lists what can run", async () => {
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // Two tabs, so the next ⇥ is already back on Pool.
-    expect(handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state?.tab)
+    // The cycle is Pool, All models, Help, and round again.
+    const help = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
+    expect(help.tab).toBe("help");
+    expect(handleTuiSettingsPickerKey(help, { name: "tab" }).state?.tab)
         .toBe("pool");
 });
 
@@ -1199,6 +1201,26 @@ test("a tab is switched by clicking its chip, cursor and all", () => {
         ).state as TuiSettingsPickerState);
 });
 
+test("the Help tab explains the pane in the pane", async () => {
+    const state = modelPickerWithPool();
+    const help = switchedModelTab(state, "help");
+    const frame = await pickerFrame(help);
+
+    expect(frame).toContain("the model this conversation is running");
+    expect(frame).toContain("answered a live probe");
+    // A page, not a list: nothing to filter, nothing to select, and the footer
+    // says only what the page can do.
+    expect(help.options).toHaveLength(0);
+    // The tab strip sits directly under the title: no search row in between.
+    const lines = frame.split("\n").map((line) => line.trim());
+    const title = lines.findIndex((line) => line.startsWith("Select model"));
+    expect(lines[title + 1]).toStartWith("Pool 2");
+    expect(frame).toContain("⇥ tabs · esc close");
+    // The chip carries no count, because Help is not a collection of models.
+    expect(frame).toMatch(/Help\s/);
+    expect(frame).not.toMatch(/Help \d/);
+});
+
 test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
     const state = allTabWithRecommendations();
     const onHeading = { ...state, selectedIndex: 2 };
@@ -1279,7 +1301,10 @@ test("⇧← folds every section and ⇧→ opens every one", () => {
 test("a fold survives a tab away and back, and a search opens everything", () => {
     const folded = allTabWithRecommendations();
 
-    const pool = handleTuiSettingsPickerKey(folded, { name: "tab" }).state!;
+    const pool = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(folded, { name: "tab" }).state!,
+        { name: "tab" },
+    ).state!;
     expect(pool.tab).toBe("pool");
     const back = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
     expect(back.tab).toBe("all");

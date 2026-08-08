@@ -183,7 +183,7 @@ export interface TuiProviderRow {
  * first section, above the providers, and the same models keep their rows in
  * the provider sections below.
  */
-export type TuiModelPickerTab = "all" | "pool";
+export type TuiModelPickerTab = "all" | "pool" | "help";
 
 export interface TuiExtensionPickerRow {
     readonly id: string;
@@ -1143,7 +1143,7 @@ export function handleTuiSettingsPickerKey(
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
-        const cycle: readonly TuiModelPickerTab[] = ["pool", "all"];
+        const cycle: readonly TuiModelPickerTab[] = ["pool", "all", "help"];
         const tab: TuiModelPickerTab = cycle[
             (cycle.indexOf(state.tab ?? "all") + 1) % cycle.length
         ]!;
@@ -1563,6 +1563,65 @@ function factChunks(
     ];
 }
 
+/**
+ * The pane explaining itself, as a third view rather than a separate overlay.
+ * A question about this pane ("what does the dot mean", "how do I keep this
+ * model") is asked while looking at it, and answering it somewhere else costs
+ * the user the list they were reading.
+ *
+ * It is the pane's own vocabulary only. The full key reference is /help, and
+ * repeating it here would be a second copy to keep true.
+ */
+function modelHelpNode(renderer: RenderContext, width: number): BoxRenderable {
+    const page = new BoxRenderable(renderer, {
+        width,
+        height: MODEL_HELP_LINES.length,
+        flexShrink: 0,
+        flexDirection: "column",
+    });
+    for (const [term, meaning] of MODEL_HELP_LINES) {
+        page.add(new TextRenderable(renderer, {
+            content: meaning === undefined
+                ? new StyledText([fg(TUI_TEXT)(term)])
+                : new StyledText([
+                    fg(TUI_ACCENT)(term.padEnd(MODEL_HELP_TERM_WIDTH)),
+                    fg(TUI_MUTED)(
+                        clippedTo(meaning, width - MODEL_HELP_TERM_WIDTH),
+                    ),
+                ]),
+            width,
+            height: 1,
+        }));
+    }
+    return page;
+}
+
+const MODEL_HELP_TERM_WIDTH = 14;
+
+/**
+ * A term and what it means, or a lone string for a heading or a blank line.
+ */
+const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
+    ["The two lists"],
+    ["Pool", "the shortlist you keep. Ordered by you, not by provider."],
+    ["All models", "every model your connected providers offer."],
+    ["Top picks", "models Vera is built and tested against."],
+    [""],
+    ["Marks"],
+    ["●", "the model this conversation is running."],
+    ["✓", "answered a live probe, so its abilities are known."],
+    ["unverified", "not probed yet. It still runs like any other."],
+    ["in pool", "already on your shortlist."],
+    ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
+    [""],
+    ["Keys"],
+    ["⏎", "run this model. On All models it does not pool it."],
+    ["^s", "add the highlighted model to the pool, or remove it."],
+    ["^n", "give a pooled model a short name of your own."],
+    ["^⇧r", "probe a model and record what it can do."],
+    ["⇥", "move between these views. Search clears on the way."],
+];
+
 /** How many facts the left column holds; the rest go in the second column. */
 const MODEL_DETAIL_FACT_ROWS = 3;
 
@@ -1623,7 +1682,10 @@ function renderListPickerRows(
     tip?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
 ): void {
-    const searchable = state.kind !== "extension";
+    const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
+    // No search field on the help page: there is nothing on it to filter, and
+    // an empty box that takes the cursor invites typing that goes nowhere.
+    const searchable = state.kind !== "extension" && tab !== "help";
     const header = dialogHeaderNode(
         renderer,
         pickerTitle(
@@ -1634,7 +1696,7 @@ function renderListPickerRows(
     box.add(header);
     nodes.push(header);
     let subtitleLines = 0;
-    if (!searchable && state.subtitle !== undefined) {
+    if (state.kind === "extension" && state.subtitle !== undefined) {
         const subtitleNode = new TextRenderable(renderer, {
             content: state.subtitle,
             fg: TUI_MUTED,
@@ -1651,7 +1713,6 @@ function renderListPickerRows(
         box.add(search);
         nodes.push(search);
     }
-    const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     if (tab !== undefined) {
         const strip = modelTabStripNode(renderer, tab, {
             pool: modelTabRows(state.allOptions, "pool").length,
@@ -1659,6 +1720,22 @@ function renderListPickerRows(
         }, topPickNote(state), onTab);
         box.add(strip);
         nodes.push(strip);
+    }
+
+    if (tab === "help") {
+        const page = modelHelpNode(renderer, pickerCardWidth(renderer, state));
+        box.add(page);
+        nodes.push(page);
+        const footer = dialogFooterNode(
+            renderer,
+            pickerFooter(state, pickerCardWidth(renderer, state)),
+        );
+        box.add(footer);
+        nodes.push(footer);
+        // The chrome allowance covers a search field this page does not draw.
+        box.height = MODEL_HELP_LINES.length + DIALOG_CHROME_HEIGHT
+            + MODEL_TAB_STRIP_HEIGHT - 3;
+        return;
     }
 
     const detailed = hasModelDetail(state);
@@ -1791,11 +1868,13 @@ const MODEL_TAB_STRIP_HEIGHT = 3;
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Pool"],
     ["all", "All models"],
+    ["help", "Help"],
 ];
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     pool: "Your curated shortlist. ^s adds or removes models here.",
     all: "Everything your providers offer. Enter runs one without pooling it.",
+    help: "What the marks and the keys in this pane mean.",
 };
 
 /**
@@ -1825,7 +1904,7 @@ function topPickNote(state: TuiAnySettingsPickerState): string | undefined {
 function modelTabStripNode(
     renderer: RenderContext,
     tab: TuiModelPickerTab,
-    counts: Readonly<Record<TuiModelPickerTab, number>>,
+    counts: Readonly<Partial<Record<TuiModelPickerTab, number>>>,
     note?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
 ): BoxRenderable {
@@ -1847,7 +1926,9 @@ function modelTabStripNode(
         // column as the line explaining it and the rows under it.
         // The count belongs to the tab, not to the line under it: how many
         // models a collection holds is the first thing asked of a shortlist.
-        const named = `${label} ${counts[id]}`;
+        // Help is a page, not a collection, so it carries no count.
+        const count = counts[id];
+        const named = count === undefined ? label : `${label} ${count}`;
         const text = index === 0 ? `${named} ` : ` ${named} `;
         const chip = new TextRenderable(renderer, {
             content: new StyledText([
@@ -1950,6 +2031,9 @@ export function pickerFooter(
             selected?.connected === true ? "⏎ reconnect" : "⏎ connect",
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
+    }
+    if (state.kind === "model" && state.tab === "help") {
+        return "⇥ tabs · esc close";
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
@@ -2589,6 +2673,9 @@ function modelTabRows(
     allOptions: readonly TuiSettingsPickerOption[],
     tab: TuiModelPickerTab,
 ): readonly TuiSettingsPickerOption[] {
+    if (tab === "help") {
+        return [];
+    }
     if (tab === "all") {
         return allOptions.filter((option) => option.unavailable !== true);
     }
