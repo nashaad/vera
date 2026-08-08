@@ -93,11 +93,13 @@ async function start(config: JsonValue = null): Promise<Harness> {
         consult: {
             request(_id, request) {
                 consults.push(request);
-                const answer = Promise.resolve({
-                    text: `${request.model} says so`,
-                    model: request.model,
-                });
-                answers.push(answer);
+                const answer = request.model === "down-model"
+                    ? Promise.reject(new Error("provider is down"))
+                    : Promise.resolve({
+                        text: `${request.model} says so`,
+                        model: request.model,
+                    });
+                answers.push(answer.catch(() => undefined));
                 return answer;
             },
         },
@@ -212,6 +214,37 @@ test("a seat's brief carries the tail of the thread, unchanged when the thread i
     });
     await harness.settle();
     expect(harness.consults[2]?.systemPrompt).toBe(brief as string);
+    await harness.registry.close();
+});
+
+test("a failed consult files into the seat's column, and the lane keeps the ask", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("add", "down-model as m1", WORKSPACE);
+
+    expect(await harness.registry.interceptMessage({
+        text: "@m1 you there",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "handled" });
+    await harness.settle();
+    expect(harness.sidebar.blocks).toEqual([
+        { label: "m1 (down-model)", text: "Seated. Ask with @m1, or @all." },
+        { label: "you \u2192 @m1", text: "you there" },
+        // The failure reads in place, where the answer would have been.
+        { label: "m1 (down-model)", text: "Could not answer: provider is down" },
+    ]);
+    // Nothing was quoted to the agent: only the seating note rides along,
+    // because a failed round produced no reply.
+    expect(await harness.registry.interceptMessage({
+        text: "moving on",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({
+        kind: "replace",
+        text: `${joined("m1", "down-model")}
+
+moving on`,
+    });
     await harness.registry.close();
 });
 
