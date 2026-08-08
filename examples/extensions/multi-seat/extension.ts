@@ -21,6 +21,8 @@ interface Seat {
 
 export function activateClient(vera: any): void {
     const seats = new Map<string, Seat>();
+    /** How many seats may be filled at once. One unless the config says more. */
+    const maxSeats: number = vera.config?.maxSeats ?? 1;
     let sidebarOpen = false;
     /** Replies each participant has not been shown yet, oldest first. */
     const unread = new Map<string, string[]>([[AGENT, []]]);
@@ -106,6 +108,12 @@ export function activateClient(vera: any): void {
             if (match === null) {
                 throw new Error("Usage: /add <model> as <alias>");
             }
+            if (seats.size >= maxSeats) {
+                throw new Error(
+                    `${maxSeats} extra seat${maxSeats === 1 ? "" : "s"} at a `
+                        + "time. /remove <alias> frees one.",
+                );
+            }
             const model = match[1]!;
             const alias = match[2] ?? model;
             if (alias === AGENT || seats.has(alias)) {
@@ -151,9 +159,9 @@ export function activateClient(vera: any): void {
     });
 
     vera.commands.register({
-        name: "drop",
+        name: "remove",
         description: "Remove a seat from this conversation",
-        usage: "/drop <alias>",
+        usage: "/remove <alias>",
         run({ argumentsText }: { argumentsText: string }) {
             const alias = argumentsText.trim();
             if (!seats.delete(alias)) {

@@ -5,6 +5,7 @@ import {
     startClientExtensionRegistry,
     type ClientExtensionRegistry,
 } from "../../src/extensions/client-registry.ts";
+import type { JsonValue } from "../../src/sdk/hooks.ts";
 import type {
     VeraClientConsultRequest,
     VeraClientTranscriptBlock,
@@ -28,7 +29,7 @@ interface Harness {
     settle(): Promise<void>;
 }
 
-async function start(): Promise<Harness> {
+async function start(config: JsonValue = null): Promise<Harness> {
     const consults: VeraClientConsultRequest[] = [];
     const blocks: VeraClientTranscriptBlock[] = [];
     const notices: string[] = [];
@@ -39,7 +40,7 @@ async function start(): Promise<Harness> {
         readonly blocks: VeraClientTranscriptBlock[];
     } = { open: false, blocks: [] };
     const registry = await startClientExtensionRegistry({
-        extensions: [{ path: EXTENSION, enabled: true, config: null }],
+        extensions: [{ path: EXTENSION, enabled: true, config }],
         preferences: {
             async get() {
                 return undefined;
@@ -159,7 +160,7 @@ test("an addressed message goes to that seat alone, and only that one", async ()
 });
 
 test("seats are offered to the composer as mentions", async () => {
-    const harness = await start();
+    const harness = await start({ maxSeats: 2 });
     expect(harness.mentions).toEqual([]);
 
     await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
@@ -168,13 +169,13 @@ test("seats are offered to the composer as mentions", async () => {
     await harness.registry.invokeCommand("add", "glm-5.2 as m2", WORKSPACE);
     expect(harness.mentions).toEqual(["m1", "m2", "all"]);
 
-    await harness.registry.invokeCommand("drop", "m1", WORKSPACE);
+    await harness.registry.invokeCommand("remove", "m1", WORKSPACE);
     expect(harness.mentions).toEqual(["m2", "all"]);
     await harness.registry.close();
 });
 
 test("@all asks every seat at once and hands the agent the same message", async () => {
-    const harness = await start();
+    const harness = await start({ maxSeats: 2 });
     await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
     await harness.registry.invokeCommand("add", "glm-5.2 as m2", WORKSPACE);
 
@@ -228,7 +229,7 @@ test("the agent's next message carries the replies it has not seen", async () =>
 });
 
 test("a seat sees what the other seat said before answering again", async () => {
-    const harness = await start();
+    const harness = await start({ maxSeats: 2 });
     await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
     await harness.registry.invokeCommand("add", "glm-5.2 as m2", WORKSPACE);
 

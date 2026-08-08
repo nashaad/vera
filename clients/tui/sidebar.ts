@@ -41,6 +41,8 @@ export interface TuiSidebarTheme {
 export interface TuiSidebarOptions {
     readonly renderer: CliRenderer;
     readonly transcript: Renderable;
+    /** Called when the column itself is clicked, not the strip beside it. */
+    readonly onPanelClick?: () => void;
     readonly theme: TuiSidebarTheme;
     readonly syntaxStyle: SyntaxStyle;
     /** The width to open at, when one was remembered. */
@@ -162,6 +164,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         paddingBottom: 1,
         backgroundColor: theme.panel,
         visible: false,
+        onMouseDown: () => {
+            options.onPanelClick?.();
+        },
     });
     panel.add(content);
 
