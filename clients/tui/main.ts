@@ -130,7 +130,11 @@ import {
     type TuiCommandAction,
     type TuiPaletteEntry,
 } from "./commands.ts";
-import { createTuiComposer, createTuiComposerPanel } from "./composer.ts";
+import {
+    COMPOSER_PLACEHOLDER,
+    createTuiComposer,
+    createTuiComposerPanel,
+} from "./composer.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { TuiBodyFocusController } from "./body-focus.ts";
 import {
@@ -148,7 +152,8 @@ import {
     type TuiAdmissionDialogState,
 } from "./admission-dialog.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
-import { isTranscriptSelection } from "./selection.ts";
+import { isTranscriptSelection, selectionSpeaker } from "./selection.ts";
+import { renderTuiQuote, withQuote, type TuiQuote } from "./quote.ts";
 import {
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
@@ -705,6 +710,9 @@ export async function startTui(
     let argumentSuggestions: readonly string[] = [];
     /** Names an extension offers after an `@`, replaced wholesale. */
     let extensionMentions: readonly string[] = [];
+    // Who an extension says the next message is going to. The client only
+    // shows the name; it does not know what makes a message go there.
+    let extensionAddressee: string | undefined;
     let workingSince: number | undefined;
     let phaseSince: number | undefined;
     let activity = "thinking";
@@ -807,7 +815,7 @@ export async function startTui(
             },
             append(extensionId, block) {
                 requireSidebarOwner(extensionId);
-                sidebar.append(block.label, block.text);
+                sidebar.append(block.label, block.text, block.speaker);
                 renderSidebarJump();
             },
             clear(extensionId) {
@@ -825,6 +833,12 @@ export async function startTui(
             set(_extensionId, names) {
                 extensionMentions = names;
                 renderCommandSuggestions();
+            },
+        },
+        addressing: {
+            set(_extensionId, name) {
+                extensionAddressee = name;
+                renderState();
             },
         },
         thread: {
@@ -1087,6 +1101,21 @@ export async function startTui(
         visible: false,
     });
 
+    // Text taken from one pane and waiting to ride along with the next
+    // message. One at a time: a second selection replaces it, which is what a
+    // person who selects again means.
+    let pendingQuote: TuiQuote | undefined;
+
+    const quoteText = new TextRenderable(renderer, {
+        id: "pending-quote",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        paddingLeft: 2,
+        visible: false,
+    });
+
     const queuedPromptText = new TextRenderable(renderer, {
         id: "queued-prompt",
         content: "",
@@ -1236,6 +1265,7 @@ export async function startTui(
         visible: false,
     });
     app.add(overlayScrim);
+    upper.add(quoteText);
     upper.add(queuedPromptText);
     app.add(approvalView.box);
     app.add(questionView.box);
@@ -1395,8 +1425,34 @@ export async function startTui(
                     && isUserQuestionUiRequestUpdate(pendingUiRequest)
                 ? [questionView.detailsText]
                 : entryNodes;
-        if (isTranscriptSelection(selection, copyableNodes)) {
+        const quotable = [
+            ...state.entries.flatMap((entry, index) => {
+                const node = entryNodes[index];
+                return node === undefined ? [] : [{
+                    node,
+                    // Quoting the user's own words back is a different act
+                    // from quoting the agent, and the attribution has to say
+                    // which one happened.
+                    speaker: entry.kind === "user" ? "you" : "agent",
+                }];
+            }),
+            ...sidebar.blocks(),
+        ];
+        if (isTranscriptSelection(selection, [...copyableNodes, ...sidebar
+            .blocks().map((block) => block.node)])) {
             void copyTranscriptSelection(selection);
+        }
+        const speaker = selectionSpeaker(selection, quotable);
+        const selected = speaker === undefined ? "" : selection.getSelectedText();
+        if (speaker !== undefined && selected.trim().length > 0) {
+            pendingQuote = { source: speaker, text: selected };
+            // A drag leaves the composer unfocused, which is right when the
+            // selection was only a copy. It has just become the start of a
+            // message, so the next keystroke has to land in the composer.
+            if (!anyOverlayOpen()) {
+                composer.focus();
+            }
+            renderState();
         }
     });
 
@@ -1827,6 +1883,23 @@ export async function startTui(
             }
         }
 
+        // Ahead of clearing the composer, so dropping a quote does not also
+        // throw away the message being written to send it with.
+        if (
+            key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && pendingQuote !== undefined
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            pendingQuote = undefined;
+            renderState();
+            composer.focus();
+            return;
+        }
+
         if (
             key.name === "escape"
             && !key.ctrl
@@ -2127,13 +2200,22 @@ export async function startTui(
         ) {
             return;
         }
-        const prompt = interceptedText ?? composer.expandedText().trim();
+        const typed = interceptedText ?? composer.expandedText().trim();
+        // A slash command is addressed to the client, so a quote waiting to be
+        // sent stays waiting rather than being folded into an argument.
+        const quoted = interceptedText === undefined && !typed.startsWith("/")
+            ? pendingQuote
+            : undefined;
+        const prompt = withQuote(typed, quoted);
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
         }
         // Typing is the signal the tip has been read or ignored. The next one
         // is picked in the gap after this turn, not now.
         composerTip = undefined;
+        if (quoted !== undefined) {
+            pendingQuote = undefined;
+        }
         // Slash commands belong to the client's own registry, so they never
         // reach an interceptor. Everything else is offered once.
         if (
@@ -3796,6 +3878,11 @@ export async function startTui(
             ]);
         composerTipText.visible = composerTip !== undefined
             && !anyOverlayOpen();
+        composer.placeholder = extensionAddressee === undefined
+            ? COMPOSER_PLACEHOLDER
+            : `Message ${extensionAddressee}\u2026`;
+        quoteText.content = renderTuiQuote(pendingQuote);
+        quoteText.visible = pendingQuote !== undefined && !anyOverlayOpen();
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
         approvalView.box.visible = pendingUiRequest?.request.type
@@ -4869,6 +4956,7 @@ export async function startTui(
         sidebar.clear();
         sidebar.close();
         extensionMentions = [];
+        extensionAddressee = undefined;
         clientExtensionRegistry?.conversationChanged();
 
         state = createTuiState();
@@ -5189,6 +5277,7 @@ export async function startTui(
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
         statusBackdrop.backgroundColor = theme.background;
+        quoteText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
         jumpToBottomText.fg = theme.background;
         jumpToBottomText.bg = theme.accent;

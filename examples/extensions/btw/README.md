@@ -6,6 +6,8 @@ One thread, several models.
 /btw gpt-5.5 as m1        # m1 joins the conversation as an advisor
 @m1 what do you think     # goes to m1 only
 @all which way            # every advisor at once, plus the agent
+@m1                       # nothing after the name: every message goes to m1
+@vera                     # and back to the agent
 what do you make of that  # bare message goes to the agent
 /remove m1                # m1 leaves
 /remove all               # everyone leaves
@@ -25,6 +27,16 @@ Automatic delivery was tried and removed. When every participant reads every
 other one, they converge within a couple of turns, and a second opinion that
 agrees carries no information. Moving an answer across is yours to do, and
 selecting the part that matters is the point rather than a chore.
+
+To move one, select it. Dragging over text in either pane copies it as usual
+and parks it above the composer, and the next message carries it, quoted and
+attributed to whoever said it. `@m1 cross check pls` sends it to an advisor, a
+bare message sends it to the agent, and esc drops it unsent.
+
+An address on its own is held. `@m1` with nothing after it sends every
+message to m1 until `@vera` takes it back, and the composer says whose name it
+is holding for as long as it holds one. A seat that leaves lets go. It is for
+the follow-up: one answer is a second opinion, and three is a conversation.
 
 Merging is you writing the next message. Nothing here votes, folds, or picks a
 winner, and the agent is the only one that runs tools.
@@ -52,10 +64,11 @@ Add it to your Vera config:
 
 ## Capabilities it uses
 
-- `client.commands.register` for `/add` and `/remove`
+- `client.commands.register` for `/btw`, `/seats` and `/remove`
 - `client.messages.intercept` to read `@alias` before the message is sent
 - `client.consult` to ask an advisor, outside the turn
 - `client.thread.read` so an advisor arrives knowing the conversation
 - `client.ui.mentions` so `@alias` completes in the composer
+- `client.ui.addressing` so the composer says which seat is being held
 - `client.ui.sidebar` and `client.ui.transcript` for the lanes
 - `client.ui.notice` for one-line status

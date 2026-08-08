@@ -53,9 +53,18 @@ export interface TuiSidebarOptions {
     readonly onLayoutChanged?: () => void;
 }
 
+/** A block in the column, paired with the label drawn above it. */
+export interface TuiSidebarBlock {
+    readonly node: BoxRenderable;
+    /** Who a quotation taken from this block is attributed to. */
+    readonly speaker: string;
+}
+
 export interface TuiSidebar {
     /** Holds the transcript and the sidebar side by side. */
     readonly body: BoxRenderable;
+    /** What a selection can land in, and who said it. */
+    blocks(): readonly TuiSidebarBlock[];
     isOpen(): boolean;
     /** True while the split is actually drawn: false when narrow or hidden. */
     isShown(): boolean;
@@ -63,7 +72,7 @@ export interface TuiSidebar {
     toggleHidden(): void;
     open(): void;
     close(): void;
-    append(label: string, text: string): void;
+    append(label: string, text: string, speaker?: string): void;
     clear(): void;
     /** Re-reads the terminal width; call it on resize. */
     refit(): void;
@@ -93,6 +102,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     // of the way until it is asked back.
     let hidden = false;
     let blocks = 0;
+    const appended: TuiSidebarBlock[] = [];
 
     // The divider is grabbed on mouse-down, and every drag after that resizes
     // wherever the pointer went. A fast drag reports its first motion well
@@ -229,7 +239,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             resize(width);
             apply();
         },
-        append(label: string, text: string): void {
+        append(label: string, text: string, speaker?: string): void {
             blocks += 1;
             const block = new BoxRenderable(renderer, {
                 id: `sidebar-block-${blocks}`,
@@ -259,13 +269,16 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
                 }),
             );
             content.add(block);
+            appended.push({ node: block, speaker: speaker ?? label });
             options.onLayoutChanged?.();
         },
+        blocks: () => appended,
         clear(): void {
             for (const child of [...content.getChildren()]) {
                 content.remove(child.id);
             }
             blocks = 0;
+            appended.length = 0;
             options.onLayoutChanged?.();
         },
         width: () => width,

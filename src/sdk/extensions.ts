@@ -335,6 +335,23 @@ export interface VeraClientExtensionUi {
      * Capability: `client.ui.mentions`.
      */
     readonly mentions: VeraClientExtensionMentions;
+    /**
+     * Who the next message is going to, when it is not the agent. The client
+     * shows the name where the user is about to type, because a message that
+     * leaves by a different door than usual has to say so before it is sent
+     * rather than after.
+     *
+     * The client is told a name, not a rule: routing stays with the extension
+     * that decided it.
+     *
+     * Capability: `client.ui.addressing`.
+     */
+    readonly addressing: VeraClientExtensionAddressing;
+}
+
+export interface VeraClientExtensionAddressing {
+    /** A name to show, or nothing when the agent is the recipient again. */
+    set(name: string | undefined): void;
 }
 
 export interface VeraClientExtensionMentions {
@@ -442,6 +459,12 @@ export interface VeraClientTranscriptBlock {
     /** Names the source, rendered above the text. */
     readonly label: string;
     readonly text: string;
+    /**
+     * Who is talking, for when the block is quoted into a message. The label
+     * is written to be read in place and often carries more than a name, so a
+     * quotation attributed to it reads badly. Defaults to the label.
+     */
+    readonly speaker?: string;
 }
 
 /**
