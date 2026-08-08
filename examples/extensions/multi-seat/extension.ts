@@ -138,6 +138,14 @@ export function activateClient(vera: any): void {
                     text: "Seated. Ask with @" + alias + ", or @all.",
                 });
             }
+            // The agent meets the seat before it is quoted one: a quote from a
+            // name it has never heard reads as a stray paste.
+            unread.get(AGENT)!.push(
+                `[${alias} (${model}) joined this conversation as an advisor. `
+                    + "It has no tools and cannot see this thread. Its replies "
+                    + "reach you only when quoted into a message like this "
+                    + "one.]",
+            );
             vera.ui.notice(`@${alias} is ${model}. @all asks everyone.`);
         },
     });
@@ -168,6 +176,7 @@ export function activateClient(vera: any): void {
                 throw new Error(`No seat named ${alias}`);
             }
             unread.delete(alias);
+            unread.get(AGENT)!.push(`[${alias} left the conversation.]`);
             offerMentions();
             if (seats.size === 0 && sidebarOpen) {
                 vera.ui.sidebar.close();

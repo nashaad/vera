@@ -15,6 +15,13 @@ const EXTENSION = join(
     import.meta.dir,
     "../../examples/extensions/multi-seat",
 );
+/** What the agent is told when a seat sits down. */
+function joined(alias: string, model: string): string {
+    return `[${alias} (${model}) joined this conversation as an advisor. It `
+        + "has no tools and cannot see this thread. Its replies reach you only "
+        + "when quoted into a message like this one.]";
+}
+
 const WORKSPACE = "/tmp/workspace";
 
 interface Harness {
@@ -152,7 +159,8 @@ test("an addressed message goes to that seat alone, and only that one", async ()
         imageCount: 0,
     })).toEqual({
         kind: "replace",
-        text: "[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\nsay more",
+        text: `${joined("m1", "gpt-5.5")}\n\n`
+            + "[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\nsay more",
     });
     await harness.settle();
     expect(harness.consults).toHaveLength(1);
@@ -183,7 +191,11 @@ test("@all asks every seat at once and hands the agent the same message", async 
         text: "@all which way",
         workspace: WORKSPACE,
         imageCount: 0,
-    })).toEqual({ kind: "replace", text: "which way" });
+    })).toEqual({
+        kind: "replace",
+        text: `${joined("m1", "gpt-5.5")}\n\n${joined("m2", "glm-5.2")}`
+            + "\n\nwhich way",
+    });
     await harness.settle();
     expect(harness.consults.map((request) => request.model))
         .toEqual(["gpt-5.5", "glm-5.2"]);
@@ -216,7 +228,8 @@ test("the agent's next message carries the replies it has not seen", async () =>
     });
     expect(decision).toEqual({
         kind: "replace",
-        text: "[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\ngo with that",
+        text: `${joined("m1", "gpt-5.5")}\n\n`
+            + "[m1 (gpt-5.5) replied:]\ngpt-5.5 says so\n\ngo with that",
     });
 
     // Quoted once: the agent has read it now.
