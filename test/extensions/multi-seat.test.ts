@@ -21,6 +21,7 @@ interface Harness {
     readonly consults: VeraClientConsultRequest[];
     readonly blocks: VeraClientTranscriptBlock[];
     readonly notices: string[];
+    readonly sidebar: { title?: string; readonly blocks: VeraClientTranscriptBlock[] };
     /** Resolves once every consult fired so far has posted its block. */
     settle(): Promise<void>;
 }
@@ -30,6 +31,10 @@ async function start(): Promise<Harness> {
     const blocks: VeraClientTranscriptBlock[] = [];
     const notices: string[] = [];
     const answers: Promise<unknown>[] = [];
+    const sidebar: {
+        title?: string;
+        readonly blocks: VeraClientTranscriptBlock[];
+    } = { blocks: [] };
     const registry = await startClientExtensionRegistry({
         extensions: [{ path: EXTENSION, enabled: true, config: null }],
         preferences: {
@@ -53,6 +58,18 @@ async function start(): Promise<Harness> {
         },
         notice: { post: (_id, text) => notices.push(text) },
         transcript: { append: (_id, block) => blocks.push(block) },
+        sidebar: {
+            open(_id, title) {
+                sidebar.title = title;
+            },
+            append: (_id, block) => sidebar.blocks.push(block),
+            clear() {
+                sidebar.blocks.length = 0;
+            },
+            close() {
+                sidebar.title = undefined;
+            },
+        },
         consult: {
             request(_id, request) {
                 consults.push(request);
@@ -73,6 +90,7 @@ async function start(): Promise<Harness> {
         consults,
         blocks,
         notices,
+        sidebar,
         async settle() {
             await Promise.all(answers);
             // One more turn of the loop, so the block posted after the await
@@ -104,9 +122,12 @@ test("an addressed message goes to that seat alone and makes it incumbent", asyn
     })).toEqual({ kind: "handled" });
     await harness.settle();
     expect(harness.consults.map((request) => request.model)).toEqual(["gpt-5.5"]);
-    expect(harness.blocks).toEqual([
+    expect(harness.sidebar.title).toBe("Seats");
+    expect(harness.sidebar.blocks).toEqual([
         { label: "m1 (gpt-5.5)", text: "gpt-5.5 says so" },
     ]);
+    // The transcript stays the agent's: the seats talk beside it.
+    expect(harness.blocks).toEqual([]);
 
     // The bare follow-up stays with the seat that answered last.
     expect(await harness.registry.interceptMessage({
@@ -134,7 +155,7 @@ test("@all asks every seat at once and hands the agent the same message", async 
     await harness.settle();
     expect(harness.consults.map((request) => request.model))
         .toEqual(["gpt-5.5", "glm-5.2"]);
-    expect(harness.blocks.map((block) => block.label))
+    expect(harness.sidebar.blocks.map((block) => block.label))
         .toEqual(["m1 (gpt-5.5)", "m2 (glm-5.2)"]);
     await harness.registry.close();
 });

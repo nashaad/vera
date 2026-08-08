@@ -57,6 +57,7 @@ const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
 const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
 const CLIENT_CONSULT_CAPABILITY = "client.consult";
 const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
+const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
 /**
@@ -140,6 +141,14 @@ export interface ClientExtensionTranscriptAdapter {
     append(extensionId: string, block: VeraClientTranscriptBlock): void;
 }
 
+export interface ClientExtensionSidebarAdapter {
+    /** Throws when another extension already holds the sidebar. */
+    open(extensionId: string, title: string): void;
+    append(extensionId: string, block: VeraClientTranscriptBlock): void;
+    clear(extensionId: string): void;
+    close(extensionId: string): void;
+}
+
 export interface StartClientExtensionRegistryOptions {
     readonly extensions: readonly ClientExtensionConfig[];
     readonly preferences: ClientExtensionPreferencesAdapter;
@@ -148,6 +157,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly notice: ClientExtensionNoticeAdapter;
     readonly consult?: ClientExtensionConsultAdapter;
     readonly transcript?: ClientExtensionTranscriptAdapter;
+    readonly sidebar?: ClientExtensionSidebarAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -302,6 +312,7 @@ export async function startClientExtensionRegistry(
                 notice: options.notice,
                 consult: options.consult,
                 transcript: options.transcript,
+                sidebar: options.sidebar,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -566,6 +577,7 @@ interface ActivateClientExtensionOptions {
     readonly notice: ClientExtensionNoticeAdapter;
     readonly consult: ClientExtensionConsultAdapter | undefined;
     readonly transcript: ClientExtensionTranscriptAdapter | undefined;
+    readonly sidebar: ClientExtensionSidebarAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
 
@@ -596,6 +608,14 @@ async function activateClientExtension(
         if (phase === "unavailable") {
             throw new Error(`Client extension ${options.id} is unavailable`);
         }
+    };
+    const requireSidebar = (): ClientExtensionSidebarAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_SIDEBAR_CAPABILITY);
+        if (options.sidebar === undefined) {
+            throw new Error("This client has no sidebar");
+        }
+        return options.sidebar;
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
@@ -743,6 +763,21 @@ async function activateClientExtension(
                 }
                 options.transcript.append(options.id, validated);
             },
+            sidebar: Object.freeze({
+                open(title: string): void {
+                    requireSidebar().open(options.id, validateSidebarTitle(title));
+                },
+                append(block: VeraClientTranscriptBlock): void {
+                    const adapter = requireSidebar();
+                    adapter.append(options.id, validateTranscriptBlock(block));
+                },
+                clear(): void {
+                    requireSidebar().clear(options.id);
+                },
+                close(): void {
+                    requireSidebar().close(options.id);
+                },
+            }),
         }),
         keybindings: Object.freeze({
             register(spec: VeraClientExtensionKeybindingSpec): void {
@@ -1295,6 +1330,14 @@ function validateConsultRequest(request: VeraClientConsultRequest): void {
             throw new Error("Consult message content must not be empty");
         }
     }
+}
+
+function validateSidebarTitle(title: string): string {
+    const trimmed = typeof title === "string" ? title.trim() : "";
+    if (trimmed.length === 0) {
+        throw new Error("Client extension sidebar title must not be empty");
+    }
+    return trimmed;
 }
 
 function validateTranscriptBlock(

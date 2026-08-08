@@ -8,6 +8,7 @@
     "client.consult",
     "client.messages.intercept",
     "client.ui.notice",
+    "client.ui.sidebar",
     "client.ui.transcript"
   ]
 }

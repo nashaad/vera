@@ -165,6 +165,57 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "an extension opens a sidebar beside the transcript and closes it again",
+    async () => {
+        const socket = `vera-sidebar-${process.pid}-${randomUUID()}`;
+        const session = "sidebar";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-sidebar-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/pane");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "beside the transcript",
+            );
+            expect(pane).toContain("Seats");
+            // Both columns on one line: the split is a layout, not a takeover.
+            expect(pane).toMatch(/Start a conversation.+m1 \(faux\)/);
+
+            sendText(socket, session, "/unpane");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => !visible.includes("beside the transcript"),
+                "the sidebar to close",
+            );
+            expect(pane).not.toContain("Seats");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "an open command palette gains late extension commands",
     async () => {
         const socket = `vera-help-late-${process.pid}-${randomUUID()}`;
