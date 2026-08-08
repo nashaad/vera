@@ -12,6 +12,7 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import {
+    DIALOG_CARD_PADDING,
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER,
     dialogFooterNode,
@@ -149,9 +150,10 @@ export function createTuiCommandPaletteView(
         width: "80%",
         height: 8,
         zIndex: 15,
-        paddingLeft: 2,
-        paddingRight: 2,
-        paddingTop: 1,
+        paddingLeft: DIALOG_CARD_PADDING,
+        paddingRight: DIALOG_CARD_PADDING,
+        paddingTop: 2,
+        paddingBottom: 1,
         focusable: true,
         visible: false,
     });
@@ -187,7 +189,6 @@ export function createTuiCommandPaletteView(
                 row.kind === "command"
                     ? [{
                         label: row.command.label,
-                        leading: "  ",
                         description: row.command.description.length === 0
                             ? undefined
                             : row.command.description,
