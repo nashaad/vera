@@ -30,6 +30,8 @@ export function activateClient(vera: any): void {
     const maxSeats: number = vera.config?.maxSeats ?? 1;
     let sidebarOpen = false;
     let saidThreadUnreadable = false;
+    /** Whether the thread has been checked for seats from a previous run. */
+    let lookedForOldSeats = false;
     /** Replies each participant has not been shown yet, oldest first. */
     const unread = new Map<string, string[]>([[AGENT, []]]);
 
@@ -313,7 +315,35 @@ export function activateClient(vera: any): void {
             };
     }
 
+    /**
+     * Seats do not survive a restart: they are a live side conversation, not
+     * part of the record. The thread does survive, so a resumed conversation
+     * still carries the note that someone joined. Said once, so the agent
+     * stops speaking as though that seat were still there.
+     */
+    function noteSeatsGone(): void {
+        if (lookedForOldSeats) return;
+        lookedForOldSeats = true;
+        let turns: { role: string; text: string }[];
+        try {
+            turns = [...vera.thread.read()];
+        } catch {
+            return;
+        }
+        const joined = turns.some((turn) =>
+            turn.text.includes("joined this conversation as an advisor")
+        );
+        if (!joined || seats.size > 0) return;
+        unread.get(AGENT)!.push(
+            "<system-note>\nThe advisors seated earlier in this conversation "
+                + "are gone: seats do not survive a restart. Speak as though "
+                + "you are alone with the user until told otherwise.\n"
+                + "</system-note>",
+        );
+    }
+
     vera.messages.intercept((message: { text: string }) => {
+        noteSeatsGone();
         // An empty room can still owe the agent a note: the last seat leaving
         // is exactly the thing it has not been told yet.
         if (seats.size === 0) {
