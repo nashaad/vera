@@ -38,6 +38,27 @@ export const POST_COMPACTION_TARGET_FRACTION = 0.45;
  */
 export const UNKNOWN_CAPACITY_TARGET_FRACTION = 0.35;
 
+/**
+ * The token count a session with no known window compacts at when nothing else
+ * bounds it. Without it such a session has no bound at all: it grows until the
+ * provider rejects the request.
+ */
+export const UNKNOWN_CAPACITY_TRIGGER_TOKENS = 100_000;
+
+/**
+ * The absolute bound in force, which is the configured one when there is one
+ * and otherwise the default that only a session with no known window gets.
+ */
+function effectiveTriggerTokens(
+    capacity: number | undefined,
+    trigger?: CompactionTrigger,
+): number | undefined {
+    if (trigger?.tokens !== undefined) {
+        return trigger.tokens;
+    }
+    return capacity === undefined ? UNKNOWN_CAPACITY_TRIGGER_TOKENS : undefined;
+}
+
 /** A summary smaller than this cannot carry a session, so do not ask for one. */
 export const MIN_SUMMARY_TOKENS = 400;
 
@@ -83,8 +104,8 @@ export interface CompactionSchedulerOptions {
  * The whole request budget a compaction has to land under, before the fixed
  * overhead and the retained turns are taken out of it.
  *
- * Undefined means there is nothing to size a summary against: no window, and
- * no absolute target or trigger to derive one from.
+ * A session with no window is sized against its token trigger, which is the
+ * default one when none is configured.
  */
 export function compactionTargetBudget(
     measurement: ContextMeasurement,
@@ -98,7 +119,10 @@ export function compactionTargetBudget(
     if (budget?.targetTokens !== undefined) {
         return budget.targetTokens;
     }
-    const triggerTokens = budget?.trigger?.tokens;
+    const triggerTokens = effectiveTriggerTokens(
+        measurement.capacity,
+        budget?.trigger,
+    );
     return triggerTokens === undefined
         ? undefined
         : Math.floor(triggerTokens * UNKNOWN_CAPACITY_TARGET_FRACTION);
@@ -122,13 +146,16 @@ export function shouldCompact(
     if (measurement === undefined) {
         return false;
     }
-    if (trigger?.tokens !== undefined && measurement.tokens >= trigger.tokens) {
+    const triggerTokens = effectiveTriggerTokens(
+        measurement.capacity,
+        trigger,
+    );
+    if (triggerTokens !== undefined && measurement.tokens >= triggerTokens) {
         return true;
     }
     if (measurement.capacity === undefined) {
-        // No window means no fraction to compare against, and no absolute
-        // bound was configured. Picking one here would fire on a model with
-        // room to spare and never fire on one without.
+        // No window means no fraction to compare against, and the absolute
+        // bound above is the only one such a session ever gets.
         return false;
     }
     const fraction = trigger?.fraction ?? COMPACTION_TRIGGER_FRACTION;
@@ -144,7 +171,10 @@ export function compactionBudgetWarning(
     measurement: ContextMeasurement,
     budget?: CompactionBudget,
 ): string | undefined {
-    const triggerTokens = budget?.trigger?.tokens;
+    const triggerTokens = effectiveTriggerTokens(
+        measurement.capacity,
+        budget?.trigger,
+    );
     const target = compactionTargetBudget(measurement, budget);
     if (
         triggerTokens === undefined
