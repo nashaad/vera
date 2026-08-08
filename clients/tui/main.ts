@@ -162,6 +162,7 @@ import {
     tuiPickerViewportRows,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
+    switchedModelTab,
     syncTuiModelPicker,
     startTuiReasoningPicker,
     startTuiSessionPicker,
@@ -1245,6 +1246,13 @@ export async function startTui(
         if (settingsPicker === undefined) return;
         settingsPicker = { ...settingsPicker, selectedIndex: index };
     });
+    settingsPickerView.onTab = (tab) => {
+        if (settingsPicker === undefined || settingsPicker.kind !== "model") {
+            return;
+        }
+        settingsPicker = switchedModelTab(settingsPicker, tab);
+        renderState();
+    };
     preferencesListView.pointer = rowPointer((index) => {
         if (preferencesList === undefined) return;
         preferencesList = { ...preferencesList, selectedIndex: index };

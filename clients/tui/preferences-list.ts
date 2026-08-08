@@ -261,7 +261,6 @@ export function createTuiPreferencesListView(
                 const row = dialogOptionRow(renderer, {
                     label: formatPredicate(entry.when),
                     active: index === state.selectedIndex,
-                    leading: index === state.selectedIndex ? "> " : "  ",
                     ...dialogRowPointer(view.pointer, index),
                 });
                 rows.add(row);
