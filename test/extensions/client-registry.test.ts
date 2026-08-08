@@ -1094,6 +1094,48 @@ test("consulting requires the capability", async () => {
     await registry.close();
 });
 
+test("an extension writes a labeled block into the transcript", async () => {
+    const extension = createExtension("client.block", [
+        "client.ui.transcript",
+        "client.commands.register",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "say",
+                description: "write a block",
+                usage: "/say",
+                run() {
+                    vera.ui.transcript({
+                        label: "  m1 (claude-opus-5)  ",
+                        text: "a longer answer\\n\\nwith paragraphs",
+                    });
+                },
+            });
+        }
+    `);
+    const blocks: unknown[] = [];
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        onFailure: (failure) => failures.push(failure),
+        transcript: {
+            append(extensionId, block) {
+                blocks.push({ extensionId, ...block });
+            },
+        },
+    });
+
+    expect(failures).toEqual([]);
+    await registry.invokeCommand("say", "", "/tmp/workspace");
+    expect(blocks).toEqual([{
+        extensionId: "client.block",
+        label: "m1 (claude-opus-5)",
+        text: "a longer answer\n\nwith paragraphs",
+    }]);
+    await registry.close();
+});
+
 function createExtension(
     id: string,
     capabilities: readonly string[],

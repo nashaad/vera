@@ -848,6 +848,21 @@ export function appendTuiNotice(state: TuiState, message: string): TuiState {
     return appendEntry(state, { kind: "notice", text: message });
 }
 
+/**
+ * A labeled block an extension wrote. It renders like a message but is not one:
+ * the transcript is a view here, and nothing about the session changed.
+ */
+export function appendTuiExtensionBlock(
+    state: TuiState,
+    label: string,
+    text: string,
+): TuiState {
+    return appendEntry(state, {
+        kind: "notification",
+        text: `**${label}**\n\n${text}`,
+    });
+}
+
 export function failTuiConnection(state: TuiState, message: string): TuiState {
     return appendTuiNotice({
         ...state,
