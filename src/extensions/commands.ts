@@ -32,11 +32,25 @@ export interface ExtensionCommandResult {
     readonly body: ExtensionCommandBody;
 }
 
+/**
+ * What a command's first argument names, so a client can complete it. Only
+ * `model` today: the client owns the pool, the extension only says it wants a
+ * model there.
+ */
+export type ExtensionCommandArgumentKind = "model";
+
 export interface ExtensionCommandDescriptor {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
     readonly source: string;
+    readonly arguments?: ExtensionCommandArgumentKind;
+}
+
+export function isExtensionCommandArgumentKind(
+    value: unknown,
+): value is ExtensionCommandArgumentKind {
+    return value === "model";
 }
 
 export class ExtensionCommandUnavailableError extends Error {}

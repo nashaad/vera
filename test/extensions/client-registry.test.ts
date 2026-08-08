@@ -2007,3 +2007,59 @@ async function saveCurrentIntoFirstSlot(
     await registry.close();
     return (preferences.get("vera.model-presets:slots") as unknown[])[0];
 }
+
+test("a declared argument kind reaches the client, a bogus one is refused", async () => {
+    const good = createExtension(
+        "client.arguments",
+        ["client.commands.register"],
+        `
+            export function activateClient(vera) {
+                vera.commands.register({
+                    name: "add",
+                    description: "Add a seat",
+                    usage: "/add <model>",
+                    arguments: "model",
+                    run() {
+                        return { kind: "text", text: "added" };
+                    },
+                });
+            }
+        `,
+    );
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(good)],
+        ...createHarness().adapters,
+    });
+    expect(registry.commands()).toEqual([{
+        name: "add",
+        description: "Add a seat",
+        usage: "/add <model>",
+        source: "client.arguments",
+        arguments: "model",
+    }]);
+    await registry.close();
+
+    const bad = createExtension(
+        "client.bad-arguments",
+        ["client.commands.register"],
+        `
+            export function activateClient(vera) {
+                vera.commands.register({
+                    name: "add",
+                    description: "Add a seat",
+                    usage: "/add <model>",
+                    arguments: "colour",
+                    run() {
+                        return { kind: "text", text: "added" };
+                    },
+                });
+            }
+        `,
+    );
+    const refused = await startClientExtensionRegistry({
+        extensions: [configured(bad)],
+        ...createHarness().adapters,
+    });
+    expect(refused.commands()).toEqual([]);
+    await refused.close();
+});

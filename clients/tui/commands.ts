@@ -10,10 +10,14 @@ import type {
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
 
+/** What a command's first argument names, so the composer can complete it. */
+export type TuiCommandArgumentKind = "model";
+
 export interface TuiCommandCatalogEntry {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
+    readonly arguments?: TuiCommandArgumentKind;
 }
 
 export interface OpenRewindTuiCommandAction {
@@ -213,6 +217,7 @@ export interface TuiCommandDefinition {
         | CompactSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
+    readonly arguments?: TuiCommandArgumentKind;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
 
@@ -371,6 +376,9 @@ export class TuiCommandRegistry {
             name: command.name,
             description: command.description,
             usage: command.usage,
+            ...(command.arguments === undefined
+                ? {}
+                : { arguments: command.arguments }),
         }));
     }
 
@@ -387,6 +395,22 @@ export class TuiCommandRegistry {
         return this.registeredCommands().filter((command) =>
             command.name.startsWith(prefix)
         );
+    }
+
+    /**
+     * The half-typed first argument of a command that declares one, or
+     * undefined anywhere else. Only the first argument completes: `/add gpt as
+     * m1` is past it by the second word.
+     */
+    argumentPrefix(
+        input: string,
+    ): { kind: TuiCommandArgumentKind; prefix: string } | undefined {
+        const match = /^\s*\/([a-z][a-z0-9-]*)\s+(\S*)$/.exec(input);
+        if (match === null) {
+            return undefined;
+        }
+        const kind = this.commands.get(match[1] ?? "")?.arguments;
+        return kind === undefined ? undefined : { kind, prefix: match[2] ?? "" };
     }
 
     completion(input: string): string | undefined {
@@ -483,6 +507,9 @@ export function registerExtensionTuiCommands(
             description: command.description,
             usage: command.usage,
             prefixPriority: "extension",
+            ...(command.arguments === undefined
+                ? {}
+                : { arguments: command.arguments }),
             parse: run,
             palette: {
                 name: `extension:${command.source}:${command.name}`,
@@ -539,6 +566,61 @@ export function renderTuiCommandSuggestions(
             `/${command.name.padEnd(commandWidth)}`,
         ));
         chunks.push(fg(TUI_MUTED)(`  ${command.description}`));
+    });
+    return new StyledText(chunks);
+}
+
+/** The values that could finish a half-typed argument, best match first. */
+export function tuiArgumentSuggestions(
+    values: readonly string[],
+    prefix: string,
+): readonly string[] {
+    const lower = prefix.toLowerCase();
+    if (lower.length === 0) {
+        return values;
+    }
+    const starts = values.filter((value) =>
+        value.toLowerCase().startsWith(lower)
+    );
+    const contains = values.filter((value) =>
+        !value.toLowerCase().startsWith(lower)
+        && value.toLowerCase().includes(lower)
+    );
+    return [...starts, ...contains];
+}
+
+/** What Tab should type, or undefined when there is nothing left to add. */
+export function tuiArgumentCompletion(
+    values: readonly string[],
+    prefix: string,
+): string | undefined {
+    const suggestions = tuiArgumentSuggestions(values, prefix).filter((value) =>
+        value.toLowerCase().startsWith(prefix.toLowerCase())
+    );
+    if (suggestions.length === 0) {
+        return undefined;
+    }
+    const completed = sharedPrefix(suggestions);
+    return completed.length > prefix.length ? completed : undefined;
+}
+
+/** Swaps the half-typed trailing argument for the chosen one. */
+export function tuiWithArgument(input: string, value: string): string {
+    return input.replace(/\S*$/, value);
+}
+
+export function renderTuiArgumentSuggestions(
+    values: readonly string[],
+    selectedIndex = -1,
+): StyledText {
+    const chunks: TextChunk[] = [];
+    values.forEach((value, index) => {
+        const active = index === selectedIndex;
+        if (index > 0) {
+            chunks.push(fg(TUI_MUTED)("\n"));
+        }
+        chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
+        chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(value));
     });
     return new StyledText(chunks);
 }
