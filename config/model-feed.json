@@ -1,5 +1,735 @@
 {
-    "schema_version": 1,
-    "generated_at": "2026-08-07T00:00:00.000Z",
-    "models": []
+  "schema_version": 1,
+  "generated_at": "2026-08-07T19:19:39.844Z",
+  "models": [
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-opus-5",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "anthropic/claude-opus-5",
+      "reason": null,
+      "verified_at": "2026-08-07T19:13:21.404Z",
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025"
+      },
+      "context_window": 1000000
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-5",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "anthropic/claude-sonnet-5",
+      "reason": null,
+      "verified_at": "2026-08-07T19:13:33.040Z",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.00001"
+      },
+      "context_window": 1000000
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-fable-5",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "anthropic/claude-fable-5",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:02.923Z",
+      "pricing": {
+        "prompt": "0.00001",
+        "completion": "0.00005"
+      },
+      "context_window": 1000000
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-opus-4.8",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "anthropic/claude-opus-4.8",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:10.835Z",
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.000025"
+      },
+      "context_window": 1000000
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-haiku-4.5",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "anthropic/claude-haiku-4.5",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:18.751Z",
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000005"
+      },
+      "context_window": 200000
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-luna",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "openai/gpt-5.6-luna",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:23.833Z",
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000006"
+      },
+      "context_window": 1050000
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-terra",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "openai/gpt-5.6-terra",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:29.158Z",
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000006"
+      },
+      "context_window": 1050000
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.6-sol",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "openai/gpt-5.6-sol",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:34.956Z",
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.00003"
+      },
+      "context_window": 1050000
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-5.5",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "openai/gpt-5.5",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:44.833Z",
+      "pricing": {
+        "prompt": "0.000005",
+        "completion": "0.00003"
+      },
+      "context_window": 1050000
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-oss-120b",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "openai/gpt-oss-120b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:14:58.599Z",
+      "pricing": {
+        "prompt": "0.000000037",
+        "completion": "0.00000017"
+      },
+      "context_window": 131072
+    },
+    {
+      "provider": "openrouter",
+      "model": "openai/gpt-oss-20b",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "openai/gpt-oss-20b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:15:11.788Z",
+      "pricing": {
+        "prompt": "0.00000003",
+        "completion": "0.00000013"
+      },
+      "context_window": 131072
+    },
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-pro-preview",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "google/gemini-3.1-pro-preview",
+      "reason": null,
+      "verified_at": "2026-08-07T19:15:24.729Z",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000012"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.6-flash",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "google/gemini-3.6-flash",
+      "reason": null,
+      "verified_at": "2026-08-07T19:15:30.283Z",
+      "pricing": {
+        "prompt": "0.0000015",
+        "completion": "0.0000075"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.5-flash",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "google/gemini-3.5-flash",
+      "reason": null,
+      "verified_at": "2026-08-07T19:15:37.333Z",
+      "pricing": {
+        "prompt": "0.0000015",
+        "completion": "0.000009"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "google/gemini-3.1-flash-lite",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "google/gemini-3.1-flash-lite",
+      "reason": null,
+      "verified_at": "2026-08-07T19:15:42.258Z",
+      "pricing": {
+        "prompt": "0.00000025",
+        "completion": "0.0000015"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "x-ai/grok-4.5",
+      "verdict": "incompatible",
+      "verified_levels": [],
+      "provider_default_level": null,
+      "response_model": null,
+      "reason": "All providers have been ignored. To change your default ignored providers, visit: https://openrouter.ai/settings/privacy",
+      "verified_at": "2026-08-07T19:15:43.258Z",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000006"
+      },
+      "context_window": 500000
+    },
+    {
+      "provider": "openrouter",
+      "model": "x-ai/grok-4.3",
+      "verdict": "incompatible",
+      "verified_levels": [],
+      "provider_default_level": null,
+      "response_model": null,
+      "reason": "All providers have been ignored. To change your default ignored providers, visit: https://openrouter.ai/settings/privacy",
+      "verified_at": "2026-08-07T19:15:46.312Z",
+      "pricing": {
+        "prompt": "0.00000125",
+        "completion": "0.0000025"
+      },
+      "context_window": 1000000
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "deepseek/deepseek-v4-pro",
+      "reason": null,
+      "verified_at": "2026-08-07T19:15:56.955Z",
+      "pricing": {
+        "prompt": "0.000000435",
+        "completion": "0.00000087"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "deepseek/deepseek-v4-flash",
+      "reason": null,
+      "verified_at": "2026-08-07T19:16:07.815Z",
+      "pricing": {
+        "prompt": "0.00000014",
+        "completion": "0.00000028"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v3.2",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "deepseek/deepseek-v3.2",
+      "reason": null,
+      "verified_at": "2026-08-07T19:16:32.444Z",
+      "pricing": {
+        "prompt": "0.000000269",
+        "completion": "0.0000004"
+      },
+      "context_window": 163840
+    },
+    {
+      "provider": "openrouter",
+      "model": "qwen/qwen3-coder",
+      "verdict": "added",
+      "verified_levels": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "provider_default_level": null,
+      "response_model": "qwen/qwen3-coder",
+      "reason": null,
+      "verified_at": "2026-08-07T19:16:36.344Z",
+      "pricing": {
+        "prompt": "0.0000003",
+        "completion": "0.000001"
+      },
+      "context_window": 262144
+    },
+    {
+      "provider": "openrouter",
+      "model": "qwen/qwen3.8-max",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "qwen/qwen3.8-max",
+      "reason": null,
+      "verified_at": "2026-08-07T19:16:43.954Z",
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000006"
+      },
+      "context_window": 1000000
+    },
+    {
+      "provider": "openrouter",
+      "model": "qwen/qwen3.7-plus",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "qwen/qwen3.7-plus",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:00.842Z",
+      "pricing": {
+        "prompt": "0.00000032",
+        "completion": "0.00000128"
+      },
+      "context_window": 1000000
+    },
+    {
+      "provider": "openrouter",
+      "model": "qwen/qwen3.6-27b",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "qwen/qwen3.6-27b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:12.084Z",
+      "pricing": {
+        "prompt": "0.0000006",
+        "completion": "0.0000036"
+      },
+      "context_window": 262144
+    },
+    {
+      "provider": "openrouter",
+      "model": "meta-llama/llama-4-maverick",
+      "verdict": "added",
+      "verified_levels": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "provider_default_level": null,
+      "response_model": "meta-llama/llama-4-maverick",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:16.222Z",
+      "pricing": {
+        "prompt": "0.0000002",
+        "completion": "0.0000008"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "meta-llama/llama-4-scout",
+      "verdict": "added",
+      "verified_levels": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "provider_default_level": null,
+      "response_model": "meta-llama/llama-4-scout",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:21.239Z",
+      "pricing": {
+        "prompt": "0.0000001",
+        "completion": "0.0000003"
+      },
+      "context_window": 1310720
+    },
+    {
+      "provider": "openrouter",
+      "model": "moonshotai/kimi-k3",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "moonshotai/kimi-k3",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:31.960Z",
+      "pricing": {
+        "prompt": "0.000003",
+        "completion": "0.000015"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "moonshotai/kimi-k2.7-code",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "moonshotai/kimi-k2.7-code",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:37.004Z",
+      "pricing": {
+        "prompt": "0.0000007",
+        "completion": "0.0000035"
+      },
+      "context_window": 262144
+    },
+    {
+      "provider": "openrouter",
+      "model": "moonshotai/kimi-k2-thinking",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "moonshotai/kimi-k2-thinking",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:47.071Z",
+      "pricing": {
+        "prompt": "0.0000006",
+        "completion": "0.0000025"
+      },
+      "context_window": 262144
+    },
+    {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.2",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "z-ai/glm-5.2",
+      "reason": null,
+      "verified_at": "2026-08-07T19:17:54.959Z",
+      "pricing": {
+        "prompt": "0.0000005166",
+        "completion": "0.0000016236"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "z-ai/glm-5",
+      "reason": null,
+      "verified_at": "2026-08-07T19:18:03.746Z",
+      "pricing": {
+        "prompt": "0.00000095",
+        "completion": "0.00000255"
+      },
+      "context_window": 204800
+    },
+    {
+      "provider": "openrouter",
+      "model": "minimax/minimax-m3",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "minimax/minimax-m3",
+      "reason": null,
+      "verified_at": "2026-08-07T19:18:11.289Z",
+      "pricing": {
+        "prompt": "0.0000003",
+        "completion": "0.0000012"
+      },
+      "context_window": 1048576
+    },
+    {
+      "provider": "openrouter",
+      "model": "minimax/minimax-m2.7",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "minimax/minimax-m2.7",
+      "reason": null,
+      "verified_at": "2026-08-07T19:18:22.241Z",
+      "pricing": {
+        "prompt": "0.00000027",
+        "completion": "0.00000108"
+      },
+      "context_window": 204800
+    },
+    {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-large-2512",
+      "verdict": "added",
+      "verified_levels": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "provider_default_level": null,
+      "response_model": "mistralai/mistral-large-2512",
+      "reason": null,
+      "verified_at": "2026-08-07T19:18:33.066Z",
+      "pricing": {
+        "prompt": "0.0000005",
+        "completion": "0.0000015"
+      },
+      "context_window": 262144
+    },
+    {
+      "provider": "ollama",
+      "model": "qwen3:4b",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "qwen3:4b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:18:55.305Z",
+      "pricing": null,
+      "context_window": null
+    },
+    {
+      "provider": "ollama",
+      "model": "qwen3:1.7b",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "qwen3:1.7b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:19:04.562Z",
+      "pricing": null,
+      "context_window": null
+    },
+    {
+      "provider": "ollama",
+      "model": "gemma4:12b",
+      "verdict": "added",
+      "verified_levels": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "provider_default_level": null,
+      "response_model": "gemma4:12b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:19:24.248Z",
+      "pricing": null,
+      "context_window": null
+    },
+    {
+      "provider": "ollama",
+      "model": "granite4.1:8b",
+      "verdict": "added",
+      "verified_levels": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "provider_default_level": null,
+      "response_model": "granite4.1:8b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:19:34.999Z",
+      "pricing": null,
+      "context_window": null
+    },
+    {
+      "provider": "ollama",
+      "model": "llama3.2:1b",
+      "verdict": "added",
+      "verified_levels": [],
+      "provider_default_level": null,
+      "response_model": "llama3.2:1b",
+      "reason": null,
+      "verified_at": "2026-08-07T19:19:39.839Z",
+      "pricing": null,
+      "context_window": null
+    }
+  ]
 }
