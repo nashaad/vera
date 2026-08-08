@@ -1774,6 +1774,21 @@ export async function startTui(
             if (completing !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
+                // A highlighted row is a choice already made with the arrow
+                // keys, so Tab takes it rather than typing the shared prefix
+                // of rows the user has already moved past.
+                const highlighted = argumentSuggestions[commandSuggestionIndex];
+                if (
+                    highlighted !== undefined
+                    && highlighted.toLowerCase()
+                        !== completing.prefix.toLowerCase()
+                ) {
+                    composer.setComposerText(
+                        tuiWithArgument(composer.plainText, highlighted),
+                    );
+                    renderCommandSuggestions();
+                    return;
+                }
                 const completed = tuiArgumentCompletion(
                     completing.values,
                     completing.prefix,

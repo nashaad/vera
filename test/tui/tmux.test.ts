@@ -2331,8 +2331,8 @@ test.skipIf(!tmuxAvailable)(
             // so a seat can be removed without spelling it out.
             sendText(socket, session, "/remove ");
             pane = await waitForVisiblePane(socket, session, "frosty");
-            // Enter chooses the highlighted name, and the next one sends it.
-            sendKey(socket, session, "Enter");
+            // Tab chooses the highlighted name, the same as Enter does.
+            sendKey(socket, session, "Tab");
             await waitForVisiblePane(socket, session, "/remove frosty");
             sendKey(socket, session, "Enter");
             // The column says who is in the room, so it says when someone is
