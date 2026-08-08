@@ -351,6 +351,11 @@ export type TuiAnySettingsPickerState =
 export interface TuiSettingsPickerView {
     readonly box: BoxRenderable;
     pointer?: DialogRowPointer;
+    /**
+     * The tip line drawn above the key hints, or nothing. Set before `update`;
+     * the pane redraws from scratch on every update and reads it then.
+     */
+    tip?: string;
     update(state: TuiAnySettingsPickerState): void;
 }
 
@@ -1387,7 +1392,14 @@ export function createTuiSettingsPickerView(
             // terminal rather than the inset card the settings panes use.
             box.left = state.kind === "session" ? 0 : "10%";
             box.width = state.kind === "session" ? "100%" : "80%";
-            renderListPickerRows(renderer, box, state, nodes, view.pointer);
+            renderListPickerRows(
+                renderer,
+                box,
+                state,
+                nodes,
+                view.pointer,
+                view.tip,
+            );
         },
     };
     return view;
@@ -1465,6 +1477,7 @@ function renderListPickerRows(
     state: TuiAnySettingsPickerState,
     nodes: Renderable[],
     pointer?: DialogRowPointer,
+    tip?: string,
 ): void {
     const searchable = state.kind !== "extension";
     const header = dialogHeaderNode(
@@ -1578,6 +1591,23 @@ function renderListPickerRows(
         nodes.push(node);
     });
 
+    // Above the hints, below the rows: the tip is about the pane, so it sits
+    // with the pane's other standing text rather than floating over the list.
+    if (tip !== undefined && tip.length > 0) {
+        const tipNode = new TextRenderable(renderer, {
+            content: new StyledText([
+                { text: DIALOG_GUTTER } as TextChunk,
+                fg(TUI_ACCENT)("Tip "),
+                fg(TUI_MUTED)(tip),
+            ]),
+            width: "100%",
+            height: 1,
+            marginTop: 1,
+        });
+        box.add(tipNode);
+        nodes.push(tipNode);
+    }
+
     const footer = dialogFooterNode(
         renderer,
         pickerFooter(state, pickerContentWidth(renderer, state)),
@@ -1586,7 +1616,8 @@ function renderListPickerRows(
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
         + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
-        + subtitleLines;
+        + subtitleLines
+        + (tip !== undefined && tip.length > 0 ? 2 : 0);
 }
 
 // The strip, its explanation, and the blank line under both.
@@ -1714,6 +1745,12 @@ export function pickerFooter(
             ...(selected?.provider === undefined
                 ? []
                 : [{ text: tuiKeyHint("verify_model"), drop: 4 }]),
+            // Naming belongs to a pool entry, so the hint appears on the same
+            // rows the key works on and nowhere else.
+            ...(pool === undefined || selected === undefined
+                    || !isPooled(state, selected)
+                ? []
+                : [{ text: tuiKeyHint("name_pooled"), drop: 5 }]),
             // Only while the cursor is on a heading: the keys do nothing on a
             // model row, and a hint for them there would be a lie.
             // The whole-list keys are worth a slot behind the row's own keys;

@@ -1809,6 +1809,18 @@ test("a named pool row reads by its name and keeps the model id on the row", asy
         .toContain("gpt-5.6-sol");
 });
 
+test("the footer offers the name key on a pooled row and not on an unpooled one", () => {
+    const pooled = modelPickerWithPool(
+        pooledModels,
+        "gpt-5.6-sol",
+        "openai-codex",
+    );
+    expect(pickerFooter(pooled)).toContain("name");
+
+    const unpooled = modelPickerWithPool([], "moonshotai/kimi-k3");
+    expect(pickerFooter(unpooled)).not.toContain("name");
+});
+
 test("an old session stays on the relative clock instead of a calendar date", async () => {
     const state = startTuiSessionPicker([
         {

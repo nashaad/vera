@@ -110,6 +110,17 @@ export interface VeraConfig {
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
     readonly event_log?: VeraEventLogConfig;
+    readonly tips?: VeraTipsConfig;
+}
+
+/**
+ * The tip lines the TUI shows above the composer and inside its overlays.
+ *
+ * On by default because tips are how the key bindings are discovered at all.
+ * Absent means on.
+ */
+export interface VeraTipsConfig {
+    readonly enabled?: boolean;
 }
 
 /**
@@ -380,6 +391,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     );
     const experimental = parseExperimental(config.experimental);
     const eventLog = parseEventLog(config.event_log);
+    const tips = parseEventLog(config.tips);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -452,6 +464,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             }),
         ...(config.experimental === undefined ? {} : { experimental }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
+        ...(config.tips === undefined ? {} : { tips }),
     };
 }
 
@@ -488,6 +501,11 @@ function parseEventLog(value: unknown): VeraEventLogConfig | undefined {
 /** Absent config, absent block, and absent key all mean on. */
 export function eventLogEnabled(config: VeraConfig): boolean {
     return config.event_log?.enabled !== false;
+}
+
+/** Absent config, absent block, and absent key all mean on. */
+export function tipsEnabled(config: Pick<VeraConfig, "tips">): boolean {
+    return config.tips?.enabled !== false;
 }
 
 function parseStringList(value: unknown): readonly string[] | undefined {
