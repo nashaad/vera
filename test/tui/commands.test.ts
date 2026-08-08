@@ -346,14 +346,14 @@ test("only a declaring command completes its first argument", () => {
             name: "add",
             description: "Add a seat",
             usage: "/add <model> as <alias>",
-            source: "multi-seat",
+            source: "advisor",
             arguments: "model",
         },
         {
             name: "drop",
             description: "Drop a seat",
             usage: "/drop <alias>",
-            source: "multi-seat",
+            source: "advisor",
         },
     ], "client");
 

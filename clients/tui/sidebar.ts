@@ -78,7 +78,7 @@ export interface TuiSidebar {
 /**
  * A region beside the transcript that something other than the transcript owns.
  *
- * It is deliberately not a multi-seat pane: it takes labelled blocks of text,
+ * It is deliberately not a multi-lane pane: it takes labelled blocks of text,
  * so the next thing that needs a second column does not need a second
  * implementation.
  */

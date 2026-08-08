@@ -2287,9 +2287,9 @@ test.skipIf(!tmuxAvailable)(
 test.skipIf(!tmuxAvailable)(
     "a seated model answers in its own column, and its note stays off the band",
     async () => {
-        const socket = `vera-multi-seat-${process.pid}-${randomUUID()}`;
-        const session = "multi-seat";
-        const home = mkdtempSync(join(tmpdir(), "vera-multi-seat-"));
+        const socket = `vera-advisor-${process.pid}-${randomUUID()}`;
+        const session = "advisor";
+        const home = mkdtempSync(join(tmpdir(), "vera-advisor-"));
         let pane = "";
 
         try {
@@ -2297,7 +2297,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
@@ -2354,7 +2354,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
@@ -2406,7 +2406,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
@@ -2456,7 +2456,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
@@ -2510,7 +2510,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
@@ -2558,7 +2558,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
@@ -2613,7 +2613,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
@@ -2666,7 +2666,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 home,
-                "test/support/tui-multi-seat-child.ts",
+                "test/support/tui-advisor-child.ts",
                 100,
                 30,
             );
