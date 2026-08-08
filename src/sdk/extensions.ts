@@ -85,6 +85,7 @@ export interface VeraClientExtensionApi {
     readonly keybindings: VeraClientExtensionKeybindings;
     readonly statusLine: VeraClientExtensionStatusLine;
     readonly messages: VeraClientExtensionMessages;
+    readonly consult: VeraClientExtensionConsult;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 
@@ -343,6 +344,39 @@ export interface VeraClientExtensionStatusLineSpec {
 export type VeraClientStatusLineRenderer = (
     snapshot: VeraClientStatusSnapshot,
 ) => readonly VeraClientStatusSegment[];
+
+/**
+ * A second model's read on the conversation, outside the turn.
+ *
+ * The named model answers or the call fails. Vera never substitutes another
+ * one, because an extension that asked for a specific model has no use for a
+ * different model's answer. A consult runs no tools, streams nothing, and adds
+ * nothing to the session.
+ */
+export interface VeraClientExtensionConsult {
+    (request: VeraClientConsultRequest): Promise<VeraClientConsultResult>;
+}
+
+export interface VeraClientConsultRequest {
+    readonly model: string;
+    readonly provider?: string;
+    readonly reasoningEffort?: string;
+    readonly systemPrompt?: string;
+    readonly messages: readonly VeraClientConsultMessage[];
+    readonly maxTokens?: number;
+}
+
+export interface VeraClientConsultMessage {
+    readonly role: "user" | "assistant";
+    readonly content: string;
+}
+
+export interface VeraClientConsultResult {
+    readonly text: string;
+    /** Which model answered. Diagnostic only; it is the one that was asked. */
+    readonly model: string;
+    readonly provider?: string;
+}
 
 export interface VeraClientExtensionMessages {
     /**

@@ -5,6 +5,8 @@ import type {
     AgentStatus,
     AgentUpdate,
     ClientCommand,
+    ConsultRejectedUpdate,
+    ConsultResultUpdate,
     HistoryUpdate,
     ImageAttachedUpdate,
     SessionNameReplyUpdate,
@@ -14,6 +16,7 @@ import {
     isTimelineCommand,
     isTimelineReplyUpdate,
     isSessionNameReplyUpdate,
+    isConsultReplyUpdate,
 } from "../engine/protocol.ts";
 import type { MessageChannel } from "../engine/message-channel.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
@@ -211,6 +214,12 @@ export class ResidentAgent {
                                     ownerId: attachmentId,
                                     command: clone(command),
                                 }
+                            : command.type === "consult"
+                                ? {
+                                    type: "owned_consult_command",
+                                    ownerId: attachmentId,
+                                    command: clone(command),
+                                }
                             : clone(command),
                         countsTowardLimit: true,
                     });
@@ -251,6 +260,16 @@ export class ResidentAgent {
     sendTimelineReply(
         ownerId: string,
         reply: TimelineReplyUpdate,
+    ): void {
+        const outgoing = this.attachments.get(ownerId);
+        if (outgoing !== undefined && !this.isClosed) {
+            outgoing.push(clone(reply));
+        }
+    }
+
+    sendConsultReply(
+        ownerId: string,
+        reply: ConsultResultUpdate | ConsultRejectedUpdate,
     ): void {
         const outgoing = this.attachments.get(ownerId);
         if (outgoing !== undefined && !this.isClosed) {
@@ -425,6 +444,9 @@ export class ResidentAgent {
         }
         if (isSessionNameReplyUpdate(update)) {
             throw new Error("Session name replies must target one attachment");
+        }
+        if (isConsultReplyUpdate(update)) {
+            throw new Error("Consult replies must target one attachment");
         }
         if (
             update.type === "image_attached"

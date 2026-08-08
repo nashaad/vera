@@ -13,6 +13,8 @@ import type {
     VeraClientExtensionModule,
     VeraClientExtensionStatusLineSpec,
     VeraClientMessageDecision,
+    VeraClientConsultRequest,
+    VeraClientConsultResult,
     VeraClientMessageInterceptor,
     VeraClientStatusLineRenderer,
     VeraClientModelSettingsListener,
@@ -52,6 +54,7 @@ const CLIENT_PICKER_CAPABILITY = "client.ui.picker";
 const CLIENT_NOTICE_CAPABILITY = "client.ui.notice";
 const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
 const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
+const CLIENT_CONSULT_CAPABILITY = "client.consult";
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
 /**
@@ -119,6 +122,14 @@ export interface ClientExtensionPickerAdapter {
     ): Promise<VeraClientPickerResult>;
 }
 
+export interface ClientExtensionConsultAdapter {
+    request(
+        extensionId: string,
+        request: VeraClientConsultRequest,
+        signal: AbortSignal,
+    ): Promise<VeraClientConsultResult>;
+}
+
 export interface ClientExtensionNoticeAdapter {
     post(extensionId: string, text: string): void;
 }
@@ -129,6 +140,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly modelSettings: ClientExtensionModelSettingsAdapter;
     readonly picker: ClientExtensionPickerAdapter;
     readonly notice: ClientExtensionNoticeAdapter;
+    readonly consult?: ClientExtensionConsultAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -281,6 +293,7 @@ export async function startClientExtensionRegistry(
                 modelSettings: options.modelSettings,
                 picker: options.picker,
                 notice: options.notice,
+                consult: options.consult,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -543,6 +556,7 @@ interface ActivateClientExtensionOptions {
     readonly modelSettings: ClientExtensionModelSettingsAdapter;
     readonly picker: ClientExtensionPickerAdapter;
     readonly notice: ClientExtensionNoticeAdapter;
+    readonly consult: ClientExtensionConsultAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
 
@@ -745,6 +759,24 @@ async function activateClientExtension(
                 statusLine = spec.render;
             },
         }),
+        consult(request: VeraClientConsultRequest): Promise<
+            VeraClientConsultResult
+        > {
+            requireAvailable();
+            requireCapability(CLIENT_CONSULT_CAPABILITY);
+            validateConsultRequest(request);
+            const adapter = options.consult;
+            if (adapter === undefined) {
+                return Promise.reject(
+                    new Error("This client cannot consult another model"),
+                );
+            }
+            return adapter.request(
+                options.id,
+                structuredClone(request),
+                invocationSignal.getStore() ?? new AbortController().signal,
+            ).then((result) => structuredClone(result));
+        },
         messages: Object.freeze({
             intercept(handler: VeraClientMessageInterceptor): void {
                 requireRegistrationPhase(phase, "message interceptors");
@@ -1228,6 +1260,23 @@ function validateNoticeText(text: string): string {
         throw new Error("Client extension notice text must not be empty");
     }
     return trimmed;
+}
+
+function validateConsultRequest(request: VeraClientConsultRequest): void {
+    if (typeof request?.model !== "string" || request.model.trim().length === 0) {
+        throw new Error("Consult request must name a model");
+    }
+    if (!Array.isArray(request.messages) || request.messages.length === 0) {
+        throw new Error("Consult request must carry at least one message");
+    }
+    for (const message of request.messages) {
+        if (message?.role !== "user" && message?.role !== "assistant") {
+            throw new Error("Consult message role must be user or assistant");
+        }
+        if (typeof message.content !== "string" || message.content.length === 0) {
+            throw new Error("Consult message content must not be empty");
+        }
+    }
 }
 
 function currentAvailableModel(

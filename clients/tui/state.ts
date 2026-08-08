@@ -448,6 +448,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     ) {
         return state;
     }
+    // A consult belongs to the extension that asked for it, not to the
+    // transcript: nothing here changes because another model answered.
+    if (
+        update.type === "consult_result"
+        || update.type === "consult_rejected"
+    ) {
+        return state;
+    }
     if (
         update.type === "timeline"
         || update.type === "timeline_action_preview"

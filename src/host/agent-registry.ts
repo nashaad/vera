@@ -29,6 +29,7 @@ import {
     runHeadlessLoop,
     sessionScratchDir,
 } from "../engine/run-turn.ts";
+import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
@@ -58,8 +59,10 @@ import { providerOf } from "../model/pool-file.ts";
 import { resolvePoolRef } from "../model/pool-names.ts";
 import type {
     ModelAdapter,
+    ModelMessage,
     ModelReasoningEffort,
 } from "../model/types.ts";
+import { emptyUsage } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import {
     availableModelsWithLevels,
@@ -80,6 +83,7 @@ import {
 } from "../store/session-store.ts";
 import { createSessionBranch } from "../store/session-branch.ts";
 import type { UserMessage } from "../model/types.ts";
+import type { ConsultMessage } from "../engine/protocol.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import { agentNameKey, mintAgentName } from "./agent-name.ts";
 import type {
@@ -1542,6 +1546,41 @@ export class AgentRegistry {
                     this.poolRemove(agent.id, entry),
                 poolName: (entry, name) =>
                     this.poolName(agent.id, entry, name),
+                ...(adapter === undefined ? {} : {
+                    consult: (request, signal) => {
+                        // One candidate, so the route cannot fall back: the
+                        // caller named a model and gets that model or an error.
+                        const complete = createRoutedCompletionService(adapter, {
+                            models: [{
+                                model: request.model,
+                                ...(request.provider === undefined
+                                    ? {}
+                                    : { provider: request.provider }),
+                                ...(request.reasoningEffort === undefined
+                                    ? {}
+                                    : isModelReasoningEffort(
+                                            request.reasoningEffort,
+                                        )
+                                    ? {
+                                        reasoningEffort:
+                                            request.reasoningEffort,
+                                    }
+                                    : {}),
+                            }],
+                        });
+                        return complete({
+                            systemPrompt: request.systemPrompt ?? "",
+                            messages: request.messages.map((message) =>
+                                consultModelMessage(message)
+                            ),
+                            ...(request.maxTokens === undefined
+                                ? {}
+                                : { maxTokens: request.maxTokens }),
+                        }, signal);
+                    },
+                }),
+                sendConsultReply: (ownerId, reply) =>
+                    agent.sendConsultReply(ownerId, reply),
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
@@ -2101,5 +2140,23 @@ function settingsForClient(
                     : { reasoningEffort: subagentModel.reasoningEffort }),
             },
         ...(contextWindow === undefined ? {} : { contextWindow }),
+    };
+}
+
+/**
+ * A consult carries plain text in both directions, so the peer turns it
+ * replays are reconstructed rather than taken from a transcript.
+ */
+function consultModelMessage(message: ConsultMessage): ModelMessage {
+    const content = [{ type: "text" as const, text: message.content }];
+    if (message.role === "user") {
+        return { role: "user", content };
+    }
+    return {
+        role: "assistant",
+        content,
+        source: { provider: "consult", api: "consult", model: "consult" },
+        usage: emptyUsage(),
+        stopReason: "stop",
     };
 }

@@ -50,6 +50,8 @@ import {
     type ClientExtensionRegistry,
 } from "../../src/extensions/client-registry.ts";
 import type {
+    VeraClientConsultRequest,
+    VeraClientConsultResult,
     VeraClientModelSettingsPatch,
     VeraClientModelSettingsUpdateResult,
     VeraClientPickerRequest,
@@ -695,6 +697,14 @@ export async function startTui(
         /** Restored to the composer if the rename never lands, when it came from one. */
         readonly commandText?: string;
     } | undefined;
+    /**
+     * Consults in flight, keyed by request. Several may run at once: an
+     * extension with more than one seat asks them all in parallel.
+     */
+    const pendingConsults = new Map<string, {
+        readonly resolve: (result: VeraClientConsultResult) => void;
+        readonly reject: (reason: Error) => void;
+    }>();
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -742,6 +752,10 @@ export async function startTui(
         picker: {
             request: (_extensionId, request, signal) =>
                 requestExtensionPicker(request, signal),
+        },
+        consult: {
+            request: (_extensionId, request, signal) =>
+                requestExtensionConsult(request, signal),
         },
         notice: {
             post(_extensionId, text) {
@@ -2630,6 +2644,25 @@ export async function startTui(
                     continue;
                 }
                 if (
+                    update.type === "consult_result"
+                    || update.type === "consult_rejected"
+                ) {
+                    const pending = pendingConsults.get(update.requestId);
+                    if (pending === undefined) continue;
+                    if (update.type === "consult_result") {
+                        pending.resolve({
+                            text: update.text,
+                            model: update.model,
+                            ...(update.provider === undefined
+                                ? {}
+                                : { provider: update.provider }),
+                        });
+                    } else {
+                        pending.reject(new Error(update.reason));
+                    }
+                    continue;
+                }
+                if (
                     update.type === "session_name"
                     || update.type === "session_name_rejected"
                 ) {
@@ -2929,6 +2962,58 @@ export async function startTui(
                 pendingExtensionSettings.delete(requestId);
                 signal.removeEventListener("abort", onAbort);
                 reject(error);
+            });
+        });
+    }
+
+    function requestExtensionConsult(
+        request: VeraClientConsultRequest,
+        signal: AbortSignal,
+    ): Promise<VeraClientConsultResult> {
+        if (signal.aborted) {
+            return Promise.reject(signal.reason as Error);
+        }
+        const requestId = randomUUID();
+        return new Promise<VeraClientConsultResult>((resolve, reject) => {
+            const settle = (): void => {
+                signal.removeEventListener("abort", onAbort);
+                pendingConsults.delete(requestId);
+            };
+            const onAbort = (): void => {
+                settle();
+                reject(signal.reason as Error);
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            pendingConsults.set(requestId, {
+                resolve: (result) => {
+                    settle();
+                    resolve(result);
+                },
+                reject: (reason) => {
+                    settle();
+                    reject(reason);
+                },
+            });
+            sendCommand({
+                type: "consult",
+                requestId,
+                model: request.model,
+                ...(request.provider === undefined
+                    ? {}
+                    : { provider: request.provider }),
+                ...(request.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: request.reasoningEffort }),
+                ...(request.systemPrompt === undefined
+                    ? {}
+                    : { systemPrompt: request.systemPrompt }),
+                messages: request.messages.map((message) => ({
+                    role: message.role,
+                    content: message.content,
+                })),
+                ...(request.maxTokens === undefined
+                    ? {}
+                    : { maxTokens: request.maxTokens }),
             });
         });
     }
@@ -4323,6 +4408,10 @@ export async function startTui(
     function switchToClient(next: TuiAgentClient, draft?: TuiDraft): void {
         const previous = client;
         clientGeneration += 1;
+        // The old session owned these calls; nothing will answer them now.
+        for (const pending of [...pendingConsults.values()]) {
+            pending.reject(new Error("The conversation changed"));
+        }
         client = next;
         setTuiWorkspaceRoot(next.workspace ?? process.cwd());
         void previous.detach().catch(() => previous.close());

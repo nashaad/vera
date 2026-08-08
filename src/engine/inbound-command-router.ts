@@ -11,6 +11,10 @@ import type {
 } from "./events.ts";
 import type {
     AgentUpdate,
+    ConsultCommand,
+    ConsultMessage,
+    ConsultRejectedUpdate,
+    ConsultResultUpdate,
     PromptCommand,
     SessionNameReplyUpdate,
     UiResponseCommand,
@@ -171,6 +175,30 @@ export interface InboundCommandRouterOptions {
     readonly updateSessionName?: (
         name: string | null,
     ) => Promise<string | null | undefined>;
+    /**
+     * Runs one bounded call against the named model and returns its text. The
+     * named model answers or the call fails: this never falls back to another
+     * model, because the caller asked for a specific one.
+     */
+    readonly consult?: (
+        request: {
+            readonly provider?: string;
+            readonly model: string;
+            readonly reasoningEffort?: string;
+            readonly systemPrompt?: string;
+            readonly messages: readonly ConsultMessage[];
+            readonly maxTokens?: number;
+        },
+        signal: AbortSignal,
+    ) => Promise<{
+        readonly text: string;
+        readonly model: string;
+        readonly provider?: string;
+    }>;
+    readonly sendConsultReply?: (
+        ownerId: string,
+        reply: ConsultResultUpdate | ConsultRejectedUpdate,
+    ) => void;
     readonly sendSessionNameReply?: (
         ownerId: string,
         reply: SessionNameReplyUpdate,
@@ -400,6 +428,12 @@ export class InboundCommandRouter {
                     );
                     continue;
                 }
+                if (command.type === "owned_consult_command") {
+                    // Not awaited: a consult is a side call, and blocking the
+                    // command loop on it would stall the user's own turn.
+                    void this.consult(command.ownerId, command.command);
+                    continue;
+                }
                 if (command.type === "owned_session_name_command") {
                     await this.updateSessionName(
                         command.ownerId,
@@ -533,6 +567,13 @@ export class InboundCommandRouter {
                         command.requestId,
                         command.id,
                     );
+                    continue;
+                }
+
+                if (command.type === "consult") {
+                    // Not awaited: a consult is a side call, and blocking the
+                    // command loop on it would stall the user's own turn.
+                    void this.consult("direct-client", command);
                     continue;
                 }
 
@@ -710,6 +751,54 @@ export class InboundCommandRouter {
 
     private hasPendingTurn(): boolean {
         return this.activeTurn !== undefined || this.pendingPromptCount > 0;
+    }
+
+    private async consult(
+        ownerId: string,
+        command: ConsultCommand,
+    ): Promise<void> {
+        const run = this.options.consult;
+        if (run === undefined) {
+            this.options.sendConsultReply?.(ownerId, {
+                type: "consult_rejected",
+                requestId: command.requestId,
+                reason: "This session cannot consult another model.",
+            });
+            return;
+        }
+        try {
+            const result = await run({
+                model: command.model,
+                messages: command.messages,
+                ...(command.provider === undefined
+                    ? {}
+                    : { provider: command.provider }),
+                ...(command.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: command.reasoningEffort }),
+                ...(command.systemPrompt === undefined
+                    ? {}
+                    : { systemPrompt: command.systemPrompt }),
+                ...(command.maxTokens === undefined
+                    ? {}
+                    : { maxTokens: command.maxTokens }),
+            }, new AbortController().signal);
+            this.options.sendConsultReply?.(ownerId, {
+                type: "consult_result",
+                requestId: command.requestId,
+                text: result.text,
+                model: result.model,
+                ...(result.provider === undefined
+                    ? {}
+                    : { provider: result.provider }),
+            });
+        } catch (error) {
+            this.options.sendConsultReply?.(ownerId, {
+                type: "consult_rejected",
+                requestId: command.requestId,
+                reason: error instanceof Error ? error.message : String(error),
+            });
+        }
     }
 
     private async updateSessionName(

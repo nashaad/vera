@@ -89,6 +89,7 @@ import {
 import { availableModels, contextWindowForModel } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
+import type { InboundCommandRouterOptions } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     decideToolPermission,
@@ -288,6 +289,8 @@ export interface RunHeadlessLoopOptions {
         ownerId: string,
         reply: SessionNameReplyUpdate,
     ) => void;
+    readonly consult?: InboundCommandRouterOptions["consult"];
+    readonly sendConsultReply?: InboundCommandRouterOptions["sendConsultReply"];
     readonly reviewToolCall?: ReviewToolCall;
     readonly disabledPromptContributions?: readonly string[];
     /** Hooks for the session's turns; absent means none registered. */
@@ -453,6 +456,10 @@ export async function runHeadlessLoop(
             : { updateSessionName: options.updateSessionName }),
         sendSessionNameReply: options.sendSessionNameReply
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
+        ...(options.consult === undefined ? {} : { consult: options.consult }),
+        ...(options.sendConsultReply === undefined
+            ? {}
+            : { sendConsultReply: options.sendConsultReply }),
         addPermissionGrants,
         removePermissionGrant,
         handleTimelineCommand: (ownerId, command) =>

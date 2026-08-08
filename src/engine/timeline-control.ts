@@ -10,6 +10,7 @@ import { attachmentRefs } from "./protocol.ts";
 import type {
     AttachmentNameLookup,
     ClientCommand,
+    ConsultCommand,
     ProtocolEncoder,
     TimelineActionRejectionReason,
     TimelineActionPlan,
@@ -40,10 +41,17 @@ export interface OwnedSessionNameCommand {
     readonly command: UpdateSessionNameCommand;
 }
 
+export interface OwnedConsultCommand {
+    readonly type: "owned_consult_command";
+    readonly ownerId: string;
+    readonly command: ConsultCommand;
+}
+
 export type EngineCommand =
     | ClientCommand
     | OwnedTimelineCommand
     | OwnedSessionNameCommand
+    | OwnedConsultCommand
     | TimelineOwnerDetachedCommand
     | TriggerDeliveryTurnCommand;
 
