@@ -964,16 +964,14 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "user") {
         // The band around a user message is chrome the renderer draws, so the
-        // text itself carries no marker. What an extension prepended is drawn
-        // muted, so the user's own words stand apart from the machinery.
+        // text itself carries no marker. What an extension prepended is not
+        // drawn at all: it was sent, but it is not something the user said.
         const prefix = entry.dimmedPrefix ?? 0;
-        if (prefix > 0 && prefix < entry.text.length) {
-            return new StyledText([
-                fg(TUI_MUTED)(entry.text.slice(0, prefix)),
-                fg(TUI_TEXT)(entry.text.slice(prefix)),
-            ]);
-        }
-        return new StyledText([fg(TUI_TEXT)(entry.text)]);
+        return new StyledText([fg(TUI_TEXT)(
+            prefix > 0 && prefix < entry.text.length
+                ? entry.text.slice(prefix)
+                : entry.text,
+        )]);
     }
     if (entry.kind === "tool_header") {
         const header = bold(fg(TUI_ACCENT)(entry.text));
