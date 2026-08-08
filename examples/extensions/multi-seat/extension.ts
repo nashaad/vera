@@ -293,6 +293,26 @@ export function activateClient(vera: any): void {
         },
     });
 
+    /**
+     * The message the agent is sent: what the user wrote, under whatever it
+     * has not been shown yet. The head is declared rather than left for the
+     * client to guess, so the client can show the user's own words alone.
+     */
+    function toAgent(text: string): {
+        kind: "replace";
+        text: string;
+        injectedPrefix?: number;
+    } {
+        const head = takeUnread(AGENT);
+        return head.length === 0
+            ? { kind: "replace", text }
+            : {
+                kind: "replace",
+                text: `${head}${text}`,
+                injectedPrefix: head.length,
+            };
+    }
+
     vera.messages.intercept((message: { text: string }) => {
         if (seats.size === 0) return undefined;
         const addressed = /^@(\S+)\s+([\s\S]+)$/.exec(message.text);
@@ -301,7 +321,7 @@ export function activateClient(vera: any): void {
 
         if (target === "all") {
             for (const seat of seats.values()) void ask(seat, text);
-            return { kind: "replace", text: `${takeUnread(AGENT)}${text}` };
+            return toAgent(text);
         }
         if (target !== undefined && seats.has(target)) {
             void ask(seats.get(target)!, text);
@@ -313,6 +333,6 @@ export function activateClient(vera: any): void {
             vera.ui.notice(`No seat named @${target}`);
             return { kind: "handled" };
         }
-        return { kind: "replace", text: `${takeUnread(AGENT)}${text}` };
+        return toAgent(text);
     });
 }

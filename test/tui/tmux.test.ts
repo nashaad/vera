@@ -2253,6 +2253,150 @@ test.skipIf(!tmuxAvailable)(
     30_000,
 );
 
+test.skipIf(!tmuxAvailable)(
+    "@all reaches every seat and the agent in one message",
+    async () => {
+        const socket = `vera-seat-all-${process.pid}-${randomUUID()}`;
+        const session = "seat-all";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-all-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/add advisor as m1");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+            sendText(socket, session, "/add second as m2");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @m2");
+
+            sendText(socket, session, "@all which ordering");
+            sendKey(socket, session, "Enter");
+            // Both seats answer in the column, and the agent answers in the
+            // transcript: `@all` is everyone, not only the seats.
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
+            expect(pane).toContain("m1 (faux-advisor)");
+            expect(pane).toContain("m2 (faux-second)");
+            // What the agent was sent is not what the band shows.
+            expect(pane).toContain("which ordering");
+            expect(pane).not.toContain("system-note");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "removing a seat completes its name and says so in its column",
+    async () => {
+        const socket = `vera-seat-remove-${process.pid}-${randomUUID()}`;
+        const session = "seat-remove";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-remove-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/add advisor as frosty");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @frosty");
+            // A second seat, so the column outlives the one being removed.
+            sendText(socket, session, "/add second as m2");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @m2");
+
+            // The argument completes from the names the extension published,
+            // so a seat can be removed without spelling it out.
+            sendText(socket, session, "/remove ");
+            pane = await waitForVisiblePane(socket, session, "frosty");
+            // Enter chooses the highlighted name, and the next one sends it.
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "/remove frosty");
+            sendKey(socket, session, "Enter");
+            // The column says who is in the room, so it says when someone is
+            // not: an ended lane should not read as one gone quiet.
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Left the conversation.",
+            );
+            expect(pane).toContain("@frosty left");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "a seat that cannot answer says so where its answer would have been",
+    async () => {
+        const socket = `vera-seat-failure-${process.pid}-${randomUUID()}`;
+        const session = "seat-failure";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-failure-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/add broken as m1");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+
+            sendText(socket, session, "@m1 you there");
+            sendKey(socket, session, "Enter");
+            // In the column, under the seat's own label: a failed round is a
+            // gap in that conversation, not a notice about somewhere else.
+            pane = await waitForVisiblePane(socket, session, "Could not answer");
+            expect(pane).toContain("you \u2192 @m1");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
 function sendText(socket: string, session: string, value: string): void {
     runTmux(socket, ["send-keys", "-t", session, "-l", value]);
 }

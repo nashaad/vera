@@ -483,11 +483,20 @@ export interface VeraClientOutgoingMessage {
  * returns nothing cannot accidentally swallow a message. `replace` sends the
  * given text instead; the client keeps the original in submit history, since
  * that is what the user typed and would want to recall.
+ *
+ * `injectedPrefix` counts the leading characters of `text` the interceptor
+ * added. The model is sent all of it, and the client shows the rest, so an
+ * extension's own machinery does not read as the user's words. An interceptor
+ * that leaves it out is shown whole.
  */
 export type VeraClientMessageDecision =
     | { readonly kind: "pass" }
     | { readonly kind: "handled" }
-    | { readonly kind: "replace"; readonly text: string };
+    | {
+        readonly kind: "replace";
+        readonly text: string;
+        readonly injectedPrefix?: number;
+    };
 
 export type VeraClientMessageInterceptor = (
     message: VeraClientOutgoingMessage,

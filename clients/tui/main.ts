@@ -1772,12 +1772,12 @@ export async function startTui(
         if (tuiBindingId("composer", key) === "complete_command") {
             const completing = activeCompletion();
             if (completing !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
                 const completed = tuiArgumentCompletion(
                     completing.values,
                     completing.prefix,
                 );
-                key.preventDefault();
-                key.stopPropagation();
                 if (completed !== undefined) {
                     composer.setComposerText(
                         tuiWithArgument(composer.plainText, completed),
@@ -2025,7 +2025,10 @@ export async function startTui(
      * what the user typed. Its presence is also what stops a second trip
      * through the interceptors.
      */
-    function submitPrompt(interceptedText?: string, typedText?: string): void {
+    function submitPrompt(
+        interceptedText?: string,
+        injectedPrefix?: number,
+    ): void {
         if (
             promptSubmitting
             || sessionSwitchPending
@@ -2750,16 +2753,9 @@ export async function startTui(
         }
         composer.rememberSubmittedText(prompt);
         composer.clearComposer();
-        // When an extension replaced the message, the tail is still what the
-        // user typed; the injected head renders muted.
-        const dimmedPrefix = typedText !== undefined
-                && prompt.length > typedText.length
-                && prompt.endsWith(typedText)
-            ? prompt.length - typedText.length
-            : undefined;
         state = state.working
             ? queueTuiPrompt(state, prompt)
-            : beginTuiTurn(state, prompt, attachments, dimmedPrefix);
+            : beginTuiTurn(state, prompt, attachments, injectedPrefix);
         adoptFallbackSessionTitle(prompt);
         if (workingSince === undefined) {
             workingSince = Date.now();
@@ -2800,7 +2796,7 @@ export async function startTui(
             }
             submitPrompt(
                 decision.kind === "replace" ? decision.text : prompt,
-                prompt,
+                decision.kind === "replace" ? decision.injectedPrefix : undefined,
             );
         }).catch((error) => {
             messageInterceptPending = false;

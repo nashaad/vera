@@ -1463,7 +1463,19 @@ function parseMessageDecision(
         return undefined;
     }
     const text = Reflect.get(value, "text");
-    return typeof text === "string" && text.trim().length > 0
-        ? { kind: "replace", text }
+    if (typeof text !== "string" || text.trim().length === 0) {
+        return undefined;
+    }
+    const injectedPrefix = Reflect.get(value, "injectedPrefix");
+    if (injectedPrefix === undefined) {
+        return { kind: "replace", text };
+    }
+    // A prefix that covers the whole message leaves nothing to show, which is
+    // an interceptor claiming the user said nothing.
+    return typeof injectedPrefix === "number"
+            && Number.isInteger(injectedPrefix)
+            && injectedPrefix > 0
+            && injectedPrefix < text.length
+        ? { kind: "replace", text, injectedPrefix }
         : undefined;
 }
