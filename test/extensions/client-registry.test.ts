@@ -17,6 +17,7 @@ import type {
     VeraClientModelSettingsListener,
     VeraClientModelSettingsSnapshot,
     VeraClientPickerRequest,
+    VeraClientConsultRequest,
     VeraClientPickerResult,
 } from "../../src/sdk/extensions.ts";
 import {
@@ -1018,6 +1019,78 @@ test("intercepting messages requires the capability", async () => {
 
     expect(registry.hasMessageInterceptors()).toBe(false);
     expect(failures[0]?.message).toContain("client.messages.intercept");
+    await registry.close();
+});
+
+test("a consult reaches the client adapter and returns the named model's answer", async () => {
+    const extension = createExtension("client.seat", [
+        "client.consult",
+        "client.ui.notice",
+        "client.commands.register",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "ask",
+                description: "ask the second seat",
+                usage: "/ask",
+                async run() {
+                    const answer = await vera.consult({
+                        model: "claude-opus-5",
+                        messages: [{ role: "user", content: "hello" }],
+                    });
+                    vera.ui.notice(answer.model + ": " + answer.text);
+                },
+            });
+        }
+    `);
+    const harness = createHarness();
+    const asked: VeraClientConsultRequest[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+        consult: {
+            async request(_extensionId, request) {
+                asked.push(request);
+                return { text: "an answer", model: request.model };
+            },
+        },
+    });
+
+    await registry.invokeCommand("ask", "", "/tmp/workspace");
+    expect(asked.map((request) => request.model)).toEqual(["claude-opus-5"]);
+    expect(harness.notices).toEqual([
+        { extensionId: "client.seat", text: "claude-opus-5: an answer" },
+    ]);
+    await registry.close();
+});
+
+test("consulting requires the capability", async () => {
+    const extension = createExtension("client.nocap", ["client.commands.register"], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "ask",
+                description: "ask",
+                usage: "/ask",
+                async run() {
+                    await vera.consult({
+                        model: "claude-opus-5",
+                        messages: [{ role: "user", content: "hello" }],
+                    });
+                },
+            });
+        }
+    `);
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        consult: { async request() { throw new Error("must not be reached"); } },
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    await expect(registry.invokeCommand("ask", "", "/tmp/workspace"))
+        .rejects.toThrow("client.consult");
+    expect(failures).toEqual([]);
     await registry.close();
 });
 

@@ -113,6 +113,44 @@ export interface PromptCommand {
     readonly attachmentIds?: readonly string[];
 }
 
+/**
+ * One bounded model call outside the turn, for a client extension that wants a
+ * second model's read on the conversation.
+ *
+ * It is not a turn: no tools, no streaming, nothing appended to the session,
+ * and no change to the agent's own model selection. The named model is used or
+ * the request is refused; Vera never substitutes another one here.
+ */
+export interface ConsultCommand {
+    readonly type: "consult";
+    readonly requestId: string;
+    readonly provider?: string;
+    readonly model: string;
+    readonly reasoningEffort?: string;
+    readonly systemPrompt?: string;
+    readonly messages: readonly ConsultMessage[];
+    readonly maxTokens?: number;
+}
+
+export interface ConsultMessage {
+    readonly role: "user" | "assistant";
+    readonly content: string;
+}
+
+export interface ConsultResultUpdate {
+    readonly type: "consult_result";
+    readonly requestId: string;
+    readonly text: string;
+    readonly model: string;
+    readonly provider?: string;
+}
+
+export interface ConsultRejectedUpdate {
+    readonly type: "consult_rejected";
+    readonly requestId: string;
+    readonly reason: string;
+}
+
 export interface AttachImageCommand {
     readonly type: "attach_image";
     readonly requestId: string;
@@ -276,6 +314,7 @@ export type ClientCommand =
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
+    | ConsultCommand
     | PoolAddCommand
     | PoolRemoveCommand
     | PoolNameCommand
@@ -686,6 +725,8 @@ export type AgentUpdate =
     | SessionNameReplyUpdate
     | TimelineReplyUpdate
     | ImageAttachmentReplyUpdate
+    | ConsultResultUpdate
+    | ConsultRejectedUpdate
     | PromptRejectedUpdate;
 
 export interface AgentUpdateSender {
@@ -823,6 +864,12 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                 requestId: command.requestId,
                 patch,
             };
+        }
+    }
+    if (command.type === "consult" && isRequestId(command.requestId)) {
+        const parsed = parseConsultCommand(command, command.requestId);
+        if (parsed !== undefined) {
+            return parsed;
         }
     }
     if (
@@ -970,6 +1017,13 @@ export function isTimelineReplyUpdate(
         || update.type === "timeline_action_preview"
         || update.type === "timeline_action_applied"
         || update.type === "timeline_action_rejected";
+}
+
+export function isConsultReplyUpdate(
+    update: AgentUpdate,
+): update is ConsultResultUpdate | ConsultRejectedUpdate {
+    return update.type === "consult_result"
+        || update.type === "consult_rejected";
 }
 
 export function isSessionNameReplyUpdate(
@@ -1571,4 +1625,72 @@ export function attachmentRefs(
         }];
     });
     return refs.length === 0 ? {} : { attachments: refs };
+}
+
+/** Caps the conversation a consult may carry, so one call cannot ship a whole session. */
+const CONSULT_MAX_MESSAGES = 200;
+
+function parseConsultCommand(
+    command: Record<string, unknown>,
+    requestId: string,
+): ConsultCommand | undefined {
+    const model = command.model;
+    if (typeof model !== "string" || model.trim().length === 0) {
+        return undefined;
+    }
+    const messages = parseConsultMessages(command.messages);
+    if (messages === undefined) {
+        return undefined;
+    }
+    const provider = command.provider;
+    const reasoningEffort = command.reasoningEffort;
+    const systemPrompt = command.systemPrompt;
+    const maxTokens = command.maxTokens;
+    if (
+        (provider !== undefined && typeof provider !== "string")
+        || (reasoningEffort !== undefined && typeof reasoningEffort !== "string")
+        || (systemPrompt !== undefined && typeof systemPrompt !== "string")
+        || (maxTokens !== undefined
+            && (typeof maxTokens !== "number" || !Number.isInteger(maxTokens)
+                || maxTokens < 1))
+    ) {
+        return undefined;
+    }
+    return {
+        type: "consult",
+        requestId,
+        model,
+        messages,
+        ...(provider === undefined ? {} : { provider }),
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        ...(systemPrompt === undefined ? {} : { systemPrompt }),
+        ...(maxTokens === undefined ? {} : { maxTokens }),
+    };
+}
+
+function parseConsultMessages(
+    value: unknown,
+): readonly ConsultMessage[] | undefined {
+    if (
+        !Array.isArray(value) || value.length === 0
+        || value.length > CONSULT_MAX_MESSAGES
+    ) {
+        return undefined;
+    }
+    const messages: ConsultMessage[] = [];
+    for (const entry of value) {
+        if (typeof entry !== "object" || entry === null) {
+            return undefined;
+        }
+        const role = Reflect.get(entry, "role");
+        const content = Reflect.get(entry, "content");
+        if (
+            (role !== "user" && role !== "assistant")
+            || typeof content !== "string"
+        ) {
+            return undefined;
+        }
+        messages.push({ role, content });
+    }
+    return messages;
 }
