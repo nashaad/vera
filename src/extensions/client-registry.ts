@@ -218,6 +218,13 @@ export interface ClientExtensionRegistry {
         message: OutgoingClientMessage,
         signal?: AbortSignal,
     ): Promise<VeraClientMessageDecision>;
+    /**
+     * Tell every extension the client is showing a different conversation, so
+     * it can drop what belonged to the last one. A listener that throws is
+     * reported and skipped: one extension holding on cannot stop the others
+     * letting go.
+     */
+    conversationChanged(): void;
     /** The extension that owns the status line, absent while nobody does. */
     statusLineOwner(): string | undefined;
     /**
@@ -260,6 +267,7 @@ interface LoadedClientExtension {
     readonly keybindings: readonly RegisteredKeybinding[];
     readonly statusLine: VeraClientStatusLineRenderer | undefined;
     readonly messageInterceptor: VeraClientMessageInterceptor | undefined;
+    readonly conversationListeners: readonly (() => void)[];
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveInvocation>;
     readonly invocationSignal: AsyncLocalStorage<AbortSignal>;
@@ -517,6 +525,24 @@ export async function startClientExtensionRegistry(
             }
             return { kind: "pass" };
         },
+        conversationChanged(): void {
+            for (const extension of loaded) {
+                if (extension.disposing) continue;
+                for (const listener of extension.conversationListeners) {
+                    try {
+                        listener();
+                    } catch (error) {
+                        safelyReportFailure(options.onFailure, {
+                            path: extension.path,
+                            extensionId: extension.id,
+                            message: `conversation listener failed: ${
+                                errorMessage(error)
+                            }`,
+                        });
+                    }
+                }
+            }
+        },
         statusLineOwner(): string | undefined {
             return statusLine?.extension.id;
         },
@@ -627,6 +653,7 @@ async function activateClientExtension(
     const commandNames = new Set<string>();
     const keybindingIds = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
+    const conversationListeners: (() => void)[] = [];
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
     let statusLine: VeraClientStatusLineRenderer | undefined;
     let messageInterceptor: VeraClientMessageInterceptor | undefined;
@@ -917,6 +944,17 @@ async function activateClientExtension(
                 return requireThread().read(options.id);
             },
         }),
+        conversation: Object.freeze({
+            onChanged(listener: () => void): void {
+                requireRegistrationPhase(phase, "conversation listeners");
+                if (typeof listener !== "function") {
+                    throw new Error(
+                        "Client extension conversation listener must be a function",
+                    );
+                }
+                conversationListeners.push(listener);
+            },
+        }),
         onDispose(dispose: VeraExtensionDisposer): void {
             requireRegistrationPhase(phase, "disposal");
             if (typeof dispose !== "function") {
@@ -976,6 +1014,7 @@ async function activateClientExtension(
         statusLine,
         messageInterceptor,
         disposers,
+        conversationListeners,
         activeInvocations: new Set(),
         invocationSignal,
         markUnavailable: () => {

@@ -46,49 +46,54 @@ const agent: ModelAdapter = {
     },
 };
 
-const channel = createInProcessChannel();
-void runHeadlessLoop(
-    channel.engine,
-    agent,
-    "test",
-    "high",
-    {
-        approvalMode: "auto",
-        readModelSettings: () => ({
-            model: "test",
-            reasoningEffort: "high",
-            contextWindow: 100,
-            pooled: POOLED,
-        }),
-        updateModelSettings: async () => undefined,
-        readApprovalMode: () => "auto",
-        updateApprovalMode: async () => undefined,
-        async consult(request) {
-            if (request.model === "faux-broken") {
-                throw new Error("provider is down");
-            }
-            return {
-                text: `SEAT SAW ${request.messages.at(-1)?.content ?? ""}`,
-                model: request.model,
-            };
+/** A conversation of its own, so `/clear` has somewhere to go. */
+function session(id: string): TuiAgentClient {
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        agent,
+        "test",
+        "high",
+        {
+            approvalMode: "auto",
+            readModelSettings: () => ({
+                model: "test",
+                reasoningEffort: "high",
+                contextWindow: 100,
+                pooled: POOLED,
+            }),
+            updateModelSettings: async () => undefined,
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            async consult(request) {
+                if (request.model === "faux-broken") {
+                    throw new Error("provider is down");
+                }
+                return {
+                    text: `SEAT SAW ${request.messages.at(-1)?.content ?? ""}`,
+                    model: request.model,
+                };
+            },
+            sendConsultReply: (_ownerId, reply) => channel.engine.send(reply),
         },
-        sendConsultReply: (_ownerId, reply) => channel.engine.send(reply),
-    },
-);
-
-const client: TuiAgentClient = {
-    async send(command): Promise<void> {
-        channel.client.send(command);
-    },
-    receive(signal) {
-        return channel.client.receive(signal);
-    },
-    async detach(): Promise<void> {},
-    close(): void {},
-};
+    );
+    return {
+        agentId: id,
+        workspace: process.cwd(),
+        async send(command): Promise<void> {
+            channel.client.send(command);
+        },
+        receive(signal) {
+            return channel.client.receive(signal);
+        },
+        async detach(): Promise<void> {},
+        close(): void {},
+    };
+}
 
 await startTui({
-    client,
+    client: session("first-session"),
+    createSession: async () => session("second-session"),
     clientExtensions: [{ path: EXTENSION, enabled: true, config: { maxSeats: 2 } }],
 });
 

@@ -2306,6 +2306,110 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "an injected head stays hidden through the turns that follow",
+    async () => {
+        const socket = `vera-seat-stay-${process.pid}-${randomUUID()}`;
+        const session = "seat-stay";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-stay-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/add advisor as m1");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+
+            sendText(socket, session, "first");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
+            expect(pane).not.toContain("system-note");
+
+            // Every later turn rebuilds the transcript from the canonical
+            // messages, which carry the head the band must keep hiding.
+            for (const text of ["second", "third"]) {
+                sendText(socket, session, text);
+                sendKey(socket, session, "Enter");
+                await waitForVisiblePane(socket, session, text);
+                await Bun.sleep(400);
+                pane = captureVisiblePane(socket, session);
+                expect(pane).not.toContain("system-note");
+            }
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "a new conversation takes the sidebar and the seats with it",
+    async () => {
+        const socket = `vera-seat-clear-${process.pid}-${randomUUID()}`;
+        const session = "seat-clear";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-clear-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/add advisor as m1");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+
+            sendText(socket, session, "/clear");
+            await Bun.sleep(300);
+            sendKey(socket, session, "Enter");
+            // The column belonged to the conversation being left, and so did
+            // the seat: an alias that answers nowhere is worse than no alias.
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) =>
+                    visible.includes("Start a conversation")
+                    && !visible.includes("faux-advisor"),
+                "an empty conversation with no sidebar",
+            );
+
+            sendText(socket, session, "@m1 anyone home");
+            sendKey(socket, session, "Enter");
+            // Nothing intercepts it now, so it reaches the agent as typed.
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
+            expect(pane).toContain("@m1 anyone home");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "@all reaches every seat and the agent in one message",
     async () => {
         const socket = `vera-seat-all-${process.pid}-${randomUUID()}`;
