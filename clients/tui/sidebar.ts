@@ -65,6 +65,11 @@ export interface TuiSidebar {
     clear(): void;
     /** Re-reads the terminal width; call it on resize. */
     refit(): void;
+    /** True while the column is pinned to its newest block. */
+    isFollowing(): boolean;
+    scrollToBottom(): void;
+    /** Where the scrolling region sits, for an overlay pinned to its foot. */
+    bounds(): { x: number; y: number; width: number; height: number };
     width(): number;
 }
 
@@ -189,6 +194,15 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
 
     return {
         body,
+        isFollowing: () =>
+            content.scrollTop >= content.scrollHeight - content.viewport.height,
+        scrollToBottom: () => content.scrollTo(content.scrollHeight),
+        bounds: () => ({
+            x: content.x,
+            y: content.y,
+            width: content.width,
+            height: content.height,
+        }),
         isOpen: () => open,
         isShown: shown,
         toggleHidden(): void {
