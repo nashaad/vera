@@ -194,7 +194,8 @@ test("a turn given no event log path writes no log at all", async () => {
         channel.client.send({ type: "prompt", content: "say hello" });
         await runTurn(new FauxAdapter([response]), sessionId, state);
 
-        await expect(stat(defaultEventLogPath(sessionId))).rejects.toThrow();
+        await expect(stat(defaultEventLogPath(sessionId, workspace)))
+            .rejects.toThrow();
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

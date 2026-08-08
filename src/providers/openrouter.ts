@@ -14,6 +14,7 @@ import {
     resolveReasoningSelection,
 } from "../model/reasoning-effort.ts";
 import type { EffortLevelsLookup } from "../model/effort-levels.ts";
+import type { ImageSupportLookup } from "../model/image-support.ts";
 import { ModelEventStream } from "../model/stream.ts";
 import { transformMessages } from "../model/transform.ts";
 import {
@@ -45,6 +46,8 @@ export interface OpenRouterAdapterOptions {
      * nothing for falls back to a live lookup.
      */
     readonly effortLevels?: EffortLevelsLookup;
+    /** The model's image support, resolved by whoever owns that data. */
+    readonly imageSupport?: ImageSupportLookup;
     /** Where a failed request is kept. Absent keeps nothing. */
     readonly captureFailedRequest?: FailedRequestCapture;
 }
@@ -77,8 +80,13 @@ export class OpenRouterAdapter implements ModelAdapter {
         private readonly profile: ChatProviderProfile = OPENROUTER_PROFILE,
         private readonly effortLevels?: EffortLevelsLookup,
         private readonly captureFailedRequest?: FailedRequestCapture,
+        private readonly imageSupport?: ImageSupportLookup,
     ) {
         this.supportsImageInput = profile.supportsImageInput ?? false;
+    }
+
+    imageInputSupport(model: string): boolean | undefined {
+        return this.imageSupport?.(model);
     }
 
     stream(request: ModelRequest): ModelEventStream {
@@ -274,7 +282,7 @@ export function createOpenRouterAdapter(
             },
             { signal },
         );
-    }, options.reasoningMappings, OPENROUTER_PROFILE, options.effortLevels, options.captureFailedRequest);
+    }, options.reasoningMappings, OPENROUTER_PROFILE, options.effortLevels, options.captureFailedRequest, options.imageSupport);
 }
 
 /**

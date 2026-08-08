@@ -1813,3 +1813,45 @@ test("the footer offers the name key on a pooled row and not on an unpooled one"
     const unpooled = modelPickerWithPool([], "moonshotai/kimi-k3");
     expect(pickerFooter(unpooled)).not.toContain("name");
 });
+
+test("an old session stays on the relative clock instead of a calendar date", async () => {
+    const state = startTuiSessionPicker([
+        {
+            ...session("ancient", "idle"),
+            title: "Left alone for weeks",
+            updated_at: "2026-06-12T21:00:00.000Z",
+        },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    const rendered = await pickerFrame(state);
+    expect(rendered).toContain("38d ago");
+    expect(rendered).not.toContain("Jun");
+});
+
+test("a session row reports its transcript size beside the workspace", async () => {
+    const state = startTuiSessionPicker([
+        {
+            ...session("small", "idle"),
+            title: "Barely started",
+            size_bytes: 4_200,
+        },
+        {
+            ...session("large", "idle"),
+            title: "Ran for weeks",
+            size_bytes: 3_500_000,
+        },
+        {
+            ...session("gone", "idle"),
+            title: "File went missing",
+        },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    const rows = (await pickerFrame(state)).split("\n");
+    const rowFor = (title: string): string =>
+        rows.find((line) => line.includes(title)) ?? "";
+    expect(rowFor("Barely started")).toContain("4K");
+    expect(rowFor("Ran for weeks")).toContain("3.5M");
+    // An unstattable session still lists, with the workspace column alone.
+    expect(rowFor("File went missing")).not.toBe("");
+    expect(rowFor("File went missing")).not.toMatch(/\d[BKM]\s/);
+});

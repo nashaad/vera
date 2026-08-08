@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { classifyCapabilityRejection } from "../../src/model/capability-rejection.ts";
+import { IMAGES_LEARNED_KEY } from "../../src/model/pool-file.ts";
 import type { ProviderFailure } from "../../src/model/provider-failure.ts";
 
 function failure(patch: Partial<ProviderFailure>): ProviderFailure {
@@ -123,4 +124,28 @@ test("a 400 that refuses nothing recognisable is not a rejection", () => {
         statusCode: 400,
         message: "messages: array too short",
     }))).toBeUndefined();
+});
+
+test("an image-input refusal is an images rejection", () => {
+    const rejection = classifyCapabilityRejection(failure({
+        statusCode: 400,
+        message: "glm-5.2 does not support image input",
+    }));
+    expect(rejection?.parameter).toBe("images");
+});
+
+test("an image-naming 404 stays a missing model, not an images rejection", () => {
+    expect(classifyCapabilityRejection(failure({
+        kind: "not_found",
+        statusCode: 404,
+        message: "No endpoints found that support image input",
+    }))).toBeUndefined();
+});
+
+test("an image refusal records under the images learned key", () => {
+    const rejection = classifyCapabilityRejection(failure({
+        statusCode: 400,
+        message: "Invalid value for image_url: this model is text only",
+    }));
+    expect(rejection?.parameter).toBe(IMAGES_LEARNED_KEY);
 });

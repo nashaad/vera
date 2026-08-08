@@ -62,6 +62,9 @@ export const PROBE_LEARNED_KEY = "probe";
 /** The model called a tool when asked to. */
 export const TOOLS_LEARNED_KEY = "tools";
 
+/** The model accepted an image in the input. */
+export const IMAGES_LEARNED_KEY = "images";
+
 export function effortLearnedKey(level: string): string {
     return `efforts.${level}`;
 }
@@ -92,6 +95,7 @@ export interface PoolFileModel {
     /** Declared label bounding sibling search inside one provider. */
     readonly family?: string;
     readonly tools?: boolean;
+    readonly images?: boolean;
     readonly context?: number;
     readonly efforts?: EffortMap;
     /** Same-provider model ids only. */
@@ -217,6 +221,7 @@ const MODEL_KEYS = [
     "name",
     "family",
     "tools",
+    "images",
     "context",
     "efforts",
     "fallback",
@@ -432,6 +437,13 @@ function parseModel(
         issues.push({ path: `${path}.tools`, message: "expected a boolean" });
     }
 
+    let images: boolean | undefined;
+    if (typeof record.images === "boolean") {
+        images = record.images;
+    } else if (record.images !== undefined) {
+        issues.push({ path: `${path}.images`, message: "expected a boolean" });
+    }
+
     let context: number | undefined;
     if (
         typeof record.context === "number" && Number.isFinite(record.context)
@@ -450,6 +462,7 @@ function parseModel(
         ...(name === undefined ? {} : { name }),
         ...(family === undefined ? {} : { family }),
         ...(tools === undefined ? {} : { tools }),
+        ...(images === undefined ? {} : { images }),
         ...(context === undefined ? {} : { context }),
         ...parseEfforts(record.efforts, path, issues),
         ...parseFallback(record.fallback, provider, path, issues),

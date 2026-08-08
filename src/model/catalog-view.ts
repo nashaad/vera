@@ -24,6 +24,7 @@ import {
     type LoadPoolFileOptions,
 } from "./pool-file-loader.ts";
 import {
+    IMAGES_LEARNED_KEY,
     isCuratedPoolEntry,
     isVerifiedPoolEntry,
     type PoolFileModel,
@@ -67,6 +68,12 @@ export interface PooledModel {
     readonly verified: boolean;
     readonly description?: string;
     readonly contextWindow?: number;
+    /**
+     * Whether the model takes image input, resolved the same way everything
+     * else about it is. Absent means no source has said, which a row shows as
+     * nothing rather than as a no.
+     */
+    readonly imageSupport?: boolean;
     /** Empty means the model has no reasoning control, or is unavailable. */
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
@@ -173,6 +180,9 @@ export function pooledModels(
             }];
         }
         const levels = resolvedLevels(model, entry);
+        const imageSupport = entry?.images
+            ?? entry?.learned?.[IMAGES_LEARNED_KEY]?.ok
+            ?? model.image_support;
         return [{
             provider,
             model: name,
@@ -186,6 +196,7 @@ export function pooledModels(
             ...(model.context_window === undefined
                 ? {}
                 : { contextWindow: model.context_window }),
+            ...(imageSupport === undefined ? {} : { imageSupport }),
             levels,
             ...(model.default_level === undefined
                     || !levels.some((level) => level.id === model.default_level)
