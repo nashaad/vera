@@ -1044,6 +1044,20 @@ export async function startTui(
         bottom: 0,
         zIndex: 30,
     });
+    // A text node paints only the cells its glyphs fill, so the status rows
+    // would otherwise show the transcript through every gap in the line, and
+    // through the spaces inside it. This backs them with the terminal's own
+    // background, so the two rows read as one band whatever is behind them.
+    const statusBackdrop = new BoxRenderable(renderer, {
+        id: "status-backdrop",
+        position: "absolute",
+        left: 0,
+        bottom: 0,
+        width: "100%",
+        height: 2,
+        backgroundColor: theme.background,
+        zIndex: 29,
+    });
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -1328,6 +1342,7 @@ export async function startTui(
     app.add(composerTipText);
     upper.add(commandSuggestionsBox);
     app.add(composerBox);
+    app.add(statusBackdrop);
     app.add(statusText);
     app.add(backgroundStatusText);
     renderer.root.add(app);
@@ -5173,6 +5188,7 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
+        statusBackdrop.backgroundColor = theme.background;
         queuedPromptText.fg = theme.muted;
         jumpToBottomText.fg = theme.background;
         jumpToBottomText.bg = theme.accent;
@@ -5528,6 +5544,7 @@ export async function startTui(
             ? 1
             : 2 + agentSection.length;
         statusText.bottom = backgroundStatusText.height;
+        statusBackdrop.height = 1 + backgroundStatusText.height;
         composerBox.marginBottom = 1 + backgroundStatusText.height;
         statusText.content = state.working
                 && statusNotice === undefined
