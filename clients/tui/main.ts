@@ -1146,7 +1146,9 @@ export async function startTui(
         onPanelClick: () => {
             const first = extensionMentions[0];
             if (first === undefined) return;
-            if (/(?:^|\s)@\S*$/.test(composer.plainText)) return;
+            // Already addressing someone (even with a trailing space): a
+            // second click must not stack another mention.
+            if (/(?:^|\s)@\S*\s*$/.test(composer.plainText)) return;
             composer.setComposerText(
                 composer.plainText.length === 0
                     ? `@${first} `
@@ -2023,7 +2025,7 @@ export async function startTui(
      * what the user typed. Its presence is also what stops a second trip
      * through the interceptors.
      */
-    function submitPrompt(interceptedText?: string): void {
+    function submitPrompt(interceptedText?: string, typedText?: string): void {
         if (
             promptSubmitting
             || sessionSwitchPending
@@ -2748,9 +2750,16 @@ export async function startTui(
         }
         composer.rememberSubmittedText(prompt);
         composer.clearComposer();
+        // When an extension replaced the message, the tail is still what the
+        // user typed; the injected head renders muted.
+        const dimmedPrefix = typedText !== undefined
+                && prompt.length > typedText.length
+                && prompt.endsWith(typedText)
+            ? prompt.length - typedText.length
+            : undefined;
         state = state.working
             ? queueTuiPrompt(state, prompt)
-            : beginTuiTurn(state, prompt, attachments);
+            : beginTuiTurn(state, prompt, attachments, dimmedPrefix);
         adoptFallbackSessionTitle(prompt);
         if (workingSince === undefined) {
             workingSince = Date.now();
@@ -2789,7 +2798,10 @@ export async function startTui(
                 renderState();
                 return;
             }
-            submitPrompt(decision.kind === "replace" ? decision.text : prompt);
+            submitPrompt(
+                decision.kind === "replace" ? decision.text : prompt,
+                prompt,
+            );
         }).catch((error) => {
             messageInterceptPending = false;
             if (shuttingDown) return;

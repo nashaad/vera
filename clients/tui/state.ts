@@ -58,6 +58,8 @@ export interface TuiTextTranscriptEntry {
     readonly result?: boolean;
     /** Whether replay has paired this call with its durable result row. */
     readonly hasResult?: boolean;
+    /** How many leading characters an extension injected; drawn muted. */
+    readonly dimmedPrefix?: number;
     /** The gutter drawn left of a tool row, in its own column. */
     readonly prefix?: string;
     /** How many times in a row the same call was made. */
@@ -222,10 +224,11 @@ export function beginTuiTurn(
     state: TuiState,
     prompt: string,
     attachments?: readonly AttachmentRef[],
+    dimmedPrefix?: number,
 ): TuiState {
     return {
         ...state,
-        entries: [...state.entries, userEntry(prompt, attachments)],
+        entries: [...state.entries, userEntry(prompt, attachments, dimmedPrefix)],
         working: true,
     };
 }
@@ -961,7 +964,15 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "user") {
         // The band around a user message is chrome the renderer draws, so the
-        // text itself carries no marker.
+        // text itself carries no marker. What an extension prepended is drawn
+        // muted, so the user's own words stand apart from the machinery.
+        const prefix = entry.dimmedPrefix ?? 0;
+        if (prefix > 0 && prefix < entry.text.length) {
+            return new StyledText([
+                fg(TUI_MUTED)(entry.text.slice(0, prefix)),
+                fg(TUI_TEXT)(entry.text.slice(prefix)),
+            ]);
+        }
         return new StyledText([fg(TUI_TEXT)(entry.text)]);
     }
     if (entry.kind === "tool_header") {
@@ -1545,12 +1556,16 @@ function presentationEntry(
 function userEntry(
     text: string,
     attachments?: readonly AttachmentRef[],
+    dimmedPrefix?: number,
 ): TuiTextTranscriptEntry {
     const labels = (attachments ?? []).map(attachmentLabel);
     return {
         kind: "user",
         text,
         ...(labels.length === 0 ? {} : { attachments: labels }),
+        ...(dimmedPrefix === undefined || dimmedPrefix <= 0
+            ? {}
+            : { dimmedPrefix }),
     };
 }
 
