@@ -99,6 +99,36 @@ async function fetchRefusalOrFeed(
         ?? "feed has an unknown schema version or shape";
 }
 
+export interface FeedRowReader {
+    (provider: string, model: string): Promise<ModelFeedRow | undefined>;
+}
+
+export interface FeedRowReaderOptions extends LoadModelFeedOptions {
+    readonly now?: () => Date;
+}
+
+/**
+ * One feed load per process, shared by every admission that follows.
+ *
+ * Every failure answers `undefined`, which is the same answer as a model the
+ * feed has never heard of, so an unreachable or malformed feed costs a local
+ * probe rather than a session.
+ */
+export function createFeedRowReader(
+    options: FeedRowReaderOptions = {},
+): FeedRowReader {
+    let pending: Promise<ModelFeed | undefined> | undefined;
+    return async (provider, model) => {
+        pending ??= loadModelFeed(options)
+            .then((result) => result.feed)
+            .catch(() => undefined);
+        const feed = await pending;
+        return feed === undefined
+            ? undefined
+            : freshFeedRow(feed, provider, model, options.now?.());
+    };
+}
+
 export function loadShippedModelFeed(
     path = SHIPPED_FEED_PATH,
 ): ModelFeed | undefined {
@@ -197,9 +227,17 @@ export function feedLearnedFacts(row: ModelFeedRow): LearnedFacts {
 
 function parseRow(value: unknown): ModelFeedRow | undefined {
     const row = asRecord(value);
+    if (row === undefined) {
+        return undefined;
+    }
+    // The published feed writes JSON null for an optional field it has no
+    // value for. Dropping the row over it would cost every model the fast
+    // path, so null and absent are read the same way.
+    const providerDefaultLevel = absentIfNull(row.provider_default_level);
+    const responseModel = absentIfNull(row.response_model);
+    const reason = absentIfNull(row.reason);
     if (
-        row === undefined
-        || typeof row.provider !== "string"
+        typeof row.provider !== "string"
         || row.provider.length === 0
         || typeof row.model !== "string"
         || row.model.length === 0
@@ -209,9 +247,9 @@ function parseRow(value: unknown): ModelFeedRow | undefined {
         || !row.verified_levels.every(
             (level): level is string => typeof level === "string",
         )
-        || !optionalString(row.provider_default_level)
-        || !optionalString(row.response_model)
-        || !optionalString(row.reason)
+        || !optionalString(providerDefaultLevel)
+        || !optionalString(responseModel)
+        || !optionalString(reason)
     ) {
         return undefined;
     }
@@ -220,13 +258,13 @@ function parseRow(value: unknown): ModelFeedRow | undefined {
         model: row.model,
         verdict: row.verdict,
         verified_levels: row.verified_levels,
-        ...(row.provider_default_level === undefined
+        ...(providerDefaultLevel === undefined
             ? {}
-            : { provider_default_level: row.provider_default_level }),
-        ...(row.response_model === undefined
+            : { provider_default_level: providerDefaultLevel }),
+        ...(responseModel === undefined
             ? {}
-            : { response_model: row.response_model }),
-        ...(row.reason === undefined ? {} : { reason: row.reason }),
+            : { response_model: responseModel }),
+        ...(reason === undefined ? {} : { reason }),
         verified_at: row.verified_at,
     };
 }
@@ -237,6 +275,10 @@ function isVerdict(
     return value === "added"
         || value === "incompatible"
         || value === "unavailable";
+}
+
+function absentIfNull(value: unknown): unknown {
+    return value === null ? undefined : value;
 }
 
 function optionalString(value: unknown): value is string | undefined {

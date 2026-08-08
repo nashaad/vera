@@ -34,6 +34,7 @@ import {
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitToPool } from "../model/pool-admission.ts";
+import { createFeedRowReader } from "../model/feed-cache.ts";
 import { migrateConfigPool } from "../model/pool-migration.ts";
 import { createPoolEffortPool } from "../model/effort-pool.ts";
 import {
@@ -203,6 +204,13 @@ export async function startResidentHost(
         inboxDelivery?.close();
         inbox?.close();
     };
+    // One reader for the whole runtime: the feed is loaded on the first
+    // verify and every later admission reads the same copy.
+    const readFeedRow = createFeedRowReader(
+        options.config.model_feed_url === undefined
+            ? {}
+            : { url: options.config.model_feed_url },
+    );
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
@@ -226,6 +234,7 @@ export async function startResidentHost(
             admitToPool(entry, onStep, {
                 ...options,
                 createAdapter,
+                readFeedRow,
                 onWriteRefused: (error) =>
                     hostLog({ type: "pool_write_refused", message: error.message }),
             }),
