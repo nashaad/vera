@@ -78,6 +78,8 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || isCompactionOutcome(update.outcome))
                 && (update.reason === undefined
                     || typeof update.reason === "string")
+                && (update.warning === undefined
+                    || typeof update.warning === "string")
                 && isOptionalCount(update.before)
                 && isOptionalCount(update.after)
             ? value as AgentUpdate

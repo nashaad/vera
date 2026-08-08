@@ -396,6 +396,8 @@ export interface CompactionUpdate {
         | "cancelled"
         | "busy";
     readonly reason?: string;
+    /** Set on the started phase only, for a configuration mismatch. */
+    readonly warning?: string;
     readonly before?: number;
     readonly after?: number;
     readonly seq: number;
@@ -1385,6 +1387,9 @@ export function createProtocolEncoder(
                 type: "compaction",
                 phase: "started",
                 strategy: event.strategy,
+                ...(event.warning === undefined
+                    ? {}
+                    : { warning: event.warning }),
                 seq,
             });
         }

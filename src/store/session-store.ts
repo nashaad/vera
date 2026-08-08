@@ -162,7 +162,8 @@ export interface SessionCompactionEntry {
 
 export interface SessionCompactionMeasurement {
     readonly inputTokens: number;
-    readonly contextWindow: number;
+    /** Absent when the model's window was never discovered. */
+    readonly contextWindow?: number;
     readonly estimated: boolean;
 }
 
@@ -1787,15 +1788,18 @@ function validateCompactionMeasurement(
     if (
         !Number.isSafeInteger(measured.inputTokens)
         || measured.inputTokens < 0
-        || !Number.isSafeInteger(measured.contextWindow)
-        || measured.contextWindow <= 0
+        || (measured.contextWindow !== undefined
+            && (!Number.isSafeInteger(measured.contextWindow)
+                || measured.contextWindow <= 0))
         || typeof measured.estimated !== "boolean"
     ) {
         throw new Error("Compaction measurement is not a usable reading");
     }
     return {
         inputTokens: measured.inputTokens,
-        contextWindow: measured.contextWindow,
+        ...(measured.contextWindow === undefined
+            ? {}
+            : { contextWindow: measured.contextWindow }),
         estimated: measured.estimated,
     };
 }
@@ -1864,8 +1868,9 @@ function isCompactionMeasurement(
     const measured = value as Record<string, unknown>;
     return Number.isSafeInteger(measured.inputTokens)
         && (measured.inputTokens as number) >= 0
-        && Number.isSafeInteger(measured.contextWindow)
-        && (measured.contextWindow as number) > 0
+        && (measured.contextWindow === undefined
+            || (Number.isSafeInteger(measured.contextWindow)
+                && (measured.contextWindow as number) > 0))
         && typeof measured.estimated === "boolean";
 }
 

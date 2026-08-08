@@ -80,3 +80,31 @@ test("a declared slot with no route binds nothing", () => {
         BUNDLED_COMPACTION_STRATEGIES,
     )).toBeUndefined();
 });
+
+test("a profile with no trigger keys binds no trigger, so defaults apply", () => {
+    const bound = bindCompaction(
+        profile(),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+
+    expect(bound?.trigger).toBeUndefined();
+    expect(bound?.targetTokens).toBeUndefined();
+});
+
+test("configured trigger bounds reach the scheduler", () => {
+    const bound = bindCompaction(
+        profile({
+            trigger_fraction: 0.2,
+            trigger_tokens: 30_000,
+            target_tokens: 10_000,
+        }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+
+    expect(bound?.trigger).toEqual({ fraction: 0.2, tokens: 30_000 });
+    expect(bound?.targetTokens).toBe(10_000);
+});

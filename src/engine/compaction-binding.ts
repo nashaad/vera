@@ -1,6 +1,7 @@
 import type { ModelAdapter } from "../model/types.ts";
 import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
+import type { CompactionTrigger } from "./compaction-scheduler.ts";
 import {
     FULL_SUMMARY_STRATEGY_ID,
     fullSummaryStrategy,
@@ -82,6 +83,14 @@ export function bindCompaction(
     const entry = primary === undefined
         ? undefined
         : profile.slots[primary]?.[0]?.name;
+    const trigger: CompactionTrigger = {
+        ...(profile.trigger_fraction === undefined
+            ? {}
+            : { fraction: profile.trigger_fraction }),
+        ...(profile.trigger_tokens === undefined
+            ? {}
+            : { tokens: profile.trigger_tokens }),
+    };
     return {
         strategy,
         models,
@@ -90,6 +99,10 @@ export function bindCompaction(
             ...(route === undefined ? {} : { route }),
             ...(entry === undefined ? {} : { catalogEntry: entry }),
         },
+        ...(Object.keys(trigger).length === 0 ? {} : { trigger }),
+        ...(profile.target_tokens === undefined
+            ? {}
+            : { targetTokens: profile.target_tokens }),
     };
 }
 

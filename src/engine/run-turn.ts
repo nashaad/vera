@@ -83,8 +83,10 @@ import {
 import type { CompactionStrategyDefinition } from "./compaction.ts";
 import type { CompleteText } from "./completion-service.ts";
 import {
+    compactionBudgetWarning,
     compactSession,
     shouldCompact,
+    type CompactionTrigger,
 } from "./compaction-scheduler.ts";
 import { availableModels, contextWindowForModel } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
@@ -215,6 +217,10 @@ export interface SessionCompactionOptions {
     readonly strategy: CompactionStrategyDefinition;
     readonly models: Readonly<Record<string, CompleteText>>;
     readonly diagnostics?: SessionCompactionDiagnostics;
+    /** Defaults apply for anything left unset. */
+    readonly trigger?: CompactionTrigger;
+    /** Token target for a session whose window is unknown. */
+    readonly targetTokens?: number;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -576,6 +582,23 @@ export async function runHeadlessLoop(
             estimated: true,
         };
     };
+    // Reported once. The mismatch is a fact about the configuration, not news
+    // on every turn that hits it.
+    let budgetWarned = false;
+    const budgetWarning = (
+        measurement: ContextMeasurement,
+        options: SessionCompactionOptions,
+    ): { readonly warning: string } | undefined => {
+        if (budgetWarned) {
+            return undefined;
+        }
+        const warning = compactionBudgetWarning(measurement, options);
+        if (warning === undefined) {
+            return undefined;
+        }
+        budgetWarned = true;
+        return { warning };
+    };
     const runCompaction = compaction === undefined
         ? undefined
         : async (
@@ -587,12 +610,13 @@ export async function runHeadlessLoop(
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
-            if (!force && !shouldCompact(measurement)) {
+            if (!force && !shouldCompact(measurement, compaction.trigger)) {
                 return;
             }
             events.emit({
                 type: "compaction_started",
                 strategy: compaction.strategy.id,
+                ...(budgetWarning(measurement, compaction) ?? {}),
             });
             const result = await compactSession({
                 store,
@@ -601,6 +625,12 @@ export async function runHeadlessLoop(
                 ...(compaction.diagnostics === undefined
                     ? {}
                     : { diagnostics: compaction.diagnostics }),
+                ...(compaction.trigger === undefined
+                    ? {}
+                    : { trigger: compaction.trigger }),
+                ...(compaction.targetTokens === undefined
+                    ? {}
+                    : { targetTokens: compaction.targetTokens }),
             }, measurement, signal);
             events.emit({
                 type: "compaction_finished",
