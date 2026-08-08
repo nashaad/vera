@@ -12,6 +12,7 @@ export function newStashingToolRuntime(
     workspace: string,
     sessionId: string,
     env?: Readonly<Record<string, string>>,
+    instructionRoot?: string,
 ): ToolRuntime {
     if (!sweepStarted) {
         sweepStarted = true;
@@ -23,5 +24,6 @@ export function newStashingToolRuntime(
         (path, content) => stash.capture(path, content),
         stash.directory,
         env,
+        instructionRoot,
     );
 }

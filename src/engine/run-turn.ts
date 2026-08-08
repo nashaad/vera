@@ -63,6 +63,7 @@ import type {
     ToolEffectContext,
     ToolOutput,
 } from "../tools/types.ts";
+import { loadMemory, type InstructionRoot } from "./memory.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
 import { promptContributionMetadata } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
@@ -170,6 +171,11 @@ export interface RunTurnState {
     ) => Promise<void>;
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
+    /**
+     * Where project-scoped memory is keyed. Absent falls back to the
+     * workspace, which is what a caller with no repository to resolve gets.
+     */
+    readonly instructionRoot?: InstructionRoot;
     readonly inbound: InboundCommandRouter;
     readonly events: EngineEventBus;
     readonly hooks: ToolHooks;
@@ -300,6 +306,11 @@ export interface RunHeadlessLoopOptions {
      * passes them through opaquely.
      */
     readonly toolEnv?: Readonly<Record<string, string>>;
+    /**
+     * The directory this session's project-scoped memory is keyed on,
+     * resolved by the owner once per agent. Absent means the workspace.
+     */
+    readonly instructionRoot?: InstructionRoot;
 }
 
 /**
@@ -466,10 +477,13 @@ export async function runHeadlessLoop(
         detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),
     });
     options.onInboundReady?.(inbound);
+    const instructionRoot: InstructionRoot = options.instructionRoot
+        ?? { path: store.header.cwd, source: "workspace" };
     const applyToolEffect = options.applyToolEffect
         ?? createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
+            instructionRoot,
             scratchDir,
             ...(options.disabledPromptContributions === undefined ? {} : {
                 disabledPromptContributions:
@@ -636,7 +650,9 @@ export async function runHeadlessLoop(
             store.header.cwd,
             store.header.id,
             options.toolEnv,
+            instructionRoot.path,
         ),
+        instructionRoot,
         inbound,
         events,
         hooks: options.hooks ?? new ToolHooks(),
@@ -880,6 +896,10 @@ export async function runTurn(
             const projectInstructions = await loadProjectInstructions(
                 state.toolRuntime.workspace,
             );
+            const memory = await loadMemory(
+                state.instructionRoot
+                    ?? { path: state.toolRuntime.workspace, source: "workspace" },
+            );
             const scratchState = state.scratchDir === undefined
                 ? undefined
                 : await loadScratchState(state.scratchDir);
@@ -901,6 +921,7 @@ export async function runTurn(
                     : { scratchDir: state.scratchDir }),
                 date: requestDate,
                 projectInstructions,
+                memory,
                 ...(scratchState === undefined ? {} : { scratchState }),
                 ...(state.disabledPromptContributions === undefined ? {} : {
                     disabledPromptContributions:
