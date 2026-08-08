@@ -1617,8 +1617,15 @@ export async function startTui(
                 return;
             }
             if (key.name === "return" || key.name === "enter") {
+                const argument = commandRegistry
+                    .argumentPrefix(composer.plainText);
                 const selected = argumentSuggestions[commandSuggestionIndex];
-                if (selected !== undefined) {
+                // Already typed whole: there is nothing left to choose, so
+                // Enter sends the command instead of re-inserting the name.
+                if (
+                    selected !== undefined
+                    && selected.toLowerCase() !== argument?.prefix.toLowerCase()
+                ) {
                     key.preventDefault();
                     key.stopPropagation();
                     // Chosen, not sent: the rest of the command is still
