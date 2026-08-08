@@ -4702,6 +4702,15 @@ export async function startTui(
         setTuiWorkspaceRoot(next.workspace ?? process.cwd());
         void previous.detach().catch(() => previous.close());
 
+        // The sidebar and any mentions belonged to the conversation being
+        // left, so the client takes them down and each extension is told to
+        // let go of whatever else it was holding.
+        sidebarOwner = undefined;
+        sidebar.clear();
+        sidebar.close();
+        extensionMentions = [];
+        clientExtensionRegistry?.conversationChanged();
+
         state = createTuiState();
         if (next.agentId !== undefined) {
             try {

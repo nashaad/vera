@@ -342,6 +342,17 @@ export function activateClient(vera: any): void {
         );
     }
 
+    // A different conversation seats nobody: the seats belonged to the one
+    // being left, and its sidebar is gone with it.
+    vera.conversation.onChanged(() => {
+        seats.clear();
+        unread.clear();
+        unread.set(AGENT, []);
+        sidebarOpen = false;
+        lookedForOldSeats = false;
+        offerMentions();
+    });
+
     vera.messages.intercept((message: { text: string }) => {
         noteSeatsGone();
         // An empty room can still owe the agent a note: the last seat leaving

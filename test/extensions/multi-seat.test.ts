@@ -359,6 +359,20 @@ test("removing every seat is one command, since the composer offers `all`", asyn
     await harness.registry.close();
 });
 
+test("a new conversation seats nobody", async () => {
+    const harness = await start({ maxSeats: 2 });
+    await harness.registry.invokeCommand("add", "gpt-5.5 as m1", WORKSPACE);
+    harness.registry.conversationChanged();
+    expect(harness.mentions).toEqual([]);
+    expect(await harness.registry.interceptMessage({
+        text: "@m1 still there?",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.consults).toEqual([]);
+    await harness.registry.close();
+});
+
 test("seats are offered to the composer as mentions", async () => {
     const harness = await start({ maxSeats: 2 });
     expect(harness.mentions).toEqual([]);

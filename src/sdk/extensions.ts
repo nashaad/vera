@@ -86,6 +86,7 @@ export interface VeraClientExtensionApi {
     readonly statusLine: VeraClientExtensionStatusLine;
     readonly messages: VeraClientExtensionMessages;
     readonly thread: VeraClientExtensionThread;
+    readonly conversation: VeraClientExtensionConversation;
     readonly consult: VeraClientExtensionConsult;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
@@ -419,6 +420,17 @@ export interface VeraClientTranscriptBlock {
  *
  * Capability: `client.thread.read`.
  */
+/**
+ * The conversation this client is showing, as a thing that can be replaced.
+ *
+ * Switching conversations leaves an extension holding state about one the user
+ * has left: seats, panes, anything per-conversation. The listener is where it
+ * lets go. No capability gates it, since it grants nothing.
+ */
+export interface VeraClientExtensionConversation {
+    onChanged(listener: () => void): void;
+}
+
 export interface VeraClientExtensionThread {
     /**
      * A snapshot of the thread, oldest first: what the user said and what the
