@@ -74,6 +74,13 @@ export interface TuiSidebar {
     close(): void;
     append(label: string, text: string, speaker?: string): void;
     clear(): void;
+    /**
+     * Repaints the column, and every block already in it, in a new palette.
+     *
+     * The syntax style comes with it: the old one is destroyed when the theme
+     * changes, and a block drawn against a destroyed style throws.
+     */
+    setTheme(theme: TuiSidebarTheme, syntaxStyle: SyntaxStyle): void;
     /** Re-reads the terminal width; call it on resize. */
     refit(): void;
     /** True while the column is pinned to its newest block. */
@@ -92,7 +99,9 @@ export interface TuiSidebar {
  * implementation.
  */
 export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
-    const { renderer, theme } = options;
+    const { renderer } = options;
+    let theme = options.theme;
+    let syntaxStyle = options.syntaxStyle;
     let width = clampSidebarWidth(
         options.initialWidth ?? DEFAULT_SIDEBAR_WIDTH,
         renderer.terminalWidth,
@@ -103,6 +112,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     let hidden = false;
     let blocks = 0;
     const appended: TuiSidebarBlock[] = [];
+    // The parts of each block that carry a colour. A block is built once and
+    // the theme can change under it, so the pieces have to stay reachable.
+    const painted: { label: TextRenderable; text: MarkdownRenderable }[] = [];
 
     // The divider is grabbed on mouse-down, and every drag after that resizes
     // wherever the pointer went. A fast drag reports its first motion well
@@ -161,6 +173,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             paddingRight: 1,
         },
     });
+    let panelDragged = false;
     const panel = new BoxRenderable(renderer, {
         id: "sidebar",
         width,
@@ -174,8 +187,20 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         paddingBottom: 1,
         backgroundColor: theme.panel,
         visible: false,
-        onMouseDown: () => {
-            options.onPanelClick?.();
+        // A click, not the start of one: dragging over the column is how text
+        // is selected out of it, and a selection must not also address it.
+        onMouseDrag: () => {
+            panelDragged = true;
+        },
+        onMouseDragEnd: () => {
+            panelDragged = true;
+        },
+        onMouseUp: () => {
+            const dragged = panelDragged;
+            panelDragged = false;
+            if (!dragged) {
+                options.onPanelClick?.();
+            }
         },
     });
     panel.add(content);
@@ -248,26 +273,25 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             });
             // The label is drawn, not parsed: markdown would eat the brackets
             // and asterisks that model names and aliases are full of.
-            block.add(
-                new TextRenderable(renderer, {
-                    id: `sidebar-block-${blocks}-label`,
-                    content: label,
-                    fg: theme.muted,
-                    attributes: TextAttributes.BOLD,
-                    width: "100%",
-                    wrapMode: "word",
-                }),
-            );
-            block.add(
-                new MarkdownRenderable(renderer, {
-                    id: `sidebar-block-${blocks}-text`,
-                    content: text,
-                    syntaxStyle: options.syntaxStyle,
-                    fg: theme.text,
-                    width: "100%",
-                    marginTop: 1,
-                }),
-            );
+            const labelText = new TextRenderable(renderer, {
+                id: `sidebar-block-${blocks}-label`,
+                content: label,
+                fg: theme.muted,
+                attributes: TextAttributes.BOLD,
+                width: "100%",
+                wrapMode: "word",
+            });
+            const bodyText = new MarkdownRenderable(renderer, {
+                id: `sidebar-block-${blocks}-text`,
+                content: text,
+                syntaxStyle,
+                fg: theme.text,
+                width: "100%",
+                marginTop: 1,
+            });
+            block.add(labelText);
+            block.add(bodyText);
+            painted.push({ label: labelText, text: bodyText });
             content.add(block);
             appended.push({ node: block, speaker: speaker ?? label });
             options.onLayoutChanged?.();
@@ -279,7 +303,21 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             }
             blocks = 0;
             appended.length = 0;
+            painted.length = 0;
             options.onLayoutChanged?.();
+        },
+        setTheme(next: TuiSidebarTheme, nextSyntaxStyle: SyntaxStyle): void {
+            theme = next;
+            syntaxStyle = nextSyntaxStyle;
+            panel.backgroundColor = theme.panel;
+            divider.backgroundColor = dragging
+                ? theme.handleActive
+                : theme.handle;
+            for (const block of painted) {
+                block.label.fg = theme.muted;
+                block.text.fg = theme.text;
+                block.text.syntaxStyle = syntaxStyle;
+            }
         },
         width: () => width,
     };

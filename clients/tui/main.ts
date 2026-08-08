@@ -153,7 +153,12 @@ import {
 } from "./admission-dialog.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection, selectionSpeaker } from "./selection.ts";
-import { renderTuiQuote, withQuote, type TuiQuote } from "./quote.ts";
+import {
+    renderTuiQuote,
+    tuiQuoteMarker,
+    withQuote,
+    type TuiQuote,
+} from "./quote.ts";
 import {
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
@@ -1210,14 +1215,7 @@ export async function startTui(
     const sidebar = createTuiSidebar({
         renderer,
         transcript: upper,
-        theme: {
-            background: theme.background,
-            panel: tuiRecessColor(theme),
-            handle: tuiHandleColor(theme),
-            handleActive: tuiHandleActiveColor(theme),
-            muted: theme.muted,
-            text: TUI_TEXT,
-        },
+        theme: sidebarTheme(),
         syntaxStyle: markdownStyle,
         ...(sidebarWidth === undefined ? {} : { initialWidth: sidebarWidth }),
         onWidthChanged: (columns) => {
@@ -1407,6 +1405,18 @@ export async function startTui(
                 );
             });
     });
+
+    /** The column's share of whichever theme is current. */
+    function sidebarTheme() {
+        return {
+            background: theme.background,
+            panel: tuiRecessColor(theme),
+            handle: tuiHandleColor(theme),
+            handleActive: tuiHandleActiveColor(theme),
+            muted: theme.muted,
+            text: theme.text,
+        };
+    }
 
     const renderCoalescer = createRenderCoalescer({ render: renderState });
 
@@ -3883,12 +3893,7 @@ export async function startTui(
         composer.placeholder = extensionAddressee === undefined
             ? COMPOSER_PLACEHOLDER
             : `Message ${extensionAddressee}\u2026`;
-        // Indented by hand: the line is one row in a column that does not pad
-        // its children, and it has to start where the composer's text starts.
-        quoteText.content = pendingQuote === undefined
-            ? ""
-            : `  ${renderTuiQuote(pendingQuote)}`;
-        quoteText.visible = pendingQuote !== undefined && !anyOverlayOpen();
+        renderPendingQuote();
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
         approvalView.box.visible = pendingUiRequest?.request.type
@@ -5313,6 +5318,9 @@ export async function startTui(
         settingsPickerView.box.backgroundColor = theme.panel;
         commandPaletteView.box.backgroundColor = theme.panel;
         helpView.box.backgroundColor = theme.panel;
+        // The column is built once and outlives any number of themes, and the
+        // blocks in it were painted when they arrived.
+        sidebar.setTheme(sidebarTheme(), markdownStyle);
 
         if (announce) {
             state = appendTuiNotice(state, `theme changed: ${selectedTheme}`);
@@ -5320,9 +5328,15 @@ export async function startTui(
         renderState();
     }
 
-    /** Every name the user could type for a pooled model, ids included. */
+    /**
+     * Every name the user could type for a pooled model, ids included.
+     *
+     * `self` leads, because whatever is asking for a model is asking from
+     * inside a conversation that already has one, and the same model is the
+     * answer often enough to be the one already under the cursor.
+     */
     function pooledModelNames(): readonly string[] {
-        const names: string[] = [];
+        const names: string[] = ["self"];
         for (const entry of state.modelSettings?.pooled ?? []) {
             if (entry.poolName !== undefined) {
                 names.push(entry.poolName);
@@ -5509,10 +5523,32 @@ export async function startTui(
         );
     }
 
+    /**
+     * The quote line, redrawn on the status tick as well as on state, because
+     * the mark blinks and nothing else is changing while it does.
+     */
+    function renderPendingQuote(): void {
+        const quote = pendingQuote;
+        quoteText.visible = quote !== undefined && !anyOverlayOpen();
+        if (quote === undefined) {
+            quoteText.content = "";
+            return;
+        }
+        const { facts, keys } = renderTuiQuote(quote);
+        // Indented by hand: the line is one row in a column that does not pad
+        // its children, and it has to start where the composer's text starts.
+        quoteText.content = new StyledText([
+            fg(TUI_ACCENT)(`${tuiQuoteMarker(Date.now())} `),
+            fg(TUI_MUTED)(`${facts} · `),
+            fg(TUI_ACCENT)(keys),
+        ]);
+    }
+
     function renderStatus(): void {
         if (shuttingDown) {
             return;
         }
+        renderPendingQuote();
         renderJumpToBottom();
         renderSidebarJump();
 
