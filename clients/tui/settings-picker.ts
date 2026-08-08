@@ -1258,18 +1258,18 @@ export function handleTuiSettingsPickerKey(
         return searched(state, state.query + key.name);
     }
     // Left and right open and close a section, the shape a tree has everywhere
-    // else. They do nothing on a model row: the list is one column, so there is
-    // no sideways move for them to take.
+    // else. On a row inside a section they act on the heading above it, so
+    // closing a long provider does not first mean scrolling back up to it.
     if (key.name === "left" || key.name === "right") {
-        const selected = state.options[state.selectedIndex];
-        if (state.kind !== "model" || selected?.section === undefined) {
+        const heading = enclosingSection(state);
+        if (heading === undefined) {
             return unchanged(state, false);
         }
-        const closed = selected.sectionCollapsed === true;
+        const closed = heading.sectionCollapsed === true;
         if (closed === (key.name === "left")) {
             return unchanged(state, true);
         }
-        return toggledSection(state, selected.section);
+        return toggledSection(state, heading.section!);
     }
     if (key.name === "up") {
         const next = {
@@ -2408,6 +2408,25 @@ function sectionLabels(
         [],
         state.query,
     ).flatMap((option) => option.section === undefined ? [] : [option.section]);
+}
+
+/**
+ * The heading the cursor sits under, which is the heading itself when the
+ * cursor is on it.
+ */
+function enclosingSection(
+    state: TuiAnySettingsPickerState,
+): TuiSettingsPickerOption | undefined {
+    if (state.kind !== "model") {
+        return undefined;
+    }
+    for (let index = state.selectedIndex; index >= 0; index--) {
+        const option = state.options[index];
+        if (option?.section !== undefined) {
+            return option;
+        }
+    }
+    return undefined;
 }
 
 /** The pane with one section opened or closed, cursor left on its heading. */
