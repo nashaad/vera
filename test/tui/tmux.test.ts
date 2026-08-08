@@ -2196,6 +2196,63 @@ test.skipIf(!tmuxAvailable)(
     20_000,
 );
 
+test.skipIf(!tmuxAvailable)(
+    "a seated model answers in its own column, and its note stays off the band",
+    async () => {
+        const socket = `vera-multi-seat-${process.pid}-${randomUUID()}`;
+        const session = "multi-seat";
+        const home = mkdtempSync(join(tmpdir(), "vera-multi-seat-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-multi-seat-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            // The pool owns the list the argument completes from.
+            sendText(socket, session, "/add ");
+            pane = await waitForVisiblePane(socket, session, "advisor");
+
+            sendText(socket, session, "advisor as m1");
+            sendKey(socket, session, "Enter");
+            // Seating fills the column before the seat has said anything.
+            pane = await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+            expect(pane).toContain("m1 (faux-advisor)");
+
+            // An addressed message goes to the seat alone: the ask and the
+            // answer are filed beside the transcript, not in it.
+            sendText(socket, session, "@m1 which ordering");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "SEAT SAW");
+            expect(pane).toContain("you \u2192 @m1");
+
+            // The next message to the agent carries the seating note and the
+            // reply, and the band shows only what was typed.
+            sendText(socket, session, "go on");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
+            expect(pane).toContain("go on");
+            expect(pane).not.toContain("system-note");
+            expect(pane).not.toContain("joined this conversation");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
 function sendText(socket: string, session: string, value: string): void {
     runTmux(socket, ["send-keys", "-t", session, "-l", value]);
 }
