@@ -94,7 +94,7 @@ function session(id: string): TuiAgentClient {
 await startTui({
     client: session("first-session"),
     createSession: async () => session("second-session"),
-    clientExtensions: [{ path: EXTENSION, enabled: true, config: { maxSeats: 2 } }],
+    clientExtensions: [{ path: EXTENSION, enabled: true, config: null }],
 });
 
 function response(text: string): AssistantMessage {

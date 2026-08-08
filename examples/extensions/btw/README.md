@@ -1,27 +1,32 @@
 # btw
 
-One thread, several models.
+One thread, two models.
 
 ```
-/btw gpt-5.5 as m1        # m1 joins the conversation as an advisor
-@m1 what do you think     # goes to m1 only
-@all which way            # every advisor at once, plus the agent
-@m1                       # nothing after the name: every message goes to m1
+/consult                  # seats a sidekick: the model you are already using
+/consult gpt-5.5          # or any model in your pool
+@sidekick what do you think   # goes to the sidekick only
+@all which way            # the sidekick and the agent at once
+@sidekick                 # nothing after the name: every message goes to it
 @vera                     # and back to the agent
 what do you make of that  # bare message goes to the agent
-/remove m1                # m1 leaves
-/remove all               # everyone leaves
+/remove                   # the sidekick leaves
 ```
 
 ## What it does
 
-Advisors advise. They run no tools and nothing they say is written to the
+There is one seat and its name is fixed. A name you chose is a name you have
+to remember, and with a single seat it buys nothing: what varies is which
+model is sitting in it, and the column says that already. Several models at
+once is Party's job, and Party is a different shape: whole sessions in their
+own panes behind one composer.
+
+The sidekick advises. It runs no tools and nothing it says is written to the
 session, so the conversation stays one thread with one history.
 
-It runs one way. An advisor reads the thread between you and the agent, and
-nothing an advisor says reaches the agent or another advisor on its own. Each
-one keeps its own lane in the sidebar: what you asked it, and what it said
-back.
+It runs one way. The sidekick reads the thread between you and the agent, and
+nothing it says reaches the agent on its own. It keeps its own lane in the
+sidebar: what you asked, and what it said back.
 
 Automatic delivery was tried and removed. When every participant reads every
 other one, they converge within a couple of turns, and a second opinion that
@@ -30,25 +35,24 @@ selecting the part that matters is the point rather than a chore.
 
 To move one, select it. Dragging over text in either pane copies it as usual
 and parks it above the composer, and the next message carries it, quoted and
-attributed to whoever said it. `@m1 cross check pls` sends it to an advisor, a
+attributed to whoever said it. `@sidekick cross check pls` sends it across, a
 bare message sends it to the agent, and esc drops it unsent.
 
-An address on its own is held. `@m1` with nothing after it sends every
-message to m1 until `@vera` takes it back, and the composer says whose name it
-is holding for as long as it holds one. A seat that leaves lets go. It is for
-the follow-up: one answer is a second opinion, and three is a conversation.
+An address on its own is held. `@sidekick` with nothing after it sends every
+message to the sidekick until `@vera` takes it back, and the composer says so
+for as long as it holds. It is for the follow-up: one answer is a second
+opinion, and three is a conversation.
 
 Merging is you writing the next message. Nothing here votes, folds, or picks a
 winner, and the agent is the only one that runs tools.
 
-`@all` asks every advisor in parallel, and sends the agent the same words.
+`@all` asks the sidekick and sends the agent the same words.
 
 Only models in your pool can be seated: a pool entry is the only thing that
 carries a provider, so it is the only thing that can be fully addressed.
-`maxSeats` caps how many sit at once, and defaults to 1.
 
-Advisors do not survive a restart. The agent is never told one sat down or got
-up, because it was never told they were there.
+The sidekick does not survive a restart. The agent is never told one sat down
+or got up, because it was never told one was there.
 
 ## Install
 
@@ -64,11 +68,11 @@ Add it to your Vera config:
 
 ## Capabilities it uses
 
-- `client.commands.register` for `/btw`, `/seats` and `/remove`
-- `client.messages.intercept` to read `@alias` before the message is sent
-- `client.consult` to ask an advisor, outside the turn
-- `client.thread.read` so an advisor arrives knowing the conversation
-- `client.ui.mentions` so `@alias` completes in the composer
-- `client.ui.addressing` so the composer says which seat is being held
-- `client.ui.sidebar` and `client.ui.transcript` for the lanes
+- `client.commands.register` for `/consult` (`/btw` still works) and `/remove`
+- `client.messages.intercept` to read `@sidekick` before the message is sent
+- `client.consult` to ask the sidekick, outside the turn
+- `client.thread.read` so the sidekick arrives knowing the conversation
+- `client.ui.mentions` so `@sidekick` completes in the composer
+- `client.ui.addressing` so the composer says when the seat is being held
+- `client.ui.sidebar` and `client.ui.transcript` for the lane
 - `client.ui.notice` for one-line status

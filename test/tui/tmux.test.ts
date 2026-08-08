@@ -2312,18 +2312,18 @@ test.skipIf(!tmuxAvailable)(
             sendText(socket, session, "/btw ");
             pane = await waitForVisiblePane(socket, session, "guest");
 
-            sendText(socket, session, "guest as m1");
+            sendText(socket, session, "guest");
             sendKey(socket, session, "Enter");
             // Seating fills the column before the seat has said anything.
-            pane = await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
-            expect(pane).toContain("m1 (faux-guest)");
+            pane = await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
+            expect(pane).toContain("sidekick (faux-guest)");
 
             // An addressed message goes to the seat alone: the ask and the
             // answer are filed beside the transcript, not in it.
-            sendText(socket, session, "@m1 which ordering");
+            sendText(socket, session, "@sidekick which ordering");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "SEAT SAW");
-            expect(pane).toContain("you \u2192 @m1");
+            expect(pane).toContain("you \u2192 @sidekick");
 
             // The next message to the agent carries the user's words alone:
             // nothing the seat said crosses on its own.
@@ -2446,7 +2446,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "a new conversation takes the sidebar and the seats with it",
+    "a new conversation takes the sidebar and the sidekick with it",
     async () => {
         const socket = `vera-seat-clear-${process.pid}-${randomUUID()}`;
         const session = "seat-clear";
@@ -2463,9 +2463,9 @@ test.skipIf(!tmuxAvailable)(
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/btw guest as m1");
+            sendText(socket, session, "/btw guest");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
 
             sendText(socket, session, "/clear");
             await Bun.sleep(300);
@@ -2481,11 +2481,11 @@ test.skipIf(!tmuxAvailable)(
                 "an empty conversation with no sidebar",
             );
 
-            sendText(socket, session, "@m1 anyone home");
+            sendText(socket, session, "@sidekick anyone home");
             sendKey(socket, session, "Enter");
             // Nothing intercepts it now, so it reaches the agent as typed.
             pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
-            expect(pane).toContain("@m1 anyone home");
+            expect(pane).toContain("@sidekick anyone home");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
@@ -2500,7 +2500,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "@all reaches every seat and the agent in one message",
+    "@all reaches the sidekick and the agent in one message",
     async () => {
         const socket = `vera-seat-all-${process.pid}-${randomUUID()}`;
         const session = "seat-all";
@@ -2517,20 +2517,16 @@ test.skipIf(!tmuxAvailable)(
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/btw guest as m1");
+            sendText(socket, session, "/btw guest");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
-            sendText(socket, session, "/btw second as m2");
-            sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @m2");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
 
             sendText(socket, session, "@all which ordering");
             sendKey(socket, session, "Enter");
-            // Both seats answer in the column, and the agent answers in the
-            // transcript: `@all` is everyone, not only the seats.
+            // The sidekick answers in the column and the agent answers in the
+            // transcript: `@all` is both of them, not only the seat.
             pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
-            expect(pane).toContain("m1 (faux-guest)");
-            expect(pane).toContain("m2 (faux-second)");
+            expect(pane).toContain("sidekick (faux-guest)");
             // What the agent was sent is not what the band shows.
             expect(pane).toContain("which ordering");
             expect(pane).not.toContain("system-note");
@@ -2548,7 +2544,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "removing a seat completes its name and says so in its column",
+    "removing the sidekick says so in its column",
     async () => {
         const socket = `vera-seat-remove-${process.pid}-${randomUUID()}`;
         const session = "seat-remove";
@@ -2565,30 +2561,22 @@ test.skipIf(!tmuxAvailable)(
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/btw guest as frosty");
+            sendText(socket, session, "/btw guest");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @frosty");
-            // A second seat, so the column outlives the one being removed.
-            sendText(socket, session, "/btw second as m2");
-            sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @m2");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
 
-            // The argument completes from the names the extension published,
-            // so a seat can be removed without spelling it out.
-            sendText(socket, session, "/remove ");
-            pane = await waitForVisiblePane(socket, session, "frosty");
-            // Tab chooses the highlighted name, the same as Enter does.
-            sendKey(socket, session, "Tab");
-            await waitForVisiblePane(socket, session, "/remove frosty");
+            // There is one seat, so freeing it needs no name.
+            sendText(socket, session, "/remove");
             sendKey(socket, session, "Enter");
-            // The column says who is in the room, so it says when someone is
-            // not: an ended lane should not read as one gone quiet.
-            pane = await waitForVisiblePane(
+            // The column goes with the seat, so the notice is what says so.
+            pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
-                "Left the conversation.",
+                (visible) =>
+                    visible.includes("@sidekick left")
+                    && !visible.includes("Seated. Ask with @sidekick"),
+                "the sidekick gone and its column with it",
             );
-            expect(pane).toContain("@frosty left");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
@@ -2620,13 +2608,13 @@ test.skipIf(!tmuxAvailable)(
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/btw guest as m1");
+            sendText(socket, session, "/btw guest");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
 
-            sendText(socket, session, "/remove m1");
+            sendText(socket, session, "/remove");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "@m1 left");
+            await waitForVisiblePane(socket, session, "@sidekick left");
 
             sendText(socket, session, "is it just us");
             sendKey(socket, session, "Enter");
@@ -2668,16 +2656,16 @@ test.skipIf(!tmuxAvailable)(
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/btw broken as m1");
+            sendText(socket, session, "/btw broken");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Seated. Ask with @m1");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
 
-            sendText(socket, session, "@m1 you there");
+            sendText(socket, session, "@sidekick you there");
             sendKey(socket, session, "Enter");
             // In the column, under the seat's own label: a failed round is a
             // gap in that conversation, not a notice about somewhere else.
             pane = await waitForVisiblePane(socket, session, "Could not answer");
-            expect(pane).toContain("you \u2192 @m1");
+            expect(pane).toContain("you \u2192 @sidekick");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
