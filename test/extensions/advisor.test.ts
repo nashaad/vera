@@ -13,7 +13,7 @@ import type {
 
 const EXTENSION = join(
     import.meta.dir,
-    "../../examples/extensions/multi-seat",
+    "../../examples/extensions/advisor",
 );
 /** What the agent is told when a seat sits down. */
 function joined(alias: string, model: string): string {
