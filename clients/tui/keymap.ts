@@ -101,6 +101,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+o reasoning",
     },
     {
+        id: "toggle_sidebar",
+        keys: ["ctrl+b"],
+        scope: "global",
+        description: "Show or hide the sidebar",
+    },
+    {
         id: "toggle_tool_details",
         keys: ["ctrl+e"],
         scope: "conversation",

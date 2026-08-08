@@ -4,6 +4,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     clampSidebarWidth,
+    MIN_SPLIT_WIDTH,
     createTuiSidebar,
     DEFAULT_SIDEBAR_WIDTH,
     MIN_SIDEBAR_WIDTH,
@@ -45,14 +46,14 @@ async function openSidebar(width = 120, height = 12) {
         transcript,
         theme: {
             background: "#000000",
-            border: "#444444",
+            panel: "#161616",
             muted: "#888888",
             text: "#ffffff",
         },
         syntaxStyle: STYLE,
     });
     setup.renderer.root.add(sidebar.body);
-    sidebar.open("Seats");
+    sidebar.open();
     return { setup, sidebar };
 }
 
@@ -87,7 +88,7 @@ test("a settled drag reports the width once", async () => {
         transcript,
         theme: {
             background: "#000000",
-            border: "#444444",
+            panel: "#161616",
             muted: "#888888",
             text: "#ffffff",
         },
@@ -95,7 +96,7 @@ test("a settled drag reports the width once", async () => {
         onWidthChanged: (columns) => widths.push(columns),
     });
     setup.renderer.root.add(sidebar.body);
-    sidebar.open("Seats");
+    sidebar.open();
     try {
         const dividerX = 120 - sidebar.width() - 2;
         await setup.flush();
@@ -121,6 +122,45 @@ test("a bracketed label is shown, not parsed as markdown", async () => {
         await new Promise((resolve) => setTimeout(resolve, 200));
         await setup.flush();
         expect(setup.captureCharFrame()).toContain("[m1] (gpt-5.5)");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a terminal too narrow to split puts the sidebar away until it is wide again", async () => {
+    const { setup, sidebar } = await openSidebar();
+    try {
+        expect(sidebar.isShown()).toBe(true);
+        setup.resize(MIN_SPLIT_WIDTH - 1, 12);
+        sidebar.refit();
+        await setup.flush();
+        // Still open, only out of the way.
+        expect(sidebar.isOpen()).toBe(true);
+        expect(sidebar.isShown()).toBe(false);
+
+        setup.resize(MIN_SPLIT_WIDTH, 12);
+        sidebar.refit();
+        await setup.flush();
+        expect(sidebar.isShown()).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("hiding the sidebar leaves it open, and a resize does not bring it back", async () => {
+    const { setup, sidebar } = await openSidebar();
+    try {
+        sidebar.toggleHidden();
+        await setup.flush();
+        expect(sidebar.isOpen()).toBe(true);
+        expect(sidebar.isShown()).toBe(false);
+
+        sidebar.refit();
+        expect(sidebar.isShown()).toBe(false);
+
+        sidebar.toggleHidden();
+        await setup.flush();
+        expect(sidebar.isShown()).toBe(true);
     } finally {
         setup.renderer.destroy();
     }

@@ -4,7 +4,7 @@ export function activateClient(vera: any): void {
         description: "Open the sidebar and write a block into it",
         usage: "/pane",
         run() {
-            vera.ui.sidebar.open("Seats");
+            vera.ui.sidebar.open();
             vera.ui.sidebar.append({
                 label: "m1 (faux)",
                 text: "beside the transcript",

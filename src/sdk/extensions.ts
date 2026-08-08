@@ -326,7 +326,8 @@ export interface VeraClientExtensionUi {
 }
 
 export interface VeraClientExtensionSidebar {
-    open(title: string): void;
+    /** Claims the sidebar. It is a column of blocks, with no chrome of its own. */
+    open(): void;
     /** Adds a block to the bottom. Empty label or text is refused. */
     append(block: VeraClientTranscriptBlock): void;
     clear(): void;

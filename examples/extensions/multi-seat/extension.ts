@@ -93,7 +93,7 @@ export function activateClient(vera: any): void {
             unread.set(alias, []);
             if (!sidebarOpen) {
                 try {
-                    vera.ui.sidebar.open("Seats");
+                    vera.ui.sidebar.open();
                     sidebarOpen = true;
                 } catch {
                     // Another extension has it, or this client has none. The
