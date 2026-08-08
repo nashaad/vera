@@ -34,3 +34,23 @@ test("a subdirectory of a repository resolves to the checkout", async () => {
         await rm(dir, { recursive: true, force: true });
     }
 });
+
+test("a workspace is resolved once and remembered", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "vera-root-")));
+    try {
+        expect(resolveInstructionRoot(dir)).toEqual({
+            path: dir,
+            source: "workspace",
+        });
+        // The repository appears after the first answer, and the remembered
+        // one stands: hundreds of restores must not spawn git hundreds of
+        // times for the same directory.
+        spawnSync("git", ["init", "-q"], { cwd: dir });
+        expect(resolveInstructionRoot(dir)).toEqual({
+            path: dir,
+            source: "workspace",
+        });
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});

@@ -458,6 +458,23 @@ function describeRunOnceModel(options: RunOnceOptions): string {
  * to itself, which is an ordinary case rather than a failure.
  */
 export function resolveInstructionRoot(workspace: string): InstructionRoot {
+    const remembered = instructionRoots.get(workspace);
+    if (remembered !== undefined) {
+        return remembered;
+    }
+    const resolved = readInstructionRoot(workspace);
+    instructionRoots.set(workspace, resolved);
+    return resolved;
+}
+
+/**
+ * One answer per workspace for the life of the host. Resolving spawns git, and
+ * restoring the stored sessions asks the same handful of directories hundreds
+ * of times: without this, the spawns alone keep the host from listening.
+ */
+const instructionRoots = new Map<string, InstructionRoot>();
+
+function readInstructionRoot(workspace: string): InstructionRoot {
     try {
         const git = spawnSync(
             "git",
