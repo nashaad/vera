@@ -410,6 +410,7 @@ export interface TuiDependencies {
     readonly createAgent?: (
         workspace: string,
         approvalMode?: string,
+        lifetime?: "ephemeral" | "durable",
     ) => Promise<TuiAgentClient>;
     readonly attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
     readonly cloneSession?: (agentId: string) => Promise<TuiAgentClient>;
@@ -600,6 +601,7 @@ export async function startConfiguredTui(
                     host.socket_path,
                     workspace,
                     approvalMode,
+                    "durable",
                 )).id),
             attachAgent: attach,
             cloneSession: async (currentAgentId) =>
@@ -858,6 +860,7 @@ export async function startTui(
     let sidebarOwner: string | undefined;
     let sidebarAgentPane: TuiAgentPane<IdentifiedTuiAgentClient> | undefined;
     let sidebarAttachmentLifetime: "ephemeral" | "durable" = "durable";
+    let sidebarInitialApprovalMode: string | undefined;
     let sidebarAgentMention: string | undefined;
     let clientSurfaceReady = false;
     let submitAfterImageAttachment = false;
@@ -970,6 +973,7 @@ export async function startTui(
                 const next = requireIdentifiedClient(await dependencies.createAgent(
                     request.workspace ?? client.workspace ?? process.cwd(),
                     request.approvalMode,
+                    request.attachmentLifetime,
                 ));
                 await openExtensionAgent(
                     extensionId,
@@ -978,6 +982,7 @@ export async function startTui(
                     false,
                     request.mention,
                     request.attachmentLifetime,
+                    request.approvalMode,
                 );
                 return { agentId: next.agentId };
             },
@@ -1460,6 +1465,7 @@ export async function startTui(
             renderState();
         },
         onLayoutChanged: () => {
+            reflowTranscriptSeparators();
             renderJumpToBottom();
             renderSidebarJump();
             renderCommandSuggestions();
@@ -1473,6 +1479,7 @@ export async function startTui(
         replaceSidebarOwner = false,
         mention?: string,
         attachmentLifetime: "ephemeral" | "durable" = "durable",
+        initialApprovalMode?: string,
     ): Promise<void> {
         if (pane === "main") {
             switchToClient(next, undefined, { preserveSidebar: true });
@@ -1505,6 +1512,8 @@ export async function startTui(
         });
         sidebarAgentPane = attached;
         sidebarAttachmentLifetime = attachmentLifetime;
+        sidebarInitialApprovalMode = initialApprovalMode
+            ?? sidebarInitialApprovalMode;
         sidebarAgentMention = mention ?? attached.agentId;
         rememberOpenPaneGroup();
         clearSidebarEntryNodes();
@@ -1574,6 +1583,38 @@ export async function startTui(
                 - (sidebar.isShown() ? sidebar.width() + 1 : 0)
                 - 4,
         );
+    }
+
+    /** Rebuild width-sensitive rules after either pane changes geometry. */
+    function reflowTranscriptSeparators(): void {
+        state.entries.forEach((entry, index) => {
+            const node = entryNodes[index];
+            if (
+                node instanceof MarkdownRenderable
+                && assistantFollowsWork(state.entries, index)
+            ) {
+                node.content = tuiMarkdownEntryContent(
+                    entry,
+                    true,
+                    mainTranscriptWidth(),
+                );
+            }
+        });
+        const side = sidebarAgentPane;
+        if (side === undefined) return;
+        side.state.state.entries.forEach((entry, index) => {
+            const node = sidebarEntryNodes[index];
+            if (
+                node instanceof MarkdownRenderable
+                && assistantFollowsWork(side.state.state.entries, index)
+            ) {
+                node.content = tuiMarkdownEntryContent(
+                    entry,
+                    true,
+                    sidebarTranscriptWidth(),
+                );
+            }
+        });
     }
 
     function rememberOpenPaneGroup(): void {
@@ -1719,6 +1760,9 @@ export async function startTui(
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
         if (pane !== sidebarAgentPane) return;
+        if (update.type === "ui_request") {
+            sidebar.setFocused(true);
+        }
         if (update.type === "turn_finished") {
             pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
             if (pane.state.state.working) {
@@ -2892,11 +2936,10 @@ export async function startTui(
             && tuiCommandScope(commandAction) === "main_session"
         ) {
             composer.clearComposer();
-            sidebarAgentPane.state.state = appendTuiNotice(
-                sidebarAgentPane.state.state,
-                "Switch to Vera with Ctrl+G to manage its conversation.",
+            showStatusNotice(
+                "Switch to Vera with Ctrl+G to manage its conversation",
             );
-            renderSidebarAgent(sidebarAgentPane);
+            renderState();
             return;
         }
         if (commandAction?.type === "command_error") {
@@ -3426,7 +3469,13 @@ export async function startTui(
         }
         if (commandAction?.type === "create_session") {
             composer.clearComposer();
-            if (dependencies.createSession === undefined) {
+            const clearingSidebar = sidebar.isFocused()
+                && sidebarAgentPane !== undefined;
+            if (
+                clearingSidebar
+                    ? dependencies.createAgent === undefined
+                    : dependencies.createSession === undefined
+            ) {
                 state = appendTuiNotice(
                     state,
                     "Starting a new session is unavailable",
@@ -3437,7 +3486,7 @@ export async function startTui(
             if (sessionSwitchPending) {
                 return;
             }
-            const workspace = client.workspace;
+            const workspace = focusedAgentClient().workspace;
             if (workspace === undefined) {
                 state = appendTuiNotice(
                     state,
@@ -3449,12 +3498,33 @@ export async function startTui(
             sessionSwitchPending = true;
             sessionSwitchActivity = "starting new session…";
             renderStatus();
+            const nextSession = clearingSidebar
+                ? dependencies.createAgent!(
+                    workspace,
+                    sidebarInitialApprovalMode
+                        ?? focusedAgentState().approvalMode,
+                    sidebarAttachmentLifetime,
+                )
+                : dependencies.createSession!(workspace);
             void withSessionSwitchDeadline(
-                dependencies.createSession(workspace),
+                nextSession,
                 discardSwitchTarget,
-            ).then((next) => {
+            ).then(async (next) => {
                 if (shuttingDown) {
                     discardSwitchTarget(next);
+                    return;
+                }
+                if (clearingSidebar) {
+                    await openExtensionAgent(
+                        sidebarOwner ?? "vera.tui.agent-attachments",
+                        requireIdentifiedClient(next),
+                        "sidebar",
+                        true,
+                        sidebarAgentMention,
+                        sidebarAttachmentLifetime,
+                        sidebarInitialApprovalMode,
+                    );
+                    sessionSwitchPending = false;
                     return;
                 }
                 switchToClient(next);
@@ -3916,6 +3986,10 @@ export async function startTui(
                     || update.type === "ui_request_closed"
                 ) {
                     if (update.type === "ui_request") {
+                        // Requests must reveal the pane that owns them. A
+                        // hidden question otherwise disables composer UI while
+                        // looking like neither agent needs an answer.
+                        sidebar.setFocused(false);
                         finishThoughtPhase();
                         phaseSince = undefined;
                         activity = update.request.type === "tool_approval"
@@ -6481,7 +6555,7 @@ export async function startTui(
     }
 
     function overlaysClearOfSuggestions(): boolean {
-        return pendingUiRequest === undefined
+        return focusedUiRequest() === undefined
             && timelinePicker === undefined
             && settingsPicker === undefined
             && commandPalette === undefined

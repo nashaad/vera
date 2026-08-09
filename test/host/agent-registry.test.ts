@@ -74,6 +74,35 @@ test("a created agent persists its per-session permission mode", async () => {
     }
 });
 
+test("an ephemeral agent stays attachable but out of the session roster", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-ephemeral-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    try {
+        const ephemeral = await registry.create({
+            id: "aside",
+            workspace: root,
+            ephemeral: true,
+        });
+        await registry.create({
+            id: "conversation",
+            workspace: root,
+            sessionPath: join(root, "conversation.jsonl"),
+        });
+
+        expect(registry.find(ephemeral.id)).toBe(ephemeral);
+        expect(registry.list().map((agent) => agent.id)).toEqual([
+            "conversation",
+        ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("resident agents resolve relative file paths from their fixed workspaces", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-registry-"));
     const firstWorkspace = join(root, "first");

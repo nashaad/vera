@@ -42,6 +42,7 @@ export interface CreateAgentRequest {
     readonly type: "create_agent";
     readonly workspace: string;
     readonly approval_mode?: string;
+    readonly lifetime?: "ephemeral" | "durable";
 }
 
 export interface ResumeAgentRequest {

@@ -187,11 +187,11 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_resume_picker":
         case "open_subagents_picker":
         case "go_to_parent":
+        case "create_session":
             return "focused_agent";
         case "open_rewind":
         case "open_fork":
         case "reconnect":
-        case "create_session":
         case "update_session_name":
         case "clone_session":
         case "compact_session":

@@ -29,6 +29,7 @@ export function createAgentThroughHost(
     socketPath: string,
     workspace: string,
     approvalMode?: string,
+    lifetime?: "ephemeral" | "durable",
 ): Promise<ReadyAgent> {
     return requestAgentStart(socketPath, {
         type: "create_agent",
@@ -36,6 +37,7 @@ export function createAgentThroughHost(
         ...(approvalMode === undefined
             ? {}
             : { approval_mode: approvalMode }),
+        ...(lifetime === undefined ? {} : { lifetime }),
     });
 }
 
@@ -93,6 +95,7 @@ interface CreateAgentMessage {
     readonly type: "create_agent";
     readonly workspace: string;
     readonly approval_mode?: string;
+    readonly lifetime?: "ephemeral" | "durable";
 }
 
 interface ResumeAgentMessage {
