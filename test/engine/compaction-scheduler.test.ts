@@ -399,3 +399,39 @@ test("a target above the token trigger is reported rather than clamped", () => {
     )).toBeUndefined();
     expect(compactionBudgetWarning(measurement(9_000))).toBeUndefined();
 });
+
+test("a target_tokens a known window makes moot is reported, not swallowed",
+    () => {
+        const warning = compactionBudgetWarning(measurement(9_000), {
+            targetTokens: 2_000,
+        });
+
+        expect(warning).toContain("compaction.target_tokens (2000)");
+        expect(warning).toContain("10000");
+        expect(warning).toContain("4500");
+        // No such key exists, so the text must not send anyone looking for it.
+        expect(warning).not.toContain("target_fraction");
+    });
+
+test("an unknown window uses target_tokens, so there is nothing to report",
+    () => {
+        expect(compactionBudgetWarning(
+            { tokens: 9_000, estimated: true },
+            { targetTokens: 2_000, trigger: { tokens: 8_000 } },
+        )).toBeUndefined();
+        expect(compactionBudgetWarning(measurement(9_000), {
+            trigger: { tokens: 8_000 },
+        })).toBeUndefined();
+    });
+
+test("both budget faults reach the user in one warning", () => {
+    // Known window, so target_tokens is ignored, and the share of the window
+    // it is ignored in favour of still sits above the token trigger.
+    const warning = compactionBudgetWarning(
+        { tokens: 5_000, capacity: 200_000, estimated: true },
+        { targetTokens: 2_000, trigger: { tokens: 5_000 } },
+    );
+
+    expect(warning).toContain("compaction.target_tokens (2000) is ignored");
+    expect(warning).toContain("above trigger_tokens");
+});
