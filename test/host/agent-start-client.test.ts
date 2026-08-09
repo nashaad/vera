@@ -21,10 +21,14 @@ import { UserFacingError } from "../../src/user-facing-error.ts";
         const created = new ResidentAgent("created", "/work/created");
         const resumed = new ResidentAgent("resumed", "/work/resumed");
         const branched = new ResidentAgent("branched", "/work/created");
+        let createOptions: unknown;
         const host = await startHostServer({
             socketPath,
             lockPath: join(root, "host.json"),
-            createAgent: async () => created,
+            createAgent: async (options) => {
+                createOptions = options;
+                return created;
+            },
             resumeAgent: async () => resumed,
             branchAgent: async (options) => ({
                 agent: branched,
@@ -46,8 +50,14 @@ import { UserFacingError } from "../../src/user-facing-error.ts";
                 socketPath,
                 "/work/created",
                 "readonly",
+                "ephemeral",
             ))
                 .toEqual({ id: "created", workspace: "/work/created" });
+            expect(createOptions).toEqual({
+                workspace: "/work/created",
+                approvalMode: "readonly",
+                ephemeral: true,
+            });
             expect(await resumeAgentThroughHost(
                 socketPath,
                 "/sessions/resumed.jsonl",
