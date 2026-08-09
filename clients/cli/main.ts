@@ -50,6 +50,9 @@ interface PoolAddOptions {
 }
 import type { TuiStartOptions, TuiStartTarget } from "../tui/main.ts";
 import { renderCliHelp, renderCliUsage } from "./help.ts";
+import { runScheduleCli } from "./schedule.ts";
+import type { ScheduleOperation } from "../../src/scheduler/types.ts";
+import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -58,6 +61,9 @@ interface CliOutput {
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly scheduleOperation?: (
+        operation: ScheduleOperation,
+    ) => Promise<Record<string, unknown>>;
     readonly exportSession?: (
         sessionPath: string,
         format: SessionExportFormat,
@@ -232,6 +238,16 @@ export async function runCli(
         return 0;
     }
 
+    if (args[0] === "schedule") {
+        const code = await runScheduleCli(
+            args.slice(1),
+            dependencies.scheduleOperation ?? scheduleOperationOnResidentHost,
+            output,
+        );
+        if (code !== 0) errorOutput.write(renderCliUsage());
+        return code;
+    }
+
     if (args.length === 2 && args[0] === "pool" && args[1] === "list") {
         output.write(await (dependencies.listPool ?? listPool)(process.cwd()));
         return 0;
@@ -365,6 +381,14 @@ async function runOnceOnResidentHost(request: {
     const { findOrStartResidentHost } = await import("../host/launch.ts");
     const host = await findOrStartResidentHost();
     return runOnceThroughHost(host.socket_path, request);
+}
+
+async function scheduleOperationOnResidentHost(
+    operation: ScheduleOperation,
+): Promise<Record<string, unknown>> {
+    const { findOrStartResidentHost } = await import("../host/launch.ts");
+    const host = await findOrStartResidentHost();
+    return runScheduleOperationThroughHost(host.socket_path, operation);
 }
 
 function parseExportRequest(
