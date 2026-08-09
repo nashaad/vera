@@ -24,6 +24,15 @@ export const askUserTool: RegisteredTool = {
                         properties: {
                             id: { type: "string" },
                             label: { type: "string" },
+                            description: {
+                                type: "string",
+                                description:
+                                    "Optional. One line saying what picking"
+                                    + " this means, shown under the label."
+                                    + " Include it when the label alone leaves"
+                                    + " the consequence unclear; omit it when it"
+                                    + " would only restate the label.",
+                            },
                             preview: {
                                 type: "string",
                                 description:
@@ -79,20 +88,26 @@ function parseChoice(value: unknown, index: number): AskUserChoice {
         throw new Error(`ask_user choice ${index + 1} must be an object`);
     }
     const choice = value as Record<string, unknown>;
-    const known = ["id", "label", "preview"];
+    const known = ["id", "label", "description", "preview"];
     if (
         !Object.hasOwn(choice, "id")
         || !Object.hasOwn(choice, "label")
         || Object.keys(choice).some((key) => !known.includes(key))
     ) {
         throw new Error(
-            `ask_user choice ${index + 1} must contain only id, label, and`
-                + " preview",
+            `ask_user choice ${index + 1} must contain only id, label,`
+                + " description, and preview",
         );
     }
     return {
         id: nonEmptyString(choice.id, `choice ${index + 1} ID`),
         label: nonEmptyString(choice.label, `choice ${index + 1} label`),
+        ...(choice.description === undefined ? {} : {
+            description: nonEmptyString(
+                choice.description,
+                `choice ${index + 1} description`,
+            ),
+        }),
         // A preview is kept verbatim: its indentation is part of what it shows.
         ...(choice.preview === undefined ? {} : {
             preview: verbatimString(

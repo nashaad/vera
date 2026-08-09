@@ -12,6 +12,7 @@ export function renderStdioQuestion(
         // one column, so side by side is not available to it.
         ...update.request.choices.flatMap((choice, index) => [
             `${index + 1}. ${choice.label}`,
+            ...(choice.description === undefined ? [] : [`   ${choice.description}`]),
             ...(choice.preview === undefined
                 ? []
                 : choice.preview.split("\n").map((line) => `   ${line}`)),

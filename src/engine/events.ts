@@ -90,6 +90,8 @@ export interface ToolApprovalUiResponse {
 export interface UserQuestionChoice {
     readonly id: string;
     readonly label: string;
+    /** One line under the label saying what picking this means. */
+    readonly description?: string;
     /** Shown verbatim in a monospace box beside the choices. */
     readonly preview?: string;
 }
