@@ -6332,7 +6332,7 @@ export async function startTui(
                 ? [sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"]
                 : []),
             ...(sidebarAgentPane !== undefined && sidebar.isShown()
-                ? [sidebar.isFocused() ? "f6 main" : "f6 sidekick"]
+                ? [sidebar.isFocused() ? "ctrl+g main" : "ctrl+g sidekick"]
                 : []),
         ];
         const detailsLine = extensionState.length === 0

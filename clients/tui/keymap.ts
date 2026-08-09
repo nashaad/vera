@@ -108,7 +108,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "switch_agent_pane",
-        keys: ["f6"],
+        keys: ["ctrl+g"],
         scope: "global",
         description: "Switch focus between visible agents",
     },

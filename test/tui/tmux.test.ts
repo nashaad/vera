@@ -2452,21 +2452,21 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("readonly");
             expect(pane).toContain("Message sidekick");
 
-            // F6 switches focus without making terminal selection and
+            // Ctrl+G switches focus without making terminal selection and
             // pointer-capture behaviour part of message routing.
-            sendKey(socket, session, "F6");
+            sendKey(socket, session, "C-g");
             await waitForVisiblePaneWhere(
                 socket,
                 session,
                 (visible) => visible.includes(" · auto · "),
-                "f6 to focus the main agent",
+                "ctrl+g to focus the main agent",
             );
-            sendKey(socket, session, "F6");
+            sendKey(socket, session, "C-g");
             pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
                 (visible) => visible.includes(" · readonly · "),
-                "f6 to restore sidekick focus",
+                "ctrl+g to restore sidekick focus",
             );
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(
                 /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*▁+/,
