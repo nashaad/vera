@@ -342,7 +342,10 @@ import {
     updateTuiToolHeader,
     updateTuiToolRow,
 } from "./tool-row.ts";
-import { createTuiMarkdownEntry } from "./markdown-entry.ts";
+import {
+    createTuiMarkdownEntry,
+    tuiMarkdownEntryContent,
+} from "./markdown-entry.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
@@ -358,7 +361,30 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
-const POINTER_HOVER_DELAY_MS = 75;
+const POINTER_HOVER_DELAY_MS = 25;
+
+function assistantFollowsWork(
+    entries: readonly TuiTranscriptEntry[],
+    index: number,
+): boolean {
+    if (entries[index]?.kind !== "assistant") return false;
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+        const kind = entries[cursor]?.kind;
+        if (kind === "user" || kind === "assistant") return false;
+        if (
+            kind === "tool"
+            || kind === "tool_header"
+            || kind === "thinking"
+            || kind === "thought"
+            || kind === "review"
+            || kind === "notice"
+            || kind === "extension_label"
+            || kind === "substitution"
+            || kind === "diff"
+        ) return true;
+    }
+    return false;
+}
 
 function truncateFooterLine(text: string, width: number): string {
     const characters = Array.from(text);
@@ -1557,9 +1583,17 @@ export async function startTui(
                 existing.visible = entry.kind !== "tool" || entry.hidden !== true;
                 if (
                     existing instanceof MarkdownRenderable
-                    && existing.content !== entry.text
+                    && existing.content !== tuiMarkdownEntryContent(
+                        entry,
+                        assistantFollowsWork(entries, index),
+                        renderer.terminalWidth,
+                    )
                 ) {
-                    existing.content = entry.text;
+                    existing.content = tuiMarkdownEntryContent(
+                        entry,
+                        assistantFollowsWork(entries, index),
+                        renderer.terminalWidth,
+                    );
                 } else if (
                     entry.kind === "tool"
                     && existing instanceof BoxRenderable
@@ -1583,10 +1617,7 @@ export async function startTui(
 
             const id = `sidebar-entry-${++sidebarEntryGeneration}`;
             const marginTop = tuiEntryMarginTop(entries, index);
-            const separatedUser = entry.kind === "user"
-                && entries.slice(0, index).some((candidate) =>
-                    candidate.kind === "user"
-                );
+            const separatedAssistant = assistantFollowsWork(entries, index);
             const markdownNode = entry.kind === "diff"
                 ? undefined
                 : createTuiMarkdownEntry(
@@ -1596,19 +1627,14 @@ export async function startTui(
                     markdownStyle,
                     TUI_TEXT,
                     marginTop,
+                    separatedAssistant,
                 );
             const node = entry.kind === "tool"
                 ? createTuiToolRow(renderer, id, entry, marginTop)
                 : entry.kind === "tool_header"
                 ? createTuiToolHeader(renderer, id, entry, marginTop)
                 : entry.kind === "user"
-                ? createTuiUserEntry(
-                    renderer,
-                    id,
-                    entry,
-                    marginTop,
-                    separatedUser,
-                )
+                ? createTuiUserEntry(renderer, id, entry, marginTop)
                 : entry.kind === "diff"
                 ? createTuiDiff(
                     renderer,
@@ -4789,9 +4815,17 @@ export async function startTui(
                     || entry.hidden !== true;
                 if (
                     existing instanceof MarkdownRenderable &&
-                    existing.content !== entry.text
+                    existing.content !== tuiMarkdownEntryContent(
+                        entry,
+                        assistantFollowsWork(state.entries, index),
+                        renderer.terminalWidth,
+                    )
                 ) {
-                    existing.content = entry.text;
+                    existing.content = tuiMarkdownEntryContent(
+                        entry,
+                        assistantFollowsWork(state.entries, index),
+                        renderer.terminalWidth,
+                    );
                 }
                 if (entry.kind === "tool" && existing instanceof BoxRenderable) {
                     updateTuiToolRow(existing, entry);
@@ -4818,10 +4852,10 @@ export async function startTui(
             }
 
             const marginTop = tuiEntryMarginTop(state.entries, index);
-            const separatedUser = entry.kind === "user"
-                && state.entries.slice(0, index).some((candidate) =>
-                    candidate.kind === "user"
-                );
+            const separatedAssistant = assistantFollowsWork(
+                state.entries,
+                index,
+            );
             const markdownNode = entry.kind === "diff"
                 ? undefined
                 : createTuiMarkdownEntry(
@@ -4831,6 +4865,7 @@ export async function startTui(
                     markdownStyle,
                     TUI_TEXT,
                     marginTop,
+                    separatedAssistant,
                 );
             const node = entry.kind === "tool"
                 ? createTuiToolRow(
@@ -4852,7 +4887,6 @@ export async function startTui(
                     `entry-${index}`,
                     entry,
                     marginTop,
-                    separatedUser,
                 )
                 : entry.kind === "diff"
                 ? createTuiDiff(
