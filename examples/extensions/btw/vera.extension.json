@@ -5,14 +5,7 @@
   "entrypoint": "./extension.ts",
   "capabilities": [
     "client.commands.register",
-    "client.consult",
-    "client.messages.intercept",
-    "client.model_settings",
-    "client.ui.addressing",
-    "client.ui.mentions",
-    "client.thread.read",
-    "client.ui.notice",
-    "client.ui.sidebar",
-    "client.ui.transcript"
+    "client.agents",
+    "client.ui.mentions"
   ]
 }
