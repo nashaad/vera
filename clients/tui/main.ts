@@ -98,6 +98,11 @@ import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
 import { renderTuiDiagnostics } from "./diagnostics.ts";
 import {
+    createTuiDiagnosticsDialogView,
+    handleTuiDiagnosticsDialogKey,
+    type TuiDiagnosticsDialogState,
+} from "./diagnostics-dialog.ts";
+import {
     defaultStashRoot,
     summarizeStash,
 } from "../../src/store/preimage-stash.ts";
@@ -689,6 +694,7 @@ export async function startTui(
     let preferencesListParent: TuiSettingsPickerState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
     let help: TuiHelpState | undefined;
+    let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let confirmingFullAccess = false;
     /**
@@ -1180,6 +1186,7 @@ export async function startTui(
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
+    const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer);
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
     const admissionDialogView = createTuiAdmissionDialogView(renderer);
     const sessionTrashConfirmView =
@@ -1387,6 +1394,7 @@ export async function startTui(
     app.add(preferencesListView.box);
     app.add(commandPaletteView.box);
     app.add(helpView.box);
+    app.add(diagnosticsDialogView.box);
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
@@ -1834,6 +1842,34 @@ export async function startTui(
                 help = transition.state;
                 renderState();
                 focusActiveSurface();
+                return;
+            }
+        }
+
+        if (diagnosticsDialog !== undefined) {
+            const action = handleTuiDiagnosticsDialogKey(key);
+            if (action !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                if (action === "dismiss") {
+                    diagnosticsDialog = undefined;
+                    focusActiveSurface();
+                    renderState();
+                    return;
+                }
+                if (diagnosticsDialog.copyReady === false) {
+                    return;
+                }
+                const text = diagnosticsDialog.text;
+                void copyText(text).then(() => {
+                    if (diagnosticsDialog?.text !== text) return;
+                    diagnosticsDialog = { text, copyStatus: "copied" };
+                    renderState();
+                }).catch(() => {
+                    if (diagnosticsDialog?.text !== text) return;
+                    diagnosticsDialog = { text, copyStatus: "failed" };
+                    renderState();
+                });
                 return;
             }
         }
@@ -2296,17 +2332,66 @@ export async function startTui(
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
-            state = appendTuiNotice(state, renderTuiDiagnostics({
-                state,
-                activity,
-                elapsed: elapsedWorkingTime(),
-                sessionId: client.agentId,
-                workspace: client.workspace ?? process.cwd(),
-                runningBackgroundAgents,
-                stash: summarizeStash(),
-                stashRoot: defaultStashRoot(),
-            }));
+            const agentId = client.agentId;
+            const resolvingSessionPath = agentId !== undefined
+                && dependencies.listAgents !== undefined;
+            diagnosticsDialog = {
+                text: renderTuiDiagnostics({
+                    state,
+                    activity,
+                    elapsed: elapsedWorkingTime(),
+                    workspace: client.workspace ?? process.cwd(),
+                    runningBackgroundAgents,
+                    stash: summarizeStash(),
+                    stashRoot: defaultStashRoot(),
+                }),
+                copyReady: !resolvingSessionPath,
+            };
             renderState();
+            focusActiveSurface();
+            if (agentId !== undefined && dependencies.listAgents !== undefined) {
+                void dependencies.listAgents().then((agents) => {
+                    const sessionPath = agents.find((agent) =>
+                        agent.id === agentId
+                    )?.session_path;
+                    if (
+                        diagnosticsDialog === undefined
+                        || client.agentId !== agentId
+                    ) return;
+                    if (sessionPath === undefined) {
+                        diagnosticsDialog = {
+                            ...diagnosticsDialog,
+                            copyReady: true,
+                        };
+                        renderState();
+                        return;
+                    }
+                    diagnosticsDialog = {
+                        text: renderTuiDiagnostics({
+                            state,
+                            activity,
+                            elapsed: elapsedWorkingTime(),
+                            sessionPath,
+                            workspace: client.workspace ?? process.cwd(),
+                            runningBackgroundAgents,
+                            stash: summarizeStash(),
+                            stashRoot: defaultStashRoot(),
+                        }),
+                        copyReady: true,
+                    };
+                    renderState();
+                }).catch(() => {
+                    if (
+                        diagnosticsDialog === undefined
+                        || client.agentId !== agentId
+                    ) return;
+                    diagnosticsDialog = {
+                        ...diagnosticsDialog,
+                        copyReady: true,
+                    };
+                    renderState();
+                });
+            }
             return;
         }
         if (commandAction?.type === "show_pool") {
@@ -3655,6 +3740,9 @@ export async function startTui(
         if (help !== undefined) {
             return () => helpView.box.focus();
         }
+        if (diagnosticsDialog !== undefined) {
+            return () => diagnosticsDialogView.focus();
+        }
         if (confirmingFullAccess) {
             return () => permissionsConfirmView.box.focus();
         }
@@ -3994,6 +4082,14 @@ export async function startTui(
             && settingsPicker === undefined
             && commandPalette === undefined
             && help !== undefined;
+        diagnosticsDialogView.box.visible = pendingUiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && help === undefined
+            && diagnosticsDialog !== undefined;
         permissionsConfirmView.box.visible = pendingUiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
@@ -4013,6 +4109,7 @@ export async function startTui(
             || preferencesListView.box.visible
             || commandPaletteView.box.visible
             || helpView.box.visible
+            || diagnosticsDialogView.box.visible
             || permissionsConfirmView.box.visible
             || admissionDialogView.box.visible
             || sessionTrashConfirmView.box.visible
@@ -4028,7 +4125,8 @@ export async function startTui(
             && namePrompt === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
-            && help === undefined;
+            && help === undefined
+            && diagnosticsDialog === undefined;
         renderCommandSuggestions();
         if (
             pendingUiRequest !== undefined
@@ -4072,6 +4170,9 @@ export async function startTui(
         }
         if (help !== undefined) {
             helpView.update(help);
+        }
+        if (diagnosticsDialog !== undefined) {
+            diagnosticsDialogView.update(diagnosticsDialog);
         }
         if (sessionTrashCandidate !== undefined) {
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
@@ -4193,6 +4294,7 @@ export async function startTui(
             || preferencesList !== undefined
             || commandPalette !== undefined
             || help !== undefined
+            || diagnosticsDialog !== undefined
             || confirmingFullAccess
             || admissionDialog !== undefined
             || sessionTrashCandidate !== undefined;
@@ -5451,6 +5553,8 @@ export async function startTui(
         settingsPickerView.box.backgroundColor = theme.panel;
         commandPaletteView.box.backgroundColor = theme.panel;
         helpView.box.backgroundColor = theme.panel;
+        diagnosticsDialogView.box.backgroundColor = theme.panel;
+        diagnosticsDialogView.repaint();
         // The column is built once and outlives any number of themes, and the
         // blocks in it were painted when they arrived.
         sidebar.setTheme(sidebarTheme(), markdownStyle);

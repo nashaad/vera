@@ -28,7 +28,7 @@ test("TUI diagnostics explains a retrying model request", () => {
         },
         activity: "retrying openai/gpt-5.6-sol",
         elapsed: "1m00s",
-        sessionId: "agent-1",
+        sessionPath: "/home/user/.vera/sessions/agent-1.jsonl",
         workspace: "/workspace",
         runningBackgroundAgents: 1,
         now: Date.parse("2026-07-29T17:00:00.000Z"),
@@ -155,6 +155,12 @@ test("TUI diagnostics describes the request after retry backoff ends", () => {
 });
 
 test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
+    const entries = Array.from({ length: 17 }, (_, index) => ({
+        path: `/vault/note-${index + 1}.md`,
+        sessionId: `session-${index + 1}`,
+        capturedAt: "2026-08-05T19:00:00.000Z",
+        bytes: 1024,
+    }));
     const text = renderTuiDiagnostics({
         state: createTuiState(),
         activity: "thinking",
@@ -162,35 +168,24 @@ test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         stash: {
-            sessions: 2,
-            preimages: 3,
-            bytes: 213786,
-            oldestCapturedAt: "2026-08-05T17:00:00.000Z",
-            entries: [
-                {
-                    path: "/vault/plan.md",
-                    sessionId: "session-a",
-                    capturedAt: "2026-08-05T19:00:00.000Z",
-                    bytes: 106893,
-                },
-                {
-                    path: "/vault/notes.md",
-                    sessionId: "session-b",
-                    capturedAt: "2026-08-05T17:00:00.000Z",
-                    bytes: 106893,
-                },
-            ],
+            sessions: 17,
+            preimages: 17,
+            bytes: 17 * 1024,
+            oldestCapturedAt: "2026-08-05T19:00:00.000Z",
+            entries,
         },
         stashRoot: "/home/user/.vera/stash",
         now: Date.parse("2026-08-05T20:00:00.000Z"),
     });
 
     expect(text).toContain(
-        "stash        3 pre-images across 2 sessions (208.8 KiB, oldest 3h)",
+        "stash        17 pre-images across 17 sessions (17.0 KiB, oldest 1h)",
     );
     expect(text).toContain(
-        "1h ago  104.4 KiB  /vault/plan.md  (/home/user/.vera/stash/session-a)",
+        "1h ago  1.0 KiB  /vault/note-15.md  (/home/user/.vera/stash/session-15)",
     );
+    expect(text).not.toContain("/vault/note-16.md");
+    expect(text).toContain("+ 2 more in /home/user/.vera/stash");
     expect(text).toContain("cp <key> <path>");
 });
 
@@ -204,6 +199,7 @@ test("TUI diagnostics reports an empty stash without recovery steps", () => {
         stashRoot: "/home/user/.vera/stash",
     });
 
-    expect(text).toContain("stash        empty (/home/user/.vera/stash)");
+    expect(text).toContain("stash        empty");
+    expect(text).toContain("filesystem   /home/user/.vera/stash");
     expect(text).not.toContain("cp <key> <path>");
 });

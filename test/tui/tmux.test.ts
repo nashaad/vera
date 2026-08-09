@@ -14,6 +14,57 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
+    "diagnostics opens as a large copyable overlay instead of transcript text",
+    async () => {
+        const socket = `vera-diagnostics-${process.pid}-${randomUUID()}`;
+        const session = "diagnostics";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-diagnostics-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+                100,
+                36,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/diagnostics");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Pre-image stash");
+            expect(pane).toContain("Runtime");
+            expect(pane).toContain("Model");
+            expect(pane).toContain("Session");
+            expect(pane).toContain("copy  enter");
+
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "✓ copied");
+            sendKey(socket, session, "Escape");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && !visible.includes("Pre-image stash"),
+                "diagnostics overlay to close without transcript output",
+            );
+            expect(pane).not.toContain("Diagnostics");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "help is browse-only and ctrl+p opens the functional palette",
     async () => {
         const socket = `vera-help-${process.pid}-${randomUUID()}`;
