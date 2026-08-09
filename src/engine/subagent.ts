@@ -10,6 +10,7 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
+import type { ReviewLog } from "./review-log.ts";
 import { EngineEventBus } from "./events.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
@@ -84,6 +85,7 @@ export interface CreateSubagentEffectApplierOptions {
      */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
 }
 
@@ -346,6 +348,7 @@ export interface RunSubagentOptions {
     readonly extensionTools?: readonly RegisteredTool[];
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
 }
 
@@ -437,6 +440,9 @@ export function createSubagentEffectApplier(
                 ...(options.reviewers === undefined
                     ? {}
                     : { reviewers: options.reviewers }),
+                ...(options.reviewLog === undefined
+                    ? {}
+                    : { reviewLog: options.reviewLog }),
                 ...(options.permissionModes === undefined
                     ? {}
                     : { permissionModes: options.permissionModes }),
@@ -491,16 +497,21 @@ export async function runSubagent(
         // attached, which quietly turns the child's auto mode into ask.
         const reviewToolCall = createRoutedToolReviewer(
             options.adapter,
-            options.reviewer ?? {
-                models: [{
-                    model: options.model,
-                    ...(options.provider === undefined
-                        ? {}
-                        : { provider: options.provider }),
-                    ...(options.reasoningEffort === undefined
-                        ? {}
-                        : { reasoningEffort: options.reasoningEffort }),
-                }],
+            {
+                ...(options.reviewer ?? {
+                    models: [{
+                        model: options.model,
+                        ...(options.provider === undefined
+                            ? {}
+                            : { provider: options.provider }),
+                        ...(options.reasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: options.reasoningEffort }),
+                    }],
+                }),
+                ...(options.reviewLog === undefined
+                    ? {}
+                    : { log: options.reviewLog }),
             },
         );
         const state: RunTurnState = {
@@ -523,6 +534,7 @@ export async function runSubagent(
                 reviewToolCall,
                 options.adapter,
                 options.reviewers,
+                options.reviewLog,
             ),
             ...(options.permissionModes === undefined
                 ? {}

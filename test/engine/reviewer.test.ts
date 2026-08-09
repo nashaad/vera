@@ -7,6 +7,7 @@ import {
     parseReviewDecision,
     type ToolReviewRequest,
 } from "../../src/engine/reviewer.ts";
+import type { ReviewLogEntry } from "../../src/engine/review-log.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -899,4 +900,81 @@ test("a fast-tier denial gets a second opinion", async () => {
     expect(decision.escalated).toBe(true);
     expect(decision.reason).toBe("The user asked for exactly this file.");
     expect(testAdapter.requests).toHaveLength(2);
+});
+
+test("a single-tier review records one log line carrying prompt and response", async () => {
+    const body = JSON.stringify({
+        risk_level: "medium",
+        user_authorization: "high",
+        outcome: "allow",
+        rationale: "The user asked for this listing.",
+    });
+    const adapter = new ScriptedAdapter(assistantText(body));
+    const entries: ReviewLogEntry[] = [];
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model", provider: "faux" }],
+        log: (entry) => entries.push(entry),
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(entries).toHaveLength(1);
+    const entry = entries[0]!;
+    expect(entry.tier).toBe("single");
+    expect(entry.outcome).toBe("decided");
+    expect(entry.tool).toBe("bash");
+    expect(entry.toolInput).toEqual({ command: "ls /Users/nash/Projects" });
+    expect(entry.model).toBe("review-model");
+    expect(entry.provider).toBe("faux");
+    expect(entry.decision).toBe("allow");
+    expect(entry.riskLevel).toBe("medium");
+    expect(entry.userAuthorization).toBe("high");
+    expect(entry.responseText).toBe(body);
+    expect(entry.systemPrompt).toContain("You review one proposed action");
+    expect(entry.prompt).toContain("ls /Users/nash/Projects");
+    expect(entry.latencyMs).toBeGreaterThanOrEqual(0);
+});
+
+test("a two-tier review records one log line per tier", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "medium",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const entries: ReviewLogEntry[] = [];
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        twoTier: true,
+        log: (entry) => entries.push(entry),
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(entries.map((entry) => entry.tier)).toEqual(["fast", "strong"]);
+    expect(entries.map((entry) => entry.riskLevel)).toEqual(["high", "medium"]);
+});
+
+test("an unreadable reviewer answer is still logged with its raw text", async () => {
+    const adapter = new ScriptedAdapter(assistantText("not json at all"));
+    const entries: ReviewLogEntry[] = [];
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        log: (entry) => entries.push(entry),
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.outcome).toBe("unreadable");
+    expect(entries[0]?.responseText).toBe("not json at all");
+    expect(entries[0]?.decision).toBe("unavailable");
 });

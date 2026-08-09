@@ -57,6 +57,7 @@ import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
 } from "../engine/agent-limits.ts";
+import type { ReviewLog } from "../engine/review-log.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { providerOf } from "../model/pool-file.ts";
@@ -217,6 +218,7 @@ export interface AgentRegistryOptions {
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     /** Resolved once at startup, bound per agent to that agent's adapter. */
     readonly compaction?: ResolvedCompactionProfile;
@@ -1587,6 +1589,9 @@ export class AgentRegistry {
             ...(this.options.reviewers === undefined
                 ? {}
                 : { reviewers: this.options.reviewers }),
+            ...(this.options.reviewLog === undefined
+                ? {}
+                : { reviewLog: this.options.reviewLog }),
             ...(this.options.permissionModes === undefined
                 ? {}
                 : { permissionModes: this.options.permissionModes }),
@@ -1655,6 +1660,9 @@ export class AgentRegistry {
                 ...(this.options.reviewers === undefined
                     ? {}
                     : { reviewers: this.options.reviewers }),
+                ...(this.options.reviewLog === undefined
+                    ? {}
+                    : { reviewLog: this.options.reviewLog }),
                 ...(this.options.permissionModes === undefined
                     ? {}
                     : { permissionModes: this.options.permissionModes }),

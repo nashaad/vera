@@ -92,6 +92,13 @@ tool calls, but results are stripped: tool output is the one part of the
 transcript written by the outside world, which makes it the channel prompt
 injection arrives through.
 
+Every reviewer call is appended to `~/.vera/logs/reviewer.jsonl`, one line per
+call, so a two-tier review writes two. A line holds the exact prompt sent, the
+exact text returned, both grades, and the latency. That makes the file as
+sensitive as the conversation it quotes, so it is written readable only by you
+and never leaves the machine. Delete it whenever you like; it is diagnostics,
+nothing reads it back.
+
 ## OpenRouter
 
 Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:

@@ -45,6 +45,7 @@ import {
     createJsonlEventLogger,
 } from "./events.ts";
 import type { PoolAdmissionVerdict } from "./events.ts";
+import type { ReviewLog } from "./review-log.ts";
 import {
     boundToolResult,
     executeToolHandler,
@@ -227,6 +228,7 @@ export interface RunHeadlessLoopOptions {
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
     readonly sessionStore?: SessionStore;
     readonly sessionId?: string;
     readonly sessionPath?: string;
@@ -543,6 +545,9 @@ export async function runHeadlessLoop(
                     review: createRoutedToolReviewer(adapter, {
                         ...configured,
                         models,
+                        ...(options.reviewLog === undefined
+                            ? {}
+                            : { log: options.reviewLog }),
                     }),
                 };
             }
@@ -717,6 +722,7 @@ export async function runHeadlessLoop(
             reviewToolCall,
             adapter,
             options.reviewers,
+            options.reviewLog,
         ),
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
@@ -747,6 +753,7 @@ export function createReviewerProfileRouter(
     defaultReviewer: ReviewToolCall,
     adapter: ModelAdapter,
     profiles: Readonly<Record<string, ToolReviewerSettings>> | undefined,
+    log?: ReviewLog,
 ): NonNullable<RunTurnState["reviewToolCallForProfile"]> {
     const reviewers = new Map<string, ReviewToolCall>();
     return (profile, request, signal) => {
@@ -764,7 +771,10 @@ export function createReviewerProfileRouter(
                     userAuthorization: "unknown",
                 });
             }
-            reviewer = createRoutedToolReviewer(adapter, settings);
+            reviewer = createRoutedToolReviewer(adapter, {
+                ...settings,
+                ...(log === undefined ? {} : { log }),
+            });
             reviewers.set(profile, reviewer);
         }
         return reviewer(request, signal);
