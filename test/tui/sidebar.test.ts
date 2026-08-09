@@ -9,6 +9,7 @@ import {
     DEFAULT_SIDEBAR_WIDTH,
     MIN_SIDEBAR_WIDTH,
     MIN_TRANSCRIPT_WIDTH,
+    SIDEBAR_FOCUS_GREEN,
 } from "../../clients/tui/sidebar.ts";
 
 test("the divider cannot be dragged past either side's floor", () => {
@@ -51,7 +52,6 @@ async function openSidebar(width = 120, height = 12) {
             handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
-            focused: "#00ff00",
         },
         syntaxStyle: STYLE,
     });
@@ -96,7 +96,6 @@ test("a settled drag reports the width once", async () => {
             handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
-            focused: "#00ff00",
         },
         syntaxStyle: STYLE,
         onWidthChanged: (columns) => widths.push(columns),
@@ -136,12 +135,18 @@ test("a bracketed label is shown, not parsed as markdown", async () => {
 test("focus is shown as a rail below the sidebar", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
+        expect(SIDEBAR_FOCUS_GREEN).toBe("#22c55e");
         expect(sidebar.isFocused()).toBe(false);
         sidebar.setFocused(true);
         await setup.flush();
         expect(sidebar.isFocused()).toBe(true);
+        expect(setup.captureCharFrame()).toContain(
+            "▁".repeat(DEFAULT_SIDEBAR_WIDTH),
+        );
         sidebar.setFocused(false);
+        await setup.flush();
         expect(sidebar.isFocused()).toBe(false);
+        expect(setup.captureCharFrame()).not.toContain("▁");
     } finally {
         setup.renderer.destroy();
     }
