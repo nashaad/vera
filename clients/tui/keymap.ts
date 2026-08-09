@@ -89,7 +89,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "interrupt",
         keys: ["ctrl+c"],
         scope: "global",
-        description: "Stop the current turn, or quit when idle",
+        description: "Clear a draft, stop the current turn, or quit when idle",
         hint: "ctrl+c stop",
         anyModifiers: true,
     },

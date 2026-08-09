@@ -1822,6 +1822,19 @@ export async function startTui(
                 key.stopPropagation();
                 return;
             }
+            if (
+                !state.working
+                && composer.focused
+                && composer.plainText.length > 0
+                && !anyOverlayOpen()
+            ) {
+                key.preventDefault();
+                key.stopPropagation();
+                composer.clearComposer();
+                renderCommandSuggestions();
+                renderState();
+                return;
+            }
             const action = tuiInterruptAction(
                 key,
                 state.working,
