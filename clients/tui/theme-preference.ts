@@ -24,6 +24,7 @@ interface TuiClientPreferences {
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
     readonly sidebar_width?: number;
+    readonly shared_session_groups?: readonly (readonly [string, string])[];
     // Spelled as it was when quickslots were called presets. Respelling the key
     // would leave every already-saved slot unreadable.
     readonly model_presets?: DiskQuickslots;
@@ -109,6 +110,22 @@ export function saveTuiSidebarWidth(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         sidebar_width: columns,
+    }, path);
+}
+
+export function loadTuiSharedSessionGroups(
+    path = tuiThemePreferencePath(),
+): readonly (readonly [string, string])[] {
+    return loadTuiClientPreferences(path).shared_session_groups ?? [];
+}
+
+export function saveTuiSharedSessionGroups(
+    groups: readonly (readonly [string, string])[],
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        shared_session_groups: groups,
     }, path);
 }
 
@@ -216,6 +233,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             const extensions = parseExtensionPreferences(
                 Reflect.get(value, "extensions"),
             );
+            const sharedSessionGroups = parseSharedSessionGroups(
+                Reflect.get(value, "shared_session_groups"),
+            );
             return {
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
@@ -240,12 +260,34 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                     }
                     : {}),
                 ...(extensions === undefined ? {} : { extensions }),
+                ...(sharedSessionGroups.length === 0
+                    ? {}
+                    : { shared_session_groups: sharedSessionGroups }),
             };
         }
     } catch {
         // Missing or malformed client preferences must not prevent startup.
     }
     return { theme: "default", animation: "conveyor" };
+}
+
+function parseSharedSessionGroups(
+    value: unknown,
+): readonly (readonly [string, string])[] {
+    if (!Array.isArray(value)) return [];
+    const used = new Set<string>();
+    return value.flatMap((candidate) => {
+        if (
+            !Array.isArray(candidate)
+            || candidate.length !== 2
+            || candidate.some((id) => typeof id !== "string" || id.length === 0)
+        ) return [];
+        const [first, second] = candidate as [string, string];
+        if (first === second || used.has(first) || used.has(second)) return [];
+        used.add(first);
+        used.add(second);
+        return [[first, second] as const];
+    });
 }
 
 function parseExtensionPreferences(

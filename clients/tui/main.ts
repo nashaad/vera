@@ -323,7 +323,9 @@ import {
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
+    loadTuiSharedSessionGroups,
     saveTuiSidebarWidth,
+    saveTuiSharedSessionGroups,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
     loadTuiExtensionPreference,
@@ -356,6 +358,7 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
+const POINTER_HOVER_DELAY_MS = 180;
 
 function truncateFooterLine(text: string, width: number): string {
     const characters = Array.from(text);
@@ -663,6 +666,7 @@ export async function startTui(
         loadTuiActivityAnimationIntervalPreference();
     const activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
     const sidebarWidth = loadTuiSidebarWidth();
+    let sharedSessionGroups = loadTuiSharedSessionGroups();
     let theme = await resolveTuiTheme(renderer, themeName);
     applyTuiTheme(theme);
 
@@ -1471,6 +1475,7 @@ export async function startTui(
         });
         sidebarAgentPane = attached;
         sidebarAgentMention = mention ?? attached.agentId;
+        rememberOpenPaneGroup();
         clearSidebarEntryNodes();
         sidebar.clear();
         sidebar.setHeader(
@@ -1508,10 +1513,21 @@ export async function startTui(
         return [sidebarAgentMention, "all", "vera"];
     }
 
-    function openPaneAgentIds(): readonly string[] {
-        return [client.agentId, sidebarAgentPane?.agentId].filter(
-            (id): id is string => id !== undefined,
-        );
+    function rememberOpenPaneGroup(): void {
+        const mainId = client.agentId;
+        const sidebarId = sidebarAgentPane?.agentId;
+        if (mainId === undefined || sidebarId === undefined) return;
+        sharedSessionGroups = [
+            ...sharedSessionGroups.filter((group) =>
+                !group.includes(mainId) && !group.includes(sidebarId)
+            ),
+            [mainId, sidebarId] as const,
+        ];
+        try {
+            saveTuiSharedSessionGroups(sharedSessionGroups);
+        } catch {
+            // A failed UI preference write must not prevent an attachment.
+        }
     }
 
     function renderSidebarAgent(
@@ -2657,12 +2673,20 @@ export async function startTui(
             // preview.
             return { activate: (index) => pressKey(String(index)) };
         }
+        let hoverTimer: ReturnType<typeof setTimeout> | undefined;
         return {
             hover: (index) => {
-                moveCursor(index);
-                renderState();
+                clearTimeout(hoverTimer);
+                hoverTimer = setTimeout(() => {
+                    hoverTimer = undefined;
+                    if (shuttingDown) return;
+                    moveCursor(index);
+                    renderState();
+                }, POINTER_HOVER_DELAY_MS);
             },
             activate: (index) => {
+                clearTimeout(hoverTimer);
+                hoverTimer = undefined;
                 moveCursor(index);
                 pressKey("return", "\r");
             },
@@ -3104,9 +3128,10 @@ export async function startTui(
                 return;
             }
             const version = ++resumeListVersion;
+            const targetAgentId = focusedAgentClient().agentId;
             settingsPicker = startTuiSessionPicker(
                 [],
-                client.agentId,
+                targetAgentId,
                 true,
             );
             focusActiveSurface();
@@ -3121,11 +3146,11 @@ export async function startTui(
                 }
                 settingsPicker = startTuiSessionPicker(
                     agents,
-                    client.agentId,
+                    targetAgentId,
                     false,
                     new Date(),
                     false,
-                    openPaneAgentIds(),
+                    sharedSessionGroups,
                 );
                 focusActiveSurface();
                 renderState();
@@ -3158,9 +3183,10 @@ export async function startTui(
                 return;
             }
             const version = ++resumeListVersion;
+            const targetAgentId = focusedAgentClient().agentId;
             settingsPicker = startTuiSessionPicker(
                 [],
-                client.agentId,
+                targetAgentId,
                 true,
             );
             focusActiveSurface();
@@ -3173,7 +3199,7 @@ export async function startTui(
                 ) {
                     return;
                 }
-                const currentId = client.agentId;
+                const currentId = targetAgentId;
                 // Children only: the row for the session already on screen
                 // would cost a keypress to step past on the way to a child.
                 const children = agents.filter(
@@ -3226,12 +3252,13 @@ export async function startTui(
                 renderState();
                 return;
             }
+            const targetAgentId = focusedAgentClient().agentId;
             void dependencies.listAgents().then((agents) => {
                 if (shuttingDown) {
                     return;
                 }
                 const current = agents.find(
-                    (agent) => agent.id === client.agentId,
+                    (agent) => agent.id === targetAgentId,
                 );
                 const parent = current?.parent_id === undefined
                     ? undefined
@@ -5396,7 +5423,7 @@ export async function startTui(
                 false,
                 new Date(),
                 false,
-                openPaneAgentIds(),
+                sharedSessionGroups,
             );
             renderState();
         } catch {
@@ -5808,6 +5835,7 @@ export async function startTui(
             extensionMentions = [];
             extensionAddressee = undefined;
         }
+        rememberOpenPaneGroup();
         clientExtensionRegistry?.conversationChanged();
 
         state = createTuiState();
@@ -5883,6 +5911,16 @@ export async function startTui(
             // session's own transcript to put it back is a worse answer to
             // "this one" than simply leaving.
             sidebar.setFocused(false);
+            settingsPickerView.box.visible = false;
+            focusActiveSurface();
+            renderState();
+            return;
+        }
+        if (
+            openingInSidebar
+            && sessionId !== undefined
+            && sessionId === sidebarAgentPane?.agentId
+        ) {
             settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
@@ -5998,7 +6036,7 @@ export async function startTui(
                             false,
                             new Date(),
                             false,
-                            openPaneAgentIds(),
+                            sharedSessionGroups,
                         );
                     } catch {
                         settingsPicker = removeSessionPickerOption(
