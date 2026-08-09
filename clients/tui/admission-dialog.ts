@@ -13,6 +13,7 @@ import {
     tuiAdmissionVerdictLine,
     type TuiAdmissionState,
 } from "./state.ts";
+import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 
 /**
  * The verification run this dialog reports on. It exists only once the probes
@@ -159,7 +160,7 @@ export function createTuiAdmissionDialogView(
         left: "15%",
         width: "70%",
         height: "auto",
-        zIndex: 20,
+        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
