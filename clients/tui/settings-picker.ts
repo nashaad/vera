@@ -393,6 +393,11 @@ export interface TuiSettingsPickerView {
 }
 
 const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    {
+        value: "readonly",
+        label: "Readonly",
+        description: "allow reads and deny changes",
+    },
     { value: "ask", label: "Ask", description: "ask before every bash command" },
     {
         value: "auto",

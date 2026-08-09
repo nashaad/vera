@@ -45,6 +45,8 @@ export interface TuiSidebarOptions {
     readonly transcript: Renderable;
     /** Called when the column itself is clicked, not the strip beside it. */
     readonly onPanelClick?: () => void;
+    /** Called after any click or selection gesture ends in the column. */
+    readonly onPanelRelease?: () => void;
     readonly theme: TuiSidebarTheme;
     readonly syntaxStyle: SyntaxStyle;
     /** The width to open at, when one was remembered. */
@@ -211,6 +213,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             const dragged = panelDragged;
             panelDragged = false;
             event.stopPropagation();
+            options.onPanelRelease?.();
             if (!dragged) {
                 options.onPanelClick?.();
             }
