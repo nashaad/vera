@@ -11,9 +11,78 @@ import {
     tuiArgumentSuggestions,
     tuiSuggestionWindow,
     tuiCommandSuggestionsText,
+    tuiCommandScope,
     TuiCommandRegistry,
     tuiWithArgument,
+    type TuiCommandAction,
 } from "../../clients/tui/commands.ts";
+
+test("every slash action has an explicit pane scope", () => {
+    const actions = [
+        { type: "open_rewind" },
+        { type: "open_fork" },
+        { type: "update_model", model: "m" },
+        { type: "update_reasoning", reasoningEffort: "low" },
+        { type: "update_permissions", mode: "ask" },
+        { type: "open_model_picker" },
+        { type: "open_reasoning_picker" },
+        { type: "open_permissions_picker" },
+        { type: "open_preferences_list" },
+        { type: "open_settings_menu" },
+        { type: "open_command_palette" },
+        { type: "prefill_composer", text: "/rename " },
+        { type: "open_theme_picker" },
+        { type: "open_resume_picker" },
+        { type: "open_subagents_picker" },
+        { type: "go_to_parent" },
+        { type: "reconnect" },
+        { type: "create_session" },
+        { type: "update_session_name", name: "name" },
+        { type: "clone_session" },
+        { type: "compact_session" },
+        { type: "show_diagnostics" },
+        { type: "show_pool" },
+        { type: "pool_current_model" },
+        {
+            type: "run_extension",
+            command: "x",
+            argumentsText: "",
+            source: "test",
+            origin: "client",
+        },
+        { type: "command_error", message: "bad" },
+    ] satisfies readonly TuiCommandAction[];
+
+    expect(actions.map((action) => [action.type, tuiCommandScope(action)]))
+        .toEqual([
+            ["open_rewind", "main_session"],
+            ["open_fork", "main_session"],
+            ["update_model", "focused_agent"],
+            ["update_reasoning", "focused_agent"],
+            ["update_permissions", "focused_agent"],
+            ["open_model_picker", "focused_agent"],
+            ["open_reasoning_picker", "focused_agent"],
+            ["open_permissions_picker", "focused_agent"],
+            ["open_preferences_list", "application"],
+            ["open_settings_menu", "focused_agent"],
+            ["open_command_palette", "application"],
+            ["prefill_composer", "application"],
+            ["open_theme_picker", "application"],
+            ["open_resume_picker", "main_session"],
+            ["open_subagents_picker", "main_session"],
+            ["go_to_parent", "main_session"],
+            ["reconnect", "main_session"],
+            ["create_session", "main_session"],
+            ["update_session_name", "main_session"],
+            ["clone_session", "main_session"],
+            ["compact_session", "main_session"],
+            ["show_diagnostics", "application"],
+            ["show_pool", "application"],
+            ["pool_current_model", "application"],
+            ["run_extension", "application"],
+            ["command_error", "application"],
+        ]);
+});
 
 test("built-in TUI commands match the public command catalog", () => {
     const registry = createBuiltinTuiCommandRegistry();

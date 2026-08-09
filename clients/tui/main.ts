@@ -143,6 +143,7 @@ import {
     tuiSuggestionWindow,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
+    tuiCommandScope,
     tuiWithArgument,
     type TuiCommandAction,
     type TuiCommandCatalogEntry,
@@ -2753,6 +2754,20 @@ export async function startTui(
                 "Extension commands are still loading",
             );
             renderState();
+            return;
+        }
+        if (
+            commandAction !== undefined
+            && sidebar.isFocused()
+            && sidebarAgentPane !== undefined
+            && tuiCommandScope(commandAction) === "main_session"
+        ) {
+            composer.clearComposer();
+            sidebarAgentPane.state.state = appendTuiNotice(
+                sidebarAgentPane.state.state,
+                "Switch to Vera with Ctrl+G to manage its conversation.",
+            );
+            renderSidebarAgent(sidebarAgentPane);
             return;
         }
         if (commandAction?.type === "command_error") {
