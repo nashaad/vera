@@ -343,8 +343,11 @@ afterEach(() => {
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
-            createAgent: async (workspace) => {
-                expect(workspace).toBe("/work/created");
+            createAgent: async (options) => {
+                expect(options).toEqual({
+                    workspace: "/work/created",
+                    approvalMode: "readonly",
+                });
                 return created;
             },
             resumeAgent: async (sessionPath) => {
@@ -358,6 +361,7 @@ afterEach(() => {
                 await createConnection.send({
                     type: "create_agent",
                     workspace: "/work/created",
+                    approval_mode: "readonly",
                 });
                 expect(await createConnection.receive()).toEqual({
                     type: "agent_ready",

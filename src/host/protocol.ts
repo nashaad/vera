@@ -10,11 +10,12 @@ import type {
     ExtensionCommandDescriptor,
     ExtensionCommandResult,
 } from "../extensions/commands.ts";
+import { isApprovalMode } from "../sdk/permissions.ts";
 
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 25;
+export const HOST_PROTOCOL_VERSION = 26;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -40,6 +41,7 @@ export interface ShutdownIfIdleRequest {
 export interface CreateAgentRequest {
     readonly type: "create_agent";
     readonly workspace: string;
+    readonly approval_mode?: string;
 }
 
 export interface ResumeAgentRequest {
@@ -344,8 +346,16 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         value?.type === "create_agent"
         && typeof value.workspace === "string"
         && value.workspace.length > 0
+        && (value.approval_mode === undefined
+            || isApprovalMode(value.approval_mode))
     ) {
-        return { type: "create_agent", workspace: value.workspace };
+        return {
+            type: "create_agent",
+            workspace: value.workspace,
+            ...(value.approval_mode === undefined
+                ? {}
+                : { approval_mode: value.approval_mode }),
+        };
     }
     if (
         value?.type === "resume_agent"
