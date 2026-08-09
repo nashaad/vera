@@ -11,11 +11,12 @@ import type {
     ExtensionCommandResult,
 } from "../extensions/commands.ts";
 import { isApprovalMode } from "../sdk/permissions.ts";
+import type { ScheduleOperation } from "../scheduler/types.ts";
 
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 28;
+export const HOST_PROTOCOL_VERSION = 29;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -29,6 +30,21 @@ export interface HostIdentityRequest {
 
 export interface ListAgentsRequest {
     readonly type: "list_agents";
+}
+
+export interface ScheduleOperationRequest {
+    readonly type: "schedule_operation";
+    readonly operation: ScheduleOperation;
+}
+
+export interface ScheduleOperationResponse {
+    readonly type: "schedule_result";
+    readonly result: Record<string, unknown>;
+}
+
+export interface ScheduleOperationFailedResponse {
+    readonly type: "schedule_failed";
+    readonly reason: string;
 }
 
 export interface ShutdownIfIdleRequest {
@@ -284,6 +300,7 @@ export interface ProtocolErrorResponse {
 export type HostRequest =
     | HostIdentityRequest
     | ListAgentsRequest
+    | ScheduleOperationRequest
     | ShutdownIfIdleRequest
     | CreateAgentRequest
     | ResumeAgentRequest
@@ -300,6 +317,8 @@ export type AttachedClientMessage =
 export type HostResponse =
     | HostIdentityResponse
     | AgentListResponse
+    | ScheduleOperationResponse
+    | ScheduleOperationFailedResponse
     | AgentReadyResponse
     | AgentStartFailedResponse
     | AgentBranchedResponse
@@ -325,6 +344,12 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "list_agents") {
         return { type: "list_agents" };
+    }
+    if (value?.type === "schedule_operation") {
+        const operation = parseScheduleOperation(value.operation);
+        if (operation !== undefined) {
+            return { type: "schedule_operation", operation };
+        }
     }
     if (
         value?.type === "shutdown_if_idle"
@@ -655,6 +680,53 @@ function parseJsonObject(source: string): Record<string, unknown> | undefined {
     return typeof value === "object" && value !== null && !Array.isArray(value)
         ? value as Record<string, unknown>
         : undefined;
+}
+
+function parseScheduleOperation(value: unknown): ScheduleOperation | undefined {
+    if (!isRecord(value)) return undefined;
+    const text = (key: string): string | undefined =>
+        typeof value[key] === "string" && (value[key] as string).length > 0
+            ? value[key] as string
+            : undefined;
+    switch (value.action) {
+        case "add": {
+            const id = text("id");
+            const cron = text("cron");
+            const timezone = text("timezone");
+            const address = text("address");
+            if (
+                id === undefined
+                || cron === undefined
+                || timezone === undefined
+                || address === undefined
+                || !isRecord(value.payload)
+            ) return undefined;
+            return {
+                action: "add",
+                id,
+                cron,
+                timezone,
+                address,
+                payload: value.payload,
+            };
+        }
+        case "list":
+            return { action: "list" };
+        case "show":
+        case "pause":
+        case "resume":
+        case "remove":
+        case "run": {
+            const id = text("id");
+            return id === undefined ? undefined : { action: value.action, id };
+        }
+        default:
+            return undefined;
+    }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isRequestId(value: unknown): value is string {

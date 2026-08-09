@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
  * it is stored and returned as an opaque JSON string.
  */
 
-export const INBOX_SCHEMA_VERSION = 2;
+export const INBOX_SCHEMA_VERSION = 3;
 
 /** A consumer is identified by (nodeId, label) everywhere; the bare label is
  * display sugar. Offsets are durable per pair, so a returning consumer resumes
@@ -139,6 +139,37 @@ export class Inbox {
             throw new Error("inbox append returned no row");
         }
         return row;
+    }
+
+    /** Commits a producer occurrence and its source-scoped retry key together. */
+    appendOnce(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+    ): { readonly entry: InboxEntry; readonly created: boolean } {
+        if (source.length === 0 || key.length === 0) {
+            throw new Error("inbox producer source and key cannot be empty");
+        }
+        return this.database.transaction(() => {
+            const existing = this.database.query<{ seq: number }, [string, string]>(
+                `SELECT seq FROM producer_entries
+                 WHERE producer_source = ? AND producer_key = ?`,
+            ).get(source, key);
+            if (existing !== null) {
+                const stored = this.entry(existing.seq);
+                if (stored === undefined) {
+                    throw new Error("inbox producer key points to a missing entry");
+                }
+                return { entry: stored, created: false } as const;
+            }
+            const stored = this.append(entry);
+            this.database.query<null, [string, string, number]>(
+                `INSERT INTO producer_entries (
+                    producer_source, producer_key, seq
+                 ) VALUES (?, ?, ?)`,
+            ).run(source, key, stored.seq);
+            return { entry: stored, created: true } as const;
+        })();
     }
 
     /** Appends several entries in one transaction, in the given order. */
@@ -485,6 +516,16 @@ const MIGRATIONS: readonly Migration[] = [
             watch_id TEXT PRIMARY KEY,
             cursor TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        );
+    `);
+    },
+    (database) => {
+        database.exec(`
+        CREATE TABLE IF NOT EXISTS producer_entries (
+            producer_source TEXT NOT NULL,
+            producer_key TEXT NOT NULL,
+            seq INTEGER NOT NULL REFERENCES entries(seq),
+            PRIMARY KEY (producer_source, producer_key)
         );
     `);
     },

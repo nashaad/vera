@@ -107,6 +107,16 @@ export class InboxDeliveryCoordinator {
         return stored;
     }
 
+    async appendOnce(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+    ): Promise<{ readonly entry: InboxEntry; readonly created: boolean }> {
+        const stored = this.consumers.appendOnce(source, key, entry);
+        if (stored.created) await this.pumpAll();
+        return stored;
+    }
+
     entry(seq: number): InboxEntry | undefined {
         return this.consumers.entry(seq);
     }

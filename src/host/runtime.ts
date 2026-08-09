@@ -79,6 +79,12 @@ import {
     type ExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../extensions/registry.ts";
+import { ScheduleStore } from "../scheduler/store.ts";
+import {
+    startSchedulerRuntime,
+    type SchedulerRuntime,
+} from "../scheduler/runtime.ts";
+import { SCHEDULER_SOURCE } from "../scheduler/types.ts";
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
@@ -98,6 +104,8 @@ export interface StartResidentHostOptions {
     readonly eventLogDirectory?: string;
     /** Overrides `~/.vera/inbox.db`. Unused while the inbox flag is off. */
     readonly inboxPath?: string;
+    /** Overrides `~/.vera/schedules.db`. Unused while the inbox flag is off. */
+    readonly schedulePath?: string;
     /** Replaces the built-in connector set, so tests never reach a real arc. */
     readonly watchConnectors?: readonly WatchConnector[];
     /** Overrides arc's per-user config path, so tests never read the real one. */
@@ -188,12 +196,18 @@ export async function startResidentHost(
     const inboxDelivery = consumers === null
         ? undefined
         : new InboxDeliveryCoordinator(consumers);
+    const scheduleStore = inbox === null
+        ? null
+        : ScheduleStore.open(options.schedulePath);
     // Watches are started after the extension registry, because their
     // definitions are extension contributions. The runtime holds the reference
     // so shutdown stops the connector tasks before the log they write to closes.
     let watches: WatchRuntime | null = null;
+    let scheduler: SchedulerRuntime | null = null;
     const closeInbox = async (): Promise<void> => {
         await watches?.close();
+        await scheduler?.close();
+        scheduleStore?.close();
         inboxDelivery?.close();
         inbox?.close();
     };
@@ -372,6 +386,19 @@ export async function startResidentHost(
                 void inboxDelivery?.pumpAll();
             },
         });
+        scheduler = scheduleStore === null || inboxDelivery === undefined
+            ? null
+            : await startSchedulerRuntime({
+                store: scheduleStore,
+                emit: (key, entry) =>
+                    inboxDelivery.appendOnce(SCHEDULER_SOURCE, key, entry),
+                onError: (error) => hostLog({
+                    type: "scheduler_failed",
+                    message: error instanceof Error
+                        ? error.message
+                        : String(error),
+                }),
+            });
         server = await startHostServer({
             ...(options.socketPath === undefined
                 ? {}
@@ -388,6 +415,9 @@ export async function startResidentHost(
                 : { entrypoint: options.entrypoint }),
             findAgent: (agentId) => registry.find(agentId),
             listAgents: () => registry.list(),
+            ...(scheduler === null ? {} : {
+                runScheduleOperation: (operation) => scheduler!.execute(operation),
+            }),
             onRosterChanged: (listener) => registry.onRosterChanged(listener),
             createAgent: (createOptions) => registry.create(createOptions),
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
