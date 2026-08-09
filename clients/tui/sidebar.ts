@@ -45,6 +45,8 @@ export interface TuiSidebarOptions {
     readonly transcript: Renderable;
     /** Called when the column itself is clicked, not the strip beside it. */
     readonly onPanelClick?: () => void;
+    /** Called as soon as the column is pressed, including before a selection. */
+    readonly onPanelPress?: () => void;
     readonly theme: TuiSidebarTheme;
     readonly syntaxStyle: SyntaxStyle;
     /** The width to open at, when one was remembered. */
@@ -190,6 +192,10 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         // Own the whole column, including the focus rail. Otherwise a click on
         // the rail itself reaches the app behind it and switches focus back to
         // the transcript.
+        onMouseDown: (event: MouseEvent) => {
+            event.stopPropagation();
+            options.onPanelPress?.();
+        },
         onMouseDrag: () => {
             panelDragged = true;
         },

@@ -1355,6 +1355,13 @@ export async function startTui(
                 // drag over; the sidebar keeps it for this session.
             }
         },
+        // Pane focus is decided on press, before OpenTUI can classify a
+        // double-click or selection as a drag and suppress the click action.
+        onPanelPress: () => {
+            if (sidebarAgentPane === undefined) return;
+            sidebar.setFocused(true);
+            renderState();
+        },
         // Clicking the column is how you talk to it: with one seat there is no
         // question who, and typing the name again is the part nobody wants.
         onPanelClick: () => {

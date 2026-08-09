@@ -2407,6 +2407,7 @@ test.skipIf(!tmuxAvailable)(
             // Pointer focus survives a complete sidebar -> main -> sidebar
             // cycle, and the sidebar rail returns with it.
             sendMouseClick(socket, session, 20, 10);
+            sendMouseClick(socket, session, 20, 10);
             await waitForVisiblePaneWhere(
                 socket,
                 session,
