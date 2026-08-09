@@ -29,9 +29,6 @@ export const MIN_SPLIT_WIDTH = MIN_SIDEBAR_WIDTH + MIN_TRANSCRIPT_WIDTH
     + DIVIDER_WIDTH;
 
 export interface TuiSidebarTheme {
-    readonly background: string;
-    /** The sidebar's own ground: the split is a colour change, not a rule. */
-    readonly panel: string;
     /** The strip between the two, the only part that says it can be dragged. */
     readonly handle: string;
     /** The same strip while it is held. */
@@ -229,7 +226,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         // line at the foot so the last block does not sit on the edge.
         paddingTop: 1,
         paddingBottom: 1,
-        backgroundColor: theme.panel,
     });
     const header = new TextRenderable(renderer, {
         id: "sidebar-header",
@@ -243,7 +239,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     });
     panel.add(header);
     panel.add(content);
-    const focusRail = new TextRenderable(renderer, {
+    const sidebarFocusRail = new TextRenderable(renderer, {
         id: "sidebar-focus-rail",
         width: "100%",
         height: 1,
@@ -252,9 +248,24 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         fg: SIDEBAR_FOCUS_GREEN,
     });
     sidebarColumn.add(panel);
-    sidebarColumn.add(focusRail);
+    sidebarColumn.add(sidebarFocusRail);
 
-    body.add(options.transcript);
+    const mainColumn = new BoxRenderable(renderer, {
+        id: "main-column",
+        flexGrow: 1,
+        flexDirection: "column",
+    });
+    const mainFocusRail = new TextRenderable(renderer, {
+        id: "main-focus-rail",
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+        content: "",
+        fg: SIDEBAR_FOCUS_GREEN,
+    });
+    mainColumn.add(options.transcript);
+    mainColumn.add(mainFocusRail);
+    body.add(mainColumn);
     body.add(divider);
     body.add(sidebarColumn);
 
@@ -263,12 +274,26 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         if (next === width) return;
         width = next;
         sidebarColumn.width = width;
-        focusRail.content = focused ? "▁".repeat(width) : "";
+        paintFocusRails();
         options.onLayoutChanged?.();
     }
 
     function shown(): boolean {
         return open && !hidden && renderer.terminalWidth >= MIN_SPLIT_WIDTH;
+    }
+
+    function paintFocusRails(): void {
+        if (!shown()) {
+            mainFocusRail.content = "";
+            sidebarFocusRail.content = "";
+            return;
+        }
+        const mainWidth = Math.max(
+            0,
+            renderer.terminalWidth - width - DIVIDER_WIDTH,
+        );
+        mainFocusRail.content = focused ? "" : "▁".repeat(mainWidth);
+        sidebarFocusRail.content = focused ? "▁".repeat(width) : "";
     }
 
     function apply(): void {
@@ -279,6 +304,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         }
         sidebarColumn.visible = visible;
         divider.visible = visible;
+        paintFocusRails();
         options.onLayoutChanged?.();
     }
 
@@ -353,7 +379,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             // Keep the row mounted. OpenTUI can retain stale flex geometry
             // when a child is repeatedly hidden and restored, which made the
             // rail appear on first focus but not on later focus cycles.
-            focusRail.content = focused ? "▁".repeat(width) : "";
+            paintFocusRails();
             options.onLayoutChanged?.();
         },
         isFocused: () => focused,
@@ -454,7 +480,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         setTheme(next: TuiSidebarTheme, nextSyntaxStyle: SyntaxStyle): void {
             theme = next;
             syntaxStyle = nextSyntaxStyle;
-            panel.backgroundColor = theme.panel;
             header.fg = theme.muted;
             divider.backgroundColor = dragging
                 ? theme.handleActive
