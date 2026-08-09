@@ -1266,9 +1266,12 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        marginBottom: 1,
         visible: false,
     });
+    // Quote controls are footer state for the shared composer. Keeping them in
+    // the status band puts them below the input regardless of which pane the
+    // quoted text came from.
+    statusBand.add(quoteText);
 
     const heldAddressText = new TextRenderable(renderer, {
         id: "held-address",
@@ -1503,6 +1506,12 @@ export async function startTui(
             return extensionMentions;
         }
         return [sidebarAgentMention, "all", "vera"];
+    }
+
+    function openPaneAgentIds(): readonly string[] {
+        return [client.agentId, sidebarAgentPane?.agentId].filter(
+            (id): id is string => id !== undefined,
+        );
     }
 
     function renderSidebarAgent(
@@ -1753,9 +1762,6 @@ export async function startTui(
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
     app.add(composerTipText);
-    // Beside the composer rather than in the column above it: the column ends
-    // where the sidebar starts, and the line is too long to be cut there.
-    app.add(quoteText);
     // Pinned beside the composer, not written into the transcript: a mode the
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
@@ -3113,7 +3119,14 @@ export async function startTui(
                 ) {
                     return;
                 }
-                settingsPicker = startTuiSessionPicker(agents, client.agentId);
+                settingsPicker = startTuiSessionPicker(
+                    agents,
+                    client.agentId,
+                    false,
+                    new Date(),
+                    false,
+                    openPaneAgentIds(),
+                );
                 focusActiveSurface();
                 renderState();
             }).catch((error) => {
@@ -5377,7 +5390,14 @@ export async function startTui(
             ) {
                 return;
             }
-            settingsPicker = startTuiSessionPicker(agents, client.agentId);
+            settingsPicker = startTuiSessionPicker(
+                agents,
+                client.agentId,
+                false,
+                new Date(),
+                false,
+                openPaneAgentIds(),
+            );
             renderState();
         } catch {
             // The pane keeps the rows it has: a failed refresh is not a
@@ -5975,6 +5995,10 @@ export async function startTui(
                         settingsPicker = startTuiSessionPicker(
                             await dependencies.listAgents(),
                             client.agentId,
+                            false,
+                            new Date(),
+                            false,
+                            openPaneAgentIds(),
                         );
                     } catch {
                         settingsPicker = removeSessionPickerOption(
@@ -6235,7 +6259,7 @@ export async function startTui(
         // quote/address context.
         commandSuggestionsBox.bottom = 7
             + (composerTipText.visible ? 1 : 0)
-            + (quoteText.visible ? 2 : 0)
+            + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0);
         if (composer.plainText.length === 0) {
             commandSuggestionIndex = 0;
@@ -6401,6 +6425,7 @@ export async function startTui(
     function renderPendingQuote(): void {
         const quote = pendingQuote;
         quoteText.visible = quote !== undefined && !anyOverlayOpen();
+        composerBox.marginBottom = quoteText.visible ? 3 : 2;
         if (quote === undefined) {
             quoteText.content = "";
             return;

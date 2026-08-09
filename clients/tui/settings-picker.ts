@@ -123,6 +123,8 @@ export interface TuiSettingsPickerOption {
     readonly threadParent?: string;
     /** How deep under its parent a forked row sits. Absent at the top level. */
     readonly depth?: number;
+    /** One end of the non-hierarchical group currently open in both panes. */
+    readonly sharedEdge?: "start" | "end";
     /**
      * Position in the user's pool, absent on a row outside it. A rank rather
      * than a flag because the pool is ordered by when each model was added and
@@ -885,6 +887,7 @@ export function startTuiSessionPicker(
     loading = false,
     now: Date = new Date(),
     includeUntitled = false,
+    sharedAgentIds: readonly string[] = [],
 ): TuiSettingsPickerState {
     // The current session is listed rather than hidden. Switching is a
     // re-attach with the screen left up, so its row costs nothing and answers
@@ -915,7 +918,10 @@ export function startTuiSessionPicker(
                 ? {}
                 : { threadParent: agent.parent_id ?? agent.forked_from }),
         }));
-    const threaded = threadSessionOptions(options);
+    const threaded = markSharedSessionOptions(
+        threadSessionOptions(options),
+        sharedAgentIds,
+    );
     return {
         kind: "session",
         allOptions: threaded,
@@ -924,6 +930,37 @@ export function startTuiSessionPicker(
         query: "",
         loading,
     };
+}
+
+function markSharedSessionOptions(
+    options: readonly TuiSettingsPickerOption[],
+    sharedAgentIds: readonly string[],
+): readonly TuiSettingsPickerOption[] {
+    const shared = new Set(sharedAgentIds);
+    const indices = options.flatMap((option, index) =>
+        option.sessionId !== undefined && shared.has(option.sessionId)
+            ? [index]
+            : []
+    );
+    if (indices.length !== 2) return options;
+    const sorted = indices.toSorted((left, right) => left - right);
+    const start = sorted[0]!;
+    const end = sorted[1]!;
+    const pair = [
+        { ...options[start]!, sharedEdge: "start" as const },
+        { ...options[end]!, sharedEdge: "end" as const },
+    ];
+    const remaining = options.filter((_, index) =>
+        index !== start && index !== end
+    );
+    const insertion = options.slice(0, start).filter((option) =>
+        option.sessionId === undefined || !shared.has(option.sessionId)
+    ).length;
+    return [
+        ...remaining.slice(0, insertion),
+        ...pair,
+        ...remaining.slice(insertion),
+    ];
 }
 
 /**
@@ -1928,6 +1965,9 @@ function renderListPickerRows(
     // parent was filtered out would otherwise appear to hang off whichever
     // unrelated row the search left above it.
     const onScreen = new Set(state.options.map((option) => option.sessionId));
+    const sharedOnScreen = state.options.filter((option) =>
+        option.sharedEdge !== undefined
+    ).length === 2;
     let tinted = false;
     const optionNodes = dialogOptionRows(renderer, rows.flatMap((row) =>
         row.kind === "option"
@@ -1947,6 +1987,7 @@ function renderListPickerRows(
                         && onScreen.has(
                             (row.option.threadParent ?? row.option.forkedFrom)!,
                         ),
+                    sharedOnScreen,
                 ),
                 ...(state.kind === "session"
                     ? { tint: (tinted = !tinted) }
@@ -2402,6 +2443,7 @@ function optionLeading(
     option: TuiSettingsPickerOption,
     activityWidth = 0,
     threaded = false,
+    shared = false,
 ): string {
     if (option.section !== undefined || state.kind === "provider") {
         return "";
@@ -2414,7 +2456,9 @@ function optionLeading(
     // title rather than after it. A fork indents under its parent, which is
     // what makes the list read as a history rather than a pile.
     const depth = threaded ? option.depth ?? 0 : 0;
-    const thread = depth === 0 ? "" : `${"  ".repeat(depth - 1)}└ `;
+    const thread = shared && option.sharedEdge !== undefined
+        ? `${option.sharedEdge === "start" ? "┌" : "└"} `
+        : depth === 0 ? "" : `${"  ".repeat(depth - 1)}└ `;
     return `${thread}${(option.activity ?? "").padEnd(activityWidth)}  `;
 }
 

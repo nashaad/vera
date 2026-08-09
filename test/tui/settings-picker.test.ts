@@ -233,6 +233,48 @@ test("an open session says so where a stopped one says how long ago", async () =
     expect(rowFor("Left alone since yesterday")).toContain("3h");
 });
 
+test("the two visible panes form a shared group without implying ancestry", async () => {
+    const state = startTuiSessionPicker([
+        {
+            ...session("main", "idle"),
+            live: true,
+            title: "Main conversation",
+            updated_at: "2026-07-20T20:00:00.000Z",
+        },
+        {
+            ...session("unrelated", "idle"),
+            title: "Unrelated conversation",
+            updated_at: "2026-07-20T19:30:00.000Z",
+        },
+        {
+            ...session("attached", "idle"),
+            live: true,
+            title: "Attached conversation",
+            updated_at: "2026-07-20T19:00:00.000Z",
+        },
+    ], "main", false, new Date("2026-07-20T21:00:00.000Z"), false, [
+        "main",
+        "attached",
+    ]);
+
+    const rows = (await pickerFrame(state)).split("\n");
+    const main = rows.find((row) => row.includes("Main conversation")) ?? "";
+    const attached = rows.find((row) =>
+        row.includes("Attached conversation")
+    ) ?? "";
+    const unrelated = rows.find((row) =>
+        row.includes("Unrelated conversation")
+    ) ?? "";
+    expect(main).toContain("┌ open");
+    expect(attached).toContain("└ open");
+    expect(unrelated).not.toMatch(/[┌└]/);
+    expect(state.options.map((option) => option.sessionId)).toEqual([
+        "main",
+        "attached",
+        "unrelated",
+    ]);
+});
+
 test("session rows stay on one line at 80 columns", async () => {
     const setup = await createTestRenderer({ width: 80, height: 24 });
     const view = createTuiSettingsPickerView(setup.renderer);
