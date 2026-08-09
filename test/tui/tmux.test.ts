@@ -2401,20 +2401,45 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("inspect this");
             expect(pane).not.toContain("AGENT ANSWERED 1");
+            expect(pane).toContain("readonly");
 
             // `/btw` focuses the attached pane, so a bare follow-up stays in
             // the hosted sidekick without an extension interceptor.
             sendText(socket, session, "follow up");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(
+            pane = await waitForVisiblePane(
                 socket,
                 session,
                 "SIDEKICK ANSWERED 2",
             );
 
+            sendText(socket, session, "/effort low");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "reasoning low",
+            );
+
+            sendText(socket, session, "/permissions ask");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes(" · ask · "),
+                "the focused sidekick permission mode to change",
+            );
+
             // A bare visible mention changes focus without sending a turn.
             sendText(socket, session, "@vera");
             sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes(" · auto · "),
+                "the main agent permission mode after focus changes",
+            );
+            expect(pane).toContain("reasoning high");
             sendText(socket, session, "main only");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(

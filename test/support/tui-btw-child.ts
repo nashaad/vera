@@ -6,6 +6,7 @@ import {
 } from "../../clients/tui/main.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
+import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
 import {
     emptyUsage,
@@ -20,6 +21,24 @@ let nextSession = 1;
 function session(id: string, speaker: "AGENT" | "SIDEKICK"): TuiAgentClient {
     const channel = createInProcessChannel();
     let turns = 0;
+    let approvalMode = speaker === "SIDEKICK" ? "readonly" : "auto";
+    let modelSettings: ModelTurnSettings = {
+        provider: "faux",
+        model: "test",
+        reasoningEffort: "high",
+        contextWindow: 100,
+        availableModels: [{
+            provider: "faux",
+            model: "test",
+            label: "test",
+            description: "Faux test model",
+            defaultLevel: "high",
+            levels: [
+                { id: "low", label: "Low" },
+                { id: "high", label: "High" },
+            ],
+        }],
+    };
     const adapter: ModelAdapter = {
         stream(request) {
             turns += 1;
@@ -29,16 +48,28 @@ function session(id: string, speaker: "AGENT" | "SIDEKICK"): TuiAgentClient {
         },
     };
     void runHeadlessLoop(channel.engine, adapter, "test", "high", {
-        approvalMode: speaker === "SIDEKICK" ? "readonly" : "auto",
-        readModelSettings: () => ({
-            model: "test",
-            reasoningEffort: "high",
-            contextWindow: 100,
-        }),
-        updateModelSettings: async () => undefined,
-        readApprovalMode: () =>
-            speaker === "SIDEKICK" ? "readonly" : "auto",
-        updateApprovalMode: async () => undefined,
+        approvalMode,
+        readModelSettings: () => modelSettings,
+        updateModelSettings: async (patch) => {
+            modelSettings = {
+                ...modelSettings,
+                ...(patch.model === undefined ? {} : { model: patch.model }),
+                ...(patch.provider === undefined
+                    ? {}
+                    : { provider: patch.provider }),
+                ...(patch.reasoningEffort === undefined
+                    ? {}
+                    : patch.reasoningEffort === null
+                    ? { reasoningEffort: undefined }
+                    : { reasoningEffort: patch.reasoningEffort }),
+            };
+            return modelSettings;
+        },
+        readApprovalMode: () => approvalMode,
+        updateApprovalMode: async (mode) => {
+            approvalMode = mode;
+            return approvalMode;
+        },
     });
     const client: TuiAgentClient = {
         agentId: id,
