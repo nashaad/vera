@@ -129,6 +129,7 @@ import {
     tuiArgumentSuggestions,
     tuiWithArgument,
     type TuiCommandAction,
+    type TuiCommandCatalogEntry,
     type TuiPaletteEntry,
 } from "./commands.ts";
 import {
@@ -922,7 +923,10 @@ export async function startTui(
             "direct",
         );
     }
-    const coreHelpCommands = commandRegistry.registeredCommands();
+    const coreHelpCommandNames = new Set(commandRegistry.commandNames());
+    function coreHelpCommands(): readonly TuiCommandCatalogEntry[] {
+        return commandRegistry.registeredCommands(coreHelpCommandNames);
+    }
 
     function registeredPaletteEntries(): readonly TuiPaletteEntry[] {
         // Every command that belongs in the palette declares its own row, so
@@ -2395,7 +2399,7 @@ export async function startTui(
                 if (result.body.kind === "client_action") {
                     if (result.body.action === "show_help") {
                         help = startTuiHelp(
-                            coreHelpCommands,
+                            coreHelpCommands(),
                             hostExtensionCommands,
                         );
                     }
@@ -3599,7 +3603,7 @@ export async function startTui(
             if (help !== undefined) {
                 help = updateTuiHelpCommands(
                     help,
-                    coreHelpCommands,
+                    coreHelpCommands(),
                     hostExtensionCommands,
                 );
             }

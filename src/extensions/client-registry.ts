@@ -92,6 +92,8 @@ export interface ClientExtensionCommandDescriptor {
     readonly usage: string;
     readonly source: string;
     readonly arguments?: ExtensionCommandArgumentKind;
+    /** Safe to call while rendering; failures make the command unavailable. */
+    readonly isAvailable?: () => boolean;
     readonly palette?: {
         readonly label: string;
         readonly description?: string;
@@ -469,7 +471,10 @@ export async function startClientExtensionRegistry(
                 throw new Error("Client extension registry is closing");
             }
             const owner = commands.get(name);
-            if (owner === undefined || owner.extension.disposing) {
+            if (
+                owner === undefined || owner.extension.disposing
+                || !(owner.command.descriptor.isAvailable?.() ?? true)
+            ) {
                 throw new Error(`Client extension command /${name} is unavailable`);
             }
             const body = await invokeTracked(
@@ -780,6 +785,17 @@ async function activateClientExtension(
                         ...(spec.arguments === undefined
                             ? {}
                             : { arguments: spec.arguments }),
+                        ...(spec.when === undefined
+                            ? {}
+                            : {
+                                isAvailable: () => {
+                                    try {
+                                        return spec.when?.() ?? true;
+                                    } catch {
+                                        return false;
+                                    }
+                                },
+                            }),
                         ...(spec.palette === undefined
                             ? {}
                             : { palette: structuredClone(spec.palette) }),
@@ -1298,6 +1314,7 @@ function validateCommandSpec(spec: VeraClientExtensionCommandSpec): void {
             && typeof spec.interactive !== "boolean")
         || (spec.arguments !== undefined
             && !isExtensionCommandArgumentKind(spec.arguments))
+        || (spec.when !== undefined && typeof spec.when !== "function")
         || typeof spec.run !== "function"
     ) {
         throw new Error("Invalid client extension command registration");

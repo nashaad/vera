@@ -247,6 +247,87 @@ test("extension commands join discovery and dispatch as plain actions", () => {
     });
 });
 
+test("conditional extension commands follow their live availability", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    let available = false;
+    registerExtensionTuiCommands(registry, [{
+        name: "remove",
+        description: "Remove the sidekick",
+        usage: "/remove",
+        source: "test.extension",
+        isAvailable: () => available,
+    }]);
+
+    expect(registry.suggestions("/rem")).toEqual([]);
+    expect(registry.registeredPaletteActions().some(
+        (entry) => entry.slashName === "remove",
+    )).toBe(false);
+    expect(registry.dispatch("/remove")).toEqual({
+        type: "command_error",
+        message: "/remove is unavailable",
+    });
+
+    available = true;
+    expect(registry.suggestions("/rem").map((command) => command.name))
+        .toEqual(["remove"]);
+    expect(registry.registeredPaletteActions().some(
+        (entry) => entry.slashName === "remove",
+    )).toBe(true);
+    expect(registry.dispatch("/remove")).toMatchObject({
+        type: "run_extension",
+        command: "remove",
+    });
+});
+
+test("a hidden command still reserves its name atomically", () => {
+    const registry = new TuiCommandRegistry();
+    registry.registerCommand({
+        name: "hidden",
+        description: "Hidden command",
+        usage: "/hidden",
+        isAvailable: () => false,
+        action: { type: "open_rewind" },
+    });
+
+    expect(() => registerExtensionTuiCommands(registry, [{
+        name: "new-command",
+        description: "A command before the collision",
+        usage: "/new-command",
+        source: "test.extension",
+    }, {
+        name: "hidden",
+        description: "Colliding command",
+        usage: "/hidden",
+        source: "test.extension",
+    }])).toThrow("Duplicate TUI command: /hidden");
+    expect(registry.hasCommand("new-command")).toBe(false);
+});
+
+test("a live catalog can keep later command owners out", () => {
+    const registry = new TuiCommandRegistry();
+    let firstAvailable = false;
+    registry.registerCommand({
+        name: "first",
+        description: "First command",
+        usage: "/first",
+        isAvailable: () => firstAvailable,
+        action: { type: "open_rewind" },
+    });
+    const firstOwnerNames = new Set(registry.commandNames());
+    registry.registerCommand({
+        name: "later",
+        description: "Later command",
+        usage: "/later",
+        action: { type: "open_rewind" },
+    });
+
+    expect(registry.registeredCommands(firstOwnerNames)).toEqual([]);
+    firstAvailable = true;
+    expect(registry.registeredCommands(firstOwnerNames).map(
+        (command) => command.name,
+    )).toEqual(["first"]);
+});
+
 test("extension commands cannot override built-in commands", () => {
     const registry = createBuiltinTuiCommandRegistry();
 

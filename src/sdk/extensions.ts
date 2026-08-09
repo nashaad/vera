@@ -113,6 +113,8 @@ export interface VeraClientExtensionCommandSpec {
      * `mention` from the names this extension offered the composer.
      */
     readonly arguments?: "model" | "mention";
+    /** Whether this command belongs on client surfaces and may run right now. */
+    readonly when?: () => boolean;
     readonly run: VeraClientExtensionCommandHandler;
 }
 
