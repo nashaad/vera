@@ -80,6 +80,73 @@ test("Vera config carries a subagent default model", () => {
     });
 });
 
+test("Vera config carries reviewer two-tier settings", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "anthropic/example-model",
+        reviewer: {
+            provider: "openrouter",
+            model: "anthropic/review-model",
+            two_tier: true,
+            escalation_reasoning_effort: "high",
+        },
+    }));
+
+    const config = loadVeraConfig({ path });
+
+    expect(config.reviewer).toEqual({
+        provider: "openrouter",
+        model: "anthropic/review-model",
+        two_tier: true,
+        escalation_reasoning_effort: "high",
+    });
+    expect(configuredReviewer(config)).toEqual({
+        models: [{
+            provider: "openrouter",
+            model: "anthropic/review-model",
+        }],
+        twoTier: true,
+        escalationModel: {
+            provider: "openrouter",
+            model: "anthropic/review-model",
+            reasoningEffort: "high",
+        },
+    });
+});
+
+test("Vera config leaves reviewer two-tier off by default", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reviewer: {
+            model: "anthropic/review-model",
+            escalation_model: "anthropic/second-review-model",
+        },
+    }));
+
+    expect(configuredReviewer(loadVeraConfig({ path }))).toEqual({
+        models: [{ model: "anthropic/review-model" }],
+        escalationModel: { model: "anthropic/second-review-model" },
+    });
+});
+
+test("a damaged reviewer two-tier flag fails the load", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reviewer: {
+            model: "anthropic/review-model",
+            two_tier: "yes",
+        },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow();
+});
+
 test("a damaged subagent block fails the load rather than being dropped", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({

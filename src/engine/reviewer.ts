@@ -42,6 +42,7 @@ export interface ToolReviewerSettings {
     readonly models: readonly ToolReviewerModelSettings[];
     readonly policy?: string;
     readonly timeoutMs?: number;
+    readonly twoTier?: boolean;
     readonly escalationModel?: ToolReviewerModelSettings;
 }
 
@@ -60,8 +61,9 @@ export function createRoutedToolReviewer(
     adapter: ModelAdapter,
     settings: ToolReviewerSettings,
 ): ReviewToolCall {
-    const reviewers = settings.models.map((model) =>
-        settings.escalationModel === undefined
+    const reviewers = settings.models.map((model) => {
+        const escalationModel = settings.escalationModel ?? model;
+        return settings.twoTier !== true
             ? createToolReviewer({
                 adapter,
                 model: model.model,
@@ -78,8 +80,7 @@ export function createRoutedToolReviewer(
                     ? {}
                     : { policy: settings.policy }),
             })
-            : createEscalatingToolReviewer({
-                adapter,
+            : createEscalatingToolReviewer(adapter, {
                 model: model.model,
                 ...(model.provider === undefined
                     ? {}
@@ -93,18 +94,18 @@ export function createRoutedToolReviewer(
                 ...(settings.policy === undefined
                     ? {}
                     : { policy: settings.policy }),
-                escalationModel: settings.escalationModel.model,
-                ...(settings.escalationModel.provider === undefined
+                escalationModel: escalationModel.model,
+                ...(escalationModel.provider === undefined
                     ? {}
-                    : { escalationProvider: settings.escalationModel.provider }),
-                ...(settings.escalationModel.reasoningEffort === undefined
+                    : { escalationProvider: escalationModel.provider }),
+                ...(escalationModel.reasoningEffort === undefined
                     ? {}
                     : {
                         escalationReasoningEffort:
-                            settings.escalationModel.reasoningEffort,
+                            escalationModel.reasoningEffort,
                     }),
-            })
-    );
+            });
+    });
     return async (request, signal) => {
         let unavailable: ToolReviewDecision | undefined;
         for (const reviewer of reviewers) {
@@ -124,8 +125,8 @@ export function createRoutedToolReviewer(
 }
 
 export interface CreateEscalatingReviewerOptions
-    extends CreateToolReviewerOptions {
-    readonly escalationModel?: string;
+    extends Omit<CreateToolReviewerOptions, "adapter"> {
+    readonly escalationModel: string;
     readonly escalationProvider?: string;
     readonly escalationReasoningEffort?: ModelReasoningEffort;
 }
@@ -150,12 +151,6 @@ export function createEscalatingToolReviewer(
             ? {}
             : { policy: options.policy }),
     });
-    if (
-        options.escalationModel === undefined
-        || options.escalationModel === options.model
-    ) {
-        return fastReviewer;
-    }
     const strongReviewer = createToolReviewer({
         adapter,
         model: options.escalationModel,
