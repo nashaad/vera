@@ -151,6 +151,7 @@ import {
     startTuiAdmissionDialog,
     type TuiAdmissionDialogState,
 } from "./admission-dialog.ts";
+import { renderTuiHeldAddress } from "./addressing.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { isTranscriptSelection, selectionSpeaker } from "./selection.ts";
 import {
@@ -1121,6 +1122,15 @@ export async function startTui(
         visible: false,
     });
 
+    const heldAddressText = new TextRenderable(renderer, {
+        id: "held-address",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        visible: false,
+    });
+
     const queuedPromptText = new TextRenderable(renderer, {
         id: "queued-prompt",
         content: "",
@@ -1371,6 +1381,9 @@ export async function startTui(
     // Beside the composer rather than in the column above it: the column ends
     // where the sidebar starts, and the line is too long to be cut there.
     app.add(quoteText);
+    // Pinned beside the composer, not written into the transcript: a mode the
+    // transcript announces is a mode that scrolls out of sight.
+    app.add(heldAddressText);
     app.add(composerBox);
     app.add(statusBackdrop);
     app.add(statusText);
@@ -1456,7 +1469,14 @@ export async function startTui(
         }
         const speaker = selectionSpeaker(selection, quotable);
         const selected = speaker === undefined ? "" : selection.getSelectedText();
-        if (speaker !== undefined && selected.trim().length > 0) {
+        // Only while an extension has somewhere to send it. With nobody else
+        // in the conversation, quoting hands the agent its own words back,
+        // and arming every plain copy with a quote changes what the next
+        // message says without the sender asking for it.
+        if (
+            extensionMentions.length > 0 && speaker !== undefined
+            && selected.trim().length > 0
+        ) {
             pendingQuote = { source: speaker, text: selected };
             // A drag leaves the composer unfocused, which is right when the
             // selection was only a copy. It has just become the start of a
@@ -3890,6 +3910,7 @@ export async function startTui(
             ]);
         composerTipText.visible = composerTip !== undefined
             && !anyOverlayOpen();
+        renderHeldAddress();
         composer.placeholder = extensionAddressee === undefined
             ? COMPOSER_PLACEHOLDER
             : `Message ${extensionAddressee}\u2026`;
@@ -5289,6 +5310,7 @@ export async function startTui(
         backgroundStatusText.fg = theme.muted;
         statusBackdrop.backgroundColor = theme.background;
         quoteText.fg = theme.muted;
+        heldAddressText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
         jumpToBottomText.fg = theme.background;
         jumpToBottomText.bg = theme.accent;
@@ -5544,11 +5566,28 @@ export async function startTui(
         ]);
     }
 
+    /** The pinned line naming who the composer is holding for. */
+    function renderHeldAddress(): void {
+        const { facts, keys } = renderTuiHeldAddress(extensionAddressee);
+        heldAddressText.visible = facts.length > 0 && !anyOverlayOpen();
+        if (facts.length === 0) {
+            heldAddressText.content = "";
+            return;
+        }
+        // Indented by hand: the row sits in a column that does not pad its
+        // children, and it has to start where the composer's text starts.
+        heldAddressText.content = new StyledText([
+            fg(TUI_MUTED)(`  ${facts} · `),
+            fg(TUI_ACCENT)(keys),
+        ]);
+    }
+
     function renderStatus(): void {
         if (shuttingDown) {
             return;
         }
         renderPendingQuote();
+        renderHeldAddress();
         renderJumpToBottom();
         renderSidebarJump();
 
@@ -5631,7 +5670,6 @@ export async function startTui(
         // column that arrived without being asked for, so the key that takes
         // it away is only offered while it is there.
         const extensionState = [
-            ...(extensionAddressee === undefined ? [] : [extensionAddressee]),
             ...(sidebar.isOpen()
                 ? [sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"]
                 : []),

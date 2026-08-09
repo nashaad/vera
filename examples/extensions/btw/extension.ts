@@ -106,11 +106,9 @@ export function activateClient(vera: any): void {
                 return;
             }
         }
-        vera.ui.notice(
-            held
-                ? `Holding @${SIDEKICK}. @vera goes back to the agent.`
-                : "Back to the agent.",
-        );
+        // Short, because the client keeps the standing version of this in
+        // view: the notice marks the change, not the state.
+        vera.ui.notice(held ? `Holding @${SIDEKICK}.` : "Back to the agent.");
     }
 
     /** The composer completes these after an `@`. */

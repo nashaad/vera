@@ -1936,6 +1936,9 @@ test.skipIf(!tmuxAvailable)(
                 `copied ${selectedText.length} characters`,
             );
             expect(readFileSync(copiedTextPath, "utf8")).toBe(selectedText);
+            // Nobody else is in this conversation, so the selection was a
+            // copy and only a copy: the next message is not armed with it.
+            expect(pane).not.toContain("quoting");
 
             const styledPane = captureVisiblePaneWithStyles(socket, session);
             expect(styledPane).toMatch(
@@ -2625,6 +2628,117 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("is it just us");
             expect(pane).not.toContain("system-note");
             expect(pane).not.toContain("AGENT SAW A SEAT LEAVE");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "a selection arms the next message once there is somewhere to send it",
+    async () => {
+        const socket = `vera-seat-quote-${process.pid}-${randomUUID()}`;
+        const session = "seat-quote";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-quote-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-btw-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/btw guest");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
+
+            sendText(socket, session, "which ordering");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED");
+
+            const lines = pane.split("\n");
+            const row = lines.findIndex((line) =>
+                line.includes("AGENT ANSWERED")
+            );
+            const line = lines[row];
+            if (line === undefined) {
+                throw new Error("The agent's answer was not visible");
+            }
+            const column = line.indexOf("AGENT ANSWERED");
+            sendMouseDrag(
+                socket,
+                session,
+                column + 1,
+                row + 1,
+                column + "AGENT ANSWERED".length + 1,
+                row + 1,
+            );
+            // Someone is seated, so the selection is both a copy and the
+            // start of the next message.
+            pane = await waitForVisiblePane(socket, session, "quoting agent");
+            expect(pane).toContain("esc clears it");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "a held address stays in view when the transcript scrolls away",
+    async () => {
+        const socket = `vera-seat-held-${process.pid}-${randomUUID()}`;
+        const session = "seat-held";
+        const home = mkdtempSync(join(tmpdir(), "vera-seat-held-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-btw-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/btw guest");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
+
+            sendText(socket, session, "@sidekick");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "every message goes to @sidekick",
+            );
+            expect(pane).toContain("@vera goes back to the agent");
+
+            // Where the messages are going is a mode, and a mode has to be
+            // readable for as long as it lasts: scrolled back through the
+            // transcript, the line is still above the composer.
+            sendMouseWheel(socket, session, "up", 20, 4, 20);
+            await Bun.sleep(300);
+            pane = capturePane(socket, session);
+            expect(pane).toContain("every message goes to @sidekick");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
