@@ -1,7 +1,42 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 
-import { createTuiToolRow, updateTuiToolRow } from "../../clients/tui/tool-row.ts";
+import {
+    createTuiToolHeader,
+    createTuiToolRow,
+    updateTuiToolRow,
+} from "../../clients/tui/tool-row.ts";
+
+test("a compact tool preview hangs wrapped text under its gutter", async () => {
+    const setup = await createTestRenderer({ width: 28, height: 8 });
+    setup.renderer.root.add(createTuiToolHeader(
+        setup.renderer,
+        "entry-preview",
+        {
+            kind: "tool_header",
+            text: "+ Asked · 2 lines",
+            detailLines: 2,
+            detailPreview: [
+                "  │ ask_user a much longer question that wraps",
+                "  └ answer",
+            ].join("\n"),
+        },
+        0,
+    ));
+
+    try {
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        const first = rows.findIndex((row) => row.includes("│ ask_user"));
+        expect(first).toBeGreaterThan(-1);
+        expect(rows[first]).toContain("│ ask_user a much longer");
+        expect(rows[first + 1]?.startsWith("    ")).toBe(true);
+        expect(rows[first + 1]?.trim()).toBe("question that wraps");
+        expect(rows[first + 2]).toContain("└ answer");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
 
 test("a wrapped tool row hangs under its own text", async () => {
     const setup = await createTestRenderer({ width: 20, height: 8 });

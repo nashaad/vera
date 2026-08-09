@@ -2,12 +2,22 @@ import { BoxRenderable, TextRenderable } from "@opentui/core";
 import type { RenderContext } from "@opentui/core";
 
 import type { TuiTextTranscriptEntry } from "./state.ts";
-import { TUI_MUTED, tuiToolRowText } from "./state.ts";
+import {
+    renderTuiEntry,
+    TUI_ACCENT,
+    TUI_MUTED,
+    TUI_TEXT,
+    tuiToolRowText,
+} from "./state.ts";
 
 const rowText = new WeakMap<BoxRenderable, TextRenderable>();
 const rowGutter = new WeakMap<
     BoxRenderable,
     { box: BoxRenderable; marker: TextRenderable }
+>();
+const headerParts = new WeakMap<
+    BoxRenderable,
+    { header: TextRenderable; preview: BoxRenderable[] }
 >();
 const CONNECTOR_BORDER = {
     topLeft: "│",
@@ -22,6 +32,84 @@ const CONNECTOR_BORDER = {
     rightT: "",
     cross: "",
 };
+
+export function updateTuiToolHeader(
+    node: BoxRenderable,
+    entry: TuiTextTranscriptEntry,
+): void {
+    const parts = headerParts.get(node);
+    if (parts === undefined) return;
+    parts.header.content = renderTuiEntry({
+        ...entry,
+        detailPreview: undefined,
+    });
+    for (const row of parts.preview) row.destroy();
+    parts.preview.length = 0;
+    for (const line of entry.detailPreview?.split("\n") ?? []) {
+        const row = createCompactPreviewRow(node, line);
+        parts.preview.push(row);
+        node.add(row);
+    }
+}
+
+export function createTuiToolHeader(
+    renderer: RenderContext,
+    id: string,
+    entry: TuiTextTranscriptEntry,
+    marginTop: number,
+): BoxRenderable {
+    const node = new BoxRenderable(renderer, {
+        id,
+        width: "100%",
+        flexDirection: "column",
+        marginTop,
+    });
+    const header = new TextRenderable(renderer, {
+        id: `${id}-header`,
+        width: "100%",
+        wrapMode: "word",
+        selectable: true,
+    });
+    headerParts.set(node, { header, preview: [] });
+    node.add(header);
+    updateTuiToolHeader(node, entry);
+    return node;
+}
+
+function createCompactPreviewRow(
+    parent: BoxRenderable,
+    line: string,
+): BoxRenderable {
+    const id = `${parent.id}-preview-${headerParts.get(parent)?.preview.length ?? 0}`;
+    const row = new BoxRenderable(parent.ctx, {
+        id,
+        width: "100%",
+        flexDirection: "row",
+    });
+    const prefixed = /^(  [│└] )(.*)$/.exec(line);
+    const omission = /^    \+ \d+ more lines?$/.test(line);
+    const gutter = new TextRenderable(parent.ctx, {
+        id: `${id}-gutter`,
+        width: 4,
+        flexShrink: 0,
+        content: prefixed?.[1] ?? "    ",
+        fg: TUI_MUTED,
+        selectable: true,
+    });
+    const text = new TextRenderable(parent.ctx, {
+        id: `${id}-text`,
+        content: prefixed?.[2] ?? line.slice(4),
+        fg: omission
+            ? TUI_ACCENT
+            : prefixed?.[1] === "  │ " ? TUI_TEXT : TUI_MUTED,
+        flexGrow: 1,
+        wrapMode: "word",
+        selectable: true,
+    });
+    row.add(gutter);
+    row.add(text);
+    return row;
+}
 
 /**
  * Rewrites a row in place. A repeated call raises the count on the row already

@@ -528,8 +528,9 @@ test.skipIf(!tmuxAvailable)(
                 "Model error: Model returned no visible response or structured tool call.",
             );
             expect(pane).toContain(
-                "+ Explored · 37 lines · Read package.json  ctrl+e details",
+                "• Explored · 37 lines  ctrl+e details",
             );
+            expect(pane).toContain("│ Read package.json");
 
             sendText(socket, session, "try again");
             sendKey(socket, session, "Enter");
@@ -1702,13 +1703,13 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "TOOL DETAILS COMPLETED",
             );
-            expect(pane).toContain("+ Ran · 11 lines · printf");
-            expect(pane).toContain("ctrl+e details");
+            expect(pane).toContain("• Ran · 11 lines  ctrl+e details");
+            expect(pane).toContain("│ printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
 
             sendKey(socket, session, "C-e");
             pane = await waitForVisiblePane(socket, session, "TOOL_DETAIL_09");
-            expect(pane).toContain("- Ran · 11 lines  ctrl+e details");
+            expect(pane).toContain("▾ Ran · 11 lines  ctrl+e details");
             expect(pane).toContain("TOOL DETAILS COMPLETED");
 
             sendText(socket, session, "run one short action");
@@ -1717,8 +1718,10 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("SHORT_DETAIL");
 
             sendKey(socket, session, "C-e");
-            pane = await waitForVisiblePane(socket, session, "+ Ran · 2 lines");
-            expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(1);
+            pane = await waitForVisiblePane(socket, session, "• Ran · 2 lines");
+            // The compact block deliberately shows both what ran and its
+            // short result; this command prints the same sentinel in each.
+            expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
             expect(pane).toContain("SHORT TOOL COMPLETED");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
@@ -1768,8 +1771,9 @@ test.skipIf(!tmuxAvailable)(
             );
             // `env` prints as many lines as the machine has variables, so
             // the row is pinned by its command and its details hint.
-            expect(pane).toContain("+ Ran · ");
-            expect(pane).toContain("· env AUTO_REVIEW=ran  ctrl+e details");
+            expect(pane).toContain("• Ran · ");
+            expect(pane).toContain("ctrl+e details");
+            expect(pane).toContain("│ env AUTO_REVIEW=ran");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Permission required");
             expect(pane).not.toContain("Allow once");
