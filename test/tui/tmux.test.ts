@@ -2605,7 +2605,7 @@ test.skipIf(!tmuxAvailable)(
             sendText(socket, session, "/pair inspect this");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 1");
-            expect(pane).toContain("peer · ask");
+            expect(pane).toContain("peer · ask · idle");
             expect(pane).not.toContain("AGENT ANSWERED 1");
 
             sendText(socket, session, "/permissions readonly");

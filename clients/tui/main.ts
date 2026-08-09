@@ -1495,8 +1495,11 @@ export async function startTui(
     ): void {
         if (pane !== sidebarAgentPane) return;
         const entries = pane.state.state.entries;
+        const paneActivity = pane.state.state.working
+            ? pane.state.activity
+            : pane.state.pendingUiRequest === undefined ? "idle" : "waiting";
         sidebar.setHeader(
-            `${sidebarAgentMention ?? pane.agentId} · ${pane.state.state.approvalMode ?? "loading"}`,
+            `${sidebarAgentMention ?? pane.agentId} · ${pane.state.state.approvalMode ?? "loading"} · ${paneActivity}`,
         );
         const changedKindAt = entries.findIndex((entry, index) =>
             sidebarEntryNodes[index] !== undefined
@@ -6457,7 +6460,9 @@ export async function startTui(
                 ? [sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"]
                 : []),
             ...(sidebarAgentPane !== undefined && sidebar.isShown()
-                ? [sidebar.isFocused() ? "ctrl+g main" : "ctrl+g sidekick"]
+                ? [sidebar.isFocused()
+                    ? "ctrl+g main"
+                    : `ctrl+g ${sidebarAgentMention ?? sidebarAgentPane.agentId}`]
                 : []),
         ];
         const detailsLine = extensionState.length === 0
