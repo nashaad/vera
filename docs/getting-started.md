@@ -80,19 +80,18 @@ stronger model for verification:
 }
 ```
 
-The fast reviewer rates its certainty on three metrics, each 0-1:
+The fast reviewer answers clearly low-risk actions with a bare
+`{"outcome":"allow"}` and grades everything else with a risk level and how
+well the transcript supports the user having authorized the action. The fast
+tier's decision stands for low and medium risk allows. Everything else — an
+allow the fast model itself rated high or critical risk, and every denial —
+escalates to the stronger model for the final ruling, so a cheap model's
+false denial gets a second opinion before it blocks the agent.
 
-- `understanding` — how completely it understood the action and its scope
-- `risk` — certainty in its risk rating
-- `authorization` — certainty about whether the user authorized the action
-
-Its overall confidence is the weakest of the three. If that meets the
-threshold (default 0.8, configurable with `escalation_confidence_threshold`),
-the decision stands immediately. If any metric falls below it — or the
-reviewer reports no confidence at all — the request escalates to the stronger
-model for a final ruling. The weaker model does not need to recognize edge
-cases it cannot understand; it only needs to notice which of its own
-judgments it is unsure of.
+The reviewer never sees tool output. Its transcript carries the user's and
+agent's messages and the agent's tool calls, but results are stripped: tool
+output is the one part of the transcript written by the outside world, which
+makes it the channel prompt injection arrives through.
 
 ## OpenRouter
 
