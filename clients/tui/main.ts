@@ -3933,11 +3933,15 @@ export async function startTui(
         questionView.box.visible = pendingUiRequest?.request.type
             === "user_question";
         // The lifecycle row reads "ready" while a card waits on an answer, so
-        // it goes; the details row stays, because the approval mode it carries
-        // is why the card is asking, and FULL ACCESS · RED ZONE has to be
-        // readable from the dialog it explains.
+        // it goes. The approval card keeps the details row, because the
+        // approval mode it carries is why the card is asking, and FULL ACCESS ·
+        // RED ZONE has to be readable from the dialog it explains. The question
+        // card keeps neither: a model name and a working directory say nothing
+        // about the question, so the whole band goes and the card ends where it
+        // draws its last row.
         statusText.visible = !(approvalView.box.visible
             || questionView.box.visible);
+        statusBand.visible = !questionView.box.visible;
         timelinePickerView.box.visible = pendingUiRequest === undefined
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there

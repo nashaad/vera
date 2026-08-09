@@ -1856,11 +1856,11 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "1  Stable",
+                "1. Stable",
             );
             expect(pane).toContain("Which release channel");
-            expect(pane).toContain("2  Preview");
-            expect(pane).toContain("3  Nightly");
+            expect(pane).toContain("2. Preview");
+            expect(pane).toContain("3. Nightly");
             expect(pane).not.toContain("question waiting");
             expect(pane).not.toContain("gpt-5.6-sol");
             // The reproduction for the status-line collision: above the short
@@ -1868,7 +1868,7 @@ test.skipIf(!tmuxAvailable)(
             // its final line of key hints survives instead of being drawn over.
             // The 42x10 approval test covers the other side of the threshold,
             // where the row goes back to the content.
-            expect(pane).toContain("esc cancel");
+            expect(pane).toContain("esc dismiss");
 
             sendText(socket, session, "2");
             pane = await waitForVisiblePane(
@@ -1876,7 +1876,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Selection received: preview-channel",
             );
-            expect(pane).not.toContain("esc cancel");
+            expect(pane).not.toContain("esc dismiss");
 
             sendText(socket, session, "focus restored");
             sendKey(socket, session, "Enter");
