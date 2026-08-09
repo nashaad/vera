@@ -36,6 +36,8 @@ export interface TuiSidebarTheme {
     readonly handleActive: string;
     readonly muted: string;
     readonly text: string;
+    /** The rail under the panel while messages are addressed to this pane. */
+    readonly focused: string;
 }
 
 export interface TuiSidebarOptions {
@@ -70,6 +72,9 @@ export interface TuiSidebar {
     isShown(): boolean;
     /** Hides or restores the split without taking it from its owner. */
     toggleHidden(): void;
+    /** Marks this surface as the current composer target. */
+    setFocused(focused: boolean): void;
+    isFocused(): boolean;
     open(): void;
     close(): void;
     append(label: string, text: string, speaker?: string): void;
@@ -110,6 +115,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     // Hidden is the user's call, and outlives a resize: the sidebar stays out
     // of the way until it is asked back.
     let hidden = false;
+    let focused = false;
     let blocks = 0;
     const appended: TuiSidebarBlock[] = [];
     // The parts of each block that carry a colour. A block is built once and
@@ -195,15 +201,25 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         onMouseDragEnd: () => {
             panelDragged = true;
         },
-        onMouseUp: () => {
+        onMouseUp: (event: MouseEvent) => {
             const dragged = panelDragged;
             panelDragged = false;
+            event.stopPropagation();
             if (!dragged) {
                 options.onPanelClick?.();
             }
         },
     });
     panel.add(content);
+    const focusRail = new BoxRenderable(renderer, {
+        id: "sidebar-focus-rail",
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+        backgroundColor: theme.focused,
+        visible: false,
+    });
+    panel.add(focusRail);
 
     body.add(options.transcript);
     body.add(divider);
@@ -249,6 +265,11 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             hidden = !hidden;
             apply();
         },
+        setFocused(nextFocused): void {
+            focused = nextFocused;
+            focusRail.visible = focused;
+        },
+        isFocused: () => focused,
         open(): void {
             open = true;
             hidden = false;
@@ -310,6 +331,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             theme = next;
             syntaxStyle = nextSyntaxStyle;
             panel.backgroundColor = theme.panel;
+            focusRail.backgroundColor = theme.focused;
             divider.backgroundColor = dragging
                 ? theme.handleActive
                 : theme.handle;
