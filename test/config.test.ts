@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     configuredReviewer,
+    configuredReviewers,
     configuredSubagentModel,
     eventLogEnabled,
     loadOptionalVeraConfig,
@@ -78,6 +79,73 @@ test("Vera config carries a subagent default model", () => {
         model: "openai/gpt-luna-medium",
         reasoningEffort: "medium",
     });
+});
+
+test("Vera config carries reviewer two-tier settings", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "anthropic/example-model",
+        reviewer: {
+            provider: "openrouter",
+            model: "anthropic/review-model",
+            two_tier: true,
+            escalation_reasoning_effort: "high",
+        },
+    }));
+
+    const config = loadVeraConfig({ path });
+
+    expect(config.reviewer).toEqual({
+        provider: "openrouter",
+        model: "anthropic/review-model",
+        two_tier: true,
+        escalation_reasoning_effort: "high",
+    });
+    expect(configuredReviewer(config)).toEqual({
+        models: [{
+            provider: "openrouter",
+            model: "anthropic/review-model",
+        }],
+        twoTier: true,
+        escalationModel: {
+            provider: "openrouter",
+            model: "anthropic/review-model",
+            reasoningEffort: "high",
+        },
+    });
+});
+
+test("Vera config leaves reviewer two-tier off by default", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reviewer: {
+            model: "anthropic/review-model",
+            escalation_model: "anthropic/second-review-model",
+        },
+    }));
+
+    expect(configuredReviewer(loadVeraConfig({ path }))).toEqual({
+        models: [{ model: "anthropic/review-model" }],
+        escalationModel: { model: "anthropic/second-review-model" },
+    });
+});
+
+test("a damaged reviewer two-tier flag fails the load", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reviewer: {
+            model: "anthropic/review-model",
+            two_tier: "yes",
+        },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow();
 });
 
 test("a damaged subagent block fails the load rather than being dropped", () => {
@@ -805,4 +873,35 @@ test("a damaged config names the file and the parse problem", () => {
     expect(() => loadVeraConfig({ path })).toThrow(
         `Vera config at ${path} could not be read: it is not valid JSON`,
     );
+});
+
+test("a plain reviewer block is the default profile beside a catalog", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        models: [{
+            provider: "openrouter",
+            model: "anthropic/claude-opus-4.8",
+            reasoning_effort: "max",
+        }],
+        model_routes: {
+            deep: ["anthropic_claude_opus_4_8_max_openrouter"],
+        },
+        reviewer_profiles: {
+            deep: { model_route: "deep", policy: "Be careful." },
+        },
+        reviewer: {
+            model: "haiku",
+            provider: "openrouter",
+            fallback_model: "sonnet",
+        },
+    }));
+
+    const reviewers = configuredReviewers(loadVeraConfig({ path }));
+    expect(Object.keys(reviewers).toSorted()).toEqual(["deep", "default"]);
+    expect(reviewers.default?.models).toEqual([
+        { model: "haiku", provider: "openrouter" },
+        { model: "sonnet", provider: "openrouter" },
+    ]);
 });

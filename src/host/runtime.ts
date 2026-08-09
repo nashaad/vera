@@ -9,6 +9,7 @@ import {
     configuredReviewers,
     eventLogEnabled,
     updateVeraConfigDefaults,
+    type VeraProviderId,
     type VeraConfig,
 } from "../config.ts";
 import type { ModelAdapter } from "../model/types.ts";
@@ -22,8 +23,10 @@ import type {
 } from "../model/catalog-shape.ts";
 import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
+import { createReviewLogger } from "../engine/review-log.ts";
 
 const hostLog = createHostLogger();
+const reviewLog = createReviewLogger();
 import {
     addPoolModel,
     recordLearned,
@@ -282,6 +285,46 @@ export async function startResidentHost(
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(subagentModel === undefined ? {} : { subagentModel }),
         ...(Object.keys(reviewers).length === 0 ? {} : { reviewers }),
+        reviewLog,
+        writeReviewer: (settings) => {
+            if (settings === null || settings.models.length === 0) {
+                updateVeraConfigDefaults({ reviewer: null });
+                return;
+            }
+            const [primary, fallback] = settings.models;
+            updateVeraConfigDefaults({
+                reviewer: {
+                    model: primary!.model,
+                    ...(primary!.provider === undefined
+                        ? {}
+                        : { provider: primary!.provider as VeraProviderId }),
+                    ...(primary!.reasoningEffort === undefined
+                        ? {}
+                        : { reasoning_effort: primary!.reasoningEffort }),
+                    ...(fallback === undefined ? {} : {
+                        fallback_model: fallback.model,
+                        ...(fallback.provider === undefined
+                            ? {}
+                            : {
+                                fallback_provider:
+                                    fallback.provider as VeraProviderId,
+                            }),
+                        ...(fallback.reasoningEffort === undefined
+                            ? {}
+                            : {
+                                fallback_reasoning_effort:
+                                    fallback.reasoningEffort,
+                            }),
+                    }),
+                    ...(settings.timeoutMs === undefined
+                        ? {}
+                        : { timeout_ms: settings.timeoutMs }),
+                    ...(settings.twoTier === undefined
+                        ? {}
+                        : { two_tier: settings.twoTier }),
+                },
+            });
+        },
         ...(compaction === undefined ? {} : { compaction }),
         ...(options.config.permission_modes === undefined
             ? {}

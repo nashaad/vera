@@ -61,12 +61,28 @@ export interface VeraModelFallbackConfig {
  * Model used by the automatic approval reviewer in `auto`. Every
  * boundary crossing costs one of these calls, so it is configured separately
  * from the agent model rather than inheriting it.
+ *
+ * If two_tier is enabled, high/critical risk allows and denials get a
+ * second review. The second pass uses the same model unless escalation fields
+ * override it.
+ *
+ * The fallback fields name a second reviewer, tried only when the first cannot
+ * answer at all: it is missing, unreachable, or returns something unreadable.
+ * It is not a second opinion. Without it, an unreachable reviewer leaves every
+ * reviewed action with no verdict.
  */
 export interface VeraReviewerConfig {
     readonly provider?: VeraProviderId;
     readonly model: string;
     readonly reasoning_effort?: ModelReasoningEffort;
+    readonly fallback_model?: string;
+    readonly fallback_provider?: VeraProviderId;
+    readonly fallback_reasoning_effort?: ModelReasoningEffort;
     readonly timeout_ms?: number;
+    readonly two_tier?: boolean;
+    readonly escalation_model?: string;
+    readonly escalation_provider?: VeraProviderId;
+    readonly escalation_reasoning_effort?: ModelReasoningEffort;
 }
 
 /**
@@ -156,6 +172,11 @@ export interface VeraConfigDefaultsPatch {
     /** `null` clears the stored default, for a model that has no effort. */
     readonly reasoning_effort?: ModelReasoningEffort | null;
     readonly approval_mode?: ApprovalMode;
+    /**
+     * Reviewer slots, written whole. `null` clears the reviewer entirely,
+     * which returns auto mode to reviewing on the agent's own model.
+     */
+    readonly reviewer?: VeraReviewerConfig | null;
 }
 
 export function defaultVeraConfigPath(): string {
@@ -265,6 +286,9 @@ export function updateVeraConfigDefaults(
         ...(patch.approval_mode === undefined
             ? {}
             : { approval_mode: patch.approval_mode }),
+        ...(patch.reviewer === undefined
+            ? {}
+            : { reviewer: patch.reviewer === null ? undefined : patch.reviewer }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
             : {}),
@@ -417,7 +441,6 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || experimental === undefined
         || eventLog === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
-        || (hasModelCatalog && config.reviewer !== undefined)
         || (config.compaction !== undefined && compaction === undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
@@ -629,11 +652,33 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
             && reviewer.provider !== "cerebras")
         || (reviewer.reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.reasoning_effort))
+        || (reviewer.fallback_model !== undefined
+            && (typeof reviewer.fallback_model !== "string"
+                || reviewer.fallback_model.trim().length === 0))
+        || (reviewer.fallback_provider !== undefined
+            && reviewer.fallback_provider !== "openrouter"
+            && reviewer.fallback_provider !== "openai-codex"
+            && reviewer.fallback_provider !== "ollama"
+            && reviewer.fallback_provider !== "cerebras")
+        || (reviewer.fallback_reasoning_effort !== undefined
+            && !isReasoningEffort(reviewer.fallback_reasoning_effort))
         || (reviewer.timeout_ms !== undefined
             && (typeof reviewer.timeout_ms !== "number"
                 || !Number.isInteger(reviewer.timeout_ms)
                 || reviewer.timeout_ms < 1_000
                 || reviewer.timeout_ms > 600_000))
+        || (reviewer.two_tier !== undefined
+            && typeof reviewer.two_tier !== "boolean")
+        || (reviewer.escalation_model !== undefined
+            && (typeof reviewer.escalation_model !== "string"
+                || reviewer.escalation_model.trim().length === 0))
+        || (reviewer.escalation_provider !== undefined
+            && reviewer.escalation_provider !== "openrouter"
+            && reviewer.escalation_provider !== "openai-codex"
+            && reviewer.escalation_provider !== "ollama"
+            && reviewer.escalation_provider !== "cerebras")
+        || (reviewer.escalation_reasoning_effort !== undefined
+            && !isReasoningEffort(reviewer.escalation_reasoning_effort))
     ) {
         return undefined;
     }
@@ -645,9 +690,30 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         ...(reviewer.reasoning_effort === undefined
             ? {}
             : { reasoning_effort: reviewer.reasoning_effort }),
+        ...(reviewer.fallback_model === undefined
+            ? {}
+            : { fallback_model: reviewer.fallback_model.trim() }),
+        ...(reviewer.fallback_provider === undefined
+            ? {}
+            : { fallback_provider: reviewer.fallback_provider as VeraProviderId }),
+        ...(reviewer.fallback_reasoning_effort === undefined
+            ? {}
+            : { fallback_reasoning_effort: reviewer.fallback_reasoning_effort }),
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeout_ms: reviewer.timeout_ms }),
+        ...(reviewer.two_tier === undefined
+            ? {}
+            : { two_tier: reviewer.two_tier }),
+        ...(reviewer.escalation_model === undefined
+            ? {}
+            : { escalation_model: reviewer.escalation_model.trim() }),
+        ...(reviewer.escalation_provider === undefined
+            ? {}
+            : { escalation_provider: reviewer.escalation_provider as VeraProviderId }),
+        ...(reviewer.escalation_reasoning_effort === undefined
+            ? {}
+            : { escalation_reasoning_effort: reviewer.escalation_reasoning_effort }),
     };
 }
 
@@ -771,26 +837,66 @@ export function configuredReviewers(
                     : { timeoutMs: resolved.timeout_ms }),
             };
         }
-        return configured;
     }
 
     const reviewer = config.reviewer;
-    if (reviewer === undefined) {
+    // A catalog names reviewers; the plain block names the default one. A
+    // profile actually called `default` wins, since it was written by hand.
+    if (reviewer === undefined || configured.default !== undefined) {
         return configured;
     }
+    const escalationConfigured = reviewer.escalation_model !== undefined
+        || reviewer.escalation_provider !== undefined
+        || reviewer.escalation_reasoning_effort !== undefined;
     configured.default = {
-        models: [{
-            model: reviewer.model,
-            ...(reviewer.provider === undefined
-                ? {}
-                : { provider: reviewer.provider }),
-            ...(reviewer.reasoning_effort === undefined
-                ? {}
-                : { reasoningEffort: reviewer.reasoning_effort }),
-        }],
+        // Ordered route: the router walks it and moves on when a reviewer
+        // cannot answer, so the fallback is simply the second entry.
+        models: [
+            {
+                model: reviewer.model,
+                ...(reviewer.provider === undefined
+                    ? {}
+                    : { provider: reviewer.provider }),
+                ...(reviewer.reasoning_effort === undefined
+                    ? {}
+                    : { reasoningEffort: reviewer.reasoning_effort }),
+            },
+            ...(reviewer.fallback_model === undefined ? [] : [{
+                model: reviewer.fallback_model,
+                ...(reviewer.fallback_provider === undefined
+                    ? reviewer.provider === undefined
+                        ? {}
+                        : { provider: reviewer.provider }
+                    : { provider: reviewer.fallback_provider }),
+                ...(reviewer.fallback_reasoning_effort === undefined
+                    ? {}
+                    : { reasoningEffort: reviewer.fallback_reasoning_effort }),
+            }]),
+        ],
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeoutMs: reviewer.timeout_ms }),
+        ...(reviewer.two_tier === undefined
+            ? {}
+            : { twoTier: reviewer.two_tier }),
+        ...(!escalationConfigured
+            ? {}
+            : {
+                escalationModel: {
+                    model: reviewer.escalation_model ?? reviewer.model,
+                    ...(reviewer.escalation_provider === undefined
+                        ? reviewer.provider === undefined
+                            ? {}
+                            : { provider: reviewer.provider }
+                        : { provider: reviewer.escalation_provider }),
+                    ...(reviewer.escalation_reasoning_effort === undefined
+                        ? {}
+                        : {
+                            reasoningEffort:
+                                reviewer.escalation_reasoning_effort,
+                        }),
+                },
+            }),
     };
     return configured;
 }
