@@ -1051,10 +1051,6 @@ export async function startTui(
         width: "100%",
         height: 1,
         paddingLeft: 3,
-        position: "absolute",
-        left: 1,
-        bottom: 1,
-        zIndex: 30,
     });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
@@ -1063,25 +1059,27 @@ export async function startTui(
         width: "100%",
         height: 1,
         paddingLeft: 3,
+    });
+    // A text node paints only the cells its glyphs fill, so the status rows
+    // would show the transcript through every gap in the line, and through the
+    // spaces inside it. The band that backs them is this box rather than a
+    // sibling behind them: a sibling is sized from the rows' heights, which say
+    // nothing about whether the rows are drawn, so every surface that hid a
+    // status row left the paint behind. Held together, hiding the rows hides
+    // the band, and one height serves the composer's margin as well.
+    const statusBand = new BoxRenderable(renderer, {
+        id: "status-band",
         position: "absolute",
         left: 1,
         bottom: 0,
+        width: "100%",
+        height: "auto",
+        flexDirection: "column",
+        backgroundColor: theme.background,
         zIndex: 30,
     });
-    // A text node paints only the cells its glyphs fill, so the status rows
-    // would otherwise show the transcript through every gap in the line, and
-    // through the spaces inside it. This backs them with the terminal's own
-    // background, so the two rows read as one band whatever is behind them.
-    const statusBackdrop = new BoxRenderable(renderer, {
-        id: "status-backdrop",
-        position: "absolute",
-        left: 0,
-        bottom: 0,
-        width: "100%",
-        height: 2,
-        backgroundColor: theme.background,
-        zIndex: 29,
-    });
+    statusBand.add(statusText);
+    statusBand.add(backgroundStatusText);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -1389,9 +1387,7 @@ export async function startTui(
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
     app.add(composerBox);
-    app.add(statusBackdrop);
-    app.add(statusText);
-    app.add(backgroundStatusText);
+    app.add(statusBand);
     renderer.root.add(app);
     composer.focus();
     renderStatus();
@@ -5410,7 +5406,7 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
-        statusBackdrop.backgroundColor = theme.background;
+        statusBand.backgroundColor = theme.background;
         quoteText.fg = theme.muted;
         heldAddressText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
@@ -5839,8 +5835,6 @@ export async function startTui(
         backgroundStatusText.height = agentSection.length === 0
             ? 1
             : 2 + agentSection.length;
-        statusText.bottom = backgroundStatusText.height;
-        statusBackdrop.height = 1 + backgroundStatusText.height;
         composerBox.marginBottom = 1 + backgroundStatusText.height;
         statusText.content = state.working
                 && statusNotice === undefined
