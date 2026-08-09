@@ -807,6 +807,7 @@ export async function startTui(
     /** Which extension holds the sidebar, absent while nobody does. */
     let sidebarOwner: string | undefined;
     let sidebarAgentPane: TuiAgentPane<IdentifiedTuiAgentClient> | undefined;
+    let clientSurfaceReady = false;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -892,7 +893,9 @@ export async function startTui(
         mentions: {
             set(_extensionId, names) {
                 extensionMentions = names;
-                renderCommandSuggestions();
+                if (clientSurfaceReady) {
+                    renderCommandSuggestions();
+                }
             },
         },
         addressing: {
@@ -1548,6 +1551,7 @@ export async function startTui(
     app.add(composerBox);
     app.add(statusBand);
     renderer.root.add(app);
+    clientSurfaceReady = true;
     composer.focus();
     renderStatus();
 
