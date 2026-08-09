@@ -50,6 +50,10 @@ export interface TuiQuestionKeyResult {
     readonly response?: UiResponseCommand;
 }
 
+// Two row-padding cells and the three-cell number gutter leave at most 87
+// cells for choice text, while `width: "100%"` still fills narrow terminals.
+export const QUESTION_CHOICE_MAX_WIDTH = 92;
+
 export interface TuiQuestionView {
     // Rows are numbered, so a click carries the same digit the keyboard would
     // have sent rather than a second decision path.
@@ -96,6 +100,7 @@ export function createTuiQuestionView(
     const choicesColumn = new BoxRenderable(renderer, {
         id: "question-choices",
         width: "100%",
+        maxWidth: QUESTION_CHOICE_MAX_WIDTH,
         height: "auto",
         marginTop: 1,
         flexDirection: "column",
@@ -257,8 +262,8 @@ export function createTuiQuestionView(
         const otherIndex = update.request.choices.length;
         const other = dialogOptionRow(renderer, {
             label: enteringCustom
-                ? `Other: ${customText}▌`
-                : "Other — type your own answer",
+                ? `Your response: ${customText}▌`
+                : "Write a different response",
             leading: `${otherIndex + 1}  `,
             active: otherIndex === selectedIndex,
             wrap: true,
