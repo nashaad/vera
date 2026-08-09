@@ -187,20 +187,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexShrink: 0,
         flexDirection: "column",
         visible: false,
-    });
-    const panel = new BoxRenderable(renderer, {
-        id: "sidebar",
-        width: "100%",
-        flexGrow: 1,
-        flexDirection: "column",
-        paddingLeft: 1,
-        // Starts on the transcript's first line, not the frame's, and keeps a
-        // line at the foot so the last block does not sit on the edge.
-        paddingTop: 1,
-        paddingBottom: 1,
-        backgroundColor: theme.panel,
-        // A click, not the start of one: dragging over the column is how text
-        // is selected out of it, and a selection must not also address it.
+        // Own the whole column, including the focus rail. Otherwise a click on
+        // the rail itself reaches the app behind it and switches focus back to
+        // the transcript.
         onMouseDrag: () => {
             panelDragged = true;
         },
@@ -215,6 +204,18 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
                 options.onPanelClick?.();
             }
         },
+    });
+    const panel = new BoxRenderable(renderer, {
+        id: "sidebar",
+        width: "100%",
+        flexGrow: 1,
+        flexDirection: "column",
+        paddingLeft: 1,
+        // Starts on the transcript's first line, not the frame's, and keeps a
+        // line at the foot so the last block does not sit on the edge.
+        paddingTop: 1,
+        paddingBottom: 1,
+        backgroundColor: theme.panel,
     });
     panel.add(content);
     const focusRail = new TextRenderable(renderer, {

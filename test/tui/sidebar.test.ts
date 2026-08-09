@@ -35,7 +35,11 @@ const STYLE = SyntaxStyle.fromStyles({
     conceal: { fg: "#888888" },
 });
 
-async function openSidebar(width = 120, height = 12) {
+async function openSidebar(
+    width = 120,
+    height = 12,
+    onPanelClick?: () => void,
+) {
     const setup = await createTestRenderer({ width, height });
     const transcript = new BoxRenderable(setup.renderer, {
         id: "transcript",
@@ -54,6 +58,7 @@ async function openSidebar(width = 120, height = 12) {
             text: "#ffffff",
         },
         syntaxStyle: STYLE,
+        ...(onPanelClick === undefined ? {} : { onPanelClick }),
     });
     setup.renderer.root.add(sidebar.body);
     sidebar.open();
@@ -147,6 +152,23 @@ test("focus is shown as a rail below the sidebar", async () => {
         await setup.flush();
         expect(sidebar.isFocused()).toBe(false);
         expect(setup.captureCharFrame()).not.toContain("▁");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("the whole sidebar column, including its focus rail, owns clicks", async () => {
+    let clicks = 0;
+    const { setup, sidebar } = await openSidebar(120, 12, () => clicks++);
+    try {
+        await setup.flush();
+        await setup.mockMouse.click(80, 4);
+        expect(clicks).toBe(1);
+
+        sidebar.setFocused(true);
+        await setup.flush();
+        await setup.mockMouse.click(80, 11);
+        expect(clicks).toBe(2);
     } finally {
         setup.renderer.destroy();
     }
