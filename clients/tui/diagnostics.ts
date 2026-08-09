@@ -5,7 +5,7 @@ export interface TuiDiagnosticsSnapshot {
     readonly state: TuiState;
     readonly activity: string;
     readonly elapsed: string;
-    readonly sessionId?: string;
+    readonly sessionPath?: string;
     readonly workspace: string;
     readonly runningBackgroundAgents: number;
     readonly stash?: StashSummary;
@@ -19,6 +19,8 @@ export function renderTuiDiagnostics(
     const { state } = snapshot;
     const lines = [
         "Diagnostics",
+        "────────────────────────────────────────",
+        "Runtime",
         `  turn         ${state.working ? snapshot.activity : "idle"}`,
         `  elapsed      ${state.working ? snapshot.elapsed : "—"}`,
         `  cancellable  ${state.working ? "yes" : "no"}`,
@@ -26,6 +28,8 @@ export function renderTuiDiagnostics(
     ];
 
     const model = state.modelActivity;
+    lines.push("────────────────────────────────────────");
+    lines.push("Model");
     if (model !== undefined) {
         const now = snapshot.now ?? Date.now();
         const retrying = Date.parse(model.retryAt) > now;
@@ -77,9 +81,13 @@ export function renderTuiDiagnostics(
         lines.push("  context      unavailable");
     }
 
-    lines.push(`  session      ${snapshot.sessionId ?? "unavailable"}`);
+    lines.push("────────────────────────────────────────");
+    lines.push("Session");
+    lines.push(`  session      ${snapshot.sessionPath ?? "unavailable"}`);
     lines.push(`  workspace    ${snapshot.workspace}`);
     lines.push(`  background   ${snapshot.runningBackgroundAgents} running`);
+    lines.push("────────────────────────────────────────");
+    lines.push("Pre-image stash");
     lines.push(...stashLines(snapshot));
     return lines.join("\n");
 }
@@ -90,7 +98,7 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     }
     const stash = snapshot.stash;
     if (stash === undefined) {
-        return [`  stash        empty (${snapshot.stashRoot})`];
+        return [`  stash        empty`, `  filesystem   ${snapshot.stashRoot}`];
     }
     const now = snapshot.now ?? Date.now();
     const oldest = stash.oldestCapturedAt === undefined
@@ -110,7 +118,7 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     }
     const hidden = stash.entries.length - MAX_STASH_ENTRIES;
     if (hidden > 0) {
-        lines.push(`               and ${hidden} more; sidecars in ${snapshot.stashRoot} list them all`);
+        lines.push(`               + ${hidden} more in ${snapshot.stashRoot}`);
     }
     lines.push(
         "               restore: the <key>.json sidecar names the original path; cp <key> <path>",
@@ -118,7 +126,7 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     return lines;
 }
 
-const MAX_STASH_ENTRIES = 5;
+const MAX_STASH_ENTRIES = 15;
 
 function age(capturedAt: string, now: number): string {
     const ms = Math.max(0, now - Date.parse(capturedAt));

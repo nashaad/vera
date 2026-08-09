@@ -43,7 +43,7 @@ const client: TuiAgentClient = {
     close(): void {},
 };
 
-await startTui({ client });
+await startTui({ client, copyText: async () => undefined });
 
 function thinkingResponse(
     reasoning: string,
