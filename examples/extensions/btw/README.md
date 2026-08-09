@@ -3,8 +3,8 @@
 One thread, two models.
 
 ```
-/consult                  # seats a sidekick: the model you are already using
-/consult gpt-5.5          # or any model in your pool
+/sidekick                 # seats a sidekick: the model you are already using
+/sidekick gpt-5.5         # or any model in your pool
 @sidekick what do you think   # goes to the sidekick only
 @all which way            # the sidekick and the agent at once
 @sidekick                 # nothing after the name: every message goes to it
@@ -73,7 +73,7 @@ Add it to your Vera config:
 
 ## Capabilities it uses
 
-- `client.commands.register` for `/consult` (`/btw` still works), `/reset` and `/remove`
+- `client.commands.register` for `/sidekick` (`/btw` still works), `/reset` and `/remove`
 - `client.messages.intercept` to read `@sidekick` before the message is sent
 - `client.consult` to ask the sidekick, outside the turn
 - `client.thread.read` so the sidekick arrives knowing the conversation

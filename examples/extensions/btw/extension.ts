@@ -1,6 +1,6 @@
 // A side conversation, one way.
 //
-// `/consult [model]` puts a second model beside the conversation, always
+// `/sidekick [model]` puts a second model beside the conversation, always
 // called the sidekick. From then on `@sidekick` sends the message to it and
 // `@all` sends it to the sidekick and the agent at once. A message with no
 // `@` goes to the agent, every time: consulting the sidekick is something you
@@ -210,15 +210,16 @@ export function activateClient(vera: any): void {
     }
 
     /**
-     * Both names run this. `/consult` says what it does; `/btw` is the
-     * short one, and it is what the extension was called first.
+     * Both names run this. `/sidekick` is the command and the seat under one
+     * word; `/btw` is the short one, and it is what the extension was called
+     * first.
      */
     function seatCommand({ argumentsText }: { argumentsText: string }): void {
         const typed = argumentsText.trim();
         // No model named means the one already answering.
         const requested = typed === "" ? "self" : typed;
         if (/\s/.test(requested)) {
-            throw new Error("Usage: /consult <model>");
+            throw new Error("Usage: /sidekick <model>");
         }
         if (seat !== undefined) {
             throw new Error(
@@ -254,7 +255,7 @@ export function activateClient(vera: any): void {
         );
     }
 
-    for (const name of ["consult", "btw"]) {
+    for (const name of [SIDEKICK, "btw"]) {
         vera.commands.register({
             name,
             description: "Seat another model beside the conversation",
@@ -270,7 +271,7 @@ export function activateClient(vera: any): void {
         usage: "/reset",
         run() {
             if (seat === undefined) {
-                throw new Error(`No ${SIDEKICK}. /consult [model] seats one.`);
+                throw new Error(`No ${SIDEKICK}. /${SIDEKICK} [model] seats one.`);
             }
             seat.lane.length = 0;
             // The column and the lane are the same conversation, so a column
@@ -293,7 +294,7 @@ export function activateClient(vera: any): void {
         run() {
             if (seat === undefined) {
                 throw new Error(
-                    `No ${SIDEKICK}. /consult [model] seats one.`,
+                    `No ${SIDEKICK}. /${SIDEKICK} [model] seats one.`,
                 );
             }
             removeSeat();

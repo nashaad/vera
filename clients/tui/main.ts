@@ -124,6 +124,7 @@ import {
     registerExtensionTuiCommands,
     renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
+    tuiSuggestionWindow,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
     tuiWithArgument,
@@ -5497,6 +5498,9 @@ export async function startTui(
         };
     }
 
+    /** Rows the composer, the status band and a little transcript need. */
+    const SUGGESTIONS_RESERVED_ROWS = 12;
+
     function renderCommandSuggestions(): void {
         if (composer.plainText.length === 0) {
             commandSuggestionIndex = 0;
@@ -5533,20 +5537,29 @@ export async function startTui(
             commandSuggestionIndex,
             Math.max(0, suggestions.length - 1),
         );
+        const selected = composer.plainText === "/"
+            ? commandSuggestionIndex
+            : -1;
+        // The transcript, the composer and the status rows all want the same
+        // screen. What is left over is what the list may take, and it never
+        // takes so much that its own bottom row is off the pane.
+        const window = tuiSuggestionWindow(
+            suggestions.length,
+            selected,
+            Math.max(3, renderer.height - SUGGESTIONS_RESERVED_ROWS),
+        );
         commandSuggestionsText.content = renderTuiCommandSuggestions(
-            suggestions,
-            composer.plainText === "/" ? commandSuggestionIndex : -1,
+            suggestions.slice(window.start, window.start + window.rows),
+            selected < 0 ? -1 : selected - window.start,
             // Less the box's own horizontal padding, or the last word of a
             // just-too-long row wraps anyway.
             typeof upper.width === "number" && upper.width > 2
                 ? upper.width - 2
                 : undefined,
+            window.hidden,
         );
-        // Leave room for every matching command. The old fixed three-row box
-        // clipped the catalog to its first entry, which made the other slash
-        // commands appear to be missing. Borderless now, so no frame rows to add.
         commandSuggestionsBox.height = suggestions.length > 0
-            ? suggestions.length
+            ? window.rows + (window.hidden > 0 ? 1 : 0)
             : 1;
         commandSuggestionsBox.visible = suggestions.length > 0
             && overlaysClearOfSuggestions();
