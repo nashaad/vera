@@ -321,7 +321,7 @@ test("conditional extension commands follow their live availability", () => {
     let available = false;
     registerExtensionTuiCommands(registry, [{
         name: "remove",
-        description: "Remove the sidekick",
+        description: "Remove the helper",
         usage: "/remove",
         source: "test.extension",
         isAvailable: () => available,
