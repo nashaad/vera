@@ -60,10 +60,15 @@ test("TUI system theme falls back to Vera colors when detection fails", async ()
     expect(theme).toBe(VERA_TUI_THEME);
 });
 
-test("named themes use the attributed OpenCode palettes exactly", async () => {
+test("named themes resolve their configured dark palettes", async () => {
     const renderer = { async getPalette() { return terminalColors(); } };
 
-    expect((await resolveTuiTheme(renderer, "orng")).accent).toBe("#EC5B2B");
+    expect(await resolveTuiTheme(renderer, "orng")).toMatchObject({
+        accent: "#EC5B2B",
+        background: "#111111",
+        panel: "#181818",
+        element: "#222222",
+    });
     expect((await resolveTuiTheme(renderer, "palenight")).background).toBe("#292d3e");
     expect((await resolveTuiTheme(renderer, "synthwave")).success).toBe("#72f1b8");
     expect((await resolveTuiTheme(renderer, "nightowl")).panel).toBe("#0b253a");
