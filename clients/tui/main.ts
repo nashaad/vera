@@ -62,6 +62,9 @@ import type {
     VeraClientModelSettingsUpdateResult,
     VeraClientPickerRequest,
     VeraClientPickerResult,
+    VeraClientAgentCreateRequest,
+    VeraClientAgentOpenRequest,
+    VeraClientAgentMessageRequest,
 } from "../../src/sdk/extensions.ts";
 import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import type {
@@ -101,6 +104,8 @@ import {
 } from "./question.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
+import { TuiAgentPane } from "./agent-pane.ts";
+import { routeTuiAgentMessage } from "./agent-message-routing.ts";
 import { renderTuiDiagnostics } from "./diagnostics.ts";
 import {
     createTuiDiagnosticsDialogView,
@@ -371,6 +376,11 @@ export interface TuiDependencies {
      * at a session the user had already left, and cloning would have cloned it.
      */
     readonly createSession?: (workspace: string) => Promise<TuiAgentClient>;
+    readonly createAgent?: (
+        workspace: string,
+        approvalMode?: string,
+    ) => Promise<TuiAgentClient>;
+    readonly attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
     readonly cloneSession?: (agentId: string) => Promise<TuiAgentClient>;
     readonly forkSession?: (
         agentId: string,
@@ -430,6 +440,18 @@ export interface TuiAgentClient {
     runExtensionCommand?: AttachedAgentClient["runExtensionCommand"];
     detach(): Promise<void>;
     close(): void;
+}
+
+type IdentifiedTuiAgentClient = TuiAgentClient & { readonly agentId: string };
+
+function requireIdentifiedClient(
+    client: TuiAgentClient,
+): IdentifiedTuiAgentClient {
+    if (client.agentId === undefined || client.agentId.length === 0) {
+        client.close();
+        throw new Error("Attached agent has no identity");
+    }
+    return client as IdentifiedTuiAgentClient;
 }
 
 export interface TuiStartOptions {
@@ -535,6 +557,13 @@ export async function startConfiguredTui(
             listAgents,
             createSession: async (workspace) =>
                 attach((await createAgentThroughHost(host.socket_path, workspace)).id),
+            createAgent: async (workspace, approvalMode) =>
+                attach((await createAgentThroughHost(
+                    host.socket_path,
+                    workspace,
+                    approvalMode,
+                )).id),
+            attachAgent: attach,
             cloneSession: async (currentAgentId) =>
                 attach(
                     (await branchAgentThroughHost(
@@ -777,6 +806,7 @@ export async function startTui(
     }>();
     /** Which extension holds the sidebar, absent while nobody does. */
     let sidebarOwner: string | undefined;
+    let sidebarAgentPane: TuiAgentPane<IdentifiedTuiAgentClient> | undefined;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -851,6 +881,9 @@ export async function startTui(
             },
             close(extensionId) {
                 requireSidebarOwner(extensionId);
+                const attached = sidebarAgentPane;
+                sidebarAgentPane = undefined;
+                void attached?.detach().catch(() => attached.close());
                 sidebarOwner = undefined;
                 sidebar.close();
                 renderState();
@@ -866,6 +899,42 @@ export async function startTui(
             set(_extensionId, name) {
                 extensionAddressee = name;
                 renderState();
+            },
+        },
+        agents: {
+            async create(extensionId, request, signal) {
+                if (signal.aborted) throw signal.reason;
+                if (dependencies.createAgent === undefined) {
+                    throw new Error("This client cannot create agents");
+                }
+                const next = requireIdentifiedClient(await dependencies.createAgent(
+                    request.workspace ?? client.workspace ?? process.cwd(),
+                    request.approvalMode,
+                ));
+                await openExtensionAgent(extensionId, next, request.pane);
+                return { agentId: next.agentId };
+            },
+            async open(extensionId, request, signal) {
+                if (signal.aborted) throw signal.reason;
+                if (dependencies.attachAgent === undefined) {
+                    throw new Error("This client cannot attach agents");
+                }
+                const next = requireIdentifiedClient(
+                    await dependencies.attachAgent(request.agentId),
+                );
+                await openExtensionAgent(extensionId, next, request.pane);
+            },
+            async message(_extensionId, request, signal) {
+                if (signal.aborted) throw signal.reason;
+                const target = request.agentId === client.agentId
+                    ? client
+                    : request.agentId === sidebarAgentPane?.agentId
+                    ? sidebarAgentPane.client
+                    : undefined;
+                if (target === undefined) {
+                    throw new Error("Agent must be open before it can be messaged");
+                }
+                await target.send({ type: "prompt", content: request.text });
             },
         },
         thread: {
@@ -1271,6 +1340,12 @@ export async function startTui(
         // Clicking the column is how you talk to it: with one seat there is no
         // question who, and typing the name again is the part nobody wants.
         onPanelClick: () => {
+            if (sidebarAgentPane !== undefined) {
+                sidebar.setFocused(true);
+                composer.focus();
+                renderState();
+                return;
+            }
             const first = extensionMentions[0];
             if (first === undefined) return;
             // Already addressing someone (even with a trailing space): a
@@ -1292,6 +1367,58 @@ export async function startTui(
             renderCommandSuggestions();
         },
     });
+
+    async function openExtensionAgent(
+        extensionId: string,
+        next: IdentifiedTuiAgentClient,
+        pane: "main" | "sidebar",
+    ): Promise<void> {
+        if (pane === "main") {
+            switchToClient(next, undefined, { preserveSidebar: true });
+            return;
+        }
+        if (sidebarOwner !== undefined && sidebarOwner !== extensionId) {
+            next.close();
+            throw new Error(`${sidebarOwner} is using the sidebar`);
+        }
+        const previous = sidebarAgentPane;
+        sidebarAgentPane = undefined;
+        await previous?.detach();
+        sidebarOwner = extensionId;
+        const attached = new TuiAgentPane({
+            client: next,
+            onUpdate: (_update, current) => renderSidebarAgent(current),
+            onFailure: (error, current) => {
+                if (current !== sidebarAgentPane) return;
+                sidebar.append("agent", `Connection failed: ${error.message}`);
+                renderState();
+            },
+        });
+        sidebarAgentPane = attached;
+        sidebar.clear();
+        sidebar.open();
+        sidebar.setFocused(true);
+        attached.start();
+        renderState();
+    }
+
+    function renderSidebarAgent(
+        pane: TuiAgentPane<IdentifiedTuiAgentClient>,
+    ): void {
+        if (pane !== sidebarAgentPane) return;
+        sidebar.clear();
+        for (const entry of pane.state.state.entries) {
+            if (entry.text.length === 0 || entry.kind === "thinking") continue;
+            const label = entry.kind === "user"
+                ? "you"
+                : entry.kind === "assistant"
+                ? "agent"
+                : entry.kind.replaceAll("_", " ");
+            sidebar.append(label, entry.text, label);
+        }
+        renderSidebarJump();
+        renderState();
+    }
     upper.add(transcript);
     app.add(sidebar.body);
     app.add(jumpToBottom);
@@ -1439,7 +1566,12 @@ export async function startTui(
             pending.reject(new Error("TUI is closing"));
         }
         pendingExtensionSettings.clear();
-        void Promise.resolve(clientExtensionRegistry?.close())
+        const attachedSidebar = sidebarAgentPane;
+        sidebarAgentPane = undefined;
+        void Promise.all([
+            Promise.resolve(clientExtensionRegistry?.close()),
+            attachedSidebar?.detach(),
+        ])
             .catch(() => undefined)
             .then(() => client.detach().catch(() => client.close()))
             .then(() => {
@@ -2299,6 +2431,14 @@ export async function startTui(
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
         }
+        if (
+            interceptedText === undefined
+            && !prompt.startsWith("/")
+            && sidebarAgentPane !== undefined
+            && routeVisibleAgentPrompt(prompt)
+        ) {
+            return;
+        }
         // Typing is the signal the tip has been read or ignored. The next one
         // is picked in the gap after this turn, not now.
         composerTip = undefined;
@@ -3081,6 +3221,67 @@ export async function startTui(
             content: prompt,
             ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
         });
+    }
+
+    function routeVisibleAgentPrompt(prompt: string): boolean {
+        const side = sidebarAgentPane;
+        if (side === undefined || client.agentId === undefined) return false;
+        const route = routeTuiAgentMessage(
+            prompt,
+            sidebar.isFocused() ? "sidebar" : "main",
+            [
+                { agentId: client.agentId, pane: "main", mention: "vera" },
+                {
+                    agentId: side.agentId,
+                    pane: "sidebar",
+                    mention: extensionMentions[0] ?? side.agentId,
+                },
+            ],
+        );
+        if (route.kind === "unknown") {
+            state = appendTuiNotice(state, `No open agent named @${route.mention}`);
+            renderState();
+            return true;
+        }
+        if (route.kind === "focus") {
+            sidebar.setFocused(route.pane === "sidebar");
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            renderState();
+            return true;
+        }
+        const sendsToSidebar = route.targets.some(
+            (target) => target.pane === "sidebar",
+        );
+        const sendsToMain = route.targets.some((target) => target.pane === "main");
+        if (sendsToSidebar && pendingImages.length > 0) {
+            state = appendTuiNotice(
+                state,
+                "Images can only be sent to the main agent for now",
+            );
+            renderState();
+            return true;
+        }
+        if (sendsToSidebar) {
+            void side.client.send({ type: "prompt", content: route.text })
+                .catch((error) => {
+                    state = appendTuiNotice(
+                        state,
+                        error instanceof Error ? error.message : String(error),
+                    );
+                    renderState();
+                });
+        }
+        if (sendsToMain) {
+            submitPrompt(route.text);
+            return true;
+        }
+        composer.rememberSubmittedText(prompt);
+        composer.clearComposer();
+        renderCommandSuggestions();
+        renderState();
+        return true;
     }
 
     /**
@@ -5213,7 +5414,11 @@ export async function startTui(
      * not the session's, and losing it to a keystroke that was meant to change
      * which conversation it lands in is the worst possible time to lose it.
      */
-    function switchToClient(next: TuiAgentClient, draft?: TuiDraft): void {
+    function switchToClient(
+        next: TuiAgentClient,
+        draft?: TuiDraft,
+        options: { readonly preserveSidebar?: boolean } = {},
+    ): void {
         const previous = client;
         clientGeneration += 1;
         // The old session owned these calls; nothing will answer them now.
@@ -5227,11 +5432,18 @@ export async function startTui(
         // The sidebar and any mentions belonged to the conversation being
         // left, so the client takes them down and each extension is told to
         // let go of whatever else it was holding.
-        sidebarOwner = undefined;
-        sidebar.clear();
-        sidebar.close();
-        extensionMentions = [];
-        extensionAddressee = undefined;
+        if (options.preserveSidebar !== true) {
+            const previousSidebarAgent = sidebarAgentPane;
+            sidebarAgentPane = undefined;
+            void previousSidebarAgent?.detach().catch(() =>
+                previousSidebarAgent.close()
+            );
+            sidebarOwner = undefined;
+            sidebar.clear();
+            sidebar.close();
+            extensionMentions = [];
+            extensionAddressee = undefined;
+        }
         clientExtensionRegistry?.conversationChanged();
 
         state = createTuiState();
