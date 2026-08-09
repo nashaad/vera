@@ -1444,6 +1444,12 @@ export async function startTui(
             : state;
     }
 
+    function focusedUiRequest(): UiRequestUpdate | undefined {
+        return sidebar.isFocused() && sidebarAgentPane !== undefined
+            ? sidebarAgentPane.state.pendingUiRequest
+            : pendingUiRequest;
+    }
+
     function visibleMentions(): readonly string[] {
         if (sidebarAgentPane === undefined || sidebarAgentMention === undefined) {
             return extensionMentions;
@@ -1689,11 +1695,12 @@ export async function startTui(
         renderState();
     });
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
-        const copyableNodes = pendingUiRequest !== undefined
-                && isToolApprovalUiRequestUpdate(pendingUiRequest)
+        const uiRequest = focusedUiRequest();
+        const copyableNodes = uiRequest !== undefined
+                && isToolApprovalUiRequestUpdate(uiRequest)
             ? [approvalView.detailsText]
-            : pendingUiRequest !== undefined
-                    && isUserQuestionUiRequestUpdate(pendingUiRequest)
+            : uiRequest !== undefined
+                    && isUserQuestionUiRequestUpdate(uiRequest)
                 ? [questionView.detailsText]
                 : entryNodes;
         const quotable = [
@@ -1832,37 +1839,48 @@ export async function startTui(
             return;
         }
 
+        const uiRequest = focusedUiRequest();
         if (
-            pendingUiRequest !== undefined
-            && isUserQuestionUiRequestUpdate(pendingUiRequest)
+            uiRequest !== undefined
+            && isUserQuestionUiRequestUpdate(uiRequest)
         ) {
             // Arrow keys move the highlight (no engine message); numbers, Enter,
             // and Escape resolve the question. Selection stays client-local.
-            const result = questionView.handleKey(pendingUiRequest, key);
+            const result = questionView.handleKey(uiRequest, key);
             if (result.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (result.response !== undefined) {
-                    sendCommand(result.response);
-                    activity = "thinking";
+                    void focusedAgentClient().send(result.response)
+                        .catch(reportConnectionError);
+                    if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
+                        sidebarAgentPane.state.activity = "thinking";
+                    } else {
+                        activity = "thinking";
+                    }
                     focusActiveSurface();
                 }
                 renderState();
                 return;
             }
         } else if (
-            pendingUiRequest !== undefined
-            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+            uiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(uiRequest)
         ) {
             // ←/→ move the button highlight (no engine message); digits, Enter,
             // and Escape resolve the approval. Selection stays client-local.
-            const result = approvalView.handleKey(pendingUiRequest, key);
+            const result = approvalView.handleKey(uiRequest, key);
             if (result.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (result.response !== undefined) {
-                    sendCommand(result.response);
-                    activity = "thinking";
+                    void focusedAgentClient().send(result.response)
+                        .catch(reportConnectionError);
+                    if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
+                        sidebarAgentPane.state.activity = "thinking";
+                    } else {
+                        activity = "thinking";
+                    }
                     focusActiveSurface();
                 }
                 renderState();
@@ -4300,6 +4318,7 @@ export async function startTui(
         if (shuttingDown) {
             return;
         }
+        const uiRequest = focusedUiRequest();
 
         placeholder.visible = state.entries.length === 0;
         // The transcript tip appears in the gap after a turn, which is the one
@@ -4331,9 +4350,9 @@ export async function startTui(
         renderPendingQuote();
         queuedPromptText.content = renderTuiQueuedPrompt(state);
         queuedPromptText.visible = state.queuedPrompts.length > 0;
-        approvalView.box.visible = pendingUiRequest?.request.type
+        approvalView.box.visible = uiRequest?.request.type
             === "tool_approval";
-        questionView.box.visible = pendingUiRequest?.request.type
+        questionView.box.visible = uiRequest?.request.type
             === "user_question";
         // A model, directory, and approval mode do not explain either pending
         // request. Both cards replace the composer and status band until the
@@ -4342,35 +4361,35 @@ export async function startTui(
             || questionView.box.visible);
         statusBand.visible = !(approvalView.box.visible
             || questionView.box.visible);
-        timelinePickerView.box.visible = pendingUiRequest === undefined
+        timelinePickerView.box.visible = uiRequest === undefined
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
-        namePromptView.box.visible = pendingUiRequest === undefined
+        namePromptView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && namePrompt !== undefined;
-        secretPromptView.box.visible = pendingUiRequest === undefined
+        secretPromptView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && namePrompt === undefined
             && secretPrompt !== undefined;
-        settingsPickerView.box.visible = pendingUiRequest === undefined
+        settingsPickerView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && secretPrompt === undefined
             && namePrompt === undefined
             && settingsPicker !== undefined;
-        preferencesListView.box.visible = pendingUiRequest === undefined
+        preferencesListView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && preferencesList !== undefined;
-        commandPaletteView.box.visible = pendingUiRequest === undefined
+        commandPaletteView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -4378,14 +4397,14 @@ export async function startTui(
             && secretPrompt === undefined
             && preferencesList === undefined
             && commandPalette !== undefined;
-        helpView.box.visible = pendingUiRequest === undefined
+        helpView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && help !== undefined;
-        diagnosticsDialogView.box.visible = pendingUiRequest === undefined
+        diagnosticsDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -4393,16 +4412,16 @@ export async function startTui(
             && commandPalette === undefined
             && help === undefined
             && diagnosticsDialog !== undefined;
-        permissionsConfirmView.box.visible = pendingUiRequest === undefined
+        permissionsConfirmView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && confirmingFullAccess;
-        admissionDialogView.box.visible = pendingUiRequest === undefined
+        admissionDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && !confirmingFullAccess
             && admissionDialog !== undefined;
-        sessionTrashConfirmView.box.visible = pendingUiRequest === undefined
+        sessionTrashConfirmView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate !== undefined;
         const overlayVisible = approvalView.box.visible
@@ -4438,19 +4457,19 @@ export async function startTui(
         // dimmed context. The scrim sits above them and below the active card.
         // Approval and question cards are different: they replace the composer
         // until the pending engine request is answered.
-        composerBox.visible = pendingUiRequest === undefined;
+        composerBox.visible = uiRequest === undefined;
         renderCommandSuggestions();
         if (
-            pendingUiRequest !== undefined
-            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+            uiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(uiRequest)
         ) {
-            approvalView.update(pendingUiRequest);
+            approvalView.update(uiRequest);
         }
         if (
-            pendingUiRequest !== undefined
-            && isUserQuestionUiRequestUpdate(pendingUiRequest)
+            uiRequest !== undefined
+            && isUserQuestionUiRequestUpdate(uiRequest)
         ) {
-            questionView.update(pendingUiRequest);
+            questionView.update(uiRequest);
         }
         if (timelinePicker !== undefined) {
             timelinePickerView.update(timelinePicker);
@@ -4610,7 +4629,7 @@ export async function startTui(
      * when, so they ask the same question here.
      */
     function anyOverlayOpen(): boolean {
-        return pendingUiRequest !== undefined
+        return focusedUiRequest() !== undefined
             || timelinePicker !== undefined
             || secretPrompt !== undefined
             || namePrompt !== undefined
@@ -6180,6 +6199,7 @@ export async function startTui(
             return;
         }
         const statusState = focusedAgentState();
+        const uiRequest = focusedUiRequest();
         renderPendingQuote();
         renderHeldAddress();
         renderJumpToBottom();
@@ -6194,11 +6214,11 @@ export async function startTui(
         } else if (abortRequested) {
             lifecycleHint = `${STOPPING_HINT} · ${elapsedWorkingTime()}`;
         } else if (
-            pendingUiRequest !== undefined
-            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+            uiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(uiRequest)
         ) {
-            lifecycleHint = tuiApprovalHint(pendingUiRequest);
-        } else if (pendingUiRequest?.request.type === "user_question") {
+            lifecycleHint = tuiApprovalHint(uiRequest);
+        } else if (uiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
         } else if (state.working) {
             const modelActivity = state.modelActivity;
@@ -6227,7 +6247,7 @@ export async function startTui(
             : statusNotice !== undefined
             ? TUI_NOTICE
             : state.working
-                    || pendingUiRequest !== undefined
+                    || uiRequest !== undefined
                     || extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
@@ -6244,7 +6264,7 @@ export async function startTui(
                 runningBackgroundAgents,
                 state.working
                     ? "working"
-                    : pendingUiRequest === undefined
+                    : uiRequest === undefined
                         ? "idle"
                         : "waiting",
             ),
@@ -6322,7 +6342,7 @@ export async function startTui(
         composerBox.marginBottom = 2 + backgroundStatusText.height;
         statusText.content = state.working
                 && statusNotice === undefined
-                && pendingUiRequest === undefined
+                && uiRequest === undefined
                 && !abortRequested
             ? renderTuiActivityAnimation(
                 activityAnimation,

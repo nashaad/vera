@@ -2480,6 +2480,13 @@ test.skipIf(!tmuxAvailable)(
             sendText(socket, session, "/btw back again");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 4");
+
+            sendText(socket, session, "request approval");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Allow once");
+            expect(pane).toContain("$ printf approved");
+            sendKey(socket, session, "1");
+            await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 6");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
