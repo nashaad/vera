@@ -65,7 +65,7 @@ test("TUI question renders the choices as a highlighted list", async () => {
         // Numbers front each choice; no bracket noise.
         expect(frame).toContain("1. Stable");
         expect(frame).toContain("2. Preview");
-        expect(frame).toContain("3. Write a different response");
+        expect(frame).toContain("3. Other");
         expect(frame).not.toContain("[1]");
         expect(frame).toContain("↑↓ select");
         expect(frame).toContain("esc dismiss");
@@ -230,23 +230,23 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
                 expect(frame).toContain("Which release channel");
         expect(frame).toContain("↑↓ select");
         expect(frame).toContain("esc dismiss");
-        expect(view.box.width).toBe(76);
-        expect(view.box.left).toBe(2);
+        expect(view.box.width).toBe(80);
+        expect(view.box.left).toBe(0);
         expect(view.bar.height).toBe(view.box.height);
+        // The accent edge runs the whole height of the card, so the last row
+        // carries it and nothing else.
         expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
-            .toBe(" ".repeat(80));
+            .toBe(`┃${" ".repeat(79)}`);
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
         expect(view.box.zIndex).toBe(20);
         expect(view.actions.screenY).toBeLessThan(18);
 
         setup.resize(42, 10);
-        // Geometry is re-read on update, so the resize goes through one. At
-        // this height the overlay gives the status line's row back and sits
-        // flush again: the question itself outranks its own key hints.
+        // Geometry is re-read on update, so the resize goes through one.
         view.update(longRequest("long-question"));
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(view.box.bottom).toBe(1);
+        expect(view.box.bottom).toBe(0);
         expect(view.box.width).toBe(42);
         expect(view.box.left).toBe(0);
         // The title is clipped here, not by the offset but by the existing
@@ -257,7 +257,7 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         expect(frame).toContain("↑↓ select");
         expect(frame).toContain("esc dismiss");
         expect(view.actions.screenY).toBeLessThan(10);
-        expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(9);
+        expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(10);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
 
         const actionsY = view.actions.screenY;
@@ -272,7 +272,7 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         frame = setup.captureCharFrame();
         expect(frame).toContain("↑↓ select");
         expect(frame).toContain("esc dismiss");
-        expect(view.actions.screenY + view.actions.height).toBeLessThanOrEqual(5);
+        expect(view.actions.screenY + view.actions.height).toBeLessThanOrEqual(6);
     } finally {
         setup.renderer.destroy();
     }
@@ -292,7 +292,8 @@ test("TUI question grows with content before details begin scrolling", async () 
         view.update(request);
         await setup.flush();
         const shortHeight = view.box.height;
-        expect(view.box.screenY + shortHeight).toBe(17);
+        // The card ends on the terminal's last row, with no gutter under it.
+        expect(view.box.screenY + shortHeight).toBe(18);
         expect(view.details.scrollHeight).toBe(view.details.height);
 
         view.update(questionWithLabel(
@@ -311,7 +312,7 @@ test("TUI question grows with content before details begin scrolling", async () 
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
         expect(view.box.height).toBeLessThanOrEqual(16);
-        expect(view.box.screenY + view.box.height).toBe(17);
+        expect(view.box.screenY + view.box.height).toBe(18);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
         expect(setup.captureCharFrame()).toContain("↑↓ select");
     } finally {
@@ -571,7 +572,7 @@ test("entering a custom answer labels the row as the response", async () => {
     try {
         await setup.flush();
         expect(setup.captureCharFrame())
-            .toContain("Write a different response");
+            .toContain("3. Other");
 
         view.handleKey(request, { name: "3", sequence: "3" });
         for (const character of "Arc") {
@@ -579,8 +580,7 @@ test("entering a custom answer labels the row as the response", async () => {
         }
         await setup.flush();
         const frame = setup.captureCharFrame();
-        expect(frame).toContain("Your response: Arc");
-        expect(frame).not.toContain("Write a different response");
+        expect(frame).toContain("3. Other: Arc");
     } finally {
         setup.renderer.destroy();
     }

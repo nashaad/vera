@@ -129,18 +129,16 @@ export function createTuiQuestionView(
         wrapMode: "none",
         selectable: true,
     });
-    // The preview is the asker's own rendering of a choice, so it gets a box
-    // and a monospace grid and no styling of its own.
+    // The preview is the asker's own rendering of a choice, so it keeps a
+    // monospace grid and no styling of its own. No frame either: the gap
+    // between the columns already says where the choices end.
     const preview = new BoxRenderable(renderer, {
         id: "question-preview",
         height: "auto",
         flexGrow: 1,
         flexShrink: 1,
         marginLeft: 2,
-        paddingLeft: 1,
-        paddingRight: 1,
-        border: true,
-        borderColor: TUI_MUTED,
+        border: false,
         visible: false,
     });
     preview.add(previewText);
@@ -204,10 +202,14 @@ export function createTuiQuestionView(
     });
     actions.add(choiceAction);
     actions.add(cancelAction);
+    // The same heavy left edge the composer draws, rather than a filled cell:
+    // a filled cell is a whole character wide and reads as a slab next to it.
     const bar = new BoxRenderable(renderer, {
         id: "question-bar",
         width: 1,
-        backgroundColor: TUI_ACCENT,
+        border: ["left"],
+        borderStyle: "heavy",
+        borderColor: TUI_ACCENT,
         flexShrink: 0,
         visible: questionChromeVisible(renderer),
     });
@@ -230,7 +232,7 @@ export function createTuiQuestionView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        bottom: 1,
+        bottom: 0,
         left: questionSideInset(renderer),
         right: questionSideInset(renderer),
         height: "auto",
@@ -267,9 +269,8 @@ export function createTuiQuestionView(
         const otherIndex = update.request.choices.length;
         const other = questionChoiceRow(renderer, {
             number: otherIndex + 1,
-            label: enteringCustom
-                ? `Your response: ${customText}▌`
-                : "Write a different response",
+            label: "Other",
+            answer: enteringCustom ? `${customText}▌` : undefined,
             active: otherIndex === selectedIndex,
             pointer: view.pointer,
         });
@@ -537,6 +538,8 @@ function questionChoiceHint(): string {
 interface QuestionChoiceRow {
     readonly number: number;
     readonly label: string;
+    /** What the reader has typed so far, when the row is the custom one. */
+    readonly answer?: string;
     readonly description?: string;
     readonly active: boolean;
     readonly pointer?: DialogRowPointer;
@@ -576,11 +579,21 @@ function questionChoiceRow(
         // leaves the wrap nothing to measure against and the label is cut at
         // one line. The highlight still ends where the answer does, because a
         // text node paints only the cells its glyphs fill.
-        flexGrow: 1,
-        flexShrink: 1,
+        // A row that carries a typed answer gives the label only its own width,
+        // so the answer has somewhere to sit.
+        flexGrow: content.answer === undefined ? 1 : 0,
+        flexShrink: content.answer === undefined ? 1 : 0,
         height: "auto",
         wrapMode: "word",
     }));
+    if (content.answer !== undefined) {
+        // Outside the highlighted label: what the reader typed is their own
+        // words, not one of the offered answers, so it is not dressed as one.
+        line.add(new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_TEXT)(`: ${content.answer}`)]),
+            flexShrink: 0,
+        }));
+    }
     row.add(line);
     if (content.description !== undefined) {
         row.add(new TextRenderable(renderer, {
@@ -612,7 +625,7 @@ function questionMaxHeight(renderer: RenderContext): number | `${number}%` {
 }
 
 /** How far the card is held off the floor, in rows. */
-const QUESTION_BOTTOM_OFFSET = 1;
+const QUESTION_BOTTOM_OFFSET = 0;
 
 function questionBottomPadding(renderer: RenderContext): number {
     return questionChromeVisible(renderer) ? 1 : 0;
@@ -622,8 +635,10 @@ function questionChromeVisible(renderer: RenderContext): boolean {
     return renderer.height > DIALOG_SHORT_TERMINAL_HEIGHT;
 }
 
-function questionSideInset(renderer: RenderContext): number {
-    return questionChromeVisible(renderer) ? 2 : 0;
+// The card spans the terminal. A gutter around it reads as a frame, and a
+// frame is the one thing the card is not: it is the bottom of the session.
+function questionSideInset(_renderer: RenderContext): number {
+    return 0;
 }
 
 function hasModifier(key: TuiQuestionKey): boolean {
