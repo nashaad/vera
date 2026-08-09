@@ -1539,6 +1539,19 @@ export async function startTui(
         return [sidebarAgentMention, "all", "vera"];
     }
 
+    function sidebarTranscriptWidth(): number {
+        return Math.max(1, sidebar.width() - 2);
+    }
+
+    function mainTranscriptWidth(): number {
+        return Math.max(
+            1,
+            renderer.terminalWidth
+                - (sidebar.isShown() ? sidebar.width() + 1 : 0)
+                - 4,
+        );
+    }
+
     function rememberOpenPaneGroup(): void {
         const mainId = client.agentId;
         const sidebarId = sidebarAgentPane?.agentId;
@@ -1586,13 +1599,13 @@ export async function startTui(
                     && existing.content !== tuiMarkdownEntryContent(
                         entry,
                         assistantFollowsWork(entries, index),
-                        renderer.terminalWidth,
+                        sidebarTranscriptWidth(),
                     )
                 ) {
                     existing.content = tuiMarkdownEntryContent(
                         entry,
                         assistantFollowsWork(entries, index),
-                        renderer.terminalWidth,
+                        sidebarTranscriptWidth(),
                     );
                 } else if (
                     entry.kind === "tool"
@@ -1628,6 +1641,7 @@ export async function startTui(
                     TUI_TEXT,
                     marginTop,
                     separatedAssistant,
+                    sidebarTranscriptWidth(),
                 );
             const node = entry.kind === "tool"
                 ? createTuiToolRow(renderer, id, entry, marginTop)
@@ -4818,13 +4832,13 @@ export async function startTui(
                     existing.content !== tuiMarkdownEntryContent(
                         entry,
                         assistantFollowsWork(state.entries, index),
-                        renderer.terminalWidth,
+                        mainTranscriptWidth(),
                     )
                 ) {
                     existing.content = tuiMarkdownEntryContent(
                         entry,
                         assistantFollowsWork(state.entries, index),
-                        renderer.terminalWidth,
+                        mainTranscriptWidth(),
                     );
                 }
                 if (entry.kind === "tool" && existing instanceof BoxRenderable) {
@@ -4866,6 +4880,7 @@ export async function startTui(
                     TUI_TEXT,
                     marginTop,
                     separatedAssistant,
+                    mainTranscriptWidth(),
                 );
             const node = entry.kind === "tool"
                 ? createTuiToolRow(
