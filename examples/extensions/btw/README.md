@@ -1,63 +1,29 @@
 # btw
 
-One thread, two models.
+A readonly hosted agent beside the main conversation.
 
 ```
-/sidekick                 # seats a sidekick: the model you are already using
-/sidekick gpt-5.5         # or any model in your pool
-@sidekick what do you think   # goes to the sidekick only
-@all which way            # the sidekick and the agent at once
-@sidekick                 # nothing after the name: every message goes to it
-@vera                     # and back to the agent
-what do you make of that  # bare message goes to the agent
-/reset                    # it forgets this side conversation, seat kept
-/remove                   # the sidekick leaves
+/btw                         # open the sidekick
+/btw inspect the auth flow   # open it and send a message
+@sidekick what did you find  # sidekick only, without changing focus
+@all compare conclusions     # both visible agents
+@sidekick                    # focus the sidekick
+@vera                        # focus the main agent
 ```
 
-## What it does
+Click either pane to focus it. A bare message goes to the focused pane, and
+the sidebar shows a green rail while it is selected. Mentions override focus
+for one message; only agents currently open in the two panes are mentionable.
 
-There is one seat and its name is fixed. A name you chose is a name you have
-to remember, and with a single seat it buys nothing: what varies is which
-model is sitting in it, and the column says that already. Several models at
-once is Party's job, and Party is a different shape: whole sessions in their
-own panes behind one composer.
+The sidekick is a real hosted Vera session. It has its own transcript and can
+continue running if its pane is replaced. `/btw` creates it with readonly
+permissions, so it can inspect the workspace but cannot run bash or mutate
+files. Use the focused session's permission controls if you deliberately want
+to promote it.
 
-The sidekick advises. It runs no tools and nothing it says is written to the
-session, so the conversation stays one thread with one history.
-
-It runs one way. The sidekick reads the thread between you and the agent, and
-nothing it says reaches the agent on its own. It keeps its own lane in the
-sidebar: what you asked, and what it said back.
-
-Automatic delivery was tried and removed. When every participant reads every
-other one, they converge within a couple of turns, and a second opinion that
-agrees carries no information. Moving an answer across is yours to do, and
-selecting the part that matters is the point rather than a chore.
-
-To move one, select it. Dragging over text in either pane copies it as usual
-and parks it above the composer, and the next message carries it, quoted and
-attributed to whoever said it. `@sidekick cross check pls` sends it across, a
-bare message sends it to the agent, and esc drops it unsent.
-
-An address on its own is held. `@sidekick` with nothing after it sends every
-message to the sidekick until `@vera` takes it back, and the composer says so
-for as long as it holds. It is for the follow-up: one answer is a second
-opinion, and three is a conversation.
-
-Merging is you writing the next message. Nothing here votes, folds, or picks a
-winner, and the agent is the only one that runs tools.
-
-`@all` asks the sidekick and sends the agent the same words.
-
-Only models in your pool can be seated: a pool entry is the only thing that
-carries a provider, so it is the only thing that can be fully addressed.
-
-`/reset` empties the lane and the column while leaving the seat filled: a
-second opinion on a new question should not have to re-read the first one, and
-re-seating to get that would cost the sidebar as well.
-
-The sidekick does not survive a restart. The agent is never told one sat down
-or got up, because it was never told one was there.
+This extension supplies only the `/btw` policy: readonly by default, sidebar
+placement, and the `sidekick` mention. Vera owns agent creation, attachment,
+message routing, permissions, and rendering.
 
 ## Install
 
@@ -73,11 +39,6 @@ Add it to your Vera config:
 
 ## Capabilities it uses
 
-- `client.commands.register` for `/sidekick` (`/btw` still works), `/reset` and `/remove`
-- `client.messages.intercept` to read `@sidekick` before the message is sent
-- `client.consult` to ask the sidekick, outside the turn
-- `client.thread.read` so the sidekick arrives knowing the conversation
-- `client.ui.mentions` so `@sidekick` completes in the composer
-- `client.ui.addressing` so the composer says when the seat is being held
-- `client.ui.sidebar` and `client.ui.transcript` for the lane
-- `client.ui.notice` for one-line status
+- `client.commands.register` for `/btw [message]`
+- `client.agents` to create, attach, and message the hosted sidekick
+- `client.ui.mentions` for the visible-agent composer names
