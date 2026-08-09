@@ -29,6 +29,7 @@ import {
 } from "./approval-body.ts";
 import {
     attachDialogRowPointer,
+    DIALOG_CARD_Z_INDEX,
     DIALOG_SHORT_TERMINAL_HEIGHT,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
@@ -213,7 +214,7 @@ export function createTuiApprovalView(
         maxHeight: renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
             ? "100%"
             : "90%",
-        zIndex: 20,
+        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "row",
         visible: false,
     });

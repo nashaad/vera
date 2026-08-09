@@ -23,6 +23,7 @@ import {
 } from "./state.ts";
 import {
     attachDialogRowPointer,
+    DIALOG_CARD_Z_INDEX,
     DIALOG_GUTTER_WIDTH,
     DIALOG_SHORT_TERMINAL_HEIGHT,
     type DialogRowPointer,
@@ -251,7 +252,7 @@ export function createTuiQuestionView(
         // that also sits one row up overhangs the top, and the first row is the
         // question.
         maxHeight: questionMaxHeight(renderer),
-        zIndex: 20,
+        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "row",
         gap: 0,
         visible: false,

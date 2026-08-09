@@ -5,7 +5,10 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
-import { dialogHeaderNode } from "./dialog-chrome.ts";
+import {
+    DIALOG_CARD_Z_INDEX,
+    dialogHeaderNode,
+} from "./dialog-chrome.ts";
 import {
     TUI_MUTED,
     TUI_PANEL,
@@ -62,11 +65,11 @@ export function createTuiDiagnosticsDialogView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: 1,
+        top: "3%",
         left: "2%",
         width: "96%",
-        height: "94%",
-        zIndex: 16,
+        height: "90%",
+        zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,
