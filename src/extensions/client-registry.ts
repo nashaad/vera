@@ -1651,8 +1651,10 @@ function validateAgentCreateRequest(
 ): VeraClientAgentCreateRequest {
     const workspace = request?.workspace?.trim();
     const approvalMode = request?.approvalMode?.trim();
+    const mention = validateOptionalAgentMention(request?.mention);
     return {
         pane: validateAgentPane(request?.pane),
+        ...(mention === undefined ? {} : { mention }),
         ...(workspace === undefined || workspace.length === 0
             ? {}
             : { workspace }),
@@ -1669,7 +1671,21 @@ function validateAgentOpenRequest(
     if (agentId === undefined || agentId.length === 0) {
         throw new Error("Client extension must name an agent to open");
     }
-    return { agentId, pane: validateAgentPane(request.pane) };
+    const mention = validateOptionalAgentMention(request.mention);
+    return {
+        agentId,
+        pane: validateAgentPane(request.pane),
+        ...(mention === undefined ? {} : { mention }),
+    };
+}
+
+function validateOptionalAgentMention(value: unknown): string | undefined {
+    if (value === undefined) return undefined;
+    const mention = typeof value === "string" ? value.trim() : "";
+    if (mention.length === 0 || /\s/.test(mention) || mention.startsWith("@")) {
+        throw new Error("Client extension agent mention must be one bare word");
+    }
+    return mention;
 }
 
 function validateAgentMessageRequest(

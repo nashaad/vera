@@ -808,6 +808,7 @@ export async function startTui(
     /** Which extension holds the sidebar, absent while nobody does. */
     let sidebarOwner: string | undefined;
     let sidebarAgentPane: TuiAgentPane<IdentifiedTuiAgentClient> | undefined;
+    let sidebarAgentMention: string | undefined;
     let clientSurfaceReady = false;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
@@ -885,6 +886,7 @@ export async function startTui(
                 requireSidebarOwner(extensionId);
                 const attached = sidebarAgentPane;
                 sidebarAgentPane = undefined;
+                sidebarAgentMention = undefined;
                 void attached?.detach().catch(() => attached.close());
                 sidebarOwner = undefined;
                 sidebar.close();
@@ -915,7 +917,13 @@ export async function startTui(
                     request.workspace ?? client.workspace ?? process.cwd(),
                     request.approvalMode,
                 ));
-                await openExtensionAgent(extensionId, next, request.pane);
+                await openExtensionAgent(
+                    extensionId,
+                    next,
+                    request.pane,
+                    false,
+                    request.mention,
+                );
                 return { agentId: next.agentId };
             },
             async open(extensionId, request, signal) {
@@ -926,7 +934,13 @@ export async function startTui(
                 const next = requireIdentifiedClient(
                     await dependencies.attachAgent(request.agentId),
                 );
-                await openExtensionAgent(extensionId, next, request.pane);
+                await openExtensionAgent(
+                    extensionId,
+                    next,
+                    request.pane,
+                    false,
+                    request.mention,
+                );
             },
             async message(_extensionId, request, signal) {
                 if (signal.aborted) throw signal.reason;
@@ -1350,7 +1364,7 @@ export async function startTui(
                 renderState();
                 return;
             }
-            const first = extensionMentions[0];
+            const first = visibleMentions()[0];
             if (first === undefined) return;
             // Already addressing someone (even with a trailing space): a
             // second click must not stack another mention.
@@ -1377,6 +1391,7 @@ export async function startTui(
         next: IdentifiedTuiAgentClient,
         pane: "main" | "sidebar",
         replaceSidebarOwner = false,
+        mention?: string,
     ): Promise<void> {
         if (pane === "main") {
             switchToClient(next, undefined, { preserveSidebar: true });
@@ -1408,6 +1423,7 @@ export async function startTui(
             },
         });
         sidebarAgentPane = attached;
+        sidebarAgentMention = mention ?? attached.agentId;
         sidebar.clear();
         sidebar.open();
         sidebar.setFocused(true);
@@ -1426,6 +1442,13 @@ export async function startTui(
         return sidebar.isFocused() && sidebarAgentPane !== undefined
             ? sidebarAgentPane.state.state
             : state;
+    }
+
+    function visibleMentions(): readonly string[] {
+        if (sidebarAgentPane === undefined || sidebarAgentMention === undefined) {
+            return extensionMentions;
+        }
+        return [sidebarAgentMention, "all", "vera"];
     }
 
     function renderSidebarAgent(
@@ -1625,6 +1648,7 @@ export async function startTui(
         pendingExtensionSettings.clear();
         const attachedSidebar = sidebarAgentPane;
         sidebarAgentPane = undefined;
+        sidebarAgentMention = undefined;
         void Promise.all([
             Promise.resolve(clientExtensionRegistry?.close()),
             attachedSidebar?.detach(),
@@ -1696,7 +1720,7 @@ export async function startTui(
         // and arming every plain copy with a quote changes what the next
         // message says without the sender asking for it.
         if (
-            extensionMentions.length > 0 && speaker !== undefined
+            visibleMentions().length > 0 && speaker !== undefined
             && selected.trim().length > 0
         ) {
             pendingQuote = { source: speaker, text: selected };
@@ -3301,7 +3325,7 @@ export async function startTui(
                 {
                     agentId: side.agentId,
                     pane: "sidebar",
-                    mention: extensionMentions[0] ?? side.agentId,
+                    mention: sidebarAgentMention ?? side.agentId,
                 },
             ],
         );
@@ -4300,7 +4324,9 @@ export async function startTui(
             && !anyOverlayOpen();
         renderHeldAddress();
         composer.placeholder = extensionAddressee === undefined
-            ? COMPOSER_PLACEHOLDER
+            ? sidebar.isFocused() && sidebarAgentMention !== undefined
+                ? `Message ${sidebarAgentMention}\u2026`
+                : COMPOSER_PLACEHOLDER
             : `Message ${extensionAddressee}\u2026`;
         renderPendingQuote();
         queuedPromptText.content = renderTuiQueuedPrompt(state);
@@ -5509,6 +5535,7 @@ export async function startTui(
         if (options.preserveSidebar !== true) {
             const previousSidebarAgent = sidebarAgentPane;
             sidebarAgentPane = undefined;
+            sidebarAgentMention = undefined;
             void previousSidebarAgent?.detach().catch(() =>
                 previousSidebarAgent.close()
             );
@@ -5627,6 +5654,7 @@ export async function startTui(
                     requireIdentifiedClient(next),
                     "sidebar",
                     true,
+                    sessionId,
                 );
                 sessionSwitchPending = false;
                 return;
@@ -5935,16 +5963,17 @@ export async function startTui(
                 prefix: argument.prefix,
                 // Bare names: the argument is the name itself, not a mention.
                 values: argument.kind === "mention"
-                    ? extensionMentions
+                    ? visibleMentions()
                     : pooledModelNames(),
             };
         }
-        if (extensionMentions.length === 0) return undefined;
+        const mentions = visibleMentions();
+        if (mentions.length === 0) return undefined;
         const mention = /(?:^|\s)(@\S*)$/.exec(composer.plainText);
         if (mention === null) return undefined;
         return {
             prefix: mention[1] ?? "",
-            values: extensionMentions.map((name) => `@${name}`),
+            values: mentions.map((name) => `@${name}`),
         };
     }
 

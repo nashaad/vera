@@ -101,6 +101,7 @@ export interface VeraClientAgentRef {
 
 export interface VeraClientAgentCreateRequest {
     readonly pane: VeraClientAgentPane;
+    readonly mention?: string;
     readonly workspace?: string;
     readonly approvalMode?: string;
 }
@@ -108,6 +109,7 @@ export interface VeraClientAgentCreateRequest {
 export interface VeraClientAgentOpenRequest {
     readonly agentId: string;
     readonly pane: VeraClientAgentPane;
+    readonly mention?: string;
 }
 
 export interface VeraClientAgentMessageRequest {
