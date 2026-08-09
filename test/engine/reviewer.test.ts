@@ -160,6 +160,141 @@ test("reviewer routes do not fall through a valid denial", async () => {
     expect(adapter.requests).toHaveLength(1);
 });
 
+test("default reviewer settings make one call for a high-risk allow", async () => {
+    const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
+        risk_level: "high",
+        user_authorization: "medium",
+        outcome: "allow",
+        rationale: "The action has external effect.",
+    })));
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        escalationModel: { model: "second-model" },
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBeUndefined();
+    expect(adapter.requests).toHaveLength(1);
+    expect(adapter.requests[0]?.model).toBe("review-model");
+});
+
+test("two-tier reviewer settings reuse the same model by default", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        twoTier: true,
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(adapter.requests.map((next) => next.model)).toEqual([
+        "review-model",
+        "review-model",
+    ]);
+});
+
+test("two-tier reviewer settings can name a second-pass model", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "medium",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        twoTier: true,
+        escalationModel: { model: "second-model" },
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(adapter.requests.map((next) => next.model)).toEqual([
+        "review-model",
+        "second-model",
+    ]);
+});
+
+test("two-tier reviewer settings settle low and medium risk allows", async () => {
+    for (const risk_level of ["low", "medium"] as const) {
+        const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
+            risk_level,
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the action.",
+        })));
+        const review = createRoutedToolReviewer(adapter, {
+            models: [{ model: "review-model" }],
+            twoTier: true,
+            escalationModel: { model: "second-model" },
+        });
+
+        const decision = await review(request, new AbortController().signal);
+
+        expect(decision.decision).toBe("allow");
+        expect(decision.escalated).toBeUndefined();
+        expect(adapter.requests).toHaveLength(1);
+    }
+});
+
+test("two-tier reviewer settings pass reasoning effort to the second call", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "medium",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model", reasoningEffort: "low" }],
+        twoTier: true,
+        escalationModel: {
+            model: "review-model",
+            reasoningEffort: "high",
+        },
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(adapter.requests.map((next) => next.reasoningEffort)).toEqual([
+        "low",
+        "high",
+    ]);
+});
+
 test("a well formed allow passes through with its scoring", async () => {
     const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
         risk_level: "low",

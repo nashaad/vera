@@ -62,15 +62,16 @@ export interface VeraModelFallbackConfig {
  * boundary crossing costs one of these calls, so it is configured separately
  * from the agent model rather than inheriting it.
  *
- * If escalation_model is configured, the fast model reviews first.
- * Decisions with high/critical risk or denials are escalated to the
- * escalation_model for final verification.
+ * If two_tier is enabled, high/critical risk allows and denials get a
+ * second review. The second pass uses the same model unless escalation fields
+ * override it.
  */
 export interface VeraReviewerConfig {
     readonly provider?: VeraProviderId;
     readonly model: string;
     readonly reasoning_effort?: ModelReasoningEffort;
     readonly timeout_ms?: number;
+    readonly two_tier?: boolean;
     readonly escalation_model?: string;
     readonly escalation_provider?: VeraProviderId;
     readonly escalation_reasoning_effort?: ModelReasoningEffort;
@@ -641,6 +642,8 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
                 || !Number.isInteger(reviewer.timeout_ms)
                 || reviewer.timeout_ms < 1_000
                 || reviewer.timeout_ms > 600_000))
+        || (reviewer.two_tier !== undefined
+            && typeof reviewer.two_tier !== "boolean")
         || (reviewer.escalation_model !== undefined
             && (typeof reviewer.escalation_model !== "string"
                 || reviewer.escalation_model.trim().length === 0))
@@ -665,6 +668,9 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeout_ms: reviewer.timeout_ms }),
+        ...(reviewer.two_tier === undefined
+            ? {}
+            : { two_tier: reviewer.two_tier }),
         ...(reviewer.escalation_model === undefined
             ? {}
             : { escalation_model: reviewer.escalation_model.trim() }),
@@ -804,6 +810,9 @@ export function configuredReviewers(
     if (reviewer === undefined) {
         return configured;
     }
+    const escalationConfigured = reviewer.escalation_model !== undefined
+        || reviewer.escalation_provider !== undefined
+        || reviewer.escalation_reasoning_effort !== undefined;
     configured.default = {
         models: [{
             model: reviewer.model,
@@ -817,13 +826,18 @@ export function configuredReviewers(
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeoutMs: reviewer.timeout_ms }),
-        ...(reviewer.escalation_model === undefined
+        ...(reviewer.two_tier === undefined
+            ? {}
+            : { twoTier: reviewer.two_tier }),
+        ...(!escalationConfigured
             ? {}
             : {
                 escalationModel: {
-                    model: reviewer.escalation_model,
+                    model: reviewer.escalation_model ?? reviewer.model,
                     ...(reviewer.escalation_provider === undefined
-                        ? {}
+                        ? reviewer.provider === undefined
+                            ? {}
+                            : { provider: reviewer.provider }
                         : { provider: reviewer.escalation_provider }),
                     ...(reviewer.escalation_reasoning_effort === undefined
                         ? {}

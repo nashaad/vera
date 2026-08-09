@@ -62,36 +62,35 @@ of that turn. OpenRouter resolves the configured effort against each model. On
 OpenAI Codex, a backup model Vera has no reasoning mapping for runs without an
 effort, and the primary keeps its own.
 
-## Auto-approval with escalation
+## Auto-approval reviews
 
-In `auto` approval mode, tool calls are reviewed automatically. To save cost,
-you can configure a fast review model that escalates uncertain requests to a
-stronger model for verification:
+In `auto` approval mode, tool calls are reviewed automatically. By default,
+each reviewed action makes one reviewer call. To give uncertain requests a
+second pass, opt in with `two_tier`:
 
 ```json
 {
   "reviewer": {
     "model": "anthropic/claude-haiku-4.5",
     "provider": "openrouter",
-    "escalation_model": "anthropic/claude-opus-5",
-    "escalation_provider": "openrouter",
+    "two_tier": true,
     "escalation_reasoning_effort": "high"
   }
 }
 ```
 
-The fast reviewer answers clearly low-risk actions with a bare
-`{"outcome":"allow"}` and grades everything else with a risk level and how
-well the transcript supports the user having authorized the action. The fast
-tier's decision stands for low and medium risk allows. Everything else — an
-allow the fast model itself rated high or critical risk, and every denial —
-escalates to the stronger model for the final ruling, so a cheap model's
-false denial gets a second opinion before it blocks the agent.
+The first pass answers clearly low-risk actions with a bare
+`{"outcome":"allow"}` and grades everything else with a risk level and how well
+the transcript supports the user having authorized the action. With `two_tier`
+enabled, low and medium risk allows settle after the first pass. Everything
+else gets a second pass on the same model by default. Set `escalation_model`
+and optionally `escalation_provider` only when the second pass should use a
+different model.
 
-The reviewer never sees tool output. Its transcript carries the user's and
-agent's messages and the agent's tool calls, but results are stripped: tool
-output is the one part of the transcript written by the outside world, which
-makes it the channel prompt injection arrives through.
+The reviewer never sees tool output. Its transcript carries user turns and
+tool calls, but results are stripped: tool output is the one part of the
+transcript written by the outside world, which makes it the channel prompt
+injection arrives through.
 
 ## OpenRouter
 
