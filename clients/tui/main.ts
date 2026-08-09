@@ -2319,12 +2319,21 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            if (sidebarAgentPane === undefined) {
-                sidebar.toggleHidden();
-            } else {
-                sidebar.setFocused(!sidebar.isFocused());
-                composer.focus();
-            }
+            sidebar.toggleHidden();
+            renderState();
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "switch_agent_pane"
+            && sidebarAgentPane !== undefined
+            && sidebar.isShown()
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            sidebar.setFocused(!sidebar.isFocused());
+            composer.focus();
             renderState();
             return;
         }
@@ -6320,11 +6329,10 @@ export async function startTui(
         // it away is only offered while it is there.
         const extensionState = [
             ...(sidebar.isOpen()
-                ? [sidebarAgentPane === undefined
-                    ? sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"
-                    : sidebar.isFocused()
-                    ? "ctrl+b main"
-                    : "ctrl+b sidekick"]
+                ? [sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"]
+                : []),
+            ...(sidebarAgentPane !== undefined && sidebar.isShown()
+                ? [sidebar.isFocused() ? "f6 main" : "f6 sidekick"]
                 : []),
         ];
         const detailsLine = extensionState.length === 0

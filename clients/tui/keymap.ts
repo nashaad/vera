@@ -104,7 +104,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "toggle_sidebar",
         keys: ["ctrl+b"],
         scope: "global",
-        description: "Switch agent pane, or show or hide the sidebar",
+        description: "Show or hide the sidebar",
+    },
+    {
+        id: "switch_agent_pane",
+        keys: ["f6"],
+        scope: "global",
+        description: "Switch focus between visible agents",
     },
     {
         id: "toggle_tool_details",
