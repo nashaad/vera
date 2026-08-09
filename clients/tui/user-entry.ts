@@ -13,12 +13,16 @@ export function createTuiUserEntry(
     id: string,
     entry: TuiTranscriptEntry,
     marginTop: number,
+    separated = false,
 ): BoxRenderable {
     const band = new BoxRenderable(renderer, {
         id,
         width: "100%",
         flexDirection: "column",
         backgroundColor: TUI_ELEMENT,
+        border: separated ? ["top"] : false,
+        borderStyle: "single",
+        borderColor: TUI_MUTED,
         // The band carries a row of tint above and below the text: without it
         // the message reads as a highlighted line rather than as its own block.
         paddingTop: 1,
