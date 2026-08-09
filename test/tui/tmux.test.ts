@@ -33,17 +33,16 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/diagnostics");
             sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(socket, session, "Pre-image stash");
+            pane = await waitForVisiblePane(socket, session, "Build");
+            expect(pane).toContain("Extensions");
             expect(pane).toContain("Runtime");
-            expect(pane).toContain("Model");
-            expect(pane).toContain("Session");
             expect(pane).toContain("copy  enter");
             expect(pane).toContain("┃");
 
             sendKey(socket, session, "C-p");
             await Bun.sleep(100);
             pane = captureVisiblePane(socket, session);
-            expect(pane).toContain("Pre-image stash");
+            expect(pane).toContain("Build");
             expect(pane).not.toContain("Commands");
 
             sendKey(socket, session, "Enter");

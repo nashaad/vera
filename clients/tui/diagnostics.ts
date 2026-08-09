@@ -30,16 +30,15 @@ export function renderTuiDiagnostics(
     const { state } = snapshot;
     const lines = [
         "Diagnostics",
-        "────────────────────────────────────────",
         "Build",
         `  client       ${snapshot.build?.clientVersion ?? "unknown"}`,
         `  entrypoint   ${snapshot.build?.clientEntrypoint ?? "unknown"}`,
         `  host         ${hostLabel(snapshot)}`,
         `  host entry   ${snapshot.build?.hostEntrypoint ?? "unknown"}`,
-        "────────────────────────────────────────",
+        "",
         "Extensions",
         ...extensionLines(snapshot),
-        "────────────────────────────────────────",
+        "",
         "Runtime",
         `  turn         ${state.working ? snapshot.activity : "idle"}`,
         `  elapsed      ${state.working ? snapshot.elapsed : "—"}`,
@@ -48,7 +47,7 @@ export function renderTuiDiagnostics(
     ];
 
     const model = state.modelActivity;
-    lines.push("────────────────────────────────────────");
+    lines.push("");
     lines.push("Model");
     if (model !== undefined) {
         const now = snapshot.now ?? Date.now();
@@ -101,12 +100,12 @@ export function renderTuiDiagnostics(
         lines.push("  context      unavailable");
     }
 
-    lines.push("────────────────────────────────────────");
+    lines.push("");
     lines.push("Session");
     lines.push(`  session      ${snapshot.sessionPath ?? "unavailable"}`);
     lines.push(`  workspace    ${snapshot.workspace}`);
     lines.push(`  background   ${snapshot.runningBackgroundAgents} running`);
-    lines.push("────────────────────────────────────────");
+    lines.push("");
     lines.push("Pre-image stash");
     lines.push(...stashLines(snapshot));
     return lines.join("\n");

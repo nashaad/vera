@@ -85,6 +85,7 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
     expect(text).toContain("host entry   /other/clients/host/main.ts");
     expect(text).toContain("enabled       /worktree/examples/extensions/btw");
     expect(text).toContain("disabled      /old/disabled-extension");
+    expect(text).not.toContain("────");
 });
 
 test("TUI diagnostics does not claim inheritance without host data", () => {
