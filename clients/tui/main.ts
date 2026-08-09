@@ -1050,7 +1050,6 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        paddingLeft: 3,
     });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
@@ -1058,7 +1057,6 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        paddingLeft: 3,
     });
     // A text node paints only the cells its glyphs fill, so the status rows
     // would show the transcript through every gap in the line, and through the
@@ -1070,12 +1068,18 @@ export async function startTui(
     const statusBand = new BoxRenderable(renderer, {
         id: "status-band",
         position: "absolute",
-        left: 1,
-        bottom: 0,
+        left: 0,
+        // A row of floor under the band, so the last line of status is not
+        // sitting on the terminal's edge.
+        bottom: 1,
         width: "100%",
         height: "auto",
         flexDirection: "column",
-        backgroundColor: theme.background,
+        // The rows are indented from the band, not from themselves: a text
+        // node laid out as a flex child does not carry its own padding. The
+        // indent lands just inside the composer's edge, so the status reads as
+        // sitting under the composer rather than starting a new column.
+        paddingLeft: 2,
         zIndex: 30,
     });
     statusBand.add(statusText);
@@ -1214,6 +1218,10 @@ export async function startTui(
         width: "100%",
         height: "100%",
         flexDirection: "column",
+        // The whole screen carries the theme's background. Painting it here
+        // rather than under the surfaces that need it is what keeps a strip of
+        // a different shade from showing wherever one of them is hidden.
+        backgroundColor: theme.background,
         paddingTop: 1,
         paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),
@@ -5410,7 +5418,7 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
-        statusBand.backgroundColor = theme.background;
+        app.backgroundColor = theme.background;
         quoteText.fg = theme.muted;
         heldAddressText.fg = theme.muted;
         queuedPromptText.fg = theme.muted;
@@ -5431,7 +5439,7 @@ export async function startTui(
         approvalView.box.backgroundColor = theme.panel;
         approvalView.repaint();
         questionView.box.backgroundColor = theme.panel;
-        questionView.bar.backgroundColor = theme.accent;
+        questionView.bar.borderColor = theme.accent;
         questionView.detailsText.fg = theme.text;
         questionView.choiceAction.fg = theme.muted;
         questionView.cancelAction.fg = theme.muted;
@@ -5839,7 +5847,7 @@ export async function startTui(
         backgroundStatusText.height = agentSection.length === 0
             ? 1
             : 2 + agentSection.length;
-        composerBox.marginBottom = 1 + backgroundStatusText.height;
+        composerBox.marginBottom = 2 + backgroundStatusText.height;
         statusText.content = state.working
                 && statusNotice === undefined
                 && pendingUiRequest === undefined

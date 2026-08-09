@@ -2153,8 +2153,10 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForPane(socket, session, "ROSTER");
 
             // The transcript hard-wraps long identifiers at the pane width, so
-            // the assertions run against the pane with whitespace removed.
-            const flat = pane.replaceAll(/\s+/g, "");
+            // the assertions run against the pane with whitespace removed. The
+            // scrollbar column goes too: it sits at the wrap boundary and would
+            // otherwise land inside a wrapped path.
+            const flat = pane.replaceAll(/[\s█]+/g, "");
             expect(flat).toContain("1otheragentinthisworkspace:");
             expect(flat).toContain(`name=${peer.name}`);
             expect(flat).toContain(`last_activity=${peer.updated_at}`);
