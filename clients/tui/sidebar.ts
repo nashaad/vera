@@ -223,9 +223,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         width: "100%",
         height: 1,
         flexShrink: 0,
-        content: "▁".repeat(width),
+        content: "",
         fg: SIDEBAR_FOCUS_GREEN,
-        visible: false,
     });
     sidebarColumn.add(panel);
     sidebarColumn.add(focusRail);
@@ -239,7 +238,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         if (next === width) return;
         width = next;
         sidebarColumn.width = width;
-        focusRail.content = "▁".repeat(width);
+        focusRail.content = focused ? "▁".repeat(width) : "";
         options.onLayoutChanged?.();
     }
 
@@ -277,7 +276,11 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
         setFocused(nextFocused): void {
             focused = nextFocused;
-            focusRail.visible = focused;
+            // Keep the row mounted. OpenTUI can retain stale flex geometry
+            // when a child is repeatedly hidden and restored, which made the
+            // rail appear on first focus but not on later focus cycles.
+            focusRail.content = focused ? "▁".repeat(width) : "";
+            options.onLayoutChanged?.();
         },
         isFocused: () => focused,
         open(): void {
