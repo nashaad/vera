@@ -127,14 +127,16 @@ test("ask_user rejects unknown choice fields", async () => {
     const result = await askUser({
         question: "Choose",
         choices: [
-            { id: "first", label: "First", description: "Extra detail" },
+            { id: "first", label: "First", tooltip: "Extra detail" },
             { id: "second", label: "Second" },
         ],
     });
 
     expect(result).toEqual({
         kind: "output",
-        output: "ask_user choice 1 must contain only id, label, and preview",
+        output:
+            "ask_user choice 1 must contain only id, label, description, and"
+                + " preview",
         isError: true,
     });
 });
@@ -206,6 +208,48 @@ test("ask_user keeps a choice preview verbatim", async () => {
                 { id: "narrow", label: "Narrow" },
             ],
         },
+    });
+});
+
+test("ask_user carries a choice description through", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", description: "Two columns side by side." },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "interaction",
+        interaction: {
+            type: "ask_user",
+            question: "Which layout?",
+            choices: [
+                {
+                    id: "wide",
+                    label: "Wide",
+                    description: "Two columns side by side.",
+                },
+                { id: "narrow", label: "Narrow" },
+            ],
+        },
+    });
+});
+
+test("ask_user rejects an empty choice description", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", description: "   " },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "output",
+        output: "ask_user requires a non-empty choice 1 description",
+        isError: true,
     });
 });
 

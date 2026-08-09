@@ -77,6 +77,11 @@ export interface AskUserChoice {
     readonly id: string;
     readonly label: string;
     /**
+     * One line saying what picking this means, shown under the label. Prose,
+     * not a rendering: a choice that needs to be seen wants a preview.
+     */
+    readonly description?: string;
+    /**
      * A concrete rendering of what this choice means: a mockup, a diff, a
      * snippet. Shown verbatim in a monospace box beside the choices, so it
      * carries no markup and the client owes it no styling.
