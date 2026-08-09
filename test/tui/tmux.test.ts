@@ -2452,6 +2452,14 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("readonly");
             expect(pane).toContain("Message sidekick");
 
+            sendText(socket, session, "/");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "Rewind the active conversation",
+            );
+            sendKey(socket, session, "C-u");
+
             // Ctrl+G switches focus without making terminal selection and
             // pointer-capture behaviour part of message routing.
             sendKey(socket, session, "C-g");
@@ -2611,6 +2619,14 @@ test.skipIf(!tmuxAvailable)(
             sendText(socket, session, "/permissions readonly");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "peer · readonly");
+
+            sendText(socket, session, "/clear");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Message peer");
+            sendText(socket, session, "fresh peer");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 1");
+            expect(pane).not.toContain("inspect this");
 
             sendKey(socket, session, "C-g");
             sendText(socket, session, "main only");

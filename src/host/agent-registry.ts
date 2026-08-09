@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
-import { realpath } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 
 import { EngineEventBus } from "../engine/events.ts";
 import type { InstructionRoot } from "../engine/memory.ts";
@@ -310,6 +311,8 @@ export interface CreateRegisteredAgentOptions {
     readonly workspace: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
+    /** Keep this session only for the lifetime of the resident host. */
+    readonly ephemeral?: boolean;
     /**
      * The mode this agent starts in, when it must not be the host default.
      * It is written to the session like any other approval-mode change, so a
@@ -545,6 +548,7 @@ interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
     readonly kind: RegisteredAgentKind;
+    readonly ephemeral: boolean;
     /**
      * The identity name this session posts and is addressed under, minted at
      * registration and stable for the entry's lifetime. Changing it
@@ -718,6 +722,9 @@ export class AgentRegistry {
         entry.inbox?.release();
         this.agents.delete(id);
         this.spawnNotices.delete(id);
+        if (entry.ephemeral) {
+            await rm(dirname(entry.store.path), { recursive: true, force: true });
+        }
         this.notifyRosterChanged();
         return "closed";
     }
@@ -767,8 +774,14 @@ export class AgentRegistry {
         this.reserveId(id);
         try {
             const workspace = await realpath(options.workspace);
+            const ephemeralDirectory = options.ephemeral === true
+                ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
+                : undefined;
             const store = await SessionStore.create(
                 options.sessionPath
+                    ?? (ephemeralDirectory === undefined
+                        ? undefined
+                        : join(ephemeralDirectory, `${id}.jsonl`))
                     ?? this.options.sessionPathForId?.(id)
                     ?? defaultSessionPath(id),
                 {
@@ -792,6 +805,7 @@ export class AgentRegistry {
                 options.eventLogPath,
                 inherited?.parentId,
                 clientPromptRefusal,
+                options.ephemeral === true,
             );
         } finally {
             this.startingIds.delete(id);
@@ -1443,6 +1457,7 @@ export class AgentRegistry {
         };
 
         return [...this.agents.values()]
+            .filter((entry) => !entry.ephemeral)
             .map((entry) => {
                 const activeEntries = entry.store.activeEntries();
                 const firstUserEntry = activeEntries.find(
@@ -1529,6 +1544,12 @@ export class AgentRegistry {
         }
         await Promise.all(entries.map((entry) => entry.run));
         await Promise.all([...this.deliveryTasks]);
+        await Promise.all(entries
+            .filter((entry) => entry.ephemeral)
+            .map((entry) => rm(dirname(entry.store.path), {
+                recursive: true,
+                force: true,
+            })));
     }
 
     private start(
@@ -1540,6 +1561,7 @@ export class AgentRegistry {
         ),
         parentId?: string,
         clientPromptRefusal?: string,
+        ephemeral = false,
     ): ResidentAgent {
         const storedFailure = store.agentFailure();
         const captureFailedRequest = (
@@ -1577,6 +1599,7 @@ export class AgentRegistry {
             agent,
             store,
             kind,
+            ephemeral,
             arcName: mintAgentName((key) => this.arcNameKeyTaken(key)),
             events,
             eventLogPath,

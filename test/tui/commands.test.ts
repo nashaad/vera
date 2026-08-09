@@ -72,7 +72,7 @@ test("every slash action has an explicit pane scope", () => {
             ["open_subagents_picker", "focused_agent"],
             ["go_to_parent", "focused_agent"],
             ["reconnect", "main_session"],
-            ["create_session", "main_session"],
+            ["create_session", "focused_agent"],
             ["update_session_name", "main_session"],
             ["clone_session", "main_session"],
             ["compact_session", "main_session"],

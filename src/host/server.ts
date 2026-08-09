@@ -251,7 +251,7 @@ function receiveConnection(
     findAgent: (agentId: string) => ResidentAgent | undefined,
     listAgents: () => readonly RegisteredAgentSummary[],
     createAgent: (
-        options: Pick<CreateRegisteredAgentOptions, "workspace" | "approvalMode">,
+        options: Pick<CreateRegisteredAgentOptions, "workspace" | "approvalMode" | "ephemeral">,
     ) => Promise<ResidentAgent>,
     resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
     branchAgent: (
@@ -595,6 +595,9 @@ function receiveConnection(
                 ...(request.approval_mode === undefined
                     ? {}
                     : { approvalMode: request.approval_mode }),
+                ...(request.lifetime === "ephemeral"
+                    ? { ephemeral: true }
+                    : {}),
             }));
             return;
         }
