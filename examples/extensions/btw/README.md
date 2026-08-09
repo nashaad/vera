@@ -1,10 +1,11 @@
-# btw
+# btw and pair
 
-A readonly hosted agent beside the main conversation.
+Readonly sidekicks and tool-capable peers beside the main conversation.
 
 ```
 /btw                         # open the sidekick
 /btw inspect the auth flow   # open it and send a message
+/pair investigate the bug    # open a tool-capable peer and send a message
 @sidekick what did you find  # sidekick only, without changing focus
 @all compare conclusions     # both visible agents
 @sidekick                    # focus the sidekick
@@ -18,6 +19,9 @@ panes are mentionable. Pointer input remains available for text selection and
 resizing, but does not change agent focus.
 
 `Ctrl+B` hides or restores the sidebar without changing which agent is focused.
+
+`/btw` starts its agent in `readonly`; `/pair` starts its peer in `ask`. The
+sidebar header always shows the attached name and effective permission mode.
 
 The sidekick is a real hosted Vera session. It has its own transcript and can
 continue running if its pane is replaced. `/btw` creates it with readonly

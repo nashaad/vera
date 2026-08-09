@@ -75,6 +75,8 @@ export interface TuiSidebar {
     /** Marks this surface as the current composer target. */
     setFocused(focused: boolean): void;
     isFocused(): boolean;
+    /** Persistent identity and permission text above the attached surface. */
+    setHeader(text: string | undefined): void;
     open(): void;
     close(): void;
     append(label: string, text: string, speaker?: string): void;
@@ -124,6 +126,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     // of the way until it is asked back.
     let hidden = false;
     let focused = false;
+    let headerText: string | undefined;
     let blocks = 0;
     const appended: TuiSidebarBlock[] = [];
     // The parts of each block that carry a colour. A block is built once and
@@ -225,6 +228,17 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         paddingBottom: 1,
         backgroundColor: theme.panel,
     });
+    const header = new TextRenderable(renderer, {
+        id: "sidebar-header",
+        content: "",
+        fg: theme.muted,
+        attributes: TextAttributes.BOLD,
+        width: "100%",
+        height: 1,
+        marginBottom: 1,
+        visible: false,
+    });
+    panel.add(header);
     panel.add(content);
     const focusRail = new TextRenderable(renderer, {
         id: "sidebar-focus-rail",
@@ -340,6 +354,13 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             options.onLayoutChanged?.();
         },
         isFocused: () => focused,
+        setHeader(text): void {
+            if (headerText === text) return;
+            headerText = text;
+            header.content = text ?? "";
+            header.visible = text !== undefined && text.length > 0;
+            options.onLayoutChanged?.();
+        },
         open(): void {
             open = true;
             hidden = false;
@@ -431,6 +452,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             theme = next;
             syntaxStyle = nextSyntaxStyle;
             panel.backgroundColor = theme.panel;
+            header.fg = theme.muted;
             divider.backgroundColor = dragging
                 ? theme.handleActive
                 : theme.handle;
