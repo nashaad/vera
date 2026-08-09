@@ -1376,12 +1376,18 @@ export async function startTui(
         extensionId: string,
         next: IdentifiedTuiAgentClient,
         pane: "main" | "sidebar",
+        replaceSidebarOwner = false,
     ): Promise<void> {
         if (pane === "main") {
             switchToClient(next, undefined, { preserveSidebar: true });
             return;
         }
-        if (sidebarOwner !== undefined && sidebarOwner !== extensionId) {
+        if (
+            !replaceSidebarOwner
+            && sidebarAgentPane === undefined
+            && sidebarOwner !== undefined
+            && sidebarOwner !== extensionId
+        ) {
             next.close();
             throw new Error(`${sidebarOwner} is using the sidebar`);
         }
@@ -2926,7 +2932,13 @@ export async function startTui(
                     renderState();
                     return;
                 }
-                settingsPicker = startTuiSessionPicker(children, currentId);
+                settingsPicker = startTuiSessionPicker(
+                    children,
+                    currentId,
+                    false,
+                    new Date(),
+                    true,
+                );
                 focusActiveSurface();
                 renderState();
             }).catch((error) => {
@@ -5573,11 +5585,14 @@ export async function startTui(
         sessionPath: string,
         sessionId?: string,
     ): void {
+        const openingInSidebar = sidebar.isFocused()
+            && sidebarAgentPane !== undefined;
         settingsPicker = undefined;
         if (sessionId !== undefined && sessionId === client.agentId) {
             // The row for the session already on screen. Tearing down that
             // session's own transcript to put it back is a worse answer to
             // "this one" than simply leaving.
+            sidebar.setFocused(false);
             settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
@@ -5601,9 +5616,19 @@ export async function startTui(
         void withSessionSwitchDeadline(
             dependencies.resumeSession(sessionPath),
             discardSwitchTarget,
-        ).then((next) => {
+        ).then(async (next) => {
             if (shuttingDown) {
                 discardSwitchTarget(next);
+                return;
+            }
+            if (openingInSidebar) {
+                await openExtensionAgent(
+                    "vera.tui.agent-attachments",
+                    requireIdentifiedClient(next),
+                    "sidebar",
+                    true,
+                );
+                sessionSwitchPending = false;
                 return;
             }
             switchToClient(next, draft);

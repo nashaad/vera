@@ -2457,6 +2457,27 @@ test.skipIf(!tmuxAvailable)(
                 "SIDEKICK ANSWERED 3",
             );
             expect(pane).toContain("AGENT ANSWERED 2");
+
+            sendText(socket, session, "@sidekick");
+            sendKey(socket, session, "Enter");
+            sendText(socket, session, "/subagents");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "child-1");
+            sendKey(socket, session, "Enter");
+            sendText(socket, session, "child question");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "CHILD ANSWERED 1",
+            );
+            expect(pane).not.toContain("SIDEKICK ANSWERED 4");
+
+            // Replacing the sidebar detached the sidekick but did not stop
+            // its hosted session; `/btw` can attach and continue it again.
+            sendText(socket, session, "/btw back again");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 4");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
