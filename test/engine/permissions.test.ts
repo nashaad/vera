@@ -31,6 +31,18 @@ test("built-in profiles have the accepted defaults", () => {
     expect(BUILT_IN_PERMISSION_MODES.ask.defaultOutcome).toBe("ask");
     expect(BUILT_IN_PERMISSION_MODES.auto.defaultOutcome)
         .toBe("review");
+    expect(BUILT_IN_PERMISSION_MODES.readonly.defaultOutcome).toBe("deny");
+});
+
+test("readonly allows structured reads but denies bash and mutation", () => {
+    expect(decide("readonly", toolCall("read", { path: "README.md" })).behavior)
+        .toBe("allow");
+    expect(decide("readonly", bash("git status --short")).behavior).toBe("deny");
+    expect(decide("readonly", bash("cat README.md")).behavior).toBe("deny");
+    expect(decide("readonly", toolCall("write", {
+        path: "notes.txt",
+        content: "hello",
+    })).behavior).toBe("deny");
 });
 
 test("reads at every path scope are routine in every profile", () => {
@@ -720,7 +732,7 @@ test("permission inspection snapshots the selected profile and active grants", (
             defaultOutcome: "review",
             reviewerProfile: "default",
         },
-        availableModes: ["full_access", "ask", "auto"],
+        availableModes: ["full_access", "ask", "auto", "readonly"],
         activeGrants: grants,
     });
 });
