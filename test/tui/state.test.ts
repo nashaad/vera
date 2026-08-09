@@ -811,6 +811,28 @@ test("a pathological tool argument is still bounded", () => {
     expect(state.entries.at(-1)?.text).toBe(`${"x".repeat(1999)}…`);
 });
 
+test("a folded tool preview bounds each visible line", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "x".repeat(200) },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: Array.from({ length: 8 }, () => "output").join("\n"),
+        seq: 2,
+    });
+
+    const header = state.entries[0];
+    expect(header?.kind).toBe("tool_header");
+    expect(header?.kind === "tool_header"
+        ? header.detailPreview?.split("\n")[0]
+        : undefined)
+        .toBe(`  │ ${"x".repeat(119)}…`);
+});
+
 test("a long completed tool group folds and the detail toggle reopens it", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "tool_started",
@@ -832,11 +854,26 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
         kind: "tool_header",
         text: "+ Explored · 11 lines",
         detailLines: 11,
-        detailPreview: "List /workspace",
+        detailPreview: [
+            "  │ List /workspace",
+            "  └ file-0",
+            "    file-1",
+            "    file-2",
+            "    file-3",
+            "    + 6 more lines",
+        ].join("\n"),
         expanded: false,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("+ Explored · 11 lines · List /workspace  ctrl+e details");
+        .toBe([
+            "• Explored · 11 lines  ctrl+e details",
+            "  │ List /workspace",
+            "  └ file-0",
+            "    file-1",
+            "    file-2",
+            "    file-3",
+            "    + 6 more lines",
+        ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
     )).toBe(true);
@@ -846,6 +883,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
         text: "- Explored · 11 lines",
         expanded: true,
     });
+    expect(state.entries[0]).not.toHaveProperty("detailPreview");
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === undefined
     )).toBe(true);
@@ -858,6 +896,21 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
     )).toBe(true);
+});
+
+test("a folded tool header uses a quiet bullet and an expanded one a chevron", () => {
+    expect(plainText(renderTuiEntry({
+        kind: "tool_header",
+        text: "+ Ran · 9 lines",
+        detailLines: 9,
+        expanded: false,
+    }))).toBe("• Ran · 9 lines  ctrl+e details");
+    expect(plainText(renderTuiEntry({
+        kind: "tool_header",
+        text: "- Ran · 9 lines",
+        detailLines: 9,
+        expanded: true,
+    }))).toBe("▾ Ran · 9 lines  ctrl+e details");
 });
 
 test("the first detail toggle hides completed activity that is currently visible", () => {

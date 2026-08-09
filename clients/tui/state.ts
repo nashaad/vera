@@ -72,7 +72,7 @@ export interface TuiTextTranscriptEntry {
     readonly hidden?: boolean;
     /** How many logical output lines a folded tool header summarizes. */
     readonly detailLines?: number;
-    /** One bounded action summary retained while a tool group is folded. */
+    /** Bounded leading detail retained while a tool group is folded. */
     readonly detailPreview?: string;
     /**
      * The `pool_add` request this checklist entry reports on. Progress updates
@@ -978,15 +978,15 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         )]);
     }
     if (entry.kind === "tool_header") {
-        const header = bold(fg(TUI_ACCENT)(entry.text));
+        const header = renderToolHeader(entry);
         return entry.detailLines === undefined
-            ? new StyledText([header])
+            ? new StyledText(header)
             : new StyledText([
-                header,
+                ...header,
+                fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
                 ...(entry.detailPreview === undefined
                     ? []
-                    : [fg(TUI_MUTED)(` · ${entry.detailPreview}`)]),
-                fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
+                    : renderCompactToolPreview(entry.detailPreview)),
             ]);
     }
     if (entry.kind === "tool") {
@@ -1027,6 +1027,45 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             : new StyledText([summary, hint]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
+}
+
+function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
+    const folded = /^([+-]) (.+?) · (\d+ lines?)$/.exec(entry.text);
+    if (folded === null) {
+        return [bold(fg(TUI_ACCENT)(entry.text))];
+    }
+    const [, marker, action, count] = folded;
+    return [
+        fg(TUI_ACCENT)(marker === "+" ? "• " : "▾ "),
+        bold(fg(TUI_ACCENT)(action ?? "")),
+        fg(TUI_MUTED)(` · ${count ?? ""}`),
+    ];
+}
+
+function renderCompactToolPreview(preview: string): TextChunk[] {
+    const chunks: TextChunk[] = [];
+    let tone: "call" | "result" = "result";
+    for (const line of preview.split("\n")) {
+        chunks.push(fg(TUI_MUTED)("\n"));
+        if (line.startsWith("  │ ")) {
+            tone = "call";
+            chunks.push(fg(TUI_MUTED)("  │ "));
+            chunks.push(fg(TUI_TEXT)(line.slice(4)));
+            continue;
+        }
+        if (line.startsWith("  └ ")) {
+            tone = "result";
+            chunks.push(fg(TUI_MUTED)("  └ "));
+            chunks.push(fg(TUI_MUTED)(line.slice(4)));
+            continue;
+        }
+        if (/^    \+ \d+ more lines?$/.test(line)) {
+            chunks.push(fg(TUI_ACCENT)(line));
+            continue;
+        }
+        chunks.push(fg(tone === "call" ? TUI_TEXT : TUI_MUTED)(line));
+    }
+    return chunks;
 }
 
 /** A row's text, carrying the count when the same call repeated. */
@@ -1349,6 +1388,8 @@ function toolResultText(output: string): string {
 }
 
 const AUTO_FOLD_TOOL_LINES = 8;
+const COMPACT_TOOL_LINES = 5;
+const COMPACT_TOOL_LINE_CHARS = 120;
 
 /**
  * Completed tool groups stay compact when their content would dominate the
@@ -1378,8 +1419,8 @@ function applyToolDetailPreference(
         ) {
             end += 1;
         }
-        const rows = next.slice(headerIndex + 1, end).filter((entry) =>
-            entry.kind === "tool"
+        const rows = next.slice(headerIndex + 1, end).filter(
+            (entry): entry is TuiTextTranscriptEntry => entry.kind === "tool",
         );
         const active = header.active === true || rows.some((entry) =>
             entry.kind === "tool" && entry.active === true
@@ -1391,12 +1432,7 @@ function applyToolDetailPreference(
             && detailLines > 0
             && (preference !== undefined || detailLines > AUTO_FOLD_TOOL_LINES);
         const expanded = preference === true;
-        const detailPreview = rows.find((entry) =>
-            entry.kind === "tool" && entry.result !== true
-        );
-        const previewText = detailPreview?.kind === "tool"
-            ? compactToolPreview(detailPreview.text)
-            : undefined;
+        const previewText = compactToolPreview(rows, detailLines);
         const base = header.header ?? header.text.replace(
             /^[+-] | · \d+ lines?$/g,
             "",
@@ -1438,12 +1474,40 @@ function applyToolDetailPreference(
     return next;
 }
 
-function compactToolPreview(text: string): string | undefined {
-    const summary = text.split("\n", 1)[0]?.replaceAll(/\s+/g, " ").trim() ?? "";
-    if (summary.length === 0) {
+function compactToolPreview(
+    rows: readonly TuiTextTranscriptEntry[],
+    detailLines: number,
+): string | undefined {
+    const preview: string[] = [];
+    for (const row of rows) {
+        const lines = tuiToolRowText(row).split("\n");
+        for (let index = 0; index < lines.length; index += 1) {
+            if (preview.length === COMPACT_TOOL_LINES) {
+                break;
+            }
+            const prefix = index === 0 ? row.prefix ?? "" : "    ";
+            preview.push(`${prefix}${compactToolLine(lines[index] ?? "")}`);
+        }
+        if (preview.length === COMPACT_TOOL_LINES) {
+            break;
+        }
+    }
+    if (preview.length === 0) {
         return undefined;
     }
-    return summary.length > 48 ? `${summary.slice(0, 47)}…` : summary;
+    const omitted = detailLines - preview.length;
+    if (omitted > 0) {
+        const unit = omitted === 1 ? "line" : "lines";
+        preview.push(`    + ${omitted} more ${unit}`);
+    }
+    return preview.join("\n");
+}
+
+function compactToolLine(line: string): string {
+    const characters = Array.from(line);
+    return characters.length > COMPACT_TOOL_LINE_CHARS
+        ? `${characters.slice(0, COMPACT_TOOL_LINE_CHARS - 1).join("")}…`
+        : line;
 }
 
 function settleToolEntries(
