@@ -358,7 +358,7 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
-const POINTER_HOVER_DELAY_MS = 180;
+const POINTER_HOVER_DELAY_MS = 75;
 
 function truncateFooterLine(text: string, width: number): string {
     const characters = Array.from(text);
