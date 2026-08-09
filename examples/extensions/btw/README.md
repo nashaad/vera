@@ -11,7 +11,7 @@ A readonly hosted agent beside the main conversation.
 @vera                        # focus the main agent
 ```
 
-Press `F6` to switch focus between the two agents. A bare message goes to
+Press `Ctrl+G` to switch focus between the two agents. A bare message goes to
 the focused pane, and the sidebar shows a green rail while it is selected.
 Mentions override focus for one message; only agents currently open in the two
 panes are mentionable. Pointer input remains available for text selection and
