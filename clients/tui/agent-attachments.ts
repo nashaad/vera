@@ -13,12 +13,16 @@ export type TuiAgentPane = "main" | "sidebar";
  * never closes or terminates the underlying agent.
  */
 export class TuiAgentAttachments<Attachment extends TuiAgentAttachment> {
-    readonly main: Attachment;
+    private mainAttachment: Attachment;
     private sidebarAttachment: Attachment | undefined;
     private focusedPane: TuiAgentPane = "main";
 
     constructor(main: Attachment) {
-        this.main = main;
+        this.mainAttachment = main;
+    }
+
+    main(): Attachment {
+        return this.mainAttachment;
     }
 
     sidebar(): Attachment | undefined {
@@ -27,8 +31,8 @@ export class TuiAgentAttachments<Attachment extends TuiAgentAttachment> {
 
     focused(): Attachment {
         return this.focusedPane === "sidebar"
-            ? this.sidebarAttachment ?? this.main
-            : this.main;
+            ? this.sidebarAttachment ?? this.mainAttachment
+            : this.mainAttachment;
     }
 
     focus(): TuiAgentPane {
@@ -47,8 +51,7 @@ export class TuiAgentAttachments<Attachment extends TuiAgentAttachment> {
      * first, so the TUI never owns three agent connections between awaits.
      */
     async openSidebar(attachment: Attachment): Promise<void> {
-        if (attachment.agentId === this.main.agentId) {
-            await this.detachSidebar();
+        if (attachment.agentId === this.mainAttachment.agentId) {
             this.focusedPane = "main";
             return;
         }
@@ -59,6 +62,29 @@ export class TuiAgentAttachments<Attachment extends TuiAgentAttachment> {
         await this.detachSidebar();
         this.sidebarAttachment = attachment;
         this.focusedPane = "sidebar";
+    }
+
+    /** Replaces the main pane without disturbing the sidebar agent. */
+    async openMain(attachment: Attachment): Promise<void> {
+        if (attachment.agentId === this.sidebarAttachment?.agentId) {
+            this.focusedPane = "sidebar";
+            return;
+        }
+        if (attachment.agentId === this.mainAttachment.agentId) {
+            this.focusedPane = "main";
+            return;
+        }
+        await this.mainAttachment.detach();
+        this.mainAttachment = attachment;
+        this.focusedPane = "main";
+    }
+
+    async openFocused(attachment: Attachment): Promise<void> {
+        if (this.focusedPane === "sidebar") {
+            await this.openSidebar(attachment);
+            return;
+        }
+        await this.openMain(attachment);
     }
 
     async detachSidebar(): Promise<void> {
