@@ -8,6 +8,7 @@ import {
     startTuiTimelinePicker,
     type TuiTimelinePickerState,
 } from "../../clients/tui/timeline-picker.ts";
+import { DIALOG_CARD_Z_INDEX } from "../../clients/tui/dialog-chrome.ts";
 
 async function timelineFrame(
     state: TuiTimelinePickerState,
@@ -308,7 +309,7 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
         expect(frame).toContain("Add stale-file protection");
         expect(frame).toContain("Workspace files and external effects will not change");
         expect(setup.renderer.currentFocusedRenderable).toBe(view.box);
-        expect(view.box.zIndex).toBe(10);
+        expect(view.box.zIndex).toBe(DIALOG_CARD_Z_INDEX);
         expect(view.box.screenX).toBeGreaterThan(0);
 
         setup.resize(42, 18);

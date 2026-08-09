@@ -16,7 +16,12 @@ import {
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 
-import type { DialogRowPointer } from "./dialog-chrome.ts";
+import {
+    DIALOG_BACKGROUND_OPACITY,
+    DIALOG_BACKGROUND_Z_INDEX,
+    DIALOG_SCRIM_Z_INDEX,
+    type DialogRowPointer,
+} from "./dialog-chrome.ts";
 
 import {
     isToolApprovalUiRequestUpdate,
@@ -1090,7 +1095,7 @@ export async function startTui(
         // indent lands just inside the composer's edge, so the status reads as
         // sitting under the composer rather than starting a new column.
         paddingLeft: 2,
-        zIndex: 30,
+        zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
     statusBand.add(statusText);
     statusBand.add(backgroundStatusText);
@@ -1290,7 +1295,7 @@ export async function startTui(
         width: "100%",
         height: "100%",
         backgroundColor: RGBA.fromInts(0, 0, 0, 210),
-        zIndex: 5,
+        zIndex: DIALOG_SCRIM_Z_INDEX,
         visible: false,
     });
     app.add(overlayScrim);
@@ -1560,11 +1565,7 @@ export async function startTui(
                 renderState();
                 return;
             }
-            if (
-                pendingUiRequest === undefined && !sessionSwitchPending
-                && secretPrompt === undefined
-                && namePrompt === undefined
-            ) {
+            if (!sessionSwitchPending && !anyOverlayOpen()) {
                 openCommandPalette();
             }
             return;
@@ -4116,17 +4117,26 @@ export async function startTui(
             || namePromptView.box.visible
             || secretPromptView.box.visible;
         overlayScrim.visible = overlayVisible;
-        composerBox.visible = pendingUiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && admissionDialog === undefined
-            && sessionTrashCandidate === undefined
-            && secretPrompt === undefined
-            && namePrompt === undefined
-            && settingsPicker === undefined
-            && commandPalette === undefined
-            && help === undefined
-            && diagnosticsDialog === undefined;
+        // OpenTUI's translucent fill darkens cell backgrounds but leaves the
+        // glyphs beneath it untouched. Fade the background renderables too so
+        // transcript, composer, and status remain context rather than becoming
+        // the highest-contrast text on screen.
+        const backgroundOpacity = overlayVisible
+            ? DIALOG_BACKGROUND_OPACITY
+            : 1;
+        sidebar.body.opacity = backgroundOpacity;
+        jumpToBottom.opacity = backgroundOpacity;
+        sidebarJump.opacity = backgroundOpacity;
+        composerTipText.opacity = backgroundOpacity;
+        quoteText.opacity = backgroundOpacity;
+        heldAddressText.opacity = backgroundOpacity;
+        composerBox.opacity = backgroundOpacity;
+        statusBand.opacity = backgroundOpacity;
+        // Ordinary modals leave the conversation and composer in place as
+        // dimmed context. The scrim sits above them and below the active card.
+        // Approval and question cards are different: they replace the composer
+        // until the pending engine request is answered.
+        composerBox.visible = pendingUiRequest === undefined;
         renderCommandSuggestions();
         if (
             pendingUiRequest !== undefined

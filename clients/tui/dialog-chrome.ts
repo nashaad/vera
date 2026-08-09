@@ -45,6 +45,15 @@ export const DIALOG_CHROME_HEIGHT = 9;
 /** How far a card holds its content off its own left and right edges. */
 export const DIALOG_CARD_PADDING = 4;
 
+// One stacking contract for every modal surface. Conversation chrome stays
+// below the scrim, and every active card stays above it; individual dialogs do
+// not negotiate z-order with the status band or with one another.
+export const DIALOG_BACKGROUND_Z_INDEX = 4;
+export const DIALOG_SCRIM_Z_INDEX = 10;
+export const DIALOG_CARD_Z_INDEX = 20;
+/** Foreground attenuation for conversation chrome behind an active modal. */
+export const DIALOG_BACKGROUND_OPACITY = 0.35;
+
 // Below this height an overlay cannot spare a row. The question overlay draws
 // the same line for its own height cap, so "short" means one thing in the TUI
 // rather than two.
@@ -53,13 +62,10 @@ export const DIALOG_SHORT_TERMINAL_HEIGHT = 10;
 /**
  * How far above the bottom a bottom-anchored overlay sits.
  *
- * The status line is drawn over these overlays (`zIndex: 30` against their 20),
- * so an overlay flush at the bottom loses its final row, which is where its key
- * hints live. Clearing that row costs a row of overlay height, and on a short
- * terminal the row comes out of the content: the question being asked scrolls
- * off before its own hints do. That trade is worth it with room to spare and
- * not worth it without, so short terminals keep the collision and keep the
- * content.
+ * Bottom-anchored cards hold one row above the terminal edge when room allows,
+ * keeping their final hint row clear of terminal chrome. On a short terminal
+ * that row has to stay with the content instead, so short terminals use the
+ * smaller offset.
  *
  * Overlays re-read this on update, not on resize: `RenderContext` exposes no
  * resize hook, and the adjacent `maxHeight` short-terminal rule already works

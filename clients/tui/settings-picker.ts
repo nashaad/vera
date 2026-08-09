@@ -42,6 +42,7 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import {
+    DIALOG_CARD_Z_INDEX,
     DIALOG_CARD_PADDING,
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER,
@@ -1470,7 +1471,7 @@ export function createTuiSettingsPickerView(
         left: "10%",
         width: "80%",
         height: 8,
-        zIndex: 15,
+        zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: DIALOG_CARD_PADDING,
         paddingRight: DIALOG_CARD_PADDING,
         paddingTop: 2,
@@ -1559,12 +1560,15 @@ export function tuiPickerViewportRows(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
 ): number {
-    return pickerMaxRows(
+    const rows = pickerMaxRows(
         renderer,
         (state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0)
             + (hasModelDetail(state) ? MODEL_DETAIL_LINES : 0)
             + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
     );
+    return state.kind === "model" && state.tab === "all"
+        ? Math.min(rows, MODEL_ALL_MAX_ROWS)
+        : rows;
 }
 
 
@@ -1884,14 +1888,17 @@ function renderListPickerRows(
         detailLines = MODEL_DETAIL_LINES;
     }
 
+    const availableRows = pickerMaxRows(
+        renderer,
+        (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines
+            + detailLines,
+    );
     const rows = windowedDisplayRows(
         listDisplayRows(state),
         state.selectedIndex,
-        pickerMaxRows(
-            renderer,
-            (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines
-                + detailLines,
-        ),
+        tab === "all"
+            ? Math.min(availableRows, MODEL_ALL_MAX_ROWS)
+            : availableRows,
     );
     let lines = 0;
     if (rows.length === 0) {
@@ -1997,6 +2004,7 @@ function renderListPickerRows(
 
 // The strip, its explanation, and the blank line under both.
 const MODEL_TAB_STRIP_HEIGHT = 3;
+const MODEL_ALL_MAX_ROWS = 28;
 
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Pool"],

@@ -14,6 +14,7 @@ import type {
 } from "../../src/engine/protocol.ts";
 import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import {
+    DIALOG_CARD_Z_INDEX,
     dialogFooterNode,
     dialogHeaderNode,
     dialogRowPointer,
@@ -227,7 +228,7 @@ export function createTuiTimelinePickerView(
         width: "90%",
         height: "auto",
         maxHeight: "90%",
-        zIndex: 10,
+        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
