@@ -125,6 +125,7 @@ export interface TuiSettingsPickerOption {
     readonly depth?: number;
     /** One end of the non-hierarchical group currently open in both panes. */
     readonly sharedEdge?: "start" | "end";
+    readonly sharedGroup?: string;
     /**
      * Position in the user's pool, absent on a row outside it. A rank rather
      * than a flag because the pool is ordered by when each model was added and
@@ -887,7 +888,7 @@ export function startTuiSessionPicker(
     loading = false,
     now: Date = new Date(),
     includeUntitled = false,
-    sharedAgentIds: readonly string[] = [],
+    sharedAgentGroups: readonly (readonly [string, string])[] = [],
 ): TuiSettingsPickerState {
     // The current session is listed rather than hidden. Switching is a
     // re-attach with the screen left up, so its row costs nothing and answers
@@ -920,7 +921,7 @@ export function startTuiSessionPicker(
         }));
     const threaded = markSharedSessionOptions(
         threadSessionOptions(options),
-        sharedAgentIds,
+        sharedAgentGroups,
     );
     return {
         kind: "session",
@@ -934,33 +935,28 @@ export function startTuiSessionPicker(
 
 function markSharedSessionOptions(
     options: readonly TuiSettingsPickerOption[],
-    sharedAgentIds: readonly string[],
+    sharedAgentGroups: readonly (readonly [string, string])[],
 ): readonly TuiSettingsPickerOption[] {
-    const shared = new Set(sharedAgentIds);
-    const indices = options.flatMap((option, index) =>
-        option.sessionId !== undefined && shared.has(option.sessionId)
-            ? [index]
-            : []
-    );
-    if (indices.length !== 2) return options;
-    const sorted = indices.toSorted((left, right) => left - right);
-    const start = sorted[0]!;
-    const end = sorted[1]!;
-    const pair = [
-        { ...options[start]!, sharedEdge: "start" as const },
-        { ...options[end]!, sharedEdge: "end" as const },
-    ];
-    const remaining = options.filter((_, index) =>
-        index !== start && index !== end
-    );
-    const insertion = options.slice(0, start).filter((option) =>
-        option.sessionId === undefined || !shared.has(option.sessionId)
-    ).length;
-    return [
-        ...remaining.slice(0, insertion),
-        ...pair,
-        ...remaining.slice(insertion),
-    ];
+    let result = [...options];
+    sharedAgentGroups.forEach(([firstId, secondId], groupIndex) => {
+        const first = result.findIndex((option) => option.sessionId === firstId);
+        const second = result.findIndex((option) => option.sessionId === secondId);
+        if (first === -1 || second === -1) return;
+        const start = Math.min(first, second);
+        const end = Math.max(first, second);
+        const group = `shared-${groupIndex}`;
+        const pair = [
+            { ...result[start]!, sharedEdge: "start" as const, sharedGroup: group },
+            { ...result[end]!, sharedEdge: "end" as const, sharedGroup: group },
+        ];
+        result = [
+            ...result.slice(0, start),
+            ...pair,
+            ...result.slice(start + 1, end),
+            ...result.slice(end + 1),
+        ];
+    });
+    return result;
 }
 
 /**
@@ -1965,9 +1961,14 @@ function renderListPickerRows(
     // parent was filtered out would otherwise appear to hang off whichever
     // unrelated row the search left above it.
     const onScreen = new Set(state.options.map((option) => option.sessionId));
-    const sharedOnScreen = state.options.filter((option) =>
-        option.sharedEdge !== undefined
-    ).length === 2;
+    const sharedOnScreen = new Map<string, number>();
+    for (const option of state.options) {
+        if (option.sharedGroup === undefined) continue;
+        sharedOnScreen.set(
+            option.sharedGroup,
+            (sharedOnScreen.get(option.sharedGroup) ?? 0) + 1,
+        );
+    }
     let tinted = false;
     const optionNodes = dialogOptionRows(renderer, rows.flatMap((row) =>
         row.kind === "option"
@@ -1987,7 +1988,8 @@ function renderListPickerRows(
                         && onScreen.has(
                             (row.option.threadParent ?? row.option.forkedFrom)!,
                         ),
-                    sharedOnScreen,
+                    row.option.sharedGroup !== undefined
+                        && sharedOnScreen.get(row.option.sharedGroup) === 2,
                 ),
                 ...(state.kind === "session"
                     ? { tint: (tinted = !tinted) }

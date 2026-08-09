@@ -9,15 +9,34 @@ import {
     loadTuiActivityAnimationWidthPreference,
     loadTuiQuickslots,
     loadTuiRecentSessionId,
+    loadTuiSharedSessionGroups,
     loadTuiExtensionPreference,
     loadTuiThemePreference,
     saveTuiActivityAnimationPreference,
     saveTuiQuickslots,
     saveTuiRecentSessionId,
+    saveTuiSharedSessionGroups,
     saveTuiExtensionPreference,
     deleteTuiExtensionPreference,
     saveTuiThemePreference,
 } from "../../clients/tui/theme-preference.ts";
+
+test("shared session groups persist as disjoint symmetric pairs", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-shared-"));
+    const path = join(directory, "tui.json");
+
+    saveTuiSharedSessionGroups([["main", "assistant"]], path);
+    expect(loadTuiSharedSessionGroups(path)).toEqual([["main", "assistant"]]);
+
+    writeFileSync(path, JSON.stringify({
+        shared_session_groups: [
+            ["main", "assistant"],
+            ["main", "duplicate"],
+            ["broken"],
+        ],
+    }));
+    expect(loadTuiSharedSessionGroups(path)).toEqual([["main", "assistant"]]);
+});
 import { emptyQuickslots } from "../../clients/tui/quickslots.ts";
 
 test("TUI theme preference persists outside the engine configuration", () => {

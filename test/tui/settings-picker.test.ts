@@ -252,10 +252,10 @@ test("the two visible panes form a shared group without implying ancestry", asyn
             title: "Attached conversation",
             updated_at: "2026-07-20T19:00:00.000Z",
         },
-    ], "main", false, new Date("2026-07-20T21:00:00.000Z"), false, [
+    ], "main", false, new Date("2026-07-20T21:00:00.000Z"), false, [[
         "main",
         "attached",
-    ]);
+    ]]);
 
     const rows = (await pickerFrame(state)).split("\n");
     const main = rows.find((row) => row.includes("Main conversation")) ?? "";

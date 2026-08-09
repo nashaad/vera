@@ -184,12 +184,12 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_reasoning_picker":
         case "open_permissions_picker":
         case "open_settings_menu":
-            return "focused_agent";
-        case "open_rewind":
-        case "open_fork":
         case "open_resume_picker":
         case "open_subagents_picker":
         case "go_to_parent":
+            return "focused_agent";
+        case "open_rewind":
+        case "open_fork":
         case "reconnect":
         case "create_session":
         case "update_session_name":
