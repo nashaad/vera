@@ -367,10 +367,27 @@ test("reset clears the lane and the column, and keeps the seat", async () => {
     await harness.registry.close();
 });
 
-test("resetting nobody says so", async () => {
+test("reset is unavailable without a sidekick", async () => {
     const harness = await start();
     expect(harness.registry.invokeCommand("reset", "", WORKSPACE))
-        .rejects.toThrow("No sidekick");
+        .rejects.toThrow("/reset is unavailable");
+    await harness.registry.close();
+});
+
+test("reset and remove are advertised only while a sidekick is seated", async () => {
+    const harness = await start();
+    const visible = (): string[] => harness.registry.commands()
+        .filter((command) => command.isAvailable?.() ?? true)
+        .map((command) => command.name);
+
+    expect(visible()).not.toContain("reset");
+    expect(visible()).not.toContain("remove");
+    await harness.registry.invokeCommand("btw", "gpt-5.5", WORKSPACE);
+    expect(visible()).toContain("reset");
+    expect(visible()).toContain("remove");
+    await harness.registry.invokeCommand("remove", "", WORKSPACE);
+    expect(visible()).not.toContain("reset");
+    expect(visible()).not.toContain("remove");
     await harness.registry.close();
 });
 
@@ -384,10 +401,10 @@ test("removing the sidekick takes its column with it", async () => {
     await harness.registry.close();
 });
 
-test("removing nobody says so rather than passing quietly", async () => {
+test("remove is unavailable without a sidekick", async () => {
     const harness = await start();
     expect(harness.registry.invokeCommand("remove", "", WORKSPACE))
-        .rejects.toThrow("No sidekick");
+        .rejects.toThrow("/remove is unavailable");
     await harness.registry.close();
 });
 

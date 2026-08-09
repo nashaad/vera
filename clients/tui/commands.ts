@@ -193,6 +193,7 @@ export interface TuiPaletteActionDefinition {
     readonly keyHint?: string;
     readonly slashName?: string;
     readonly action: TuiCommandAction;
+    readonly isAvailable?: () => boolean;
 }
 
 export type TuiPaletteEntry = TuiPaletteActionDefinition;
@@ -218,6 +219,7 @@ export interface TuiCommandDefinition {
         | ShowDiagnosticsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly arguments?: TuiCommandArgumentKind;
+    readonly isAvailable?: () => boolean;
     readonly parse?: (argumentsText: string) => TuiCommandAction;
 }
 
@@ -371,8 +373,13 @@ export class TuiCommandRegistry {
         this.paletteActions.set(action.name, action);
     }
 
-    registeredCommands(): readonly TuiCommandCatalogEntry[] {
-        return [...this.commands.values()].map((command) => ({
+    registeredCommands(
+        names?: ReadonlySet<string>,
+    ): readonly TuiCommandCatalogEntry[] {
+        return [...this.commands.values()].filter(
+            (command) => (names?.has(command.name) ?? true)
+                && (command.isAvailable?.() ?? true),
+        ).map((command) => ({
             name: command.name,
             description: command.description,
             usage: command.usage,
@@ -382,8 +389,18 @@ export class TuiCommandRegistry {
         }));
     }
 
+    hasCommand(name: string): boolean {
+        return this.commands.has(name);
+    }
+
+    commandNames(): readonly string[] {
+        return [...this.commands.keys()];
+    }
+
     registeredPaletteActions(): readonly TuiPaletteActionDefinition[] {
-        return [...this.paletteActions.values()];
+        return [...this.paletteActions.values()].filter(
+            (action) => action.isAvailable?.() ?? true,
+        );
     }
 
     suggestions(input: string): readonly TuiCommandCatalogEntry[] {
@@ -442,10 +459,20 @@ export class TuiCommandRegistry {
         const commandEnd = separatorIndex === -1 ? text.length : separatorIndex;
         const name = text.slice(1, commandEnd);
         const exactCommand = this.commands.get(name);
+        if (
+            exactCommand !== undefined
+            && !(exactCommand.isAvailable?.() ?? true)
+        ) {
+            return {
+                type: "command_error",
+                message: `/${name} is unavailable`,
+            };
+        }
         let command = exactCommand;
         if (command === undefined) {
             const matches = [...this.commands.values()].filter((candidate) =>
                 candidate.name.startsWith(name)
+                && (candidate.isAvailable?.() ?? true)
             );
             const builtinMatches = matches.filter(
                 (candidate) => candidate.prefixPriority !== "extension",
@@ -484,17 +511,18 @@ export function registerExtensionTuiCommands(
     )[],
     origin: RunExtensionTuiCommandAction["origin"] = "host",
 ): void {
-    const names = new Set(
-        registry.registeredCommands().map((command) => command.name),
-    );
+    const names = new Set<string>();
     for (const command of commands) {
-        if (names.has(command.name)) {
+        if (registry.hasCommand(command.name) || names.has(command.name)) {
             throw new Error(`Duplicate TUI command: /${command.name}`);
         }
         names.add(command.name);
     }
     for (const command of commands) {
         const palette = "palette" in command ? command.palette : undefined;
+        const isAvailable = "isAvailable" in command
+            ? command.isAvailable
+            : undefined;
         const run = (argumentsText: string): TuiCommandAction => ({
             type: "run_extension",
             command: command.name,
@@ -510,6 +538,9 @@ export function registerExtensionTuiCommands(
             ...(command.arguments === undefined
                 ? {}
                 : { arguments: command.arguments }),
+            ...(isAvailable === undefined
+                ? {}
+                : { isAvailable }),
             parse: run,
             palette: {
                 name: `extension:${command.source}:${command.name}`,
@@ -521,6 +552,9 @@ export function registerExtensionTuiCommands(
                     : { keyHint: palette.keyHint }),
                 slashName: command.name,
                 action: run(""),
+                ...(isAvailable === undefined
+                    ? {}
+                    : { isAvailable }),
             },
         });
     }

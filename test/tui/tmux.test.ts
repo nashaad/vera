@@ -2575,12 +2575,25 @@ test.skipIf(!tmuxAvailable)(
                 30,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
+
             sendText(socket, session, "/btw guest");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Seated. Ask with @sidekick");
 
+            sendText(socket, session, "/res");
+            pane = await waitForVisiblePane(socket, session, "/reset");
+            expect(pane).toContain("/resume");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => !visible.includes("/reset"),
+                "the seated command list to close",
+            );
+
             // There is one seat, so freeing it needs no name.
-            sendText(socket, session, "/remove");
+            sendText(socket, session, "/rem");
+            pane = await waitForVisiblePane(socket, session, "/remove");
             sendKey(socket, session, "Enter");
             // The column goes with the seat, so the notice is what says so.
             pane = await waitForVisiblePaneWhere(
@@ -2591,6 +2604,20 @@ test.skipIf(!tmuxAvailable)(
                     && !visible.includes("Seated. Ask with @sidekick"),
                 "the sidekick gone and its column with it",
             );
+
+            sendText(socket, session, "/res");
+            pane = await waitForVisiblePane(socket, session, "/resume");
+            expect(pane).not.toContain("/reset");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => !visible.includes("/resume"),
+                "the resume command list to close",
+            );
+            sendText(socket, session, "/remo");
+            pane = await waitForVisiblePane(socket, session, "/remo");
+            expect(pane).not.toContain("/remove");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {

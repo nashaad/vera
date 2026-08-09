@@ -269,6 +269,7 @@ export function activateClient(vera: any): void {
         name: "reset",
         description: "Clear what the sidekick remembers",
         usage: "/reset",
+        when: () => seat !== undefined,
         run() {
             if (seat === undefined) {
                 throw new Error(`No ${SIDEKICK}. /${SIDEKICK} [model] seats one.`);
@@ -291,6 +292,7 @@ export function activateClient(vera: any): void {
         name: "remove",
         description: "Send the sidekick away",
         usage: "/remove",
+        when: () => seat !== undefined,
         run() {
             if (seat === undefined) {
                 throw new Error(
