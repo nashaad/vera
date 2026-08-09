@@ -1583,6 +1583,10 @@ export async function startTui(
 
             const id = `sidebar-entry-${++sidebarEntryGeneration}`;
             const marginTop = tuiEntryMarginTop(entries, index);
+            const separatedUser = entry.kind === "user"
+                && entries.slice(0, index).some((candidate) =>
+                    candidate.kind === "user"
+                );
             const markdownNode = entry.kind === "diff"
                 ? undefined
                 : createTuiMarkdownEntry(
@@ -1598,7 +1602,13 @@ export async function startTui(
                 : entry.kind === "tool_header"
                 ? createTuiToolHeader(renderer, id, entry, marginTop)
                 : entry.kind === "user"
-                ? createTuiUserEntry(renderer, id, entry, marginTop)
+                ? createTuiUserEntry(
+                    renderer,
+                    id,
+                    entry,
+                    marginTop,
+                    separatedUser,
+                )
                 : entry.kind === "diff"
                 ? createTuiDiff(
                     renderer,
@@ -4808,6 +4818,10 @@ export async function startTui(
             }
 
             const marginTop = tuiEntryMarginTop(state.entries, index);
+            const separatedUser = entry.kind === "user"
+                && state.entries.slice(0, index).some((candidate) =>
+                    candidate.kind === "user"
+                );
             const markdownNode = entry.kind === "diff"
                 ? undefined
                 : createTuiMarkdownEntry(
@@ -4838,6 +4852,7 @@ export async function startTui(
                     `entry-${index}`,
                     entry,
                     marginTop,
+                    separatedUser,
                 )
                 : entry.kind === "diff"
                 ? createTuiDiff(

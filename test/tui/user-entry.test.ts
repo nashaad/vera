@@ -25,6 +25,26 @@ test("a user message fills the width of the transcript", async () => {
     }
 });
 
+test("a later user turn starts with a pane-width separator", async () => {
+    const setup = await createTestRenderer({ width: 32, height: 8 });
+    setup.renderer.root.add(createTuiUserEntry(
+        setup.renderer,
+        "entry-1",
+        { kind: "user", text: "next turn" },
+        0,
+        true,
+    ));
+
+    try {
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        expect(rows.some((row) => row.includes("─".repeat(30)))).toBe(true);
+        expect(rows.some((row) => row.includes("next turn"))).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("attachments show as file chips under the message", async () => {
     const setup = await createTestRenderer({ width: 48, height: 8 });
     setup.renderer.root.add(createTuiUserEntry(
