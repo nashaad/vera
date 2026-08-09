@@ -95,6 +95,8 @@ export interface TuiSidebar {
     scrollToBottom(): void;
     /** Where the scrolling region sits, for an overlay pinned to its foot. */
     bounds(): { x: number; y: number; width: number; height: number };
+    /** Whether a terminal cell belongs to the full sidebar column. */
+    contains(x: number, y: number): boolean;
     width(): number;
 }
 
@@ -274,6 +276,12 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             width: content.width,
             height: content.height,
         }),
+        contains: (x, y) =>
+            shown()
+            && x >= sidebarColumn.x
+            && x < sidebarColumn.x + sidebarColumn.width
+            && y >= sidebarColumn.y
+            && y < sidebarColumn.y + sidebarColumn.height,
         isOpen: () => open,
         isShown: shown,
         toggleHidden(): void {
