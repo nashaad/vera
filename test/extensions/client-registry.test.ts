@@ -28,6 +28,7 @@ import {
     type ClientExtensionPickerAdapter,
     type ClientExtensionPreferencesAdapter,
     type ClientExtensionRegistryFailure,
+    type ClientExtensionAgentsAdapter,
 } from "../../src/extensions/client-registry.ts";
 import type { StatusLineSnapshot } from "../../src/extensions/status-line.ts";
 
@@ -820,6 +821,74 @@ test("bundled reasoning cycle uses the same public seams as a user extension", a
     const source = readFileSync(join(extension, "extension.ts"), "utf8");
     expect(source).not.toContain("../src");
     expect(source).not.toContain("clients/tui");
+});
+
+test("an extension can create, open, and message hosted agents through the client", async () => {
+    const extension = createExtension("client.agents", [
+        "client.commands.register",
+        "client.agents",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "delegate",
+                description: "Delegate",
+                usage: "/delegate <message>",
+                async run({ argumentsText, signal }) {
+                    const created = await vera.agents.create({
+                        pane: "sidebar",
+                        approvalMode: "readonly",
+                    }, signal);
+                    await vera.agents.open({
+                        agentId: created.agentId,
+                        pane: "main",
+                    }, signal);
+                    await vera.agents.message({
+                        agentId: created.agentId,
+                        text: argumentsText,
+                    }, signal);
+                },
+            });
+        }
+    `);
+    const calls: unknown[] = [];
+    const agents: ClientExtensionAgentsAdapter = {
+        async create(extensionId, request) {
+            calls.push({ operation: "create", extensionId, request });
+            return { agentId: "agent-2" };
+        },
+        async open(extensionId, request) {
+            calls.push({ operation: "open", extensionId, request });
+        },
+        async message(extensionId, request) {
+            calls.push({ operation: "message", extensionId, request });
+        },
+    };
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+        agents,
+    });
+
+    await registry.invokeCommand("delegate", " inspect this ", "/workspace");
+    expect(calls).toEqual([
+        {
+            operation: "create",
+            extensionId: "client.agents",
+            request: { pane: "sidebar", approvalMode: "readonly" },
+        },
+        {
+            operation: "open",
+            extensionId: "client.agents",
+            request: { agentId: "agent-2", pane: "main" },
+        },
+        {
+            operation: "message",
+            extensionId: "client.agents",
+            request: { agentId: "agent-2", text: "inspect this" },
+        },
+    ]);
+    await registry.close();
 });
 
 function createHarness(): {

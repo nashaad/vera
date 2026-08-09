@@ -88,8 +88,47 @@ export interface VeraClientExtensionApi {
     readonly thread: VeraClientExtensionThread;
     readonly conversation: VeraClientExtensionConversation;
     readonly consult: VeraClientExtensionConsult;
+    readonly agents: VeraClientExtensionAgents;
     readonly tips: VeraClientExtensionTips;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+export type VeraClientAgentPane = "main" | "sidebar";
+
+export interface VeraClientAgentRef {
+    readonly agentId: string;
+}
+
+export interface VeraClientAgentCreateRequest {
+    readonly pane: VeraClientAgentPane;
+    readonly workspace?: string;
+    readonly approvalMode?: string;
+}
+
+export interface VeraClientAgentOpenRequest {
+    readonly agentId: string;
+    readonly pane: VeraClientAgentPane;
+}
+
+export interface VeraClientAgentMessageRequest {
+    readonly agentId: string;
+    readonly text: string;
+}
+
+/** Hosted-agent operations; the client owns attachment and presentation. */
+export interface VeraClientExtensionAgents {
+    create(
+        request: VeraClientAgentCreateRequest,
+        signal?: AbortSignal,
+    ): Promise<VeraClientAgentRef>;
+    open(
+        request: VeraClientAgentOpenRequest,
+        signal?: AbortSignal,
+    ): Promise<void>;
+    message(
+        request: VeraClientAgentMessageRequest,
+        signal?: AbortSignal,
+    ): Promise<void>;
 }
 
 export interface VeraClientExtensionModule {
