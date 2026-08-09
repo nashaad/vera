@@ -36,13 +36,16 @@ export const askUserTool: RegisteredTool = {
                             preview: {
                                 type: "string",
                                 description:
-                                    "Optional. What this choice concretely looks"
-                                    + " like: a layout mockup, a diff, a snippet,"
-                                    + " a small ASCII diagram. Shown verbatim in a"
-                                    + " monospace box beside the choices. Include"
-                                    + " it when the choices differ in a way the"
-                                    + " labels cannot show; omit it when it would"
-                                    + " only restate the label.",
+                                    "Optional, and most questions want none."
+                                    + " Only for something the reader has to see"
+                                    + " laid out to judge it: a layout mockup, a"
+                                    + " diff, a code snippet, a small ASCII"
+                                    + " diagram. Never prose. A sentence, an"
+                                    + " example phrasing, or anything that reads"
+                                    + " as writing belongs in description, or"
+                                    + " nowhere. If the choices do not differ in"
+                                    + " a way a monospace box would show, leave"
+                                    + " it off every choice.",
                             },
                         },
                         required: ["id", "label"],
