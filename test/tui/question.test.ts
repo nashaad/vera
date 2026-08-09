@@ -6,6 +6,7 @@ import {
     applyTuiQuestionUpdate,
     createTuiQuestionResponse,
     createTuiQuestionView,
+    QUESTION_CHOICE_MAX_WIDTH,
 } from "../../clients/tui/question.ts";
 
 test("question view exposes every themed text surface", async () => {
@@ -63,7 +64,7 @@ test("TUI question renders the choices as a highlighted list", async () => {
         // Numbers front each choice; no bracket noise.
         expect(frame).toContain("1  Stable");
         expect(frame).toContain("2  Preview");
-        expect(frame).toContain("3  Other — type your own answer");
+        expect(frame).toContain("3  Write a different response");
         expect(frame).not.toContain("[1]");
         expect(frame).toContain("1-2");
         expect(frame).toContain("esc cancel");
@@ -72,7 +73,7 @@ test("TUI question renders the choices as a highlighted list", async () => {
     }
 });
 
-test("TUI question accepts a typed Other answer", async () => {
+test("TUI question accepts a typed custom answer", async () => {
     const setup = await createTestRenderer({ width: 60, height: 20 });
     const view = createTuiQuestionView(setup.renderer);
     view.update(request);
@@ -474,6 +475,72 @@ test("escape leaves the notes field without cancelling the question", async () =
                     },
                 },
             });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+const wideRequest: UserQuestionUiRequestUpdate = {
+    type: "ui_request",
+    requestId: "question-wide",
+    request: {
+        type: "user_question",
+        question: "Which approach should we take?",
+        choices: [
+            {
+                id: "conservative",
+                label: "Stable, which is the conservative option that most"
+                    + " people should pick unless they have a reason not to",
+            },
+            { id: "preview-channel", label: "Preview" },
+        ],
+    },
+    seq: 1,
+};
+
+test("a wide terminal stops choice text from running the full width", async () => {
+    const setup = await createTestRenderer({ width: 220, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(wideRequest);
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        const choiceLine = frame.split("\n")
+            .find((line) => line.includes("1  Stable, which is"));
+        expect(choiceLine).toBeDefined();
+        // The row is the card indent plus the capped column. Uncapped, this
+        // same choice runs past 110 cells on a terminal this wide.
+        expect(choiceLine?.trimEnd().length)
+            .toBeLessThanOrEqual(QUESTION_CHOICE_MAX_WIDTH + 8);
+        expect(frame).toContain("unless they have a");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("entering a custom answer labels the row as the response", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(request);
+
+    try {
+        await setup.flush();
+        expect(setup.captureCharFrame())
+            .toContain("Write a different response");
+
+        view.handleKey(request, { name: "3", sequence: "3" });
+        for (const character of "Arc") {
+            view.handleKey(request, { name: character, sequence: character });
+        }
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("Your response: Arc");
+        expect(frame).not.toContain("Write a different response");
     } finally {
         setup.renderer.destroy();
     }
