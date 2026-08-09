@@ -116,10 +116,14 @@ export function createTuiApprovalView(
     /** Whether the row is wide enough to carry the predicate it would remember. */
     let scopeInline = true;
 
+    // Match the question card's thin rail. A filled background cell reads as
+    // a full-column slab because terminal cells cannot be partially painted.
     const bar = new BoxRenderable(renderer, {
         id: "approval-bar",
         width: 1,
-        backgroundColor: TUI_NOTICE,
+        border: ["left"],
+        borderStyle: "heavy",
+        borderColor: TUI_NOTICE,
         flexShrink: 0,
         visible: approvalChromeVisible(renderer),
     });
@@ -142,7 +146,9 @@ export function createTuiApprovalView(
     const details = new ScrollBoxRenderable(renderer, {
         id: "approval-details",
         width: "100%",
-        flexGrow: 1,
+        height: "auto",
+        flexGrow: 0,
+        flexShrink: 1,
         minHeight: 1,
         marginTop: 1,
         scrollY: true,
@@ -165,6 +171,7 @@ export function createTuiApprovalView(
         id: "approval-hints",
         content: "",
         height: 1,
+        marginTop: 1,
         flexShrink: 1,
         overflow: "hidden",
         wrapMode: "none",
@@ -199,9 +206,9 @@ export function createTuiApprovalView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        bottom: 1,
-        left: approvalSideInset(renderer),
-        right: 1,
+        bottom: 0,
+        left: 0,
+        right: 0,
         height: "auto",
         maxHeight: renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
             ? "100%"
@@ -257,7 +264,7 @@ export function createTuiApprovalView(
     }
 
     function renderChrome(update: ToolApprovalUiRequestUpdate): void {
-        bar.backgroundColor = TUI_NOTICE;
+        bar.borderColor = TUI_NOTICE;
         box.backgroundColor = TUI_PANEL;
         detailsText.fg = TUI_TEXT;
         const reason = specificReason(update.request.reason);
@@ -301,7 +308,6 @@ export function createTuiApprovalView(
             box.maxHeight = renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
                 ? "100%"
                 : "90%";
-            box.left = approvalSideInset(renderer);
             const inline = scopeFitsRow(renderer, update);
             bar.visible = approvalChromeVisible(renderer);
             headerText.visible = approvalHeaderVisible(renderer);
@@ -392,10 +398,6 @@ function approvalChromeVisible(renderer: RenderContext): boolean {
     return renderer.height > DIALOG_SHORT_TERMINAL_HEIGHT;
 }
 
-function approvalSideInset(renderer: RenderContext): number {
-    return approvalChromeVisible(renderer) ? 2 : 0;
-}
-
 /**
  * Whether the remembering row can carry its predicate. An answer that outruns
  * its row is clipped, and a clipped path claims a scope narrower than what
@@ -415,8 +417,6 @@ function scopeFitsRow(
     const chrome = approvalChromeVisible(renderer) ? 1 : 0;
     const padding = 4;
     const available = renderer.width
-        - approvalSideInset(renderer)
-        - 1
         - chrome
         - padding;
     return approvalRowText(update, row, true).length <= available;
