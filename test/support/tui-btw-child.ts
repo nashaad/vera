@@ -14,70 +14,33 @@ import {
 } from "../../src/model/types.ts";
 
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
+const sessions = new Map<string, TuiAgentClient>();
+let nextSession = 1;
 
-/** What a seat is: a model the user already admitted, and its provider. */
-const POOLED = ["guest", "second", "broken"].map((poolName) => ({
-    provider: "faux",
-    model: `faux-${poolName}`,
-    label: `faux-${poolName}`,
-    poolName,
-    available: true,
-    verified: true,
-    levels: [],
-}));
-
-/** Answers with what it was actually sent, so a hidden note is still visible
- * somewhere a test can read it. */
-const agent: ModelAdapter = {
-    stream(request) {
-        const last = request.messages.filter((message) =>
-            message.role === "user"
-        ).at(-1);
-        const text = typeof last?.content === "string"
-            ? last.content
-            : JSON.stringify(last?.content ?? "");
-        return new FauxAdapter([
-            response(
-                text.includes("left the conversation")
-                    ? "AGENT SAW A SEAT LEAVE"
-                    : "AGENT ANSWERED",
-            ),
-        ]).stream(request);
-    },
-};
-
-/** A conversation of its own, so `/clear` has somewhere to go. */
-function session(id: string): TuiAgentClient {
+function session(id: string, speaker: "AGENT" | "SIDEKICK"): TuiAgentClient {
     const channel = createInProcessChannel();
-    void runHeadlessLoop(
-        channel.engine,
-        agent,
-        "test",
-        "high",
-        {
-            approvalMode: "auto",
-            readModelSettings: () => ({
-                model: "test",
-                reasoningEffort: "high",
-                contextWindow: 100,
-                pooled: POOLED,
-            }),
-            updateModelSettings: async () => undefined,
-            readApprovalMode: () => "auto",
-            updateApprovalMode: async () => undefined,
-            async consult(request) {
-                if (request.model === "faux-broken") {
-                    throw new Error("provider is down");
-                }
-                return {
-                    text: `SEAT SAW ${request.messages.at(-1)?.content ?? ""}`,
-                    model: request.model,
-                };
-            },
-            sendConsultReply: (_ownerId, reply) => channel.engine.send(reply),
+    let turns = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            turns += 1;
+            return new FauxAdapter([
+                response(`${speaker} ANSWERED ${turns}`),
+            ]).stream(request);
         },
-    );
-    return {
+    };
+    void runHeadlessLoop(channel.engine, adapter, "test", "high", {
+        approvalMode: speaker === "SIDEKICK" ? "readonly" : "auto",
+        readModelSettings: () => ({
+            model: "test",
+            reasoningEffort: "high",
+            contextWindow: 100,
+        }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () =>
+            speaker === "SIDEKICK" ? "readonly" : "auto",
+        updateApprovalMode: async () => undefined,
+    });
+    const client: TuiAgentClient = {
         agentId: id,
         workspace: process.cwd(),
         async send(command): Promise<void> {
@@ -89,11 +52,24 @@ function session(id: string): TuiAgentClient {
         async detach(): Promise<void> {},
         close(): void {},
     };
+    sessions.set(id, client);
+    return client;
 }
 
 await startTui({
-    client: session("first-session"),
-    createSession: async () => session("second-session"),
+    client: session("main-1", "AGENT"),
+    createSession: async () => session(`main-${++nextSession}`, "AGENT"),
+    createAgent: async (_workspace, approvalMode) => {
+        if (approvalMode !== "readonly") {
+            throw new Error(`expected readonly, received ${approvalMode}`);
+        }
+        return session(`side-${++nextSession}`, "SIDEKICK");
+    },
+    attachAgent: async (agentId) => {
+        const client = sessions.get(agentId);
+        if (client === undefined) throw new Error(`unknown agent ${agentId}`);
+        return client;
+    },
     clientExtensions: [{ path: EXTENSION, enabled: true, config: null }],
 });
 
