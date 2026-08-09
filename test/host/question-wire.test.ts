@@ -105,3 +105,34 @@ test("host wire carries a choice preview and rejects a non-string one", () => {
         },
     })).toBeUndefined();
 });
+
+test("host wire carries a choice description", () => {
+    const withDescription = {
+        ...validQuestion,
+        request: {
+            ...validQuestion.request,
+            choices: [
+                {
+                    id: "automatic",
+                    label: "Continue automatically",
+                    description: "Vera keeps going without asking again.",
+                },
+                { id: "manual", label: "Wait for me" },
+            ],
+        },
+    };
+    expect(parseAgentUpdate(withDescription)).toEqual(withDescription);
+});
+
+test("host wire rejects an empty choice description", () => {
+    expect(parseAgentUpdate({
+        ...validQuestion,
+        request: {
+            ...validQuestion.request,
+            choices: [
+                { id: "automatic", label: "Continue automatically", description: "  " },
+                { id: "manual", label: "Wait for me" },
+            ],
+        },
+    })).toBeUndefined();
+});
