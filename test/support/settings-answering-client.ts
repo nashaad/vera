@@ -8,6 +8,8 @@ export interface SettingsAnsweringClientOptions {
     readonly workspace?: string;
     readonly model: string;
     readonly mode: ApprovalMode;
+    /** Extra fields merged into every reported model settings payload. */
+    readonly modelSettings?: Record<string, unknown>;
     /** Updates delivered before anything is asked for, such as replayed history. */
     readonly initialUpdates?: readonly AgentUpdate[];
     /** Commands this session answers beyond the two settings requests. */
@@ -43,7 +45,10 @@ export function createSettingsAnsweringClient(
                 updates.push({
                     type: "model_settings",
                     requestId: command.requestId,
-                    settings: { model: options.model },
+                    settings: {
+                        model: options.model,
+                        ...options.modelSettings,
+                    },
                     pending: false,
                     seq: (seq += 1),
                 });

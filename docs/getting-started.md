@@ -87,6 +87,14 @@ else gets a second pass on the same model by default. Set `escalation_model`
 and optionally `escalation_provider` only when the second pass should use a
 different model.
 
+To keep a backup reviewer for when the first one cannot answer, add
+`fallback_model`, and optionally `fallback_provider` and
+`fallback_reasoning_effort`. Vera tries the reviewers in order and moves to the
+next one when the current one errors or is unreachable.
+
+Both slots can also be set from the TUI: run `/settings` and choose Reviewer.
+Any model is offered, including one that is not in your pool.
+
 The reviewer never sees tool output. Its transcript carries user turns and
 tool calls, but results are stripped: tool output is the one part of the
 transcript written by the outside world, which makes it the channel prompt

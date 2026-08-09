@@ -229,6 +229,12 @@ export interface RunHeadlessLoopOptions {
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
+    /**
+     * The reviewer route as it stands now, read at each review. A reviewer
+     * chosen mid-session has to reach the session that chose it, so the
+     * option below is only the starting point.
+     */
+    readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly sessionStore?: SessionStore;
     readonly sessionId?: string;
     readonly sessionPath?: string;
@@ -523,7 +529,7 @@ export async function runHeadlessLoop(
     let activeReviewer: { key: string; review: ReviewToolCall } | undefined;
     const reviewToolCall: ReviewToolCall = options.reviewToolCall
         ?? ((request, signal) => {
-            const configured = options.reviewer;
+            const configured = options.readReviewer?.() ?? options.reviewer;
             const current = options.readModelSettings?.()
                 ?? {
                     model,

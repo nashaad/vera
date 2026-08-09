@@ -1136,6 +1136,17 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
         ...(settings.subagentDefault === undefined
             ? {}
             : { subagentDefault: { ...settings.subagentDefault } }),
+        ...(settings.reviewerDefault === undefined ? {} : {
+            reviewerDefault: {
+                mode: settings.reviewerDefault.mode,
+                ...(settings.reviewerDefault.primary === undefined
+                    ? {}
+                    : { primary: { ...settings.reviewerDefault.primary } }),
+                ...(settings.reviewerDefault.fallback === undefined
+                    ? {}
+                    : { fallback: { ...settings.reviewerDefault.fallback } }),
+            },
+        }),
         ...(settings.availableReasoningEfforts === undefined
             ? {}
             : {
