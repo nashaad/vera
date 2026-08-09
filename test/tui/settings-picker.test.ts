@@ -118,6 +118,23 @@ test("session picker filters titled durable conversations and selects an agent",
     expect(searched.options).toHaveLength(1);
 });
 
+test("session search accepts spaces between words", () => {
+    let state = startTuiSessionPicker([{
+        id: "11111111-first-session",
+        workspace: "/work/alpha",
+        session_path: "/sessions/first.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "Turn planning",
+    }]);
+    for (const name of ["t", "u", "r", "n", "space", "p"]) {
+        state = handleTuiSettingsPickerKey(state, { name }).state ?? state;
+    }
+    expect(state.query).toBe("turn p");
+    expect(state.options).toHaveLength(1);
+});
+
 test("a child picker can include an untitled hosted agent", async () => {
     const state = startTuiSessionPicker([{
         id: "frosty-frost:9f3a:UAT-tester",

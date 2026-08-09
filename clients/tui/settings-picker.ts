@@ -1404,11 +1404,11 @@ export function handleTuiSettingsPickerKey(
         };
     }
     if (
-        key.name.length === 1
+        (key.name.length === 1 || key.name === "space")
         && !key.ctrl
         && !key.meta
     ) {
-        return searched(state, state.query + key.name);
+        return searched(state, state.query + (key.name === "space" ? " " : key.name));
     }
     // Left and right open and close a section, the shape a tree has everywhere
     // else. On a row inside a section they act on the heading above it, so
