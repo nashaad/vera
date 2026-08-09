@@ -1,0 +1,94 @@
+import { expect, test } from "bun:test";
+
+import { TuiAgentPaneState } from "../../clients/tui/agent-pane-state.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
+
+test("two panes reduce agent updates into independent transcripts", () => {
+    const main = new TuiAgentPaneState();
+    const sidebar = new TuiAgentPaneState();
+
+    main.apply({ type: "user_prompt", content: "main question", seq: 1 }, 1_000);
+    sidebar.apply({ type: "user_prompt", content: "side question", seq: 1 }, 2_000);
+    main.apply({ type: "assistant_delta", text: "main answer", seq: 2 }, 3_000);
+    sidebar.apply({ type: "assistant_delta", text: "side answer", seq: 2 }, 4_000);
+
+    expect(main.state.entries.map((entry) => entry.text)).toEqual([
+        "main question",
+        "Thought: 2.0s",
+        "main answer",
+    ]);
+    expect(sidebar.state.entries.map((entry) => entry.text)).toEqual([
+        "side question",
+        "Thought: 2.0s",
+        "side answer",
+    ]);
+});
+
+test("approval queues belong to one pane", () => {
+    const main = new TuiAgentPaneState();
+    const sidebar = new TuiAgentPaneState();
+    const first = approval("main-1");
+    const second = approval("main-2");
+    const side = approval("side-1");
+
+    main.apply(first);
+    main.apply(second);
+    sidebar.apply(side);
+
+    expect(main.pendingUiRequest?.requestId).toBe("main-1");
+    expect(main.queuedUiRequests.map((request) => request.requestId))
+        .toEqual(["main-2"]);
+    expect(sidebar.pendingUiRequest?.requestId).toBe("side-1");
+    expect(sidebar.queuedUiRequests).toEqual([]);
+
+    main.apply({ type: "ui_request_closed", requestId: "main-1", seq: 3 });
+    expect(main.pendingUiRequest?.requestId).toBe("main-2");
+    expect(sidebar.pendingUiRequest?.requestId).toBe("side-1");
+});
+
+test("activity timing and background agents stay pane-local", () => {
+    const main = new TuiAgentPaneState();
+    const sidebar = new TuiAgentPaneState();
+
+    main.apply({ type: "status", state: "working", seq: 1 }, 1_000);
+    sidebar.apply({ type: "status", state: "waiting", seq: 1 }, 5_000);
+    main.setBackgroundAgents({
+        running: 1,
+        children: ["research"],
+        has_parent: false,
+    });
+    sidebar.setBackgroundAgents({
+        running: 0,
+        children: [],
+        has_parent: true,
+    });
+
+    expect(main.activity).toBe("thinking");
+    expect(main.elapsedWorkingTime(62_000)).toBe("1m01s");
+    expect(main.backgroundAgents).toEqual({
+        running: 1,
+        children: ["research"],
+        has_parent: false,
+    });
+    expect(sidebar.activity).toBe("waiting");
+    expect(sidebar.elapsedWorkingTime(6_000)).toBe("1s");
+    expect(sidebar.backgroundAgents?.has_parent).toBe(true);
+});
+
+function approval(requestId: string): AgentUpdate {
+    return {
+        type: "ui_request",
+        requestId,
+        request: {
+            type: "tool_approval",
+            toolCall: {
+                id: `call-${requestId}`,
+                name: "read",
+                input: {},
+            },
+            reason: "approval needed",
+            warning: "read approval",
+        },
+        seq: Number(requestId.endsWith("2")) + 1,
+    };
+}
