@@ -200,14 +200,14 @@ test("focus is shown as a rail below the sidebar", async () => {
 test("an attached agent identity stays at the top of the sidebar", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
-        sidebar.setHeader("sidekick · readonly");
+        sidebar.setHeader("agent-b · readonly");
         await setup.flush();
-        expect(setup.captureCharFrame()).toContain("sidekick · readonly");
-        sidebar.setHeader("sidekick · ask");
+        expect(setup.captureCharFrame()).toContain("agent-b · readonly");
+        sidebar.setHeader("agent-b · ask");
         await setup.flush();
         const frame = setup.captureCharFrame();
-        expect(frame).toContain("sidekick · ask");
-        expect(frame).not.toContain("sidekick · readonly");
+        expect(frame).toContain("agent-b · ask");
+        expect(frame).not.toContain("agent-b · readonly");
     } finally {
         setup.renderer.destroy();
     }

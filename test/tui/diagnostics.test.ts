@@ -71,7 +71,7 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
             hostStartedAt: "2026-08-09T20:00:00.000Z",
         },
         extensions: [{
-            path: "/worktree/examples/extensions/btw",
+            path: "/worktree/examples/extensions/sample",
             enabled: true,
         }, {
             path: "/old/disabled-extension",
@@ -83,7 +83,7 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
     expect(text).toContain("entrypoint   /worktree/clients/tui/main.ts");
     expect(text).toContain("host         PID 42 · started 2026-08-09T20:00:00.000Z");
     expect(text).toContain("host entry   /other/clients/host/main.ts");
-    expect(text).toContain("enabled       /worktree/examples/extensions/btw");
+    expect(text).toContain("enabled       /worktree/examples/extensions/sample");
     expect(text).toContain("disabled      /old/disabled-extension");
     expect(text).not.toContain("────");
 });

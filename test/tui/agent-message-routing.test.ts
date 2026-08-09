@@ -7,7 +7,7 @@ import {
 
 const visible: readonly TuiVisibleAgent[] = [
     { agentId: "main-id", pane: "main", mention: "vera" },
-    { agentId: "side-id", pane: "sidebar", mention: "sidekick" },
+    { agentId: "second-id", pane: "sidebar", mention: "analyst" },
 ];
 
 test("an unaddressed message goes to the focused visible agent", () => {
@@ -27,7 +27,7 @@ test("a visible mention overrides focus for one message", () => {
 });
 
 test("a bare visible mention changes focus without sending", () => {
-    expect(routeTuiAgentMessage("@sidekick", "main", visible)).toEqual({
+    expect(routeTuiAgentMessage("@analyst", "main", visible)).toEqual({
         kind: "focus",
         pane: "sidebar",
     });

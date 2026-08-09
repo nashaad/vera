@@ -173,7 +173,7 @@ export type TuiCommandScope = "focused_agent" | "main_session" | "application";
 
 /**
  * Which owner a slash command is allowed to affect. Keep this exhaustive so a
- * newly added command cannot silently inherit Vera while a peer is focused.
+ * newly added command cannot silently inherit Vera while another agent is focused.
  */
 export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
     switch (action.type) {

@@ -8,8 +8,8 @@ test("no held address is an empty line", () => {
 });
 
 test("the line names where messages go and the way back", () => {
-    expect(renderTuiHeldAddress("@sidekick")).toEqual({
-        facts: "every message goes to @sidekick",
+    expect(renderTuiHeldAddress("@analyst")).toEqual({
+        facts: "every message goes to @analyst",
         keys: "@vera goes back to the agent",
     });
 });
