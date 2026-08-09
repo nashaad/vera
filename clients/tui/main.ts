@@ -4907,6 +4907,7 @@ export async function startTui(
     }
 
     function openModelPicker(parent?: TuiSettingsPickerState): void {
+        if (parent === undefined) settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
@@ -4963,6 +4964,7 @@ export async function startTui(
     }
 
     function openReasoningPicker(parent?: TuiSettingsPickerState): void {
+        if (parent === undefined) settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
         // An empty (or unresolved) level list means this model has no
         // reasoning control at all. A card with no rows is indistinguishable
@@ -5625,6 +5627,7 @@ export async function startTui(
                     },
                     `model → ${chosen}`,
                     `the model to ${chosen}`,
+                    settingsPickerAgent,
                 );
             } else if (selection.kind === "provider") {
                 connectProvider(
@@ -5639,6 +5642,7 @@ export async function startTui(
                     { reasoningEffort: selection.reasoningEffort },
                     `reasoning → ${selection.reasoningEffort}`,
                     `reasoning to ${selection.reasoningEffort}`,
+                    settingsPickerAgent,
                 );
             } else if (selection.kind === "permissions") {
                 if (selection.mode === "full_access") {
@@ -5676,6 +5680,7 @@ export async function startTui(
                         `the ${selection.slot === "primary"
                             ? "reviewer"
                             : "failsafe reviewer"}`,
+                        settingsPickerAgent,
                     );
                 }
             } else {
@@ -6001,10 +6006,11 @@ export async function startTui(
         patch: ModelSettingsPatch,
         toast: string,
         subject: string,
+        target: TuiAgentClient = focusedAgentClient(),
     ): void {
         const requestId = randomUUID();
         requestedModelChanges.set(requestId, subject);
-        void focusedAgentClient().send({
+        void target.send({
             type: "update_model_settings",
             requestId,
             patch,
