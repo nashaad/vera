@@ -22,6 +22,9 @@ resizing, but does not change agent focus.
 
 `/btw` starts its agent in `readonly`; `/pair` starts its peer in `ask`. The
 sidebar header always shows the attached name and effective permission mode.
+BTW's pane attachment is ephemeral, while Pair's attachment is restored across
+Vera restarts. The peer conversation remains available through `/resume` even
+after its pane is closed.
 
 The sidekick is a real hosted Vera session. It has its own transcript and can
 continue running if its pane is replaced. `/btw` creates it with readonly
@@ -29,9 +32,9 @@ permissions, so it can inspect the workspace but cannot run bash or mutate
 files. Use the focused session's permission controls if you deliberately want
 to promote it.
 
-This extension supplies only the `/btw` policy: readonly by default, sidebar
-placement, and the `sidekick` mention. Vera owns agent creation, attachment,
-message routing, permissions, and rendering.
+This extension supplies the `/btw` and `/pair` policies: permission defaults,
+attachment lifetime, sidebar placement, and mentions. Vera owns agent creation,
+attachment, message routing, permissions, persistence, and rendering.
 
 ## Install
 

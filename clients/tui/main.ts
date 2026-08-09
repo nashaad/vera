@@ -857,6 +857,7 @@ export async function startTui(
     /** Which extension holds the sidebar, absent while nobody does. */
     let sidebarOwner: string | undefined;
     let sidebarAgentPane: TuiAgentPane<IdentifiedTuiAgentClient> | undefined;
+    let sidebarAttachmentLifetime: "ephemeral" | "durable" = "durable";
     let sidebarAgentMention: string | undefined;
     let clientSurfaceReady = false;
     let submitAfterImageAttachment = false;
@@ -976,6 +977,7 @@ export async function startTui(
                     request.pane,
                     false,
                     request.mention,
+                    request.attachmentLifetime,
                 );
                 return { agentId: next.agentId };
             },
@@ -993,6 +995,7 @@ export async function startTui(
                     request.pane,
                     false,
                     request.mention,
+                    request.attachmentLifetime,
                 );
             },
             async message(_extensionId, request, signal) {
@@ -1469,6 +1472,7 @@ export async function startTui(
         pane: "main" | "sidebar",
         replaceSidebarOwner = false,
         mention?: string,
+        attachmentLifetime: "ephemeral" | "durable" = "durable",
     ): Promise<void> {
         if (pane === "main") {
             switchToClient(next, undefined, { preserveSidebar: true });
@@ -1500,6 +1504,7 @@ export async function startTui(
             },
         });
         sidebarAgentPane = attached;
+        sidebarAttachmentLifetime = attachmentLifetime;
         sidebarAgentMention = mention ?? attached.agentId;
         rememberOpenPaneGroup();
         clearSidebarEntryNodes();
@@ -1575,6 +1580,17 @@ export async function startTui(
         const mainId = client.agentId;
         const sidebarId = sidebarAgentPane?.agentId;
         if (mainId === undefined || sidebarId === undefined) return;
+        if (sidebarAttachmentLifetime === "ephemeral") {
+            sharedSessionGroups = sharedSessionGroups.filter((group) =>
+                !group.includes(mainId) && !group.includes(sidebarId)
+            );
+            try {
+                saveTuiSharedSessionGroups(sharedSessionGroups);
+            } catch {
+                // A failed UI preference write must not prevent an attachment.
+            }
+            return;
+        }
         sharedSessionGroups = [
             ...sharedSessionGroups.filter((group) =>
                 !group.includes(mainId) && !group.includes(sidebarId)

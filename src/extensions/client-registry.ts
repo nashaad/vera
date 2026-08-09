@@ -1646,14 +1646,30 @@ function validateAgentPane(pane: unknown): "main" | "sidebar" {
     return pane;
 }
 
+function validateAgentAttachmentLifetime(
+    lifetime: unknown,
+): "ephemeral" | "durable" | undefined {
+    if (lifetime === undefined) return undefined;
+    if (lifetime !== "ephemeral" && lifetime !== "durable") {
+        throw new Error(
+            "Client extension agent attachment lifetime must be ephemeral or durable",
+        );
+    }
+    return lifetime;
+}
+
 function validateAgentCreateRequest(
     request: VeraClientAgentCreateRequest,
 ): VeraClientAgentCreateRequest {
     const workspace = request?.workspace?.trim();
     const approvalMode = request?.approvalMode?.trim();
     const mention = validateOptionalAgentMention(request?.mention);
+    const attachmentLifetime = validateAgentAttachmentLifetime(
+        request?.attachmentLifetime,
+    );
     return {
         pane: validateAgentPane(request?.pane),
+        ...(attachmentLifetime === undefined ? {} : { attachmentLifetime }),
         ...(mention === undefined ? {} : { mention }),
         ...(workspace === undefined || workspace.length === 0
             ? {}
@@ -1672,9 +1688,13 @@ function validateAgentOpenRequest(
         throw new Error("Client extension must name an agent to open");
     }
     const mention = validateOptionalAgentMention(request.mention);
+    const attachmentLifetime = validateAgentAttachmentLifetime(
+        request.attachmentLifetime,
+    );
     return {
         agentId,
         pane: validateAgentPane(request.pane),
+        ...(attachmentLifetime === undefined ? {} : { attachmentLifetime }),
         ...(mention === undefined ? {} : { mention }),
     };
 }
