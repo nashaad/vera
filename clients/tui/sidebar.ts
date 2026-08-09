@@ -78,6 +78,12 @@ export interface TuiSidebar {
     open(): void;
     close(): void;
     append(label: string, text: string, speaker?: string): void;
+    /** Replaces every transcript block with one layout notification. */
+    replace(blocks: readonly {
+        readonly label: string;
+        readonly text: string;
+        readonly speaker?: string;
+    }[]): void;
     clear(): void;
     /**
      * Repaints the column, and every block already in it, in a new palette.
@@ -257,6 +263,55 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         options.onLayoutChanged?.();
     }
 
+    function createBlock(
+        number: number,
+        label: string,
+        text: string,
+        speaker?: string,
+    ): {
+        readonly block: TuiSidebarBlock;
+        readonly paint: { label: TextRenderable; text: MarkdownRenderable };
+    } {
+        const node = new BoxRenderable(renderer, {
+            id: `sidebar-block-${number}`,
+            width: "100%",
+            flexDirection: "column",
+        });
+        // The label is drawn, not parsed: markdown would eat the brackets and
+        // asterisks that model names and aliases are full of.
+        const labelNode = new TextRenderable(renderer, {
+            id: `sidebar-block-${number}-label`,
+            content: label,
+            fg: theme.muted,
+            attributes: TextAttributes.BOLD,
+            width: "100%",
+            wrapMode: "word",
+        });
+        const textNode = new MarkdownRenderable(renderer, {
+            id: `sidebar-block-${number}-text`,
+            content: text,
+            syntaxStyle,
+            fg: theme.text,
+            width: "100%",
+            marginTop: 1,
+        });
+        node.add(labelNode);
+        node.add(textNode);
+        return {
+            block: { node, speaker: speaker ?? label },
+            paint: { label: labelNode, text: textNode },
+        };
+    }
+
+    function removeBlocks(): void {
+        for (const child of [...content.getChildren()]) {
+            content.remove(child.id);
+        }
+        appended.length = 0;
+        painted.length = 0;
+        blocks = 0;
+    }
+
     return {
         body,
         isFollowing: () =>
@@ -300,44 +355,50 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
         append(label: string, text: string, speaker?: string): void {
             blocks += 1;
-            const block = new BoxRenderable(renderer, {
-                id: `sidebar-block-${blocks}`,
-                width: "100%",
-                flexDirection: "column",
-            });
-            // The label is drawn, not parsed: markdown would eat the brackets
-            // and asterisks that model names and aliases are full of.
-            const labelText = new TextRenderable(renderer, {
-                id: `sidebar-block-${blocks}-label`,
-                content: label,
-                fg: theme.muted,
-                attributes: TextAttributes.BOLD,
-                width: "100%",
-                wrapMode: "word",
-            });
-            const bodyText = new MarkdownRenderable(renderer, {
-                id: `sidebar-block-${blocks}-text`,
-                content: text,
-                syntaxStyle,
-                fg: theme.text,
-                width: "100%",
-                marginTop: 1,
-            });
-            block.add(labelText);
-            block.add(bodyText);
-            painted.push({ label: labelText, text: bodyText });
-            content.add(block);
-            appended.push({ node: block, speaker: speaker ?? label });
+            const created = createBlock(blocks, label, text, speaker);
+            painted.push(created.paint);
+            appended.push(created.block);
+            content.add(created.block.node);
+            options.onLayoutChanged?.();
+        },
+        replace(nextBlocks): void {
+            // Markdown layout finishes asynchronously. Recreating every node
+            // on each streamed update exposes labels before their bodies are
+            // ready, so retain the common prefix and update it in place.
+            const retained = Math.min(appended.length, nextBlocks.length);
+            for (let index = 0; index < retained; index += 1) {
+                const next = nextBlocks[index]!;
+                const paint = painted[index]!;
+                paint.label.content = next.label;
+                paint.text.content = next.text;
+                appended[index] = {
+                    node: appended[index]!.node,
+                    speaker: next.speaker ?? next.label,
+                };
+            }
+            while (appended.length > nextBlocks.length) {
+                const removed = appended.pop()!;
+                painted.pop();
+                content.remove(removed.node.id);
+            }
+            blocks = appended.length;
+            for (const next of nextBlocks.slice(retained)) {
+                blocks += 1;
+                const created = createBlock(
+                    blocks,
+                    next.label,
+                    next.text,
+                    next.speaker,
+                );
+                painted.push(created.paint);
+                appended.push(created.block);
+                content.add(created.block.node);
+            }
             options.onLayoutChanged?.();
         },
         blocks: () => appended,
         clear(): void {
-            for (const child of [...content.getChildren()]) {
-                content.remove(child.id);
-            }
-            blocks = 0;
-            appended.length = 0;
-            painted.length = 0;
+            removeBlocks();
             options.onLayoutChanged?.();
         },
         setTheme(next: TuiSidebarTheme, nextSyntaxStyle: SyntaxStyle): void {

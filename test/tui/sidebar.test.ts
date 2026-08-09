@@ -39,6 +39,7 @@ async function openSidebar(
     width = 120,
     height = 12,
     onPanelClick?: () => void,
+    onLayoutChanged?: () => void,
 ) {
     const setup = await createTestRenderer({ width, height });
     const transcript = new BoxRenderable(setup.renderer, {
@@ -59,6 +60,7 @@ async function openSidebar(
         },
         syntaxStyle: STYLE,
         ...(onPanelClick === undefined ? {} : { onPanelClick }),
+        ...(onLayoutChanged === undefined ? {} : { onLayoutChanged }),
     });
     setup.renderer.root.add(sidebar.body);
     sidebar.open();
@@ -132,6 +134,36 @@ test("a bracketed label is shown, not parsed as markdown", async () => {
         await new Promise((resolve) => setTimeout(resolve, 200));
         await setup.flush();
         expect(setup.captureCharFrame()).toContain("[m1] (gpt-5.5)");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("replacing sidebar blocks publishes one completed layout", async () => {
+    let layouts = 0;
+    const { setup, sidebar } = await openSidebar(
+        120,
+        12,
+        undefined,
+        () => layouts++,
+    );
+    try {
+        sidebar.append("old", "old answer");
+        const retainedNode = sidebar.blocks()[0]!.node;
+        const before = layouts;
+        sidebar.replace([
+            { label: "you", text: "new question" },
+            { label: "agent", text: "new answer" },
+        ]);
+        expect(layouts - before).toBe(1);
+        expect(sidebar.blocks()[0]!.node).toBe(retainedNode);
+        await setup.flush();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).not.toContain("old answer");
+        expect(frame).toContain("new question");
+        expect(frame).toContain("new answer");
     } finally {
         setup.renderer.destroy();
     }

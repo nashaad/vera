@@ -1475,16 +1475,15 @@ export async function startTui(
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
         if (pane !== sidebarAgentPane) return;
-        sidebar.clear();
-        for (const entry of pane.state.state.entries) {
-            if (entry.text.length === 0 || entry.kind === "thinking") continue;
+        sidebar.replace(pane.state.state.entries.flatMap((entry) => {
+            if (entry.text.length === 0 || entry.kind === "thinking") return [];
             const label = entry.kind === "user"
                 ? "you"
                 : entry.kind === "assistant"
                 ? "agent"
                 : entry.kind.replaceAll("_", " ");
-            sidebar.append(label, entry.text, label);
-        }
+            return [{ label, text: entry.text, speaker: label }];
+        }));
         renderSidebarJump();
         renderState();
     }
