@@ -2452,25 +2452,34 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("readonly");
             expect(pane).toContain("Message sidekick");
 
-            // Ctrl+B switches focus without making terminal selection and
+            // F6 switches focus without making terminal selection and
             // pointer-capture behaviour part of message routing.
-            sendKey(socket, session, "C-b");
+            sendKey(socket, session, "F6");
             await waitForVisiblePaneWhere(
                 socket,
                 session,
                 (visible) => visible.includes(" · auto · "),
-                "ctrl+b to focus the main agent",
+                "f6 to focus the main agent",
+            );
+            sendKey(socket, session, "F6");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes(" · readonly · "),
+                "f6 to restore sidekick focus",
+            );
+            expect(captureVisiblePaneWithStyles(socket, session)).toMatch(
+                /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*▁+/,
             );
             sendKey(socket, session, "C-b");
             pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
-                (visible) => visible.includes(" · readonly · "),
-                "ctrl+b to restore sidekick focus",
+                (visible) => !visible.includes("SIDEKICK ANSWERED 1"),
+                "ctrl+b to hide the focused sidebar",
             );
-            expect(captureVisiblePaneWithStyles(socket, session)).toMatch(
-                /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*▁+/,
-            );
+            sendKey(socket, session, "C-b");
+            await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 1");
 
             // `/btw` focuses the attached pane, so a bare follow-up stays in
             // the hosted sidekick without an extension interceptor.
