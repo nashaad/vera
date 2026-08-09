@@ -449,11 +449,14 @@ function isUserQuestionRequest(request: Record<string, unknown>): boolean {
         const choice = asRecord(value);
         if (
             choice === undefined
-            || !hasKeys(choice, ["id", "label"], ["preview"])
+            || !hasKeys(choice, ["id", "label"], ["description", "preview"])
             || typeof choice.id !== "string"
             || choice.id.trim().length === 0
             || typeof choice.label !== "string"
             || choice.label.trim().length === 0
+            || (Object.hasOwn(choice, "description")
+                && (typeof choice.description !== "string"
+                    || choice.description.trim().length === 0))
             || (Object.hasOwn(choice, "preview")
                 && typeof choice.preview !== "string")
             || ids.has(choice.id)
