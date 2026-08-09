@@ -57,7 +57,7 @@ export interface TuiSidebarOptions {
 
 /** A block in the column, paired with the label drawn above it. */
 export interface TuiSidebarBlock {
-    readonly node: BoxRenderable;
+    readonly node: Renderable;
     /** Who a quotation taken from this block is attributed to. */
     readonly speaker: string;
 }
@@ -84,6 +84,8 @@ export interface TuiSidebar {
         readonly text: string;
         readonly speaker?: string;
     }[]): void;
+    /** Reconciles caller-rendered transcript nodes without rebuilding them. */
+    replaceRendered(blocks: readonly TuiSidebarBlock[]): void;
     clear(): void;
     /**
      * Repaints the column, and every block already in it, in a new palette.
@@ -394,6 +396,30 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
                 appended.push(created.block);
                 content.add(created.block.node);
             }
+            options.onLayoutChanged?.();
+        },
+        replaceRendered(nextBlocks): void {
+            let retained = 0;
+            while (
+                retained < appended.length
+                && retained < nextBlocks.length
+                && appended[retained]!.node === nextBlocks[retained]!.node
+            ) {
+                appended[retained] = nextBlocks[retained]!;
+                retained += 1;
+            }
+            while (appended.length > retained) {
+                const removed = appended.pop()!;
+                content.remove(removed.node.id);
+            }
+            // Caller-rendered nodes carry their own palette and are not part
+            // of the sidebar's label/Markdown paint list.
+            painted.length = 0;
+            for (const block of nextBlocks.slice(retained)) {
+                appended.push(block);
+                content.add(block.node);
+            }
+            blocks = appended.length;
             options.onLayoutChanged?.();
         },
         blocks: () => appended,

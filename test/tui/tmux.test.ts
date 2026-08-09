@@ -2563,7 +2563,13 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "Allow once");
             expect(pane).toContain("$ printf approved");
             sendKey(socket, session, "1");
-            await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 6");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "SIDEKICK ANSWERED 6",
+            );
+            expect(pane).not.toContain("tool header");
+            expect(pane).not.toMatch(/^\s+(?:tool|thought|agent|you)\s*$/m);
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
