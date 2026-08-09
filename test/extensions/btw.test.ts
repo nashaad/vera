@@ -66,6 +66,7 @@ test("bare btw creates and opens a readonly hosted sidekick", async () => {
         extensionId: "vera.btw",
         request: {
             pane: "sidebar",
+            mention: "sidekick",
             workspace: "/workspace",
             approvalMode: "readonly",
         },
@@ -94,7 +95,7 @@ test("another btw reopens the same sidekick instead of creating one", async () =
     expect(harness.calls).toContainEqual({
         operation: "open",
         extensionId: "vera.btw",
-        request: { agentId: "side-1", pane: "sidebar" },
+        request: { agentId: "side-1", pane: "sidebar", mention: "sidekick" },
     });
     expect(harness.calls.filter((call: any) => call.operation === "create"))
         .toHaveLength(1);

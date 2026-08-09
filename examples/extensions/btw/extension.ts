@@ -17,6 +17,7 @@ export function activateClient(vera: any): void {
         if (agentId === undefined) {
             const created = await vera.agents.create({
                 pane: "sidebar",
+                mention: SIDEKICK,
                 workspace,
                 approvalMode: "readonly",
             }, signal);
@@ -24,7 +25,12 @@ export function activateClient(vera: any): void {
             offerVisibleMentions();
             return created.agentId;
         }
-        await vera.agents.open({ agentId, pane: "sidebar" }, signal);
+        await vera.agents.open({
+            agentId,
+            pane: "sidebar",
+            mention: SIDEKICK,
+        }, signal);
+        offerVisibleMentions();
         return agentId;
     }
 

@@ -2402,6 +2402,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("inspect this");
             expect(pane).not.toContain("AGENT ANSWERED 1");
             expect(pane).toContain("readonly");
+            expect(pane).toContain("Message sidekick");
 
             // `/btw` focuses the attached pane, so a bare follow-up stays in
             // the hosted sidekick without an extension interceptor.
@@ -2464,6 +2465,7 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "child-1");
             sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Message child-1");
             sendText(socket, session, "child question");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
