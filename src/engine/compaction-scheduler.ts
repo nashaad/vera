@@ -163,9 +163,14 @@ export function shouldCompact(
 }
 
 /**
- * Why a compaction about to run cannot pay for itself, or undefined when it
- * can. A target above the token trigger lands the request back above the
- * trigger, so the next turn asks for another one.
+ * What is wrong with the budget a compaction is about to run under, or
+ * undefined when nothing is. Two things can be wrong at once, so every part
+ * that applies is reported in one string.
+ *
+ * A target above the token trigger lands the request back above the trigger,
+ * so the next turn asks for another one. A `target_tokens` set on a model
+ * whose window is known is read and then never used, which looks like the
+ * setting doing nothing.
  */
 export function compactionBudgetWarning(
     measurement: ContextMeasurement,
@@ -176,6 +181,42 @@ export function compactionBudgetWarning(
         budget?.trigger,
     );
     const target = compactionTargetBudget(measurement, budget);
+    const parts = [
+        ignoredTargetWarning(measurement, budget, target),
+        targetAboveTriggerWarning(triggerTokens, target),
+    ].filter((part): part is string => part !== undefined);
+    return parts.length === 0 ? undefined : parts.join(" ");
+}
+
+/**
+ * `target_tokens` only sizes a session with no known window. With a window the
+ * target is a share of it, and there is no setting for that share.
+ */
+function ignoredTargetWarning(
+    measurement: ContextMeasurement,
+    budget: CompactionBudget | undefined,
+    target: number | undefined,
+): string | undefined {
+    if (
+        measurement.capacity === undefined
+        || budget?.targetTokens === undefined
+        || target === undefined
+    ) {
+        return undefined;
+    }
+    return `compaction.target_tokens (${budget.targetTokens}) is ignored:`
+        + ` this model's context window is known (${measurement.capacity}`
+        + ` tokens), so compaction targets a fixed share of it (${target}`
+        + ` tokens). target_tokens only applies when the window is unknown,`
+        + ` and the share is not configurable. Remove it, or use`
+        + ` trigger_fraction and trigger_tokens to change when compaction`
+        + ` fires.`;
+}
+
+function targetAboveTriggerWarning(
+    triggerTokens: number | undefined,
+    target: number | undefined,
+): string | undefined {
     if (
         triggerTokens === undefined
         || target === undefined
