@@ -152,6 +152,12 @@ test("focus is shown as a rail below the sidebar", async () => {
         await setup.flush();
         expect(sidebar.isFocused()).toBe(false);
         expect(setup.captureCharFrame()).not.toContain("▁");
+        sidebar.setFocused(true);
+        await setup.flush();
+        expect(sidebar.isFocused()).toBe(true);
+        expect(setup.captureCharFrame()).toContain(
+            "▁".repeat(DEFAULT_SIDEBAR_WIDTH),
+        );
     } finally {
         setup.renderer.destroy();
     }
