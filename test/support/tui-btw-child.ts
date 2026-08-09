@@ -45,6 +45,22 @@ function session(
     const adapter: ModelAdapter = {
         stream(request) {
             turns += 1;
+            if (speaker === "SIDEKICK" && turns === 5) {
+                return new FauxAdapter([{
+                    role: "assistant",
+                    content: [{
+                        type: "tool_call",
+                        id: "sidekick-approval",
+                        name: "bash",
+                        input: {
+                            command: "printf approved > /tmp/vera-sidekick-approval",
+                        },
+                    }],
+                    source: { provider: "faux", api: "scripted", model: "test" },
+                    usage: emptyUsage(),
+                    stopReason: "tool_use",
+                }]).stream(request);
+            }
             return new FauxAdapter([
                 response(`${speaker} ANSWERED ${turns}`),
             ]).stream(request);
