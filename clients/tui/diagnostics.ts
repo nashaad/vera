@@ -11,6 +11,17 @@ export interface TuiDiagnosticsSnapshot {
     readonly stash?: StashSummary;
     readonly stashRoot?: string;
     readonly now?: number;
+    readonly build?: {
+        readonly clientVersion: string;
+        readonly clientEntrypoint: string;
+        readonly hostEntrypoint?: string;
+        readonly hostPid?: number;
+        readonly hostStartedAt?: string;
+    };
+    readonly extensions?: readonly {
+        readonly path: string;
+        readonly enabled: boolean;
+    }[];
 }
 
 export function renderTuiDiagnostics(
@@ -19,6 +30,15 @@ export function renderTuiDiagnostics(
     const { state } = snapshot;
     const lines = [
         "Diagnostics",
+        "────────────────────────────────────────",
+        "Build",
+        `  client       ${snapshot.build?.clientVersion ?? "unknown"}`,
+        `  entrypoint   ${snapshot.build?.clientEntrypoint ?? "unknown"}`,
+        `  host         ${hostLabel(snapshot)}`,
+        `  host entry   ${snapshot.build?.hostEntrypoint ?? "unknown"}`,
+        "────────────────────────────────────────",
+        "Extensions",
+        ...extensionLines(snapshot),
         "────────────────────────────────────────",
         "Runtime",
         `  turn         ${state.working ? snapshot.activity : "idle"}`,
@@ -90,6 +110,22 @@ export function renderTuiDiagnostics(
     lines.push("Pre-image stash");
     lines.push(...stashLines(snapshot));
     return lines.join("\n");
+}
+
+function hostLabel(snapshot: TuiDiagnosticsSnapshot): string {
+    const pid = snapshot.build?.hostPid;
+    const started = snapshot.build?.hostStartedAt;
+    if (pid === undefined) return "unknown";
+    return `PID ${pid}${started === undefined ? "" : ` · started ${started}`}`;
+}
+
+function extensionLines(snapshot: TuiDiagnosticsSnapshot): string[] {
+    if (snapshot.extensions === undefined || snapshot.extensions.length === 0) {
+        return ["  none configured"];
+    }
+    return snapshot.extensions.map((extension) =>
+        `  ${extension.enabled ? "enabled " : "disabled"}      ${extension.path}`
+    );
 }
 
 function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
