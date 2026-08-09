@@ -139,9 +139,18 @@ export function createTuiQuestionView(
         flexShrink: 1,
         marginLeft: 2,
         border: false,
+        alignItems: "center",
+        justifyContent: "center",
         visible: false,
     });
-    preview.add(previewText);
+    const previewContent = new BoxRenderable(renderer, {
+        id: "question-preview-content",
+        width: 1,
+        height: "auto",
+        flexShrink: 0,
+    });
+    previewContent.add(previewText);
+    preview.add(previewContent);
     // Choices and their preview sit side by side while the panel is wide
     // enough for both, and stack when it is not.
     const choicesRow = new BoxRenderable(renderer, {
@@ -283,8 +292,11 @@ export function createTuiQuestionView(
     /** The highlighted choice's own rendering, when it brought one. */
     function renderPreview(update: UserQuestionUiRequestUpdate): void {
         const content = update.request.choices[selectedIndex]?.preview;
-        preview.visible = content !== undefined;
-        previewText.content = content ?? "";
+        const ownPane = previewWantsOwnPane(content);
+        preview.visible = ownPane;
+        previewText.content = ownPane ? content ?? "" : "";
+        previewContent.width = ownPane ? previewWidth(content ?? "") : 1;
+        previewContent.height = ownPane ? previewHeight(content ?? "") : 1;
     }
 
     function renderNotes(): void {
@@ -306,6 +318,8 @@ export function createTuiQuestionView(
         choicesColumn.width = stacked ? "100%" : "50%";
         preview.marginLeft = stacked ? 0 : 2;
         preview.marginTop = stacked ? 1 : 0;
+        preview.alignItems = stacked ? "flex-start" : "center";
+        preview.justifyContent = stacked ? "flex-start" : "center";
     }
 
     const view: TuiQuestionView = {
@@ -607,6 +621,46 @@ function questionChoiceRow(
         }));
     }
     return row;
+}
+
+/**
+ * A single line is not a visual preview, even when fenced as one. Multiline
+ * renderings keep their own pane so diagrams, diffs, and snippets preserve
+ * their grid; stray prose stays out of the question entirely.
+ */
+function previewWantsOwnPane(content: string | undefined): boolean {
+    if (content === undefined) {
+        return false;
+    }
+    const lines = content.split("\n").filter((line) => line.trim().length > 0);
+    if (lines.length < 2) {
+        return false;
+    }
+    return !isFencedOneLine(lines);
+}
+
+function isFencedOneLine(lines: readonly string[]): boolean {
+    if (lines.length !== 3) {
+        return false;
+    }
+    const opening = lines[0]?.trimStart() ?? "";
+    const marker = /^(`{3,}|~{3,})/.exec(opening)?.[1];
+    const closing = lines[2]?.trim() ?? "";
+    if (marker === undefined || closing.length < marker.length) {
+        return false;
+    }
+    return [...closing].every((character) => character === marker[0]);
+}
+
+function previewWidth(content: string): number {
+    return Math.max(
+        1,
+        ...content.split("\n").map((line) => Bun.stringWidth(line)),
+    );
+}
+
+function previewHeight(content: string): number {
+    return Math.max(1, content.split("\n").length);
 }
 
 /** The number, its period, and the space after it. */

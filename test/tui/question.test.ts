@@ -385,10 +385,15 @@ test("TUI question shows the highlighted choice's preview beside it", async () =
         let frame = setup.captureCharFrame();
         expect(frame).toContain("│ stable │");
         expect(frame).not.toContain("│ preview │");
-        // Side by side: the preview shares a row with the choice it explains.
+        // Side by side, but centered rather than pinned to the pane's top.
+        const lines = frame.split("\n");
         const stableLine = frame.split("\n")
             .find((line) => line.includes("1. Stable"));
-        expect(stableLine).toContain("│");
+        const diagramLine = lines.find((line) => line.includes("│ stable │"));
+        expect(lines.indexOf(diagramLine!)).toBeGreaterThan(
+            lines.indexOf(stableLine!),
+        );
+        expect(diagramLine?.indexOf("│ stable │")).toBeGreaterThan(60);
 
         view.handleKey(previewRequest, { name: "down" });
         await setup.flush();
@@ -416,6 +421,135 @@ test("a narrow terminal puts the preview under the choices", async () => {
         expect(stableLine).not.toContain("│ stable │");
     } finally {
         setup.renderer.destroy();
+    }
+});
+
+test("a centered preview reserves every row of a taller diagram", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update({
+        ...previewRequest,
+        requestId: "question-tall-preview",
+        request: {
+            ...previewRequest.request,
+            choices: [
+                {
+                    id: "table",
+                    label: "Table layout",
+                    preview: "┌─────┬─────┐\n│ Col1│ Col2│\n├─────┼─────┤\n│ A   │ B   │\n└─────┴─────┘",
+                },
+                { id: "plain", label: "Plain" },
+            ],
+        },
+    });
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("┌─────┬─────┐");
+        expect(frame).toContain("│ Col1│ Col2│");
+        expect(frame).toContain("├─────┼─────┤");
+        expect(frame).toContain("│ A   │ B   │");
+        expect(frame).toContain("└─────┴─────┘");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a short text preview is not rendered", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update({
+        ...previewRequest,
+        requestId: "question-text-preview",
+        request: {
+            ...previewRequest.request,
+            choices: [
+                {
+                    id: "inspect",
+                    label: "Yes, inspect them",
+                    description: "Read the relevant files first.",
+                    preview: "Ask permission → inspect files → report finding",
+                },
+                { id: "wait", label: "No, don't inspect yet" },
+            ],
+        },
+    });
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("1. Yes, inspect them");
+        expect(frame).not.toContain(
+            "Ask permission → inspect files → report finding",
+        );
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a fenced one-line preview is not rendered", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update({
+        ...previewRequest,
+        requestId: "question-fenced-text-preview",
+        request: {
+            ...previewRequest.request,
+            choices: [
+                {
+                    id: "write",
+                    label: "Write or modify code",
+                    preview: "```text\nWrite or modify code\n```",
+                },
+                { id: "review", label: "Review existing code" },
+            ],
+        },
+    });
+
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).not.toContain("```");
+        expect(frame.match(/Write or modify code/g)?.length).toBe(1);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("longer and tilde fences cannot turn one line into a visual preview", async () => {
+    for (const preview of [
+        "````text\nWrite or modify code\n````",
+        "~~~text\nWrite or modify code\n~~~",
+    ]) {
+        const setup = await createTestRenderer({ width: 100, height: 24 });
+        const view = createTuiQuestionView(setup.renderer);
+        setup.renderer.root.add(view.box);
+        view.box.visible = true;
+        view.update({
+            ...previewRequest,
+            requestId: `question-fenced-${preview[0]}`,
+            request: {
+                ...previewRequest.request,
+                choices: [
+                    { id: "write", label: "Write", preview },
+                    { id: "review", label: "Review" },
+                ],
+            },
+        });
+
+        try {
+            await setup.flush();
+            expect(setup.captureCharFrame()).not.toContain("Write or modify code");
+        } finally {
+            setup.renderer.destroy();
+        }
     }
 });
 
