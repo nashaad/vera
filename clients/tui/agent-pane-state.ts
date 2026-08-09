@@ -21,6 +21,7 @@ export class TuiAgentPaneState {
     workingSince: number | undefined;
     phaseSince: number | undefined;
     activity = "thinking";
+    abortRequested = false;
 
     apply(update: AgentUpdate, now: number = Date.now()): void {
         this.observeActivity(update, now);
@@ -30,6 +31,9 @@ export class TuiAgentPaneState {
             update,
         );
         this.state = applyAgentUpdate(this.state, update);
+        if (update.type === "turn_finished" || update.type === "agent_failed") {
+            this.abortRequested = false;
+        }
     }
 
     setBackgroundAgents(agents: BackgroundAgentsSnapshot): void {
