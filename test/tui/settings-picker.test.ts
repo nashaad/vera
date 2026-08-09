@@ -710,15 +710,20 @@ test("permissions picker includes configured mode names", () => {
         undefined,
         undefined,
         undefined,
-        ["ask", "auto", "full_access", "unattended"],
+        ["ask", "auto", "full_access", "readonly", "unattended"],
     );
 
     expect(permissions.options.map((option) => option.value)).toEqual([
         "ask",
         "auto",
         "full_access",
+        "readonly",
         "unattended",
     ]);
+    expect(permissions.options.at(-2)).toMatchObject({
+        label: "Readonly",
+        description: "allow reads and deny changes",
+    });
     expect(permissions.options.at(-1)).toMatchObject({
         label: "unattended",
         description: "custom permission mode",

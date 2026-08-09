@@ -724,6 +724,7 @@ export async function startTui(
     const queuedUiRequests: UiRequestUpdate[] = [];
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiAnySettingsPickerState | undefined;
+    let settingsPickerAgent: TuiAgentClient | undefined;
     let pendingExtensionPicker: {
         readonly resolve: (result: VeraClientPickerResult) => void;
         readonly reject: (error: unknown) => void;
@@ -754,6 +755,7 @@ export async function startTui(
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let confirmingFullAccess = false;
+    let confirmingFullAccessAgent: TuiAgentClient | undefined;
     /**
      * The pool add whose name prompt is still owed, if any. Naming is offered
      * once, at the moment the entry appears, and skipping it is a plain escape.
@@ -1386,6 +1388,14 @@ export async function startTui(
                 // A width that could not be saved is not worth interrupting a
                 // drag over; the sidebar keeps it for this session.
             }
+        },
+        onPanelRelease: () => {
+            if (sidebarAgentPane === undefined || anyOverlayOpen()) return;
+            // Pointer input never chooses the addressed agent; Ctrl+G owns
+            // that. It does return typing focus after either transcript is
+            // clicked or selected, matching the main pane.
+            composer.focus();
+            renderState();
         },
         // Clicking the column is how you talk to it: with one seat there is no
         // question who, and typing the name again is the part nobody wants.
@@ -2057,10 +2067,14 @@ export async function startTui(
                 key.stopPropagation();
                 confirmingFullAccess = false;
                 if (result === "confirm") {
-                    requestPermissionsChange("full_access");
+                    requestPermissionsChange(
+                        "full_access",
+                        confirmingFullAccessAgent,
+                    );
                 } else {
                     state = appendTuiNotice(state, "full access unchanged");
                 }
+                confirmingFullAccessAgent = undefined;
                 focusActiveSurface();
                 renderState();
                 return;
@@ -3018,6 +3032,7 @@ export async function startTui(
             composer.clearComposer();
             if (commandAction.mode === "full_access") {
                 confirmingFullAccess = true;
+                confirmingFullAccessAgent = focusedAgentClient();
                 focusActiveSurface();
             } else {
                 requestPermissionsChange(commandAction.mode);
@@ -4982,12 +4997,21 @@ export async function startTui(
     }
 
     function openPermissionsPicker(parent?: TuiSettingsPickerState): void {
+        if (parent === undefined) settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
         if (targetState.permissionInspection !== undefined) {
-            state = appendTuiNotice(
-                state,
-                renderPermissionInspection(targetState.permissionInspection),
+            const notice = renderPermissionInspection(
+                targetState.permissionInspection,
             );
+            if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
+                sidebarAgentPane.state.state = appendTuiNotice(
+                    sidebarAgentPane.state.state,
+                    notice,
+                );
+                renderSidebarAgent(sidebarAgentPane);
+            } else {
+                state = appendTuiNotice(state, notice);
+            }
         }
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "permissions",
@@ -5343,6 +5367,7 @@ export async function startTui(
     }
 
     function openSettingsMenu(): void {
+        settingsPickerAgent = focusedAgentClient();
         settingsPicker = startTuiSettingsMenu("settings");
         composer.blur();
         renderState();
@@ -5618,8 +5643,12 @@ export async function startTui(
             } else if (selection.kind === "permissions") {
                 if (selection.mode === "full_access") {
                     confirmingFullAccess = true;
+                    confirmingFullAccessAgent = settingsPickerAgent;
                 } else {
-                    requestPermissionsChange(selection.mode);
+                    requestPermissionsChange(
+                        selection.mode,
+                        settingsPickerAgent,
+                    );
                 }
             } else if (selection.kind === "theme") {
                 themeName = selection.theme;
@@ -5685,6 +5714,7 @@ export async function startTui(
      */
     function closeSettingsPickerSurface(): void {
         settingsPickerView.box.visible = false;
+        settingsPickerAgent = undefined;
         if (pendingUiRequest === undefined) {
             composer.focus();
         }
@@ -6049,10 +6079,13 @@ export async function startTui(
         renderState();
     }
 
-    function requestPermissionsChange(mode: string): void {
+    function requestPermissionsChange(
+        mode: string,
+        target: TuiAgentClient = focusedAgentClient(),
+    ): void {
         const requestId = randomUUID();
         requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
-        void focusedAgentClient().send({
+        void target.send({
             type: "update_permissions",
             requestId,
             mode,

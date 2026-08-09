@@ -40,6 +40,7 @@ async function openSidebar(
     height = 12,
     onPanelClick?: () => void,
     onLayoutChanged?: () => void,
+    onPanelRelease?: () => void,
 ) {
     const setup = await createTestRenderer({ width, height });
     const transcript = new BoxRenderable(setup.renderer, {
@@ -61,6 +62,7 @@ async function openSidebar(
         syntaxStyle: STYLE,
         ...(onPanelClick === undefined ? {} : { onPanelClick }),
         ...(onLayoutChanged === undefined ? {} : { onLayoutChanged }),
+        ...(onPanelRelease === undefined ? {} : { onPanelRelease }),
     });
     setup.renderer.root.add(sidebar.body);
     sidebar.open();
@@ -223,6 +225,26 @@ test("the whole sidebar column, including its focus rail, owns clicks", async ()
         await setup.flush();
         await setup.mockMouse.click(80, 11);
         expect(clicks).toBe(2);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a sidebar drag still publishes its release", async () => {
+    let releases = 0;
+    const { setup } = await openSidebar(
+        120,
+        12,
+        undefined,
+        undefined,
+        () => releases++,
+    );
+    try {
+        await setup.flush();
+        await setup.mockMouse.pressDown(80, 4);
+        await setup.mockMouse.emitMouseEvent("drag", 85, 4);
+        await setup.mockMouse.release(85, 4);
+        expect(releases).toBeGreaterThan(0);
     } finally {
         setup.renderer.destroy();
     }
