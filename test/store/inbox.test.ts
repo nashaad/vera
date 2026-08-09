@@ -35,6 +35,21 @@ test("append assigns increasing seq and returns the stored entry", () => {
     inbox.close();
 });
 
+test("producer appendOnce returns one durable entry across retries", () => {
+    const inbox = Inbox.open(":memory:");
+    const input = entry({ kind: "schedule.triggered" });
+    const first = inbox.appendOnce("vera.scheduler", "daily/2026-08-10", input);
+    const replay = inbox.appendOnce("vera.scheduler", "daily/2026-08-10", {
+        ...input,
+        payload: '{"different":"retry body is ignored"}',
+    });
+
+    expect(first).toMatchObject({ created: true, entry: { seq: 1 } });
+    expect(replay).toEqual({ created: false, entry: first.entry });
+    expect(inbox.tail()).toBe(1);
+    inbox.close();
+});
+
 test("a new consumer starts at the tail and reads only later entries", () => {
     const inbox = Inbox.open(":memory:");
     inbox.append(entry({ kind: "old" }));

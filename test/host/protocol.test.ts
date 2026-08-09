@@ -20,6 +20,31 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "list_agents",
     });
     expect(parseHostRequest(JSON.stringify({
+        type: "schedule_operation",
+        operation: {
+            action: "add",
+            id: "daily-review",
+            cron: "0 9 * * *",
+            timezone: "UTC",
+            address: "peer",
+            payload: { text: "Review" },
+        },
+    }))).toEqual({
+        type: "schedule_operation",
+        operation: {
+            action: "add",
+            id: "daily-review",
+            cron: "0 9 * * *",
+            timezone: "UTC",
+            address: "peer",
+            payload: { text: "Review" },
+        },
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "schedule_operation",
+        operation: { action: "add", id: "missing-fields" },
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
         type: "shutdown_if_idle",
         pid: 101,
         started_at: "2026-07-17T12:00:00.000Z",

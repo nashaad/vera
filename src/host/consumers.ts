@@ -298,6 +298,14 @@ export class ConsumerRegistry {
         return this.inbox.append(entry);
     }
 
+    appendOnce(
+        source: string,
+        key: string,
+        entry: InboxEntryInput,
+    ): { readonly entry: InboxEntry; readonly created: boolean } {
+        return this.inbox.appendOnce(source, key, entry);
+    }
+
     entry(seq: number): InboxEntry | undefined {
         return this.inbox.entry(seq);
     }

@@ -40,7 +40,8 @@ import {
     type ExtensionCommandDescriptor,
 } from "../extensions/commands.ts";
 import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
-import { userFacingMessage } from "../user-facing-error.ts";
+import { UserFacingError, userFacingMessage } from "../user-facing-error.ts";
+import type { ScheduleOperation } from "../scheduler/types.ts";
 
 const MAX_REQUEST_BYTES = 64 * 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -56,6 +57,9 @@ export interface StartHostServerOptions {
     readonly startupClaimPath?: string;
     readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
+    readonly runScheduleOperation?: (
+        operation: ScheduleOperation,
+    ) => Promise<Record<string, unknown>>;
     /**
      * Subscribe to registry changes, returning the unsubscribe.
      *
@@ -181,6 +185,9 @@ export async function startHostServer(
             identity,
             options.findAgent ?? (() => undefined),
             options.listAgents ?? (() => []),
+            options.runScheduleOperation ?? (() => Promise.reject(
+                new UserFacingError("Scheduling is unavailable"),
+            )),
             options.createAgent ?? (() => Promise.reject(
                 new Error("Agent creation is unavailable"),
             )),
@@ -250,6 +257,9 @@ function receiveConnection(
     identity: HostIdentity,
     findAgent: (agentId: string) => ResidentAgent | undefined,
     listAgents: () => readonly RegisteredAgentSummary[],
+    runScheduleOperation: (
+        operation: ScheduleOperation,
+    ) => Promise<Record<string, unknown>>,
     createAgent: (
         options: Pick<CreateRegisteredAgentOptions, "workspace" | "approvalMode" | "ephemeral">,
     ) => Promise<ResidentAgent>,
@@ -585,6 +595,18 @@ function receiveConnection(
         }
         if (isShutdownFenced()) {
             socket.destroy();
+            return;
+        }
+        if (request?.type === "schedule_operation") {
+            clearTimeout(deadline);
+            finished = true;
+            void runScheduleOperation(request.operation).then(
+                (result) => send({ type: "schedule_result", result }),
+                (error) => send({
+                    type: "schedule_failed",
+                    reason: userFacingMessage(error) ?? "Schedule operation failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "create_agent") {
