@@ -15,6 +15,7 @@ import {
     type Selection,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
+import { sourceVersion } from "../../src/build-info.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -401,6 +402,13 @@ export interface TuiDependencies {
     ) => Promise<RenameSessionResult>;
     readonly disabledBuiltinExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
+    readonly build?: {
+        readonly clientVersion: string;
+        readonly clientEntrypoint: string;
+        readonly hostEntrypoint?: string;
+        readonly hostPid?: number;
+        readonly hostStartedAt?: string;
+    };
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
     readonly authStorage?: AuthStorage;
     /** Overrides the browser hand-off a provider's OAuth row would run. */
@@ -611,6 +619,15 @@ export async function startConfiguredTui(
             ...(config?.extensions === undefined
                 ? {}
                 : { clientExtensions: config.extensions }),
+            build: {
+                clientVersion: sourceVersion(import.meta.dir),
+                clientEntrypoint: import.meta.path,
+                ...(host.entrypoint === undefined
+                    ? {}
+                    : { hostEntrypoint: host.entrypoint }),
+                hostPid: host.pid,
+                hostStartedAt: host.started_at,
+            },
         });
         process.stdout.write(renderResumeHint(exit.agentId));
     } catch (error) {
@@ -828,11 +845,12 @@ export async function startTui(
     const commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
         disabledBuiltinExtensions,
     );
+    const configuredClientExtensions = [
+        ...bundledClientExtensionConfigs(disabledBuiltinExtensions),
+        ...(dependencies.clientExtensions ?? []),
+    ];
     clientExtensionRegistry = await startClientExtensionRegistry({
-        extensions: [
-            ...bundledClientExtensionConfigs(disabledBuiltinExtensions),
-            ...(dependencies.clientExtensions ?? []),
-        ],
+        extensions: configuredClientExtensions,
         preferences: {
             async get(namespace, key) {
                 return loadTuiExtensionPreference(namespace, key);
@@ -2596,6 +2614,8 @@ export async function startTui(
                     runningBackgroundAgents,
                     stash: summarizeStash(),
                     stashRoot: defaultStashRoot(),
+                    build: dependencies.build,
+                    extensions: configuredClientExtensions,
                 }),
                 copyReady: !resolvingSessionPath,
             };
@@ -2628,6 +2648,8 @@ export async function startTui(
                             runningBackgroundAgents,
                             stash: summarizeStash(),
                             stashRoot: defaultStashRoot(),
+                            build: dependencies.build,
+                            extensions: configuredClientExtensions,
                         }),
                         copyReady: true,
                     };

@@ -56,6 +56,37 @@ test("TUI diagnostics remains useful before model activity arrives", () => {
     expect(text).toContain("session      unavailable");
 });
 
+test("TUI diagnostics identifies the build, host, and extension paths", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        build: {
+            clientVersion: "source abc1234+dirty",
+            clientEntrypoint: "/worktree/clients/tui/main.ts",
+            hostEntrypoint: "/other/clients/host/main.ts",
+            hostPid: 42,
+            hostStartedAt: "2026-08-09T20:00:00.000Z",
+        },
+        extensions: [{
+            path: "/worktree/examples/extensions/btw",
+            enabled: true,
+        }, {
+            path: "/old/disabled-extension",
+            enabled: false,
+        }],
+    });
+
+    expect(text).toContain("client       source abc1234+dirty");
+    expect(text).toContain("entrypoint   /worktree/clients/tui/main.ts");
+    expect(text).toContain("host         PID 42 · started 2026-08-09T20:00:00.000Z");
+    expect(text).toContain("host entry   /other/clients/host/main.ts");
+    expect(text).toContain("enabled       /worktree/examples/extensions/btw");
+    expect(text).toContain("disabled      /old/disabled-extension");
+});
+
 test("TUI diagnostics does not claim inheritance without host data", () => {
     const text = renderTuiDiagnostics({
         state: {
