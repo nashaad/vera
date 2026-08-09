@@ -1581,6 +1581,15 @@ export class AgentRegistry {
             ...(this.options.modelFallback === undefined
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
+            ...(this.options.reviewer === undefined
+                ? {}
+                : { reviewer: this.options.reviewer }),
+            ...(this.options.reviewers === undefined
+                ? {}
+                : { reviewers: this.options.reviewers }),
+            ...(this.options.permissionModes === undefined
+                ? {}
+                : { permissionModes: this.options.permissionModes }),
         });
         const compaction = bindCompaction(
             this.options.compaction,

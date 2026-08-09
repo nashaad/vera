@@ -126,6 +126,176 @@ test("two real subagent effects overlap and create separate sessions", async () 
     }
 });
 
+test("a child's boundary crossing goes to the auto reviewer, not the relay", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-review-"));
+    // `env` is harmless to run and genuinely unclassified, so in auto mode it
+    // routes to review rather than being statically allowed.
+    const crossing: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "env" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "child-model" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const done: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "child-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const requests: ModelRequest[] = [];
+    let childCalls = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            if (request.model === "reviewer-model") {
+                stream.push({
+                    type: "done",
+                    message: {
+                        role: "assistant",
+                        content: [{ type: "text", text: '{"outcome":"allow"}' }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "reviewer-model",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "stop",
+                    },
+                });
+            } else {
+                childCalls += 1;
+                stream.push({
+                    type: "done",
+                    message: childCalls === 1 ? crossing : done,
+                });
+            }
+            return stream;
+        },
+    };
+    let relayed = 0;
+
+    try {
+        const result = await runSubagent({
+            adapter,
+            model: "child-model",
+            description: "inspect the environment",
+            workspace: root,
+            approvalMode: "auto",
+            sessionPath: join(root, "child.jsonl"),
+            reviewer: { models: [{ model: "reviewer-model" }] },
+            relayToolApproval: async () => {
+                relayed += 1;
+                return "deny";
+            },
+        });
+
+        expect(result.isError).toBe(false);
+        // The review happened on the configured reviewer model, and the
+        // action never fell back to the parent-relayed approval prompt.
+        expect(relayed).toBe(0);
+        const review = requests.find((next) => next.model === "reviewer-model");
+        expect(review?.systemPrompt).toContain(
+            "You review one proposed action",
+        );
+        // The allow let the command actually run: the child's next request
+        // carries a real tool result, not a denial.
+        const followUp = requests.filter((next) =>
+            next.model === "child-model"
+        ).at(-1);
+        const toolResult = followUp?.messages.find((message) =>
+            message.role === "tool_result"
+        );
+        expect(toolResult).toBeDefined();
+        expect(JSON.stringify(toolResult)).toContain("PATH=");
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("without reviewer settings a child reviews on its own model", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-self-review-"));
+    const crossing: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_1",
+            name: "bash",
+            input: { command: "env" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "child-model" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const done: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "child done" }],
+        source: { provider: "faux", api: "scripted", model: "child-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const reviewerModels: string[] = [];
+    let childCalls = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            if (
+                request.systemPrompt?.includes("You review one proposed action")
+            ) {
+                reviewerModels.push(request.model);
+                stream.push({
+                    type: "done",
+                    message: {
+                        role: "assistant",
+                        content: [{ type: "text", text: '{"outcome":"allow"}' }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: request.model,
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "stop",
+                    },
+                });
+            } else {
+                childCalls += 1;
+                stream.push({
+                    type: "done",
+                    message: childCalls === 1 ? crossing : done,
+                });
+            }
+            return stream;
+        },
+    };
+
+    try {
+        const result = await runSubagent({
+            adapter,
+            model: "child-model",
+            description: "inspect the environment",
+            workspace: root,
+            approvalMode: "auto",
+            sessionPath: join(root, "child.jsonl"),
+        });
+
+        expect(result.isError).toBe(false);
+        // Mirrors the parent's fallback: no configured reviewer means the
+        // review runs on the child's own model, not nothing.
+        expect(reviewerModels).toEqual(["child-model"]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("subagent inherits the parent turn model and reasoning", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-model-"));
     const final: AssistantMessage = {

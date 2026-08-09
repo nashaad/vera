@@ -498,6 +498,15 @@ export async function runHeadlessLoop(
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),
+            ...(options.reviewer === undefined
+                ? {}
+                : { reviewer: options.reviewer }),
+            ...(options.reviewers === undefined
+                ? {}
+                : { reviewers: options.reviewers }),
+            ...(options.permissionModes === undefined
+                ? {}
+                : { permissionModes: options.permissionModes }),
         });
     // A configured reviewer wins, because the point of configuring one is to
     // pay for a cheaper model than the agent. Without it the reviewer reads the
@@ -737,7 +746,7 @@ export async function runHeadlessLoop(
     }
 }
 
-function createReviewerProfileRouter(
+export function createReviewerProfileRouter(
     defaultReviewer: ReviewToolCall,
     adapter: ModelAdapter,
     profiles: Readonly<Record<string, ToolReviewerSettings>> | undefined,
