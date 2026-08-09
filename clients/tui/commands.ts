@@ -545,10 +545,39 @@ function sharedPrefix(values: readonly string[]): string {
     return prefix;
 }
 
+/**
+ * The slice of a long suggestion list that is on screen.
+ *
+ * The box used to grow to the length of the list, so on a short terminal the
+ * bottom commands were drawn off the top of the pane and could not be reached
+ * at all. It scrolls instead, and gives up one row to say how many are still
+ * below, because a list that silently ends reads as the whole catalog.
+ */
+export function tuiSuggestionWindow(
+    count: number,
+    selectedIndex: number,
+    maxRows: number,
+): { start: number; rows: number; hidden: number } {
+    const room = Math.max(1, maxRows);
+    if (count <= room) {
+        return { start: 0, rows: count, hidden: 0 };
+    }
+    const rows = Math.max(1, room - 1);
+    const selected = Math.max(0, Math.min(selectedIndex, count - 1));
+    // Keep the highlighted row on screen, scrolling by as little as possible.
+    const start = Math.max(0, Math.min(selected - rows + 1, count - rows));
+    return {
+        start: selected < start ? selected : start,
+        rows,
+        hidden: count - rows,
+    };
+}
+
 export function renderTuiCommandSuggestions(
     commands: readonly TuiCommandCatalogEntry[],
     selectedIndex = -1,
     maxWidth?: number,
+    hidden = 0,
 ): StyledText {
     const chunks: TextChunk[] = [];
     const commandWidth = Math.max(
@@ -577,6 +606,9 @@ export function renderTuiCommandSuggestions(
             : command.description;
         chunks.push(fg(TUI_MUTED)(`  ${description}`));
     });
+    if (hidden > 0) {
+        chunks.push(fg(TUI_MUTED)(`\n  \u2026 ${hidden} more`));
+    }
     return new StyledText(chunks);
 }
 

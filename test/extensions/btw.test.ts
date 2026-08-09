@@ -285,6 +285,15 @@ test("no model named seats the one already answering", async () => {
     await harness.registry.close();
 });
 
+test("the command and the seat share one word, and the old name still works", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("sidekick", "gpt-5.5", WORKSPACE);
+    await harness.registry.invokeCommand("remove", "", WORKSPACE);
+    await harness.registry.invokeCommand("btw", "gpt-5.5", WORKSPACE);
+    expect(harness.mentions).toEqual(["sidekick", "all", "vera"]);
+    await harness.registry.close();
+});
+
 test("the seat is taken until it is freed", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "gpt-5.5", WORKSPACE);

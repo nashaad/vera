@@ -9,6 +9,7 @@ import {
     renderTuiCommandSuggestions,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
+    tuiSuggestionWindow,
     tuiCommandSuggestionsText,
     TuiCommandRegistry,
     tuiWithArgument,
@@ -398,4 +399,43 @@ test("argument completion types only what every match shares", () => {
 test("a chosen argument replaces the half-typed one", () => {
     expect(tuiWithArgument("/add gpt", "gpt-5.5")).toBe("/add gpt-5.5");
     expect(tuiWithArgument("/add ", "sonnet")).toBe("/add sonnet");
+});
+
+test("a list that fits is shown whole", () => {
+    expect(tuiSuggestionWindow(4, 0, 10)).toEqual({
+        start: 0,
+        rows: 4,
+        hidden: 0,
+    });
+});
+
+test("a list too long for the pane gives up a row to say how many are left", () => {
+    expect(tuiSuggestionWindow(20, 0, 6)).toEqual({
+        start: 0,
+        rows: 5,
+        hidden: 15,
+    });
+});
+
+test("the window follows the highlighted row down the list", () => {
+    // The nineteenth of twenty, with room for five: the last five.
+    expect(tuiSuggestionWindow(20, 18, 6)).toEqual({
+        start: 14,
+        rows: 5,
+        hidden: 15,
+    });
+    // And no further: the end of the list is the end of the scroll.
+    expect(tuiSuggestionWindow(20, 19, 6)).toEqual({
+        start: 15,
+        rows: 5,
+        hidden: 15,
+    });
+});
+
+test("room for nothing still leaves one row", () => {
+    expect(tuiSuggestionWindow(20, 0, 0)).toEqual({
+        start: 0,
+        rows: 1,
+        hidden: 19,
+    });
 });
