@@ -18,7 +18,10 @@ const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
 const sessions = new Map<string, TuiAgentClient>();
 let nextSession = 1;
 
-function session(id: string, speaker: "AGENT" | "SIDEKICK"): TuiAgentClient {
+function session(
+    id: string,
+    speaker: "AGENT" | "SIDEKICK" | "CHILD",
+): TuiAgentClient {
     const channel = createInProcessChannel();
     let turns = 0;
     let approvalMode = speaker === "SIDEKICK" ? "readonly" : "auto";
@@ -87,8 +90,28 @@ function session(id: string, speaker: "AGENT" | "SIDEKICK"): TuiAgentClient {
     return client;
 }
 
+const main = session("main-1", "AGENT");
+session("child-1", "CHILD");
+
 await startTui({
-    client: session("main-1", "AGENT"),
+    client: main,
+    listAgents: async () => [{
+        id: "main-1",
+        workspace: process.cwd(),
+        session_path: "/sessions/main-1.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: true,
+        title: "Main session",
+    }, {
+        id: "child-1",
+        workspace: process.cwd(),
+        session_path: "/sessions/child-1.jsonl",
+        kind: "background",
+        status: "working",
+        live: true,
+        parent_id: "main-1",
+    }],
     createSession: async () => session(`main-${++nextSession}`, "AGENT"),
     createAgent: async (_workspace, approvalMode) => {
         if (approvalMode !== "readonly") {
@@ -99,6 +122,12 @@ await startTui({
     attachAgent: async (agentId) => {
         const client = sessions.get(agentId);
         if (client === undefined) throw new Error(`unknown agent ${agentId}`);
+        return client;
+    },
+    resumeSession: async (sessionPath) => {
+        const agentId = sessionPath.includes("child-1") ? "child-1" : "main-1";
+        const client = sessions.get(agentId);
+        if (client === undefined) throw new Error(`unknown session ${sessionPath}`);
         return client;
     },
     clientExtensions: [{ path: EXTENSION, enabled: true, config: null }],

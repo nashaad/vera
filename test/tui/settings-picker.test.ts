@@ -118,6 +118,26 @@ test("session picker filters titled durable conversations and selects an agent",
     expect(searched.options).toHaveLength(1);
 });
 
+test("a child picker can include an untitled hosted agent", async () => {
+    const state = startTuiSessionPicker([{
+        id: "frosty-frost:9f3a:UAT-tester",
+        workspace: "/work/alpha",
+        session_path: "/sessions/child.jsonl",
+        kind: "background",
+        status: "working",
+        live: true,
+        parent_id: "parent",
+    }], "parent", false, new Date(), true);
+
+    expect(await pickerFrame(state)).toContain("frosty-frost:9f3a:UAT-tester");
+    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+        .toEqual({
+            kind: "session",
+            sessionPath: "/sessions/child.jsonl",
+            sessionId: "frosty-frost:9f3a:UAT-tester",
+        });
+});
+
 test("session picker threads an async subagent under its parent", async () => {
     const state = startTuiSessionPicker([
         {

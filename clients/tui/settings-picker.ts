@@ -879,6 +879,7 @@ export function startTuiSessionPicker(
     currentAgentId?: string,
     loading = false,
     now: Date = new Date(),
+    includeUntitled = false,
 ): TuiSettingsPickerState {
     // The current session is listed rather than hidden. Switching is a
     // re-attach with the screen left up, so its row costs nothing and answers
@@ -886,13 +887,13 @@ export function startTuiSessionPicker(
     const options = agents
         .filter((agent) => agent.status !== "closed"
             && agent.status !== "failed"
-            && agent.title !== undefined)
+            && (includeUntitled || agent.title !== undefined))
         .toSorted((left, right) =>
             (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
         )
         .map((agent) => ({
             value: agent.session_path,
-            label: sessionTitle(agent.title!),
+            label: sessionTitle(agent.title ?? agent.id),
             description: "",
             searchText: `${agent.id} ${agent.workspace}`,
             sessionId: agent.id,
