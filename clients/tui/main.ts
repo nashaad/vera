@@ -307,6 +307,7 @@ import {
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
+    type TuiState,
     type TuiTranscriptEntry,
 } from "./state.ts";
 import {
@@ -1390,7 +1391,10 @@ export async function startTui(
         sidebarOwner = extensionId;
         const attached = new TuiAgentPane({
             client: next,
-            onUpdate: (_update, current) => renderSidebarAgent(current),
+            onUpdate: (update, current) => {
+                handleSidebarAgentUpdate(update, current);
+                renderSidebarAgent(current);
+            },
             onFailure: (error, current) => {
                 if (current !== sidebarAgentPane) return;
                 sidebar.append("agent", `Connection failed: ${error.message}`);
@@ -1402,7 +1406,20 @@ export async function startTui(
         sidebar.open();
         sidebar.setFocused(true);
         attached.start();
+        requestAgentSettings(next);
         renderState();
+    }
+
+    function focusedAgentClient(): TuiAgentClient {
+        return sidebar.isFocused() && sidebarAgentPane !== undefined
+            ? sidebarAgentPane.client
+            : client;
+    }
+
+    function focusedAgentState(): TuiState {
+        return sidebar.isFocused() && sidebarAgentPane !== undefined
+            ? sidebarAgentPane.state.state
+            : state;
     }
 
     function renderSidebarAgent(
@@ -1421,6 +1438,36 @@ export async function startTui(
         }
         renderSidebarJump();
         renderState();
+    }
+
+    function handleSidebarAgentUpdate(
+        update: AgentUpdate,
+        pane: TuiAgentPane<IdentifiedTuiAgentClient>,
+    ): void {
+        if (pane !== sidebarAgentPane) return;
+        if (update.type === "model_settings") {
+            requestedModelChanges.delete(update.requestId);
+        } else if (update.type === "model_settings_rejected") {
+            const subject = requestedModelChanges.get(update.requestId);
+            requestedModelChanges.delete(update.requestId);
+            if (subject !== undefined) {
+                pane.state.state = appendTuiNotice(
+                    pane.state.state,
+                    rejectionNotice(subject, update.reason),
+                );
+            }
+        } else if (update.type === "permissions") {
+            requestedPermissionChanges.delete(update.requestId);
+        } else if (update.type === "permissions_rejected") {
+            const subject = requestedPermissionChanges.get(update.requestId);
+            requestedPermissionChanges.delete(update.requestId);
+            if (subject !== undefined) {
+                pane.state.state = appendTuiNotice(
+                    pane.state.state,
+                    rejectionNotice(subject, update.reason),
+                );
+            }
+        }
     }
     upper.add(transcript);
     app.add(sidebar.body);
@@ -2392,15 +2439,19 @@ export async function startTui(
      * attachment that does not ask stays blank about the model and, worse,
      * silent about full access until some later update happens to arrive.
      */
-    function requestSessionSettings(): void {
-        sendCommand({
+    function requestAgentSettings(target: TuiAgentClient): void {
+        void target.send({
             type: "get_model_settings",
             requestId: randomUUID(),
-        });
-        sendCommand({
+        }).catch(reportConnectionError);
+        void target.send({
             type: "get_permissions",
             requestId: randomUUID(),
-        });
+        }).catch(reportConnectionError);
+    }
+
+    function requestSessionSettings(): void {
+        requestAgentSettings(client);
     }
 
     void receiveAgentUpdates();
@@ -4614,16 +4665,17 @@ export async function startTui(
     }
 
     function openModelPicker(parent?: TuiSettingsPickerState): void {
+        const targetState = focusedAgentState();
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
-            state.modelSettings?.model,
-            state.modelSettings?.reasoningEffort,
-            state.approvalMode,
-            state.modelSettings?.availableModels,
+            targetState.modelSettings?.model,
+            targetState.modelSettings?.reasoningEffort,
+            targetState.approvalMode,
+            targetState.modelSettings?.availableModels,
             undefined,
-            state.modelSettings?.provider,
+            targetState.modelSettings?.provider,
             undefined,
-            state.modelSettings?.pooled,
+            targetState.modelSettings?.pooled,
         ), parent);
         renderState();
         focusActiveSurface();
@@ -4643,29 +4695,33 @@ export async function startTui(
     function modelLevelFacts(
         provider: string | undefined,
         model: string | undefined,
+        source: TuiState = focusedAgentState(),
     ): {
         readonly levels: readonly ReasoningLevel[];
         readonly defaultLevel?: ReasoningLevelId;
     } | undefined {
-        const pooledEntry = state.modelSettings?.pooled?.find((candidate) =>
+        const pooledEntry = source.modelSettings?.pooled?.find((candidate) =>
             candidate.provider === provider && candidate.model === model
         );
         if (pooledEntry?.available === true) {
             return pooledEntry;
         }
-        return state.modelSettings?.availableModels?.find((candidate) =>
+        return source.modelSettings?.availableModels?.find((candidate) =>
             candidate.provider === provider && candidate.model === model
         );
     }
 
     function currentModelLevels(): readonly ReasoningLevel[] {
+        const targetState = focusedAgentState();
         return modelLevelFacts(
-            state.modelSettings?.provider,
-            state.modelSettings?.model,
+            targetState.modelSettings?.provider,
+            targetState.modelSettings?.model,
+            targetState,
         )?.levels ?? [];
     }
 
     function openReasoningPicker(parent?: TuiSettingsPickerState): void {
+        const targetState = focusedAgentState();
         // An empty (or unresolved) level list means this model has no
         // reasoning control at all. A card with no rows is indistinguishable
         // from the TUI ignoring the key, so say why there is nothing to pick.
@@ -4676,43 +4732,45 @@ export async function startTui(
             state = appendTuiNotice(
                 state,
                 `${
-                    state.modelSettings === undefined
+                    targetState.modelSettings === undefined
                         ? "this model"
-                        : `${state.modelSettings.provider}/${state.modelSettings.model}`
+                        : `${targetState.modelSettings.provider}/${targetState.modelSettings.model}`
                 } has no reasoning effort setting`,
             );
             renderState();
             return;
         }
         const current = modelLevelFacts(
-            state.modelSettings?.provider,
-            state.modelSettings?.model,
+            targetState.modelSettings?.provider,
+            targetState.modelSettings?.model,
+            targetState,
         );
         settingsPicker = withTuiPickerParent(startTuiReasoningPicker(
             levels,
             current?.defaultLevel,
-            state.modelSettings?.reasoningEffort,
+            targetState.modelSettings?.reasoningEffort,
         ), parent);
         renderState();
         focusActiveSurface();
     }
 
     function openPermissionsPicker(parent?: TuiSettingsPickerState): void {
-        if (state.permissionInspection !== undefined) {
+        const targetState = focusedAgentState();
+        if (targetState.permissionInspection !== undefined) {
             state = appendTuiNotice(
                 state,
-                renderPermissionInspection(state.permissionInspection),
+                renderPermissionInspection(targetState.permissionInspection),
             );
         }
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "permissions",
-            state.modelSettings?.model,
-            state.modelSettings?.reasoningEffort,
-            state.approvalMode,
-            state.modelSettings?.availableModels,
+            targetState.modelSettings?.model,
+            targetState.modelSettings?.reasoningEffort,
+            targetState.approvalMode,
+            targetState.modelSettings?.availableModels,
             undefined,
             undefined,
-            state.permissionInspection?.availableModes,
+            targetState.permissionInspection?.availableModes,
         ), parent);
         renderState();
         focusActiveSurface();
@@ -5672,7 +5730,11 @@ export async function startTui(
     ): void {
         const requestId = randomUUID();
         requestedModelChanges.set(requestId, subject);
-        sendCommand({ type: "update_model_settings", requestId, patch });
+        void focusedAgentClient().send({
+            type: "update_model_settings",
+            requestId,
+            patch,
+        }).catch(reportConnectionError);
         showStatusNotice(toast);
     }
 
@@ -5746,7 +5808,11 @@ export async function startTui(
     function requestPermissionsChange(mode: string): void {
         const requestId = randomUUID();
         requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
-        sendCommand({ type: "update_permissions", requestId, mode });
+        void focusedAgentClient().send({
+            type: "update_permissions",
+            requestId,
+            mode,
+        }).catch(reportConnectionError);
         showStatusNotice(`permissions → ${mode}`);
     }
 
@@ -6059,6 +6125,7 @@ export async function startTui(
         if (shuttingDown) {
             return;
         }
+        const statusState = focusedAgentState();
         renderPendingQuote();
         renderHeldAddress();
         renderJumpToBottom();
@@ -6101,7 +6168,7 @@ export async function startTui(
             lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }
 
-        statusText.fg = state.approvalMode === "full_access"
+        statusText.fg = statusState.approvalMode === "full_access"
             ? "#ff3b30"
             : statusNotice !== undefined
             ? TUI_NOTICE
@@ -6116,9 +6183,9 @@ export async function startTui(
         // an extension, and a renderer that fails leaves the built-in line.
         const extensionSegments = clientExtensionRegistry?.renderStatusLine(
             tuiStatusSnapshot(
-                state.modelSettings,
-                state.approvalMode,
-                state.context,
+                statusState.modelSettings,
+                statusState.approvalMode,
+                statusState.context,
                 process.cwd(),
                 runningBackgroundAgents,
                 state.working
@@ -6130,12 +6197,12 @@ export async function startTui(
         );
         const statusDetailsLine = extensionSegments === undefined
             ? renderTuiStatusDetailsLine(
-                state.modelSettings,
-                state.approvalMode,
-                state.context,
+                statusState.modelSettings,
+                statusState.approvalMode,
+                statusState.context,
                 process.cwd(),
                 0,
-                state.effortSubstitution,
+                statusState.effortSubstitution,
             )
             : renderTuiStatusSegments(extensionSegments);
         // What an extension has made true of this conversation, said where the
