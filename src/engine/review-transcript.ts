@@ -212,12 +212,10 @@ function collectItems(
             }
             continue;
         }
-        // Tool results are deliberately not rendered. They are the one part
-        // of the transcript written by the outside world: file contents,
-        // command output, fetched pages. That makes them the channel prompt
-        // injection arrives through, and they dominated the token budget.
-        // The agent's own tool calls stay: they are model-authored and are
-        // how the reviewer sees the trajectory behind the proposed action.
+        // Neither tool results nor assistant prose are rendered. Tool results
+        // carry outside text: file contents, command output, fetched pages.
+        // Assistant prose is written by the model under review. Tool calls
+        // stay, because they are the trajectory behind the proposed action.
     }
     return items;
 }
