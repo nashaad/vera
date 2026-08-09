@@ -10,19 +10,22 @@ import type { ModelMessage } from "../model/types.ts";
  *
  * The budgets, the entry limit, the selection order, and the truncation
  * markers mirror `codex-rs/core/src/guardian/prompt.rs` in openai/codex
- * (Apache-2.0).
+ * (Apache-2.0), with one deliberate divergence: tool results are stripped
+ * (codex renders them, Claude Code strips them). Vera has no sandbox under
+ * the reviewer, so the reviewer is the enforcement line, and tool output is
+ * the injectable part of what it would read.
  */
 
 /** Total budget for user and assistant messages. */
 export const MAX_MESSAGE_TRANSCRIPT_TOKENS = 10_000;
 
-/** Total budget for tool calls and their results. */
+/** Total budget for tool calls. Results are not rendered at all. */
 export const MAX_TOOL_TRANSCRIPT_TOKENS = 10_000;
 
 /** Per-entry cap for a user or assistant message. */
 export const MAX_MESSAGE_ENTRY_TOKENS = 2_000;
 
-/** Per-entry cap for one tool call or result. */
+/** Per-entry cap for one tool call. */
 export const MAX_TOOL_ENTRY_TOKENS = 1_000;
 
 /** How many of the most recent entries are considered at all. */
@@ -83,7 +86,7 @@ export function renderReviewTranscript(
     // Selection order mirrors `codex-rs/core/src/guardian/prompt.rs`: every
     // user turn that fits the message budget is kept, and only then do recent
     // non-user entries compete for what is left. User turns are what
-    // authorization is scored against, so letting tool output crowd them out
+    // authorization is scored against, so letting tool calls crowd them out
     // would quietly push every high-risk action toward a denial.
     // Budgeted on the rendered line rather than the bare text, matching
     // codex: the `[n] role: ` prefix is real context and over forty entries it
@@ -223,14 +226,12 @@ function collectItems(
             }
             continue;
         }
-        if (message.role === "tool_result") {
-            items.push({
-                index: items.length + 1,
-                role: `tool_result ${message.toolName}`,
-                text: textOf(message.content),
-                kind: "tool",
-            });
-        }
+        // Tool results are deliberately not rendered. They are the one part
+        // of the transcript written by the outside world — file contents,
+        // command output, fetched pages — which makes them the channel prompt
+        // injection arrives through, and they dominated the token budget.
+        // The agent's own tool calls stay: they are model-authored and are
+        // how the reviewer sees the trajectory behind the proposed action.
     }
     return items;
 }

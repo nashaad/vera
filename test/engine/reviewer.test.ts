@@ -637,178 +637,131 @@ test("a review that overlaps another runs on a fork and is not remembered", asyn
     expect(adapter.requests[2]!.messages).toHaveLength(3);
 });
 
-test("escalation reviewer skips escalation when every metric is confident", async () => {
-    const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
-        risk_level: "low",
-        user_authorization: "high",
-        outcome: "allow",
-        confidence: { understanding: 0.95, risk: 0.9, authorization: 1 },
-        rationale: "Read-only operation.",
-    })));
+test("the fast-path reply settles without escalation", async () => {
+    // `{"outcome":"allow"}` is the cheapest correct answer the fast tier can
+    // give: it defaults to a low-risk allow and must stand on its own.
+    const adapter = new ScriptedAdapter(assistantText('{"outcome":"allow"}'));
     const review = createEscalatingToolReviewer(adapter, {
         model: "fast-model",
         escalationModel: "strong-model",
-        confidenceThreshold: 0.8,
     });
 
     const decision = await review(request, new AbortController().signal);
 
     expect(decision.decision).toBe("allow");
-    // Overall confidence is the weakest metric.
-    expect(decision.confidence).toBe(0.9);
-    expect(decision.confidenceMetrics).toEqual({
-        understanding: 0.95,
-        risk: 0.9,
-        authorization: 1,
-    });
+    expect(decision.riskLevel).toBe("low");
     expect(decision.escalated).toBeUndefined();
-    // Only one request should be made (fast reviewer only, no escalation)
     expect(adapter.requests).toHaveLength(1);
     expect(adapter.requests[0]?.model).toBe("fast-model");
 });
 
-test("one weak metric escalates even when the others are certain", async () => {
-    // Sure it's low-risk, unsure the user authorized it: a blended scalar
-    // could average this out; per-metric confidence cannot.
-    let requestCount = 0;
-    const testAdapter = new (class implements ModelAdapter {
-        requests: ModelRequest[] = [];
-
-        stream(req: ModelRequest): ModelStream {
-            this.requests.push(req);
-            requestCount += 1;
-            const stream = new ModelEventStream();
-            stream.push({ type: "start" });
-            stream.push({
-                type: "done",
-                message: assistantText(JSON.stringify(requestCount === 1
-                    ? {
-                        risk_level: "low",
-                        user_authorization: "unknown",
-                        outcome: "allow",
-                        confidence: {
-                            understanding: 0.95,
-                            risk: 0.95,
-                            authorization: 0.3,
-                        },
-                        rationale: "Looks routine, authorization unclear.",
-                    }
-                    : {
-                        risk_level: "low",
-                        user_authorization: "high",
-                        outcome: "allow",
-                        confidence: {
-                            understanding: 1,
-                            risk: 0.95,
-                            authorization: 0.9,
-                        },
-                        rationale: "The transcript shows the user asked for this.",
-                    })),
-            });
-            return stream;
-        }
-    })();
-
-    const review = createEscalatingToolReviewer(testAdapter, {
-        model: "fast-model",
-        escalationModel: "strong-model",
-        confidenceThreshold: 0.8,
-    });
-
-    const decision = await review(request, new AbortController().signal);
-
-    expect(decision.decision).toBe("allow");
-    expect(decision.escalated).toBe(true);
-    expect(decision.confidence).toBe(0.9);
-    expect(testAdapter.requests).toHaveLength(2);
-    expect(testAdapter.requests[1]?.model).toBe("strong-model");
-});
-
-test("a reviewer that reports no confidence escalates", async () => {
-    // Defaulting a missing confidence to "certain" would let a model that
-    // ignores the field silently disable the escalation tier.
-    let requestCount = 0;
-    const testAdapter = new (class implements ModelAdapter {
-        requests: ModelRequest[] = [];
-
-        stream(req: ModelRequest): ModelStream {
-            this.requests.push(req);
-            requestCount += 1;
-            const stream = new ModelEventStream();
-            stream.push({ type: "start" });
-            stream.push({
-                type: "done",
-                message: assistantText(JSON.stringify(requestCount === 1
-                    ? {
-                        risk_level: "low",
-                        user_authorization: "high",
-                        outcome: "allow",
-                        rationale: "No confidence reported.",
-                    }
-                    : {
-                        risk_level: "low",
-                        user_authorization: "high",
-                        outcome: "allow",
-                        confidence: {
-                            understanding: 1,
-                            risk: 1,
-                            authorization: 1,
-                        },
-                        rationale: "Verified.",
-                    })),
-            });
-            return stream;
-        }
-    })();
-
-    const review = createEscalatingToolReviewer(testAdapter, {
-        model: "fast-model",
-        escalationModel: "strong-model",
-    });
-
-    const decision = await review(request, new AbortController().signal);
-
-    expect(decision.escalated).toBe(true);
-    expect(testAdapter.requests).toHaveLength(2);
-});
-
-test("a bare scalar confidence at the threshold does not escalate", async () => {
-    // A model that answers with one number instead of the per-metric object
-    // still gets the older scalar behavior, and >= threshold passes.
+test("a graded medium-risk allow settles without escalation", async () => {
     const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
-        risk_level: "low",
+        risk_level: "medium",
         user_authorization: "high",
         outcome: "allow",
-        confidence: 0.8,
-        rationale: "Confident operation.",
+        rationale: "In-workspace edit the user asked for.",
     })));
     const review = createEscalatingToolReviewer(adapter, {
         model: "fast-model",
         escalationModel: "strong-model",
-        confidenceThreshold: 0.8,
     });
 
     const decision = await review(request, new AbortController().signal);
 
     expect(decision.decision).toBe("allow");
-    expect(decision.confidence).toBe(0.8);
-    expect(decision.confidenceMetrics).toBeUndefined();
     expect(decision.escalated).toBeUndefined();
     expect(adapter.requests).toHaveLength(1);
 });
 
-test("a malformed confidence object reads as no confidence", () => {
-    // Missing a metric is unreadable, not "assume the rest": the decision
-    // still parses, but without a confidence it escalates.
-    const decision = parseReviewDecision(JSON.stringify({
-        risk_level: "low",
-        user_authorization: "high",
-        outcome: "allow",
-        confidence: { understanding: 0.9, risk: 0.9 },
-        rationale: "Forgot a metric.",
-    }));
+test("an allow the fast tier itself rates high risk escalates", async () => {
+    // The fast tier settles low and medium risk; a high or critical rating is
+    // the fast model saying this decision is above its pay grade, whatever
+    // outcome it attached.
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
 
-    expect(decision?.decision).toBe("allow");
-    expect(decision?.confidence).toBeUndefined();
-    expect(decision?.confidenceMetrics).toBeUndefined();
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: assistantText(JSON.stringify(requestCount === 1
+                    ? {
+                        risk_level: "high",
+                        user_authorization: "medium",
+                        outcome: "allow",
+                        rationale: "Force push, but the user seemed to want it.",
+                    }
+                    : {
+                        risk_level: "high",
+                        user_authorization: "high",
+                        outcome: "allow",
+                        rationale: "The transcript shows explicit authorization.",
+                    })),
+            });
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(testAdapter.requests).toHaveLength(2);
+    expect(testAdapter.requests[1]?.model).toBe("strong-model");
+});
+
+test("a fast-tier denial gets a second opinion", async () => {
+    // A cheap model's false denial costs the agent a turn against the denial
+    // circuit breaker, so every deny is confirmed by the strong tier before
+    // it lands.
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
+
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: assistantText(JSON.stringify(requestCount === 1
+                    ? {
+                        risk_level: "high",
+                        user_authorization: "unknown",
+                        outcome: "deny",
+                        rationale: "Looks unauthorized.",
+                    }
+                    : {
+                        risk_level: "medium",
+                        user_authorization: "high",
+                        outcome: "allow",
+                        rationale: "The user asked for exactly this file.",
+                    })),
+            });
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(decision.reason).toBe("The user asked for exactly this file.");
+    expect(testAdapter.requests).toHaveLength(2);
 });
