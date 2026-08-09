@@ -22,8 +22,10 @@ import type {
 } from "../model/catalog-shape.ts";
 import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
+import { createReviewLogger } from "../engine/review-log.ts";
 
 const hostLog = createHostLogger();
+const reviewLog = createReviewLogger();
 import {
     addPoolModel,
     recordLearned,
@@ -282,6 +284,7 @@ export async function startResidentHost(
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(subagentModel === undefined ? {} : { subagentModel }),
         ...(Object.keys(reviewers).length === 0 ? {} : { reviewers }),
+        reviewLog,
         ...(compaction === undefined ? {} : { compaction }),
         ...(options.config.permission_modes === undefined
             ? {}

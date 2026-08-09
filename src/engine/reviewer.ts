@@ -5,6 +5,11 @@ import type {
     ModelMessage,
     ModelReasoningEffort,
 } from "../model/types.ts";
+import type {
+    ReviewLog,
+    ReviewLogOutcome,
+    ReviewLogTier,
+} from "./review-log.ts";
 import { renderReviewTranscript } from "./review-transcript.ts";
 import type { ReviewerPathFacts } from "./reviewer-path-facts.ts";
 
@@ -44,6 +49,7 @@ export interface ToolReviewerSettings {
     readonly timeoutMs?: number;
     readonly twoTier?: boolean;
     readonly escalationModel?: ToolReviewerModelSettings;
+    readonly log?: ReviewLog;
 }
 
 export interface CreateToolReviewerOptions {
@@ -53,6 +59,8 @@ export interface CreateToolReviewerOptions {
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly timeoutMs?: number;
     readonly policy?: string;
+    readonly log?: ReviewLog;
+    readonly tier?: ReviewLogTier;
 }
 
 export const TOOL_REVIEW_TIMEOUT_MS = 60_000;
@@ -79,6 +87,9 @@ export function createRoutedToolReviewer(
                 ...(settings.policy === undefined
                     ? {}
                     : { policy: settings.policy }),
+                ...(settings.log === undefined
+                    ? {}
+                    : { log: settings.log, tier: "single" }),
             })
             : createEscalatingToolReviewer(adapter, {
                 model: model.model,
@@ -94,6 +105,9 @@ export function createRoutedToolReviewer(
                 ...(settings.policy === undefined
                     ? {}
                     : { policy: settings.policy }),
+                ...(settings.log === undefined
+                    ? {}
+                    : { log: settings.log }),
                 escalationModel: escalationModel.model,
                 ...(escalationModel.provider === undefined
                     ? {}
@@ -150,6 +164,9 @@ export function createEscalatingToolReviewer(
         ...(options.policy === undefined
             ? {}
             : { policy: options.policy }),
+        ...(options.log === undefined
+            ? {}
+            : { log: options.log, tier: "fast" }),
     });
     const strongReviewer = createToolReviewer({
         adapter,
@@ -166,6 +183,9 @@ export function createEscalatingToolReviewer(
         ...(options.policy === undefined
             ? {}
             : { policy: options.policy }),
+        ...(options.log === undefined
+            ? {}
+            : { log: options.log, tier: "strong" }),
     });
 
     return async (request, signal) => {
@@ -229,7 +249,11 @@ export function createToolReviewer(
     let seen: readonly string[] = [];
     let trunkBusy = false;
 
-    return async (request, signal) => {
+    const reviewOnce = async (
+        request: ToolReviewRequest,
+        signal: AbortSignal,
+        trace: ReviewTrace,
+    ): Promise<ToolReviewDecision> => {
         if (signal.aborted) {
             return reviewCancelled();
         }
@@ -263,7 +287,11 @@ export function createToolReviewer(
                     transcript.text,
                     baseHistory.length === 0,
                 );
+                trace.prompt = prompt;
+                trace.transcriptTurns = messages.length;
+                trace.continuedConversation = baseHistory.length > 0;
             } catch {
+                trace.error = "The action could not be described.";
                 return reviewFailed(
                     "The approval reviewer could not describe this action.",
                 );
@@ -290,10 +318,13 @@ export function createToolReviewer(
                     signal: combined,
                 });
                 message = await withDeadline(stream.result(), combined);
+                trace.stopReason = message.stopReason;
                 if (signal.aborted) {
+                    trace.outcome = "cancelled";
                     return reviewCancelled();
                 }
                 if (timeout.aborted) {
+                    trace.error = "timed out";
                     return reviewFailed(reviewerUnavailableReason("timed out"));
                 }
                 if (message.stopReason !== "stop") {
@@ -305,8 +336,10 @@ export function createToolReviewer(
                 }
             } catch (error) {
                 if (signal.aborted) {
+                    trace.outcome = "cancelled";
                     return reviewCancelled();
                 }
+                trace.error = errorSummary(error);
                 return reviewFailed(
                     reviewerUnavailableReason(errorSummary(error)),
                 );
@@ -316,8 +349,10 @@ export function createToolReviewer(
                 .filter((block) => block.type === "text")
                 .map((block) => block.text)
                 .join("\n");
+            trace.responseText = text;
             const decision = parseReviewDecision(text);
             if (decision === undefined) {
+                trace.outcome = "unreadable";
                 return reviewFailed(
                     "The approval reviewer returned an unreadable decision.",
                 );
@@ -333,6 +368,59 @@ export function createToolReviewer(
             }
         }
     };
+
+    const log = options.log;
+    if (log === undefined) {
+        return (request, signal) => reviewOnce(request, signal, {});
+    }
+    return async (request, signal) => {
+        const trace: ReviewTrace = {};
+        const started = Date.now();
+        const decision = await reviewOnce(request, signal, trace);
+        log({
+            tier: options.tier ?? "single",
+            outcome: trace.outcome
+                ?? (decision.decision === "unavailable" ? "failed" : "decided"),
+            tool: request.toolCall.name,
+            toolInput: request.toolCall.input,
+            workspace: request.workspace,
+            routingReason: request.reason,
+            ...(options.provider === undefined
+                ? {}
+                : { provider: options.provider }),
+            model: options.model,
+            ...(options.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: options.reasoningEffort }),
+            systemPrompt,
+            prompt: trace.prompt ?? "",
+            transcriptTurns: trace.transcriptTurns ?? 0,
+            continuedConversation: trace.continuedConversation ?? false,
+            ...(trace.responseText === undefined
+                ? {}
+                : { responseText: trace.responseText }),
+            ...(trace.stopReason === undefined
+                ? {}
+                : { stopReason: trace.stopReason }),
+            decision: decision.decision,
+            decisionReason: decision.reason,
+            riskLevel: decision.riskLevel,
+            userAuthorization: decision.userAuthorization,
+            latencyMs: Date.now() - started,
+            ...(trace.error === undefined ? {} : { error: trace.error }),
+        });
+        return decision;
+    };
+}
+
+interface ReviewTrace {
+    prompt?: string;
+    transcriptTurns?: number;
+    continuedConversation?: boolean;
+    responseText?: string;
+    stopReason?: string;
+    outcome?: ReviewLogOutcome;
+    error?: string;
 }
 
 export function parseReviewDecision(
