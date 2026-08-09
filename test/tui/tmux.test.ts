@@ -361,12 +361,21 @@ test.skipIf(!tmuxAvailable)(
             // lifecycle hint, then the model details. Waiting for them joined
             // was waiting for a line that no longer renders.
             await waitForVisiblePane(socket, session, "ready · ctrl+p commands");
+            // One key at a time, each waiting for the card it opened. Sending
+            // both and typing straight after raced the redraw, and a key that
+            // lands mid-redraw is a key the surface never sees.
             sendKey(socket, session, "Right");
+            await waitForVisiblePane(socket, session, "Search");
             sendKey(socket, session, "Right");
+            await waitForVisiblePane(socket, session, "/rename");
             sendText(socket, session, "themes");
-            pane = await waitForVisiblePane(socket, session, "themes");
-            expect(pane).toContain("/themes");
-            expect(pane).not.toContain("/rename");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) =>
+                    visible.includes("/themes") && !visible.includes("/rename"),
+                "the command list narrowed to the search",
+            );
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
@@ -2368,7 +2377,7 @@ test.skipIf(!tmuxAvailable)(
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/");
-            await waitForVisiblePane(socket, session, "/consult");
+            await waitForVisiblePane(socket, session, "/fork");
             // Nothing chosen yet: the first row is where the list opened, not
             // a pick, so completing takes no command.
             sendKey(socket, session, "Tab");
