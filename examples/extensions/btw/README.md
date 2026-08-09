@@ -10,6 +10,7 @@ One thread, two models.
 @sidekick                 # nothing after the name: every message goes to it
 @vera                     # and back to the agent
 what do you make of that  # bare message goes to the agent
+/reset                    # it forgets this side conversation, seat kept
 /remove                   # the sidekick leaves
 ```
 
@@ -51,6 +52,10 @@ winner, and the agent is the only one that runs tools.
 Only models in your pool can be seated: a pool entry is the only thing that
 carries a provider, so it is the only thing that can be fully addressed.
 
+`/reset` empties the lane and the column while leaving the seat filled: a
+second opinion on a new question should not have to re-read the first one, and
+re-seating to get that would cost the sidebar as well.
+
 The sidekick does not survive a restart. The agent is never told one sat down
 or got up, because it was never told one was there.
 
@@ -68,7 +73,7 @@ Add it to your Vera config:
 
 ## Capabilities it uses
 
-- `client.commands.register` for `/consult` (`/btw` still works) and `/remove`
+- `client.commands.register` for `/consult` (`/btw` still works), `/reset` and `/remove`
 - `client.messages.intercept` to read `@sidekick` before the message is sent
 - `client.consult` to ask the sidekick, outside the turn
 - `client.thread.read` so the sidekick arrives knowing the conversation
