@@ -169,6 +169,46 @@ export type TuiCommandAction =
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
 
+export type TuiCommandScope = "focused_agent" | "main_session" | "application";
+
+/**
+ * Which owner a slash command is allowed to affect. Keep this exhaustive so a
+ * newly added command cannot silently inherit Vera while a peer is focused.
+ */
+export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
+    switch (action.type) {
+        case "update_model":
+        case "update_reasoning":
+        case "update_permissions":
+        case "open_model_picker":
+        case "open_reasoning_picker":
+        case "open_permissions_picker":
+        case "open_settings_menu":
+            return "focused_agent";
+        case "open_rewind":
+        case "open_fork":
+        case "open_resume_picker":
+        case "open_subagents_picker":
+        case "go_to_parent":
+        case "reconnect":
+        case "create_session":
+        case "update_session_name":
+        case "clone_session":
+        case "compact_session":
+            return "main_session";
+        case "open_preferences_list":
+        case "open_command_palette":
+        case "prefill_composer":
+        case "open_theme_picker":
+        case "show_diagnostics":
+        case "show_pool":
+        case "pool_current_model":
+        case "run_extension":
+        case "command_error":
+            return "application";
+    }
+}
+
 /**
  * Palette rows are grouped under these headings, in this order. Ordering lives
  * with the group names because the palette's whole job is scanability: a stable
