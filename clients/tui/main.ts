@@ -327,7 +327,12 @@ import {
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
 import { createTuiUserEntry } from "./user-entry.ts";
-import { createTuiToolRow, updateTuiToolRow } from "./tool-row.ts";
+import {
+    createTuiToolHeader,
+    createTuiToolRow,
+    updateTuiToolHeader,
+    updateTuiToolRow,
+} from "./tool-row.ts";
 import { createTuiMarkdownEntry } from "./markdown-entry.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
@@ -4224,8 +4229,13 @@ export async function startTui(
                     updateTuiToolRow(existing, entry);
                 }
                 if (
-                    (entry.kind === "tool_header"
-                        || entry.kind === "thought"
+                    entry.kind === "tool_header"
+                    && existing instanceof BoxRenderable
+                ) {
+                    updateTuiToolHeader(existing, entry);
+                }
+                if (
+                    (entry.kind === "thought"
                         || entry.kind === "thinking"
                         || entry.kind === "notice")
                     && existing instanceof TextRenderable
@@ -4252,6 +4262,13 @@ export async function startTui(
                 );
             const node = entry.kind === "tool"
                 ? createTuiToolRow(
+                    renderer,
+                    `entry-${index}`,
+                    entry,
+                    marginTop,
+                )
+                : entry.kind === "tool_header"
+                ? createTuiToolHeader(
                     renderer,
                     `entry-${index}`,
                     entry,
