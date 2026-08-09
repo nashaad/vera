@@ -420,7 +420,7 @@ export async function startResidentHost(
             findAgent: (agentId) => registry.find(agentId),
             listAgents: () => registry.list(),
             onRosterChanged: (listener) => registry.onRosterChanged(listener),
-            createAgent: (workspace) => registry.create({ workspace }),
+            createAgent: (createOptions) => registry.create(createOptions),
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
             branchAgent: (options) => registry.branch(options),
             trashSession: (targetId) => registry.trashSession(targetId),

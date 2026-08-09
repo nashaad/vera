@@ -17,6 +17,7 @@ import {
     type ShutdownIfIdleResponse,
 } from "./protocol.ts";
 import type {
+    CreateRegisteredAgentOptions,
     BranchedRegisteredAgent,
     BranchRegisteredAgentOptions,
     RegisteredAgentSummary,
@@ -63,7 +64,9 @@ export interface StartHostServerOptions {
      * do, and the answer would be up to a tick stale on every screen.
      */
     readonly onRosterChanged?: (listener: () => void) => () => void;
-    readonly createAgent?: (workspace: string) => Promise<ResidentAgent>;
+    readonly createAgent?: (
+        options: Pick<CreateRegisteredAgentOptions, "workspace" | "approvalMode">,
+    ) => Promise<ResidentAgent>;
     readonly resumeAgent?: (sessionPath: string) => Promise<ResidentAgent>;
     readonly branchAgent?: (
         options: BranchRegisteredAgentOptions,
@@ -247,7 +250,9 @@ function receiveConnection(
     identity: HostIdentity,
     findAgent: (agentId: string) => ResidentAgent | undefined,
     listAgents: () => readonly RegisteredAgentSummary[],
-    createAgent: (workspace: string) => Promise<ResidentAgent>,
+    createAgent: (
+        options: Pick<CreateRegisteredAgentOptions, "workspace" | "approvalMode">,
+    ) => Promise<ResidentAgent>,
     resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
     branchAgent: (
         options: BranchRegisteredAgentOptions,
@@ -585,7 +590,12 @@ function receiveConnection(
         if (request?.type === "create_agent") {
             clearTimeout(deadline);
             finished = true;
-            startAgent("create", () => createAgent(request.workspace));
+            startAgent("create", () => createAgent({
+                workspace: request.workspace,
+                ...(request.approval_mode === undefined
+                    ? {}
+                    : { approvalMode: request.approval_mode }),
+            }));
             return;
         }
         if (request?.type === "resume_agent") {

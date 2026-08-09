@@ -38,6 +38,42 @@ import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
+test("a created agent persists its per-session permission mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-permissions-"));
+    const sessionPath = join(root, "readonly.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+        permissionModes: {
+            readonly: {
+                name: "readonly",
+                defaultOutcome: "deny",
+                rules: [{
+                    name: "readonly.read",
+                    when: { verb: "read" },
+                    then: "allow",
+                }],
+            },
+        },
+    });
+
+    try {
+        await registry.create({
+            id: "readonly",
+            workspace: root,
+            sessionPath,
+            approvalMode: "readonly",
+        });
+
+        expect((await SessionStore.open(sessionPath)).approvalMode())
+            .toBe("readonly");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("resident agents resolve relative file paths from their fixed workspaces", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-registry-"));
     const firstWorkspace = join(root, "first");

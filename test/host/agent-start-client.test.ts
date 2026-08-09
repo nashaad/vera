@@ -42,7 +42,11 @@ import { UserFacingError } from "../../src/user-facing-error.ts";
             }),
         });
         try {
-            expect(await createAgentThroughHost(socketPath, "/work/created"))
+            expect(await createAgentThroughHost(
+                socketPath,
+                "/work/created",
+                "readonly",
+            ))
                 .toEqual({ id: "created", workspace: "/work/created" });
             expect(await resumeAgentThroughHost(
                 socketPath,

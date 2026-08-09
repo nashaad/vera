@@ -28,10 +28,14 @@ export class AgentStartError extends Error {
 export function createAgentThroughHost(
     socketPath: string,
     workspace: string,
+    approvalMode?: string,
 ): Promise<ReadyAgent> {
     return requestAgentStart(socketPath, {
         type: "create_agent",
         workspace,
+        ...(approvalMode === undefined
+            ? {}
+            : { approval_mode: approvalMode }),
     });
 }
 
@@ -88,6 +92,7 @@ export async function branchAgentThroughHost(
 interface CreateAgentMessage {
     readonly type: "create_agent";
     readonly workspace: string;
+    readonly approval_mode?: string;
 }
 
 interface ResumeAgentMessage {
