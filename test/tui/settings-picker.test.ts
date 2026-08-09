@@ -16,6 +16,7 @@ import {
     syncTuiModelPicker,
     pickerFooter,
     tuiPickerAfterSelection,
+    tuiPickerViewportRows,
     tuiPickerMenuAncestor,
     withTuiPickerParent,
     type TuiAnySettingsPickerState,
@@ -1080,6 +1081,38 @@ test("with an empty pool the pane opens on explained All models", async () => {
     expect(await pickerFrame(state)).toContain(
         "Everything your providers offer.",
     );
+});
+
+test("All models keeps a moderate modal height on a tall terminal", async () => {
+    const models = Array.from({ length: 40 }, (_, index) => ({
+        provider: "openrouter",
+        model: `example/model-${index}`,
+        label: `Model ${index}`,
+        description: "runnable",
+    }));
+    const state = startTuiSettingsPicker(
+        "model",
+        models[0]!.model,
+        undefined,
+        "auto",
+        models,
+        "default",
+        "openrouter",
+        undefined,
+        [],
+    );
+    const setup = await createTestRenderer({ width: 100, height: 50 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(state);
+    try {
+        expect(state.tab).toBe("all");
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(28);
+        expect(view.box.height).toBeLessThan(40);
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("⇥ moves to All models, which lists what can run", async () => {

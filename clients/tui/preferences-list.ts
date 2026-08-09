@@ -35,6 +35,7 @@ import type {
 } from "../../src/engine/permissions.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import {
+    DIALOG_CARD_Z_INDEX,
     dialogHeaderNode,
     dialogOptionRow,
     dialogRowPointer,
@@ -211,7 +212,7 @@ export function createTuiPreferencesListView(
         width: "80%",
         height: "auto",
         maxHeight: "90%",
-        zIndex: 20,
+        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,

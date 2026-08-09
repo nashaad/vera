@@ -12,6 +12,7 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import {
+    DIALOG_CARD_Z_INDEX,
     DIALOG_CARD_PADDING,
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER,
@@ -143,13 +144,11 @@ export function createTuiCommandPaletteView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        // OpenCode's dialogs use a quarter-height top inset, which keeps a
-        // command palette near the composer instead of pinning it to the top.
-        top: renderer.height / 4,
+        top: commandPaletteTop(renderer),
         left: "10%",
         width: "80%",
         height: 8,
-        zIndex: 15,
+        zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: DIALOG_CARD_PADDING,
         paddingRight: DIALOG_CARD_PADDING,
         paddingTop: 2,
@@ -161,7 +160,7 @@ export function createTuiCommandPaletteView(
     const view: TuiCommandPaletteView = {
         box,
         update(state): void {
-            box.top = renderer.height / 4;
+            box.top = commandPaletteTop(renderer);
             for (const node of nodes) {
                 node.destroy();
             }
@@ -220,6 +219,13 @@ export function createTuiCommandPaletteView(
         },
     };
     return view;
+}
+
+function commandPaletteTop(renderer: RenderContext): number {
+    // The palette can grow much taller than a compact launcher. A quarter-
+    // screen inset pushes its footer into the composer, so retain a small
+    // proportional margin without letting viewport height drive it downward.
+    return Math.max(2, Math.floor(renderer.height / 10));
 }
 
 

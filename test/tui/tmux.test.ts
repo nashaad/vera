@@ -38,6 +38,13 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Model");
             expect(pane).toContain("Session");
             expect(pane).toContain("copy  enter");
+            expect(pane).toContain("┃");
+
+            sendKey(socket, session, "C-p");
+            await Bun.sleep(100);
+            pane = captureVisiblePane(socket, session);
+            expect(pane).toContain("Pre-image stash");
+            expect(pane).not.toContain("Commands");
 
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "✓ copied");
@@ -118,6 +125,7 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(socket, session, "Rewind the active conversation");
             sendKey(socket, session, "C-p");
             pane = await waitForVisiblePane(socket, session, "Commands");
+            expect(pane).toContain("┃");
             expect(pane).toContain("Settings");
             expect(pane).toContain("Switch model");
             expect(pane).not.toContain("Rewind the active conversation");
@@ -126,12 +134,14 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Switch model");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Select model");
+            expect(pane).toContain("┃");
             expect(pane).not.toContain("switch model");
             sendKey(socket, session, "Escape");
             await waitForVisiblePaneWhere(
                 socket,
                 session,
-                (visible) => visible.includes("Message Vera"),
+                (visible) => visible.includes("Message Vera")
+                    && !visible.includes("Select model"),
                 "model picker to close",
             );
             sendText(socket, session, "/palette");

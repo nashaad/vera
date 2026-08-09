@@ -16,6 +16,7 @@ import {
 import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import type { TuiCommandCatalogEntry } from "./commands.ts";
 import {
+    DIALOG_CARD_Z_INDEX,
     dialogFooterNode,
     dialogOptionRows,
     dialogRowPointer,
@@ -239,7 +240,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         left: "4%",
         width: "92%",
         height: "90%",
-        zIndex: 16,
+        zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,

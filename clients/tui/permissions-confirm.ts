@@ -4,7 +4,10 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
-import { dialogBottomOffset } from "./dialog-chrome.ts";
+import {
+    DIALOG_CARD_Z_INDEX,
+    dialogBottomOffset,
+} from "./dialog-chrome.ts";
 
 const DANGER = "#ff3b30";
 const DANGER_BACKGROUND = "#210b0b";
@@ -75,7 +78,7 @@ export function createTuiPermissionsConfirmView(
         right: 1,
         height: "auto",
         maxHeight: "90%",
-        zIndex: 20,
+        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,

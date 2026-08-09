@@ -10,6 +10,7 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
+import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 
 export type TuiSessionTrashConfirmResult = "confirm" | "cancel" | undefined;
 
@@ -85,7 +86,7 @@ export function createTuiSessionTrashConfirmView(
         left: "15%",
         width: "70%",
         height: "auto",
-        zIndex: 20,
+        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
