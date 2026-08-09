@@ -55,19 +55,20 @@ test("TUI question renders the choices as a highlighted list", async () => {
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Which release channel should Vera use?");
         const lines = frame.split("\n");
-        const headerLine = lines.find((line) => line.includes("Question"));
+        // The question is the card's heading, so it starts on the same column
+        // as the answers to it rather than being indented against them.
         const questionLine = lines.find((line) =>
             line.includes("Which release channel")
         );
-        expect(headerLine?.indexOf("Question"))
-            .toBe(questionLine?.indexOf("Which"));
+        const firstChoice = lines.find((line) => line.includes("1. Stable"));
+        expect(questionLine?.indexOf("Which")).toBe(firstChoice?.indexOf("1."));
         // Numbers front each choice; no bracket noise.
-        expect(frame).toContain("1  Stable");
-        expect(frame).toContain("2  Preview");
-        expect(frame).toContain("3  Write a different response");
+        expect(frame).toContain("1. Stable");
+        expect(frame).toContain("2. Preview");
+        expect(frame).toContain("3. Write a different response");
         expect(frame).not.toContain("[1]");
-        expect(frame).toContain("1-2");
-        expect(frame).toContain("esc cancel");
+        expect(frame).toContain("↑↓ select");
+        expect(frame).toContain("esc dismiss");
     } finally {
         setup.renderer.destroy();
     }
@@ -226,11 +227,10 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
     try {
         await setup.flush();
         let frame = setup.captureCharFrame();
-        expect(frame).toContain("Question");
-        expect(frame).toContain("Which release channel");
-        expect(frame).toContain("1-9");
-        expect(frame).toContain("esc cancel");
-        expect(view.box.width).toBe(77);
+                expect(frame).toContain("Which release channel");
+        expect(frame).toContain("↑↓ select");
+        expect(frame).toContain("esc dismiss");
+        expect(view.box.width).toBe(76);
         expect(view.box.left).toBe(2);
         expect(view.bar.height).toBe(view.box.height);
         expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
@@ -247,15 +247,15 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(view.box.bottom).toBe(1);
-        expect(view.box.width).toBe(41);
+        expect(view.box.width).toBe(42);
         expect(view.box.left).toBe(0);
         // The title is clipped here, not by the offset but by the existing
         // `maxHeight: "100%"` short-terminal rule, which lets the box start one
         // row above the viewport. The question itself, its choices, and its key
         // hints all survive, which is the order that matters.
         expect(frame).toContain("Which release channel");
-        expect(frame).toContain("1-9");
-        expect(frame).toContain("esc cancel");
+        expect(frame).toContain("↑↓ select");
+        expect(frame).toContain("esc dismiss");
         expect(view.actions.screenY).toBeLessThan(10);
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(9);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
@@ -265,13 +265,13 @@ test("TUI question pins its actions in short and narrow terminals", async () => 
         await setup.flush();
         expect(view.details.scrollTop).toBeGreaterThan(0);
         expect(view.actions.screenY).toBe(actionsY);
-        expect(setup.captureCharFrame()).toContain("esc cancel");
+        expect(setup.captureCharFrame()).toContain("esc dismiss");
 
         setup.resize(24, 6);
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(frame).toContain("1-9");
-        expect(frame).toContain("esc cancel");
+        expect(frame).toContain("↑↓ select");
+        expect(frame).toContain("esc dismiss");
         expect(view.actions.screenY + view.actions.height).toBeLessThanOrEqual(5);
     } finally {
         setup.renderer.destroy();
@@ -313,7 +313,7 @@ test("TUI question grows with content before details begin scrolling", async () 
         expect(view.box.height).toBeLessThanOrEqual(16);
         expect(view.box.screenY + view.box.height).toBe(17);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
-        expect(setup.captureCharFrame()).toContain("1-2");
+        expect(setup.captureCharFrame()).toContain("↑↓ select");
     } finally {
         setup.renderer.destroy();
     }
@@ -386,7 +386,7 @@ test("TUI question shows the highlighted choice's preview beside it", async () =
         expect(frame).not.toContain("│ preview │");
         // Side by side: the preview shares a row with the choice it explains.
         const stableLine = frame.split("\n")
-            .find((line) => line.includes("1  Stable"));
+            .find((line) => line.includes("1. Stable"));
         expect(stableLine).toContain("│");
 
         view.handleKey(previewRequest, { name: "down" });
@@ -411,7 +411,7 @@ test("a narrow terminal puts the preview under the choices", async () => {
         const frame = setup.captureCharFrame();
         expect(frame).toContain("│ stable │");
         const stableLine = frame.split("\n")
-            .find((line) => line.includes("1  Stable"));
+            .find((line) => line.includes("1. Stable"));
         expect(stableLine).not.toContain("│ stable │");
     } finally {
         setup.renderer.destroy();
@@ -498,6 +498,46 @@ const wideRequest: UserQuestionUiRequestUpdate = {
     seq: 1,
 };
 
+test("a choice description sits under its label, not beside it", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update({
+        ...request,
+        requestId: "described",
+        request: {
+            ...request.request,
+            choices: [
+                {
+                    id: "stable-channel",
+                    label: "Stable",
+                    description: "Ships when it is ready.",
+                },
+                { id: "preview-channel", label: "Preview" },
+            ],
+        },
+    });
+
+    try {
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const labelLine = lines.findIndex((line) => line.includes("1. Stable"));
+        const detailLine = lines.findIndex((line) =>
+            line.includes("Ships when it is ready.")
+        );
+        expect(labelLine).toBeGreaterThanOrEqual(0);
+        expect(detailLine).toBe(labelLine + 1);
+        // Indented past the number column, so the numbers read as a column.
+        expect(lines[detailLine]?.indexOf("Ships"))
+            .toBe(lines[labelLine]!.indexOf("1.") + 3);
+        // A choice without one gets no blank line standing in for it.
+        expect(lines[detailLine + 1]).toContain("2. Preview");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("a wide terminal stops choice text from running the full width", async () => {
     const setup = await createTestRenderer({ width: 220, height: 24 });
     const view = createTuiQuestionView(setup.renderer);
@@ -509,7 +549,7 @@ test("a wide terminal stops choice text from running the full width", async () =
         await setup.flush();
         const frame = setup.captureCharFrame();
         const choiceLine = frame.split("\n")
-            .find((line) => line.includes("1  Stable, which is"));
+            .find((line) => line.includes("1. Stable, which is"));
         expect(choiceLine).toBeDefined();
         // The row is the card indent plus the capped column. Uncapped, this
         // same choice runs past 110 cells on a terminal this wide.

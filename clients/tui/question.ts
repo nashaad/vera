@@ -1,8 +1,10 @@
 import {
     BoxRenderable,
+    fg,
     type Renderable,
     type RenderContext,
     ScrollBoxRenderable,
+    StyledText,
     TextRenderable,
 } from "@opentui/core";
 
@@ -14,16 +16,15 @@ import type {
 import { isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
     TUI_ACCENT,
+    TUI_ELEMENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
 import {
+    attachDialogRowPointer,
     DIALOG_GUTTER_WIDTH,
     DIALOG_SHORT_TERMINAL_HEIGHT,
-    dialogHeaderNode,
-    dialogOptionRow,
-    dialogRowPointer,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 import { tuiBindingId } from "./keymap.ts";
@@ -89,7 +90,8 @@ export function createTuiQuestionView(
     const detailsText = new TextRenderable(renderer, {
         id: "question-details-text",
         content: "",
-        fg: TUI_TEXT,
+        fg: TUI_ACCENT,
+        attributes: 1,
         // The gutter the choice rows below already carry, so the question and
         // the answers to it start on the same column.
         marginLeft: DIALOG_GUTTER_WIDTH,
@@ -166,7 +168,9 @@ export function createTuiQuestionView(
         visible: false,
     });
 
-    details.add(detailsText);
+    // The question sits above the scroll region, not in it: it is the card's
+    // heading, and a heading that scrolls away leaves a list of answers to a
+    // question the reader can no longer see.
     details.add(choicesRow);
     details.add(notes);
 
@@ -180,7 +184,7 @@ export function createTuiQuestionView(
     });
     const cancelAction = new TextRenderable(renderer, {
         id: "question-cancel-action",
-        content: "· esc cancel",
+        content: "· esc dismiss",
         fg: TUI_MUTED,
         width: "auto",
         height: 1,
@@ -200,8 +204,6 @@ export function createTuiQuestionView(
     });
     actions.add(choiceAction);
     actions.add(cancelAction);
-    const header = dialogHeaderNode(renderer, "Question");
-    header.paddingLeft = 0;
     const bar = new BoxRenderable(renderer, {
         id: "question-bar",
         width: 1,
@@ -220,7 +222,7 @@ export function createTuiQuestionView(
         paddingTop: questionBottomPadding(renderer),
         paddingBottom: questionBottomPadding(renderer),
     });
-    panel.add(header);
+    panel.add(detailsText);
     panel.add(details);
     panel.add(actions);
     const box = new BoxRenderable(renderer, {
@@ -230,11 +232,14 @@ export function createTuiQuestionView(
         position: "absolute",
         bottom: 1,
         left: questionSideInset(renderer),
-        right: 1,
+        right: questionSideInset(renderer),
         height: "auto",
         // Short terminals need the final row that the normal overlay margin
-        // would consume. Larger terminals retain the calmer 90% cap.
-        maxHeight: renderer.height <= 10 ? "100%" : "90%",
+        // would consume. Larger terminals retain the calmer 90% cap. The cap
+        // counts the row the card is held off the floor by: a full-height card
+        // that also sits one row up overhangs the top, and the first row is the
+        // question.
+        maxHeight: questionMaxHeight(renderer),
         zIndex: 20,
         flexDirection: "row",
         gap: 0,
@@ -249,25 +254,24 @@ export function createTuiQuestionView(
         }
         choiceRows = [];
         update.request.choices.forEach((choice, index) => {
-            const row = dialogOptionRow(renderer, {
+            const row = questionChoiceRow(renderer, {
+                number: index + 1,
                 label: choice.label,
-                leading: `${index + 1}  `,
+                description: choice.description,
                 active: index === selectedIndex,
-                wrap: true,
-                ...dialogRowPointer(view.pointer, index + 1),
+                pointer: view.pointer,
             });
             choicesColumn.add(row);
             choiceRows.push(row);
         });
         const otherIndex = update.request.choices.length;
-        const other = dialogOptionRow(renderer, {
+        const other = questionChoiceRow(renderer, {
+            number: otherIndex + 1,
             label: enteringCustom
                 ? `Your response: ${customText}▌`
                 : "Write a different response",
-            leading: `${otherIndex + 1}  `,
             active: otherIndex === selectedIndex,
-            wrap: true,
-            ...dialogRowPointer(view.pointer, otherIndex + 1),
+            pointer: view.pointer,
         });
         choicesColumn.add(other);
         choiceRows.push(other);
@@ -315,8 +319,9 @@ export function createTuiQuestionView(
             details.focus();
         },
         update(update): void {
-            box.maxHeight = renderer.height <= 10 ? "100%" : "90%";
+            box.maxHeight = questionMaxHeight(renderer);
             box.left = questionSideInset(renderer);
+            box.right = questionSideInset(renderer);
             bar.visible = questionChromeVisible(renderer);
             panel.paddingTop = questionBottomPadding(renderer);
             panel.paddingBottom = questionBottomPadding(renderer);
@@ -332,7 +337,7 @@ export function createTuiQuestionView(
             enteringNotes = false;
             notesText = "";
             detailsText.content = update.request.question;
-            choiceAction.content = questionChoiceHint(update);
+            choiceAction.content = questionChoiceHint();
             renderChoices(update);
             details.scrollTo(0);
         },
@@ -346,7 +351,7 @@ export function createTuiQuestionView(
             if (enteringNotes) {
                 if (key.name === "escape" || notesBinding(key)) {
                     enteringNotes = false;
-                    choiceAction.content = questionChoiceHint(update);
+                    choiceAction.content = questionChoiceHint();
                     renderNotes();
                     return { handled: true };
                 }
@@ -387,7 +392,7 @@ export function createTuiQuestionView(
                     enteringCustom = false;
                     customText = "";
                     renderChoices(update);
-                    choiceAction.content = questionChoiceHint(update);
+                    choiceAction.content = questionChoiceHint();
                     return { handled: true };
                 }
                 if (key.name === "backspace") {
@@ -525,14 +530,89 @@ function customResponse(
     };
 }
 
-function questionChoiceHint(update: UserQuestionUiRequestUpdate): string {
-    return `↑↓ move · 1-${update.request.choices.length} or ⏎ choose · tab notes `;
+function questionChoiceHint(): string {
+    return "↑↓ select · enter submit · tab notes ";
 }
+
+interface QuestionChoiceRow {
+    readonly number: number;
+    readonly label: string;
+    readonly description?: string;
+    readonly active: boolean;
+    readonly pointer?: DialogRowPointer;
+}
+
+/**
+ * A choice as two stacked lines: a numbered label, and under it what picking it
+ * means. The highlight sits behind the label rather than across the card, so a
+ * short answer does not paint a bar into empty space; the number keeps its own
+ * colour either way, so the column reads as a column down the whole list.
+ */
+function questionChoiceRow(
+    renderer: RenderContext,
+    content: QuestionChoiceRow,
+): BoxRenderable {
+    const row = new BoxRenderable(renderer, {
+        width: "100%",
+        height: "auto",
+        flexDirection: "column",
+    });
+    attachDialogRowPointer(row, content.pointer, content.number);
+    const line = new BoxRenderable(renderer, {
+        width: "100%",
+        height: "auto",
+        flexDirection: "row",
+    });
+    line.add(new TextRenderable(renderer, {
+        content: new StyledText([fg(TUI_MUTED)(`${content.number}. `)]),
+        flexShrink: 0,
+    }));
+    line.add(new TextRenderable(renderer, {
+        content: new StyledText([fg(TUI_ACCENT)(content.label)]),
+        bg: content.active ? TUI_ELEMENT : TUI_PANEL,
+        attributes: content.active ? 1 : 0,
+        // The node takes the row's remaining width, which is what gives a long
+        // label a boundary to wrap on; shrinking it to its own text instead
+        // leaves the wrap nothing to measure against and the label is cut at
+        // one line. The highlight still ends where the answer does, because a
+        // text node paints only the cells its glyphs fill.
+        flexGrow: 1,
+        flexShrink: 1,
+        height: "auto",
+        wrapMode: "word",
+    }));
+    row.add(line);
+    if (content.description !== undefined) {
+        row.add(new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_MUTED)(content.description)]),
+            // Under the label, not under the number: the description belongs to
+            // the answer, and the number column stays clear down the list.
+            marginLeft: QUESTION_NUMBER_WIDTH,
+            width: "100%",
+            height: "auto",
+            wrapMode: "word",
+        }));
+    }
+    return row;
+}
+
+/** The number, its period, and the space after it. */
+const QUESTION_NUMBER_WIDTH = 3;
+
 
 /** Tab is claimed through the table, so nothing else can quietly take it. */
 function notesBinding(key: TuiQuestionKey): boolean {
     return tuiBindingId("question", key) === "write_notes";
 }
+
+function questionMaxHeight(renderer: RenderContext): number | `${number}%` {
+    return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
+        ? renderer.height - QUESTION_BOTTOM_OFFSET
+        : "90%";
+}
+
+/** How far the card is held off the floor, in rows. */
+const QUESTION_BOTTOM_OFFSET = 1;
 
 function questionBottomPadding(renderer: RenderContext): number {
     return questionChromeVisible(renderer) ? 1 : 0;
