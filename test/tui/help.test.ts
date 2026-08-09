@@ -57,6 +57,15 @@ test("help tabs browse slash commands without producing an action", () => {
     expect(state.query).toBe("hello");
 });
 
+test("help search accepts spaces", () => {
+    let state = startTuiHelp(commands, extensions);
+    state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
+    for (const name of ["h", "e", "l", "p", "space", "m", "e"]) {
+        state = handleTuiHelpKey(state, { name }).state ?? state;
+    }
+    expect(state.query).toBe("help me");
+});
+
 test("help renders general guidance and extension attribution", async () => {
     const setup = await createTestRenderer({ width: 100, height: 30 });
     const view = createTuiHelpView(setup.renderer);

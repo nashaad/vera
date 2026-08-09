@@ -216,11 +216,11 @@ export function handleTuiHelpKey(
             handled: true,
         };
     }
-    if (key.name.length === 1) {
+    if (key.name.length === 1 || key.name === "space") {
         return {
             state: {
                 ...state,
-                query: state.query + key.name,
+                query: state.query + (key.name === "space" ? " " : key.name),
                 selectedIndex: 0,
             },
             handled: true,
