@@ -1334,7 +1334,20 @@ export async function startTui(
         paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
-        onMouseUp: () => {
+        onMouseUp: (event) => {
+            // Selection and double-click handling can capture mouse-up at the
+            // root even though mouse-down landed in the sidebar. Coordinates
+            // are authoritative: a release inside an attached-agent column
+            // must never switch focus back to main.
+            if (
+                sidebarAgentPane !== undefined
+                && sidebar.contains(event.x, event.y)
+            ) {
+                sidebar.setFocused(true);
+                composer.focus();
+                renderState();
+                return;
+            }
             if (bodyFocus.release(anyOverlayOpen())) {
                 sidebar.setFocused(false);
                 composer.focus();

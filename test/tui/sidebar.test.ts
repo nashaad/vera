@@ -175,6 +175,8 @@ test("the whole sidebar column, including its focus rail, owns clicks", async ()
 
         sidebar.setFocused(true);
         await setup.flush();
+        expect(sidebar.contains(80, 11)).toBe(true);
+        expect(sidebar.contains(20, 11)).toBe(false);
         await setup.mockMouse.click(80, 11);
         expect(clicks).toBe(2);
     } finally {
