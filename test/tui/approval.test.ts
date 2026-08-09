@@ -224,11 +224,11 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
             .toBe(commandLine?.indexOf("$"));
         expect(frame).toContain("1 Allow once");
         expect(frame).toContain("up/down select");
-        expect(view.box.bottom).toBe(1);
-        expect(view.box.width).toBe(77);
-        expect(view.box.left).toBe(2);
+        expect(view.box.bottom).toBe(0);
+        expect(view.box.width).toBe(80);
+        expect(view.box.left).toBe(0);
         expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
-            .toBe(" ".repeat(80));
+            .toBe(`┃${" ".repeat(79)}`);
         expect(view.bar.screenY).toBe(view.box.screenY);
         expect(view.bar.height).toBe(view.box.height);
         expect(setup.renderer.currentFocusedRenderable).toBe(view.details);
@@ -240,9 +240,9 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         view.update(longRequest());
         await setup.flush();
         frame = setup.captureCharFrame();
-        expect(view.box.bottom).toBe(1);
-        expect(view.box.width).toBe(39);
-        expect(view.box.left).toBe(2);
+        expect(view.box.bottom).toBe(0);
+        expect(view.box.width).toBe(42);
+        expect(view.box.left).toBe(0);
         expect(frame).toContain("Permission required");
         expect(frame).toContain("$ grep");
         expect(frame).toContain("1 Allow once");
@@ -251,7 +251,7 @@ test("TUI approval pins its actions in short and narrow terminals", async () => 
         expect(frame).toContain("3 Deny");
         expect(frame).toContain("4 Always");
         expect(frame.split("\n")[view.box.screenY + view.box.height - 1])
-            .toBe(" ".repeat(42));
+            .toBe(`┃${" ".repeat(41)}`);
         expect(view.actions.screenY).toBeLessThan(12);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
 
@@ -352,7 +352,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         view.update(requestWithCommand("pwd", "short-request"));
         await setup.flush();
         const shortHeight = view.box.height;
-        expect(view.box.screenY + shortHeight).toBe(21);
+        expect(view.box.screenY + shortHeight).toBe(22);
         expect(view.details.scrollHeight).toBe(view.details.height);
 
         view.update(requestWithCommand(
@@ -371,7 +371,7 @@ test("TUI approval grows with content before details begin scrolling", async () 
         await setup.flush();
         expect(view.box.height).toBeGreaterThan(mediumHeight);
         expect(view.box.height).toBeLessThanOrEqual(20);
-        expect(view.box.screenY + view.box.height).toBe(21);
+        expect(view.box.screenY + view.box.height).toBe(22);
         expect(view.details.scrollHeight).toBeGreaterThan(view.details.height);
         expect(setup.captureCharFrame()).toContain("1 Allow once");
     } finally {
