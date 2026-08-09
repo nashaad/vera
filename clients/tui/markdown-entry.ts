@@ -24,6 +24,7 @@ export function createTuiMarkdownEntry(
     foreground: string,
     marginTop: number,
     separated = false,
+    separatorWidth = renderer.terminalWidth,
 ): MarkdownRenderable | undefined {
     if (entry.kind !== "assistant" && entry.kind !== "notification") {
         return undefined;
@@ -34,7 +35,7 @@ export function createTuiMarkdownEntry(
         content: tuiMarkdownEntryContent(
             entry,
             separated,
-            renderer.terminalWidth,
+            separatorWidth,
         ),
         syntaxStyle,
         fg: foreground,
