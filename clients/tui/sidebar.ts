@@ -45,8 +45,6 @@ export interface TuiSidebarOptions {
     readonly transcript: Renderable;
     /** Called when the column itself is clicked, not the strip beside it. */
     readonly onPanelClick?: () => void;
-    /** Called as soon as the column is pressed, including before a selection. */
-    readonly onPanelPress?: () => void;
     readonly theme: TuiSidebarTheme;
     readonly syntaxStyle: SyntaxStyle;
     /** The width to open at, when one was remembered. */
@@ -95,8 +93,6 @@ export interface TuiSidebar {
     scrollToBottom(): void;
     /** Where the scrolling region sits, for an overlay pinned to its foot. */
     bounds(): { x: number; y: number; width: number; height: number };
-    /** Whether a terminal cell belongs to the full sidebar column. */
-    contains(x: number, y: number): boolean;
     width(): number;
 }
 
@@ -194,10 +190,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         // Own the whole column, including the focus rail. Otherwise a click on
         // the rail itself reaches the app behind it and switches focus back to
         // the transcript.
-        onMouseDown: (event: MouseEvent) => {
-            event.stopPropagation();
-            options.onPanelPress?.();
-        },
         onMouseDrag: () => {
             panelDragged = true;
         },
@@ -276,12 +268,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             width: content.width,
             height: content.height,
         }),
-        contains: (x, y) =>
-            shown()
-            && x >= sidebarColumn.x
-            && x < sidebarColumn.x + sidebarColumn.width
-            && y >= sidebarColumn.y
-            && y < sidebarColumn.y + sidebarColumn.height,
         isOpen: () => open,
         isShown: shown,
         toggleHidden(): void {

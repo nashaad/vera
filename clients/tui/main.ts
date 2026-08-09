@@ -1334,22 +1334,8 @@ export async function startTui(
         paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
-        onMouseUp: (event) => {
-            // Selection and double-click handling can capture mouse-up at the
-            // root even though mouse-down landed in the sidebar. Coordinates
-            // are authoritative: a release inside an attached-agent column
-            // must never switch focus back to main.
-            if (
-                sidebarAgentPane !== undefined
-                && sidebar.contains(event.x, event.y)
-            ) {
-                sidebar.setFocused(true);
-                composer.focus();
-                renderState();
-                return;
-            }
+        onMouseUp: () => {
             if (bodyFocus.release(anyOverlayOpen())) {
-                sidebar.setFocused(false);
                 composer.focus();
             }
         },
@@ -1368,20 +1354,10 @@ export async function startTui(
                 // drag over; the sidebar keeps it for this session.
             }
         },
-        // Pane focus is decided on press, before OpenTUI can classify a
-        // double-click or selection as a drag and suppress the click action.
-        onPanelPress: () => {
-            if (sidebarAgentPane === undefined) return;
-            sidebar.setFocused(true);
-            renderState();
-        },
         // Clicking the column is how you talk to it: with one seat there is no
         // question who, and typing the name again is the part nobody wants.
         onPanelClick: () => {
             if (sidebarAgentPane !== undefined) {
-                sidebar.setFocused(true);
-                composer.focus();
-                renderState();
                 return;
             }
             const first = visibleMentions()[0];
@@ -2312,7 +2288,12 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            sidebar.toggleHidden();
+            if (sidebarAgentPane === undefined) {
+                sidebar.toggleHidden();
+            } else {
+                sidebar.setFocused(!sidebar.isFocused());
+                composer.focus();
+            }
             renderState();
             return;
         }
@@ -6304,7 +6285,11 @@ export async function startTui(
         // it away is only offered while it is there.
         const extensionState = [
             ...(sidebar.isOpen()
-                ? [sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"]
+                ? [sidebarAgentPane === undefined
+                    ? sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"
+                    : sidebar.isFocused()
+                    ? "ctrl+b main"
+                    : "ctrl+b sidekick"]
                 : []),
         ];
         const detailsLine = extensionState.length === 0

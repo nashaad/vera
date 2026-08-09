@@ -39,7 +39,6 @@ async function openSidebar(
     width = 120,
     height = 12,
     onPanelClick?: () => void,
-    onPanelPress?: () => void,
 ) {
     const setup = await createTestRenderer({ width, height });
     const transcript = new BoxRenderable(setup.renderer, {
@@ -60,7 +59,6 @@ async function openSidebar(
         },
         syntaxStyle: STYLE,
         ...(onPanelClick === undefined ? {} : { onPanelClick }),
-        ...(onPanelPress === undefined ? {} : { onPanelPress }),
     });
     setup.renderer.root.add(sidebar.body);
     sidebar.open();
@@ -175,29 +173,8 @@ test("the whole sidebar column, including its focus rail, owns clicks", async ()
 
         sidebar.setFocused(true);
         await setup.flush();
-        expect(sidebar.contains(80, 11)).toBe(true);
-        expect(sidebar.contains(20, 11)).toBe(false);
         await setup.mockMouse.click(80, 11);
         expect(clicks).toBe(2);
-    } finally {
-        setup.renderer.destroy();
-    }
-});
-
-test("pressing the sidebar focuses it before mouse-up classification", async () => {
-    let presses = 0;
-    const { setup } = await openSidebar(
-        120,
-        12,
-        undefined,
-        () => presses++,
-    );
-    try {
-        await setup.flush();
-        await setup.mockMouse.pressDown(80, 4);
-        expect(presses).toBe(1);
-        await setup.mockMouse.emitMouseEvent("drag", 85, 4);
-        await setup.mockMouse.release(85, 4);
     } finally {
         setup.renderer.destroy();
     }
