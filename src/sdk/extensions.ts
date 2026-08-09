@@ -94,6 +94,7 @@ export interface VeraClientExtensionApi {
 }
 
 export type VeraClientAgentPane = "main" | "sidebar";
+export type VeraClientAgentAttachmentLifetime = "ephemeral" | "durable";
 
 export interface VeraClientAgentRef {
     readonly agentId: string;
@@ -101,6 +102,7 @@ export interface VeraClientAgentRef {
 
 export interface VeraClientAgentCreateRequest {
     readonly pane: VeraClientAgentPane;
+    readonly attachmentLifetime?: VeraClientAgentAttachmentLifetime;
     readonly mention?: string;
     readonly workspace?: string;
     readonly approvalMode?: string;
@@ -109,6 +111,7 @@ export interface VeraClientAgentCreateRequest {
 export interface VeraClientAgentOpenRequest {
     readonly agentId: string;
     readonly pane: VeraClientAgentPane;
+    readonly attachmentLifetime?: VeraClientAgentAttachmentLifetime;
     readonly mention?: string;
 }
 

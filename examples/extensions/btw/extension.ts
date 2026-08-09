@@ -15,6 +15,7 @@ export function activateClient(vera: any): void {
     async function openAgent(
         mention: string,
         approvalMode: "readonly" | "ask",
+        attachmentLifetime: "ephemeral" | "durable",
         workspace: string,
         signal: AbortSignal,
     ): Promise<string> {
@@ -25,6 +26,7 @@ export function activateClient(vera: any): void {
                 mention,
                 workspace,
                 approvalMode,
+                attachmentLifetime,
             }, signal);
             agentId = created.agentId;
             agents[mention] = agentId;
@@ -33,6 +35,7 @@ export function activateClient(vera: any): void {
                 agentId,
                 pane: "sidebar",
                 mention,
+                attachmentLifetime,
             }, signal);
         }
         activeMention = mention;
@@ -44,6 +47,7 @@ export function activateClient(vera: any): void {
         name: string,
         mention: string,
         approvalMode: "readonly" | "ask",
+        attachmentLifetime: "ephemeral" | "durable",
         description: string,
     ): void {
         vera.commands.register({
@@ -59,6 +63,7 @@ export function activateClient(vera: any): void {
                 const target = await openAgent(
                     mention,
                     approvalMode,
+                    attachmentLifetime,
                     workspace,
                     signal,
                 );
@@ -70,8 +75,20 @@ export function activateClient(vera: any): void {
         });
     }
 
-    register("btw", SIDEKICK, "readonly", "Open or message a readonly sidekick");
-    register("pair", PEER, "ask", "Open or message a tool-capable peer");
+    register(
+        "btw",
+        SIDEKICK,
+        "readonly",
+        "ephemeral",
+        "Open or message a readonly sidekick",
+    );
+    register(
+        "pair",
+        PEER,
+        "ask",
+        "durable",
+        "Open or message a tool-capable peer",
+    );
 
     vera.conversation.onChanged(() => {
         agents[SIDEKICK] = undefined;
