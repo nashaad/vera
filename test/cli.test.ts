@@ -38,6 +38,75 @@ test("vera help and version are available without starting a client", async () =
     expect(started).toBe(false);
 });
 
+test("schedule CLI carries cron, timezone, target, and inert payload", async () => {
+    const calls: unknown[] = [];
+    let output = "";
+    expect(await runCli([
+        "schedule", "add", "daily-review",
+        "--cron", "0 9 * * *",
+        "--timezone", "America/New_York",
+        "--to", "peer",
+        "--text", "Review open work",
+    ], {
+        scheduleOperation: async (operation) => {
+            calls.push(operation);
+            return { schedule_id: "daily-review", enabled: true };
+        },
+        stdout: { write: (text) => output += text },
+    })).toBe(0);
+    expect(calls).toEqual([{
+        action: "add",
+        id: "daily-review",
+        cron: "0 9 * * *",
+        timezone: "America/New_York",
+        address: "peer",
+        payload: { text: "Review open work" },
+    }]);
+    expect(JSON.parse(output)).toEqual({
+        schedule_id: "daily-review",
+        enabled: true,
+    });
+});
+
+test("schedule CLI supports structured payloads and control verbs", async () => {
+    const calls: unknown[] = [];
+    const execute = async (operation: unknown) => {
+        calls.push(operation);
+        return {};
+    };
+    expect(await runCli([
+        "schedule", "add", "structured",
+        "--cron", "*/15 * * * *",
+        "--to", "peer",
+        "--payload", '{"operation":"review","limit":3}',
+    ], { scheduleOperation: execute, stdout: { write() {} } })).toBe(0);
+    for (const args of [
+        ["list"], ["show", "daily"], ["pause", "daily"],
+        ["resume", "daily"], ["run", "daily"], ["remove", "daily"],
+    ]) {
+        expect(await runCli(["schedule", ...args], {
+            scheduleOperation: execute,
+            stdout: { write() {} },
+        })).toBe(0);
+    }
+    expect(calls).toEqual([
+        {
+            action: "add",
+            id: "structured",
+            cron: "*/15 * * * *",
+            timezone: "UTC",
+            address: "peer",
+            payload: { operation: "review", limit: 3 },
+        },
+        { action: "list" },
+        { action: "show", id: "daily" },
+        { action: "pause", id: "daily" },
+        { action: "resume", id: "daily" },
+        { action: "run", id: "daily" },
+        { action: "remove", id: "daily" },
+    ]);
+});
+
 test("vera inspect writes the latest model request", async () => {
     let sessionPath = "";
     let output = "";
