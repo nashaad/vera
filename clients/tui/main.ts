@@ -1679,7 +1679,6 @@ export async function startTui(
             handleActive: tuiHandleActiveColor(theme),
             muted: theme.muted,
             text: theme.text,
-            focused: theme.success,
         };
     }
 

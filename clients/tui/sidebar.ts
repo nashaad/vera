@@ -15,6 +15,8 @@ export const MIN_SIDEBAR_WIDTH = 20;
 /** The transcript keeps at least this much, whatever the divider is dragged to. */
 export const MIN_TRANSCRIPT_WIDTH = 30;
 export const DEFAULT_SIDEBAR_WIDTH = 44;
+/** Pane focus is navigation chrome, so it stays recognizable across themes. */
+export const SIDEBAR_FOCUS_GREEN = "#22c55e";
 /** The grab strip: one column, so it reads as an edge and not as a bar. */
 const DIVIDER_WIDTH = 1;
 
@@ -36,8 +38,6 @@ export interface TuiSidebarTheme {
     readonly handleActive: string;
     readonly muted: string;
     readonly text: string;
-    /** The rail under the panel while messages are addressed to this pane. */
-    readonly focused: string;
 }
 
 export interface TuiSidebarOptions {
@@ -180,11 +180,18 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
     });
     let panelDragged = false;
-    const panel = new BoxRenderable(renderer, {
-        id: "sidebar",
+    const sidebarColumn = new BoxRenderable(renderer, {
+        id: "sidebar-column",
         width,
         height: "100%",
         flexShrink: 0,
+        flexDirection: "column",
+        visible: false,
+    });
+    const panel = new BoxRenderable(renderer, {
+        id: "sidebar",
+        width: "100%",
+        flexGrow: 1,
         flexDirection: "column",
         paddingLeft: 1,
         // Starts on the transcript's first line, not the frame's, and keeps a
@@ -192,7 +199,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         paddingTop: 1,
         paddingBottom: 1,
         backgroundColor: theme.panel,
-        visible: false,
         // A click, not the start of one: dragging over the column is how text
         // is selected out of it, and a selection must not also address it.
         onMouseDrag: () => {
@@ -211,25 +217,28 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
     });
     panel.add(content);
-    const focusRail = new BoxRenderable(renderer, {
+    const focusRail = new TextRenderable(renderer, {
         id: "sidebar-focus-rail",
         width: "100%",
         height: 1,
         flexShrink: 0,
-        backgroundColor: theme.focused,
+        content: "▁".repeat(width),
+        fg: SIDEBAR_FOCUS_GREEN,
         visible: false,
     });
-    panel.add(focusRail);
+    sidebarColumn.add(panel);
+    sidebarColumn.add(focusRail);
 
     body.add(options.transcript);
     body.add(divider);
-    body.add(panel);
+    body.add(sidebarColumn);
 
     function resize(requested: number): void {
         const next = clampSidebarWidth(requested, renderer.terminalWidth);
         if (next === width) return;
         width = next;
-        panel.width = width;
+        sidebarColumn.width = width;
+        focusRail.content = "▁".repeat(width);
         options.onLayoutChanged?.();
     }
 
@@ -243,7 +252,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             dragging = false;
             divider.backgroundColor = theme.handle;
         }
-        panel.visible = visible;
+        sidebarColumn.visible = visible;
         divider.visible = visible;
         options.onLayoutChanged?.();
     }
@@ -331,7 +340,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             theme = next;
             syntaxStyle = nextSyntaxStyle;
             panel.backgroundColor = theme.panel;
-            focusRail.backgroundColor = theme.focused;
             divider.backgroundColor = dragging
                 ? theme.handleActive
                 : theme.handle;
