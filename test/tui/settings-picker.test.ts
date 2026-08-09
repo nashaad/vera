@@ -21,6 +21,9 @@ import {
     type TuiAnySettingsPickerState,
     type TuiSettingsPickerOption,
     type TuiSettingsPickerState,
+    startTuiReviewerMenu,
+    startTuiReviewerPicker,
+    REVIEWER_CLEAR_VALUE,
 } from "../../clients/tui/settings-picker.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
@@ -775,6 +778,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "model",
         "reasoning",
         "permissions",
+        "reviewer",
         "theme",
     ]);
     let permissions = settings;
@@ -1932,4 +1936,57 @@ test("a session row reports its transcript size beside the workspace", async () 
     // An unstattable session still lists, with the workspace column alone.
     expect(rowFor("File went missing")).not.toBe("");
     expect(rowFor("File went missing")).not.toMatch(/\d[BKM]\s/);
+});
+
+test("the reviewer menu shows what each slot resolves to", () => {
+    const unset = startTuiReviewerMenu();
+    expect(unset.options.map((option) => option.description)).toEqual([
+        "the agent's own model",
+        "not set",
+    ]);
+
+    const set = startTuiReviewerMenu({
+        mode: "fixed",
+        primary: { provider: "openrouter", model: "haiku" },
+        fallback: { model: "sonnet" },
+    });
+    expect(set.options.map((option) => option.description)).toEqual([
+        "haiku · openrouter",
+        "sonnet",
+    ]);
+});
+
+test("the reviewer picker offers a clear row above every pooled model", () => {
+    const pooled = [
+        {
+            provider: "openrouter",
+            model: "haiku",
+            label: "Haiku",
+            available: true,
+            verified: true,
+        },
+    ] as unknown as readonly PooledModel[];
+    const picker = startTuiReviewerPicker("fallback", pooled, {
+        provider: "openrouter",
+        model: "haiku",
+    });
+
+    expect(picker.options.map((option) => option.value)).toEqual([
+        REVIEWER_CLEAR_VALUE,
+        "openrouter/haiku",
+    ]);
+    expect(picker.selectedIndex).toBe(1);
+    expect(handleTuiSettingsPickerKey(picker, { name: "enter" }).selection)
+        .toEqual({
+            kind: "reviewer",
+            slot: "fallback",
+            provider: "openrouter",
+            model: "haiku",
+        });
+});
+
+test("choosing the clear row returns the slot with no model", () => {
+    const picker = startTuiReviewerPicker("primary");
+    expect(handleTuiSettingsPickerKey(picker, { name: "enter" }).selection)
+        .toEqual({ kind: "reviewer", slot: "primary" });
 });

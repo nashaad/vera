@@ -46,6 +46,26 @@ export interface ModelTurnSettings {
      * choice.
      */
     readonly subagentDefault?: SubagentModelDefault;
+    /**
+     * The reviewer auto mode consults, and the failsafe tried only when the
+     * first cannot answer. Runtime inspection data like `subagentDefault`:
+     * the reviewer is a user-level setting, not part of the session's own
+     * model choice, so it is reported here and stored in the config file.
+     */
+    readonly reviewerDefault?: ReviewerModelDefault;
+}
+
+export interface ReviewerModelSelection {
+    readonly provider?: string;
+    readonly model: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+}
+
+export interface ReviewerModelDefault {
+    /** `agent` means no reviewer is configured, so it runs on the agent's own model. */
+    readonly mode: "agent" | "fixed";
+    readonly primary?: ReviewerModelSelection;
+    readonly fallback?: ReviewerModelSelection;
 }
 
 export interface SubagentModelDefault {
@@ -59,6 +79,47 @@ export interface ModelSettingsPatch {
     readonly provider?: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort | null;
+    /**
+     * Both reviewer slots, written whole rather than one at a time: a partial
+     * patch would have to say what "leave the other slot alone" means when
+     * the other slot is empty. `null` clears the reviewer.
+     */
+    readonly reviewer?: ReviewerSettingsPatch | null;
+}
+
+export interface ReviewerSettingsPatch {
+    readonly primary: ReviewerModelSelection;
+    /** `null` clears the failsafe and leaves the primary alone. */
+    readonly fallback?: ReviewerModelSelection | null;
+}
+
+export function isReviewerModelSelection(
+    value: unknown,
+): value is ReviewerModelSelection {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const selection = value as Record<string, unknown>;
+    return typeof selection.model === "string"
+        && selection.model.trim().length > 0
+        && (selection.provider === undefined
+            || (typeof selection.provider === "string"
+                && selection.provider.trim().length > 0))
+        && (selection.reasoningEffort === undefined
+            || isModelReasoningEffort(selection.reasoningEffort));
+}
+
+export function isReviewerSettingsPatch(
+    value: unknown,
+): value is ReviewerSettingsPatch {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const patch = value as Record<string, unknown>;
+    return isReviewerModelSelection(patch.primary)
+        && (patch.fallback === undefined
+            || patch.fallback === null
+            || isReviewerModelSelection(patch.fallback));
 }
 
 export function isModelTurnSettings(value: unknown): value is ModelTurnSettings {

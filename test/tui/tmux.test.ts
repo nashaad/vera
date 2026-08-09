@@ -3041,6 +3041,68 @@ async function stopTemporaryHost(home: string): Promise<void> {
     throw new Error(`Temporary resident host ${pid} did not stop`);
 }
 
+test.skipIf(!tmuxAvailable)(
+    "the reviewer pane sets and clears both slots",
+    async () => {
+        const socket = `vera-reviewer-${process.pid}-${randomUUID()}`;
+        const session = "reviewer";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-reviewer-"));
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-reviewer-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/settings");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Reviewer");
+            sendText(socket, session, "revie");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "the agent's own model");
+
+            // Primary, then the failsafe behind it.
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Claude Haiku 4.5");
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "Enter");
+            let pane = await waitForVisiblePane(
+                socket,
+                session,
+                "anthropic/claude-haiku-4.5",
+            );
+            expect(pane).toContain("Failsafe");
+
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "no failsafe reviewer");
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "gemma4:26b");
+            expect(pane).toContain("anthropic/claude-haiku-4.5");
+
+            // Clearing the primary drops the whole reviewer, failsafe included.
+            sendKey(socket, session, "Up");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Use the agent's model");
+            sendKey(socket, session, "Up");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "the agent's own model",
+            );
+            expect(pane).toContain("not set");
+        } finally {
+            runTmux(socket, ["kill-server"]);
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+);
+
 function shellQuote(value: string): string {
     return `'${value.replaceAll("'", `'\\''`)}'`;
 }

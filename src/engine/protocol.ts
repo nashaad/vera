@@ -14,8 +14,12 @@ import type {
 import type {
     ModelSettingsPatch,
     ModelTurnSettings,
+    ReviewerSettingsPatch,
 } from "./model-settings.ts";
-import { contextWindowForModel } from "./model-settings.ts";
+import {
+    contextWindowForModel,
+    isReviewerSettingsPatch,
+} from "./model-settings.ts";
 import {
     measureReportedUsage,
     type ContextMeasurement,
@@ -1045,8 +1049,9 @@ function parseModelSettingsPatch(
     const hasModel = Object.hasOwn(source, "model");
     const hasProvider = Object.hasOwn(source, "provider");
     const hasReasoningEffort = Object.hasOwn(source, "reasoningEffort");
+    const hasReviewer = Object.hasOwn(source, "reviewer");
     if (
-        (!hasProvider && !hasModel && !hasReasoningEffort)
+        (!hasProvider && !hasModel && !hasReasoningEffort && !hasReviewer)
         || (hasProvider
             && (typeof source.provider !== "string"
                 || source.provider.trim().length === 0))
@@ -1056,6 +1061,9 @@ function parseModelSettingsPatch(
         || (hasReasoningEffort
             && source.reasoningEffort !== null
             && !isModelReasoningEffort(source.reasoningEffort))
+        || (hasReviewer
+            && source.reviewer !== null
+            && !isReviewerSettingsPatch(source.reviewer))
     ) {
         return undefined;
     }
@@ -1068,6 +1076,9 @@ function parseModelSettingsPatch(
         ...(provider === undefined ? {} : { provider }),
         ...(model === undefined ? {} : { model }),
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        ...(!hasReviewer ? {} : {
+            reviewer: source.reviewer as ReviewerSettingsPatch | null,
+        }),
     };
 }
 

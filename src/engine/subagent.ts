@@ -86,6 +86,7 @@ export interface CreateSubagentEffectApplierOptions {
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
+    readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
 }
 
@@ -349,6 +350,7 @@ export interface RunSubagentOptions {
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
+    readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
 }
 
@@ -443,6 +445,9 @@ export function createSubagentEffectApplier(
                 ...(options.reviewLog === undefined
                     ? {}
                     : { reviewLog: options.reviewLog }),
+                ...(options.readReviewer === undefined
+                    ? {}
+                    : { readReviewer: options.readReviewer }),
                 ...(options.permissionModes === undefined
                     ? {}
                     : { permissionModes: options.permissionModes }),
@@ -498,7 +503,7 @@ export async function runSubagent(
         const reviewToolCall = createRoutedToolReviewer(
             options.adapter,
             {
-                ...(options.reviewer ?? {
+                ...(options.readReviewer?.() ?? options.reviewer ?? {
                     models: [{
                         model: options.model,
                         ...(options.provider === undefined

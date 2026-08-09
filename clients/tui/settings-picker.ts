@@ -19,6 +19,10 @@ import type {
 } from "../../src/model/catalog-shape.ts";
 import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type {
+    ReviewerModelDefault,
+    ReviewerModelSelection,
+} from "../../src/engine/model-settings.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     TUI_ACCENT,
@@ -65,7 +69,9 @@ export type TuiSettingsPickerKind =
     | "theme"
     | "session"
     | "settings"
-    | "permission_settings";
+    | "permission_settings"
+    | "reviewer_settings"
+    | "reviewer";
 
 /**
  * Where a menu row leads. The menu kinds carry no value of their own: choosing
@@ -78,12 +84,18 @@ export type TuiSettingsMenuTarget =
     | "permissions"
     | "theme"
     | "permission_mode"
-    | "granted_permissions";
+    | "granted_permissions"
+    | "reviewer"
+    | "reviewer_primary"
+    | "reviewer_fallback";
 
 export type TuiSettingsMenuKind = Extract<
     TuiSettingsPickerKind,
-    "settings" | "permission_settings"
+    "settings" | "permission_settings" | "reviewer_settings"
 >;
+
+/** Which reviewer a pane is choosing for. */
+export type TuiReviewerSlot = "primary" | "fallback";
 
 export interface TuiSettingsPickerOption {
     readonly value: string;
@@ -238,6 +250,8 @@ export interface TuiSettingsPickerState {
      * selection instead of returning a bare reasoning selection.
      */
     readonly pendingModel?: TuiPendingModelChoice;
+    /** Set only on a reviewer pane: which slot the chosen row fills. */
+    readonly reviewerSlot?: TuiReviewerSlot;
 }
 
 export interface TuiPendingModelChoice {
@@ -288,7 +302,14 @@ export type TuiSettingsPickerSelection =
         readonly sessionPath: string;
         readonly sessionId?: string;
     }
-    | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget };
+    | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget }
+    | {
+        readonly kind: "reviewer";
+        readonly slot: TuiReviewerSlot;
+        /** Absent clears the slot. */
+        readonly provider?: string;
+        readonly model?: string;
+    };
 
 export interface TuiPoolToggle {
     readonly action: "add" | "remove";
@@ -625,6 +646,12 @@ const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         description: "what Vera may run, and what you have approved",
         searchText: "grants approvals allowed",
     },
+    {
+        value: "reviewer",
+        label: "Reviewer",
+        description: "which model approves actions in auto mode",
+        searchText: "approval auto review failsafe",
+    },
     { value: "theme", label: "Theme", description: "TUI colors" },
 ];
 
@@ -702,7 +729,11 @@ export function tuiPickerMenuAncestor(
 ): TuiSettingsPickerState | undefined {
     let current = state.parent;
     while (current !== undefined) {
-        if (current.kind === "settings" || current.kind === "permission_settings") {
+        if (
+            current.kind === "settings"
+            || current.kind === "permission_settings"
+            || current.kind === "reviewer_settings"
+        ) {
             return current;
         }
         current = current.parent;
@@ -729,6 +760,102 @@ export function tuiPickerAfterSelection(
         return undefined;
     }
     return tuiPickerMenuAncestor(previous);
+}
+
+/** The row that empties a reviewer slot rather than choosing a model. */
+export const REVIEWER_CLEAR_VALUE = "\u0000clear";
+
+function reviewerSlotLabel(selection?: ReviewerModelSelection): string {
+    if (selection === undefined) return "not set";
+    return selection.provider === undefined
+        ? selection.model
+        : `${selection.model} · ${selection.provider}`;
+}
+
+/**
+ * Two rows, because the reviewer route is ordered: the failsafe is simply the
+ * next entry the router tries when the primary cannot answer.
+ */
+export function startTuiReviewerMenu(
+    reviewerDefault?: ReviewerModelDefault,
+): TuiSettingsPickerState {
+    const agentModel = reviewerDefault?.mode !== "fixed";
+    const options: readonly TuiSettingsPickerOption[] = [
+        {
+            value: "reviewer_primary",
+            label: "Primary",
+            description: agentModel
+                ? "the agent's own model"
+                : reviewerSlotLabel(reviewerDefault?.primary),
+            searchText: "reviewer approval auto",
+        },
+        {
+            value: "reviewer_fallback",
+            label: "Failsafe",
+            description: reviewerSlotLabel(reviewerDefault?.fallback),
+            searchText: "reviewer fallback backup",
+        },
+    ];
+    return {
+        kind: "reviewer_settings",
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+    };
+}
+
+/**
+ * Any model is offered. The reviewer is the user's call, so pooled entries are
+ * a convenience list rather than a gate.
+ */
+export function startTuiReviewerPicker(
+    slot: TuiReviewerSlot,
+    pooled: readonly PooledModel[] = [],
+    current?: ReviewerModelSelection,
+    availableModels: readonly SuggestedModel[] = [],
+): TuiSettingsPickerState {
+    // Pooled entries first, then everything else the host knows about, so a
+    // user who has pooled nothing still has a list to choose from.
+    const seen = new Set<string>();
+    const rows: TuiSettingsPickerOption[] = [];
+    for (const entry of [...pooled, ...availableModels]) {
+        const value = `${entry.provider}/${entry.model}`;
+        if (seen.has(value)) continue;
+        seen.add(value);
+        rows.push({
+            value,
+            label: ("poolName" in entry ? entry.poolName : undefined)
+                ?? entry.label,
+            description: entry.provider,
+            provider: entry.provider,
+            model: entry.model,
+            searchText: `${entry.provider} ${entry.model}`,
+        });
+    }
+    const clearRow: TuiSettingsPickerOption = {
+        value: REVIEWER_CLEAR_VALUE,
+        label: slot === "primary" ? "Use the agent's model" : "None",
+        description: slot === "primary"
+            ? "review with whatever model the session runs"
+            : "no failsafe reviewer",
+    };
+    const options = [clearRow, ...rows];
+    const currentValue = current === undefined
+        ? undefined
+        : `${current.provider ?? ""}/${current.model}`;
+    const selectedIndex = Math.max(
+        0,
+        options.findIndex((option) => option.value === currentValue),
+    );
+    return {
+        kind: "reviewer",
+        allOptions: options,
+        options,
+        selectedIndex,
+        query: "",
+        reviewerSlot: slot,
+    };
 }
 
 export function startTuiSettingsMenu(
@@ -2907,8 +3034,25 @@ function pickerSelection(
                 : { sessionId: option.sessionId }),
         };
     }
-    if (kind === "settings" || kind === "permission_settings") {
+    if (
+        kind === "settings"
+        || kind === "permission_settings"
+        || kind === "reviewer_settings"
+    ) {
         return { kind: "menu", target: value as TuiSettingsMenuTarget };
+    }
+    if (kind === "reviewer") {
+        // The clear row carries no model, which is what empties the slot.
+        return {
+            kind,
+            slot: state.reviewerSlot ?? "primary",
+            ...(value === REVIEWER_CLEAR_VALUE ? {} : {
+                ...(option.provider === undefined
+                    ? {}
+                    : { provider: option.provider }),
+                ...(option.model === undefined ? {} : { model: option.model }),
+            }),
+        };
     }
     return { kind, theme: value as TuiThemeName };
 }
@@ -2932,7 +3076,11 @@ function pickerTitle(
                         ? "Settings"
                         : kind === "permission_settings"
                             ? "Permissions"
-                            : "Theme";
+                            : kind === "reviewer_settings"
+                                ? "Reviewer"
+                                : kind === "reviewer"
+                                    ? "Select reviewer"
+                                    : "Theme";
 }
 
 function unchanged(

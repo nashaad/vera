@@ -170,6 +170,8 @@ import {
     handleTuiSettingsPickerScroll,
     handleTuiSettingsPickerKey,
     tuiPickerViewportRows,
+    startTuiReviewerMenu,
+    startTuiReviewerPicker,
     startTuiSettingsMenu,
     startTuiSettingsPicker,
     switchedModelTab,
@@ -182,6 +184,7 @@ import {
     withTuiPickerParent,
     type TuiSettingsMenuTarget,
     type TuiAnySettingsPickerState,
+    type TuiReviewerSlot,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
     type TuiExtensionPickerAction,
@@ -3249,6 +3252,17 @@ export async function startTui(
                         state.modelSettings,
                     );
                 }
+                if (
+                    update.type === "model_settings"
+                    && settingsPicker?.kind === "reviewer_settings"
+                ) {
+                    // Same rule: the rows read the host's snapshot, not a
+                    // local guess about what the choice did.
+                    settingsPicker = withTuiPickerParent(
+                        startTuiReviewerMenu(state.modelSettings?.reviewerDefault),
+                        settingsPicker.parent,
+                    );
+                }
                 if (update.type === "permissions" && preferencesList !== undefined) {
                     // How a removal becomes visible: the engine answers with a
                     // full refreshed inspection rather than an acknowledgement,
@@ -4164,6 +4178,73 @@ export async function startTui(
     // palette row, and a /settings menu entry. Keeping them here means the three
     // routes cannot drift into opening the same picker with different arguments.
 
+    function openReviewerMenu(parent?: TuiSettingsPickerState): void {
+        settingsPicker = withTuiPickerParent(
+            startTuiReviewerMenu(state.modelSettings?.reviewerDefault),
+            parent,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openReviewerPicker(
+        slot: TuiReviewerSlot,
+        parent?: TuiSettingsPickerState,
+    ): void {
+        const reviewer = state.modelSettings?.reviewerDefault;
+        settingsPicker = withTuiPickerParent(
+            startTuiReviewerPicker(
+                slot,
+                state.modelSettings?.pooled,
+                slot === "primary" ? reviewer?.primary : reviewer?.fallback,
+                state.modelSettings?.availableModels,
+            ),
+            parent,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    /**
+     * The primary is required, so clearing it means the fallback has nothing to
+     * sit behind: the whole reviewer is cleared instead. Clearing the failsafe
+     * alone keeps the primary and sends `null` for the second slot.
+     */
+    function reviewerPatchFor(
+        selection: { slot: TuiReviewerSlot; provider?: string; model?: string },
+    ): ModelSettingsPatch["reviewer"] {
+        const chosen = selection.model === undefined ? undefined : {
+            model: selection.model,
+            ...(selection.provider === undefined
+                ? {}
+                : { provider: selection.provider }),
+        };
+        const current = state.modelSettings?.reviewerDefault;
+        if (selection.slot === "primary") {
+            if (chosen === undefined) return null;
+            return {
+                primary: chosen,
+                ...(current?.fallback === undefined
+                    ? {}
+                    : { fallback: current.fallback }),
+            };
+        }
+        if (current?.mode !== "fixed" || current.primary === undefined) {
+            // A failsafe is the second entry of a route with no first entry.
+            return undefined;
+        }
+        return { primary: current.primary, fallback: chosen ?? null };
+    }
+
+    function reviewerToast(
+        selection: { slot: TuiReviewerSlot; provider?: string; model?: string },
+    ): string {
+        const name = selection.model === undefined
+            ? "default"
+            : selection.model;
+        return selection.slot === "primary" ? name : `failsafe ${name}`;
+    }
+
     function openModelPicker(parent?: TuiSettingsPickerState): void {
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
@@ -4624,6 +4705,13 @@ export async function startTui(
         if (target === "theme") return openThemePicker(parent);
         if (target === "permission_mode") return openPermissionsPicker(parent);
         if (target === "granted_permissions") return openPreferencesList(parent);
+        if (target === "reviewer") return openReviewerMenu(parent);
+        if (target === "reviewer_primary") {
+            return openReviewerPicker("primary", parent);
+        }
+        if (target === "reviewer_fallback") {
+            return openReviewerPicker("fallback", parent);
+        }
         settingsPicker = withTuiPickerParent(
             startTuiSettingsMenu("permission_settings"),
             parent,
@@ -4895,6 +4983,19 @@ export async function startTui(
                         : previousPicker,
                 );
                 return;
+            } else if (selection.kind === "reviewer") {
+                const patch = reviewerPatchFor(selection);
+                if (patch === undefined) {
+                    showStatusNotice("Choose a primary reviewer first");
+                } else {
+                    requestModelSettingsChange(
+                        { reviewer: patch },
+                        `reviewer → ${reviewerToast(selection)}`,
+                        `the ${selection.slot === "primary"
+                            ? "reviewer"
+                            : "failsafe reviewer"}`,
+                    );
+                }
             } else {
                 beginSessionResume(selection.sessionPath, selection.sessionId);
                 return;

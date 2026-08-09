@@ -22,6 +22,7 @@ import {
     agentNameKey,
     parseAgentName,
 } from "../../src/host/agent-name.ts";
+import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
@@ -2899,6 +2900,69 @@ test("a session's shells carry its minted name as ARC_SESSION", async () => {
             .toBe(registry.arcNameOf(first.id)!);
         expect(await toolResultText(secondSession))
             .toBe(registry.arcNameOf(second.id)!);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a reviewer patch answers with the new slots and persists them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-reviewer-"));
+    const written: (ToolReviewerSettings | null)[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("unused")]),
+        model: "session-model",
+        approvalMode: "auto",
+        writeReviewer: (reviewer) => written.push(reviewer),
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "reviewer-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+
+        attachment.send({
+            type: "update_model_settings",
+            requestId: "set-reviewer",
+            patch: {
+                reviewer: {
+                    primary: { provider: "openrouter", model: "haiku" },
+                    fallback: { model: "sonnet" },
+                },
+            },
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: {
+                reviewerDefault: {
+                    mode: "fixed",
+                    primary: { provider: "openrouter", model: "haiku" },
+                    fallback: { model: "sonnet" },
+                },
+            },
+        });
+        expect(written).toHaveLength(1);
+        expect(written[0]).toMatchObject({
+            models: [
+                { provider: "openrouter", model: "haiku" },
+                { model: "sonnet" },
+            ],
+        });
+
+        // Clearing drops the reviewer entirely, back to the agent's own model.
+        attachment.send({
+            type: "update_model_settings",
+            requestId: "clear-reviewer",
+            patch: { reviewer: null },
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: { reviewerDefault: { mode: "agent" } },
+        });
+        expect(written[1]).toBeNull();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
