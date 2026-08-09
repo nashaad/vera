@@ -1,6 +1,9 @@
 import {
     BoxRenderable,
+    bold,
+    fg,
     ScrollBoxRenderable,
+    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
@@ -65,10 +68,10 @@ export function createTuiDiagnosticsDialogView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: "3%",
-        left: "2%",
-        width: "96%",
-        height: "90%",
+        top: "6%",
+        left: "4%",
+        width: "92%",
+        height: "84%",
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
@@ -81,7 +84,7 @@ export function createTuiDiagnosticsDialogView(
     const bodyText = new TextRenderable(renderer, {
         id: "diagnostics-dialog-text",
         content: "",
-        fg: TUI_TEXT,
+        fg: TUI_MUTED,
         width: "100%",
         height: "auto",
         wrapMode: "word",
@@ -130,7 +133,7 @@ export function createTuiDiagnosticsDialogView(
             body.focus();
         },
         update(state): void {
-            bodyText.content = state.text.split("\n").slice(1).join("\n");
+            bodyText.content = styledDiagnostics(state.text);
             copyHint.content = state.copyStatus === "copied"
                 ? "✓ copied"
                 : state.copyStatus === "failed"
@@ -144,9 +147,31 @@ export function createTuiDiagnosticsDialogView(
         },
         repaint(): void {
             box.backgroundColor = TUI_PANEL;
-            bodyText.fg = TUI_TEXT;
+            bodyText.fg = TUI_MUTED;
             shareHint.fg = TUI_MUTED;
             copyHint.fg = TUI_MUTED;
         },
     };
+}
+
+const DIAGNOSTIC_SECTIONS = new Set([
+    "Build",
+    "Extensions",
+    "Runtime",
+    "Model",
+    "Session",
+    "Pre-image stash",
+]);
+
+/** Low-contrast report text with just enough hierarchy to scan quickly. */
+export function styledDiagnostics(text: string): StyledText {
+    const lines = text.split("\n").slice(1);
+    return new StyledText(lines.flatMap((line, index) => {
+        const content = DIAGNOSTIC_SECTIONS.has(line)
+            ? bold(fg(TUI_TEXT)(line))
+            : fg(TUI_MUTED)(line);
+        return index === lines.length - 1
+            ? [content]
+            : [content, fg(TUI_MUTED)("\n")];
+    }));
 }
