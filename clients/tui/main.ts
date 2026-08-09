@@ -1249,6 +1249,7 @@ export async function startTui(
         onMouseDragEnd: () => bodyFocus.noteDrag(),
         onMouseUp: () => {
             if (bodyFocus.release(anyOverlayOpen())) {
+                sidebar.setFocused(false);
                 composer.focus();
             }
         },
@@ -1280,6 +1281,7 @@ export async function startTui(
                     ? `@${first} `
                     : `${composer.plainText} @${first} `,
             );
+            sidebar.setFocused(true);
             composer.focus();
             renderCommandSuggestions();
             renderState();
@@ -1458,6 +1460,7 @@ export async function startTui(
             handleActive: tuiHandleActiveColor(theme),
             muted: theme.muted,
             text: theme.text,
+            focused: theme.success,
         };
     }
 

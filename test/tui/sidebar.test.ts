@@ -51,6 +51,7 @@ async function openSidebar(width = 120, height = 12) {
             handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
+            focused: "#00ff00",
         },
         syntaxStyle: STYLE,
     });
@@ -95,6 +96,7 @@ test("a settled drag reports the width once", async () => {
             handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
+            focused: "#00ff00",
         },
         syntaxStyle: STYLE,
         onWidthChanged: (columns) => widths.push(columns),
@@ -126,6 +128,20 @@ test("a bracketed label is shown, not parsed as markdown", async () => {
         await new Promise((resolve) => setTimeout(resolve, 200));
         await setup.flush();
         expect(setup.captureCharFrame()).toContain("[m1] (gpt-5.5)");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("focus is shown as a rail below the sidebar", async () => {
+    const { setup, sidebar } = await openSidebar();
+    try {
+        expect(sidebar.isFocused()).toBe(false);
+        sidebar.setFocused(true);
+        await setup.flush();
+        expect(sidebar.isFocused()).toBe(true);
+        sidebar.setFocused(false);
+        expect(sidebar.isFocused()).toBe(false);
     } finally {
         setup.renderer.destroy();
     }
