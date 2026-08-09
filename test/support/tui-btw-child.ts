@@ -20,11 +20,13 @@ let nextSession = 1;
 
 function session(
     id: string,
-    speaker: "AGENT" | "SIDEKICK" | "CHILD",
+    speaker: "AGENT" | "SIDEKICK" | "PEER" | "CHILD",
+    initialApprovalMode?: string,
 ): TuiAgentClient {
     const channel = createInProcessChannel();
     let turns = 0;
-    let approvalMode = speaker === "SIDEKICK" ? "readonly" : "auto";
+    let approvalMode = initialApprovalMode
+        ?? (speaker === "SIDEKICK" ? "readonly" : "auto");
     let modelSettings: ModelTurnSettings = {
         provider: "faux",
         model: "test",
@@ -130,10 +132,12 @@ await startTui({
     }],
     createSession: async () => session(`main-${++nextSession}`, "AGENT"),
     createAgent: async (_workspace, approvalMode) => {
-        if (approvalMode !== "readonly") {
-            throw new Error(`expected readonly, received ${approvalMode}`);
+        if (approvalMode !== "readonly" && approvalMode !== "ask") {
+            throw new Error(`expected readonly or ask, received ${approvalMode}`);
         }
-        return session(`side-${++nextSession}`, "SIDEKICK");
+        return approvalMode === "readonly"
+            ? session(`side-${++nextSession}`, "SIDEKICK", approvalMode)
+            : session(`peer-${++nextSession}`, "PEER", approvalMode);
     },
     attachAgent: async (agentId) => {
         const client = sessions.get(agentId);

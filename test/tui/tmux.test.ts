@@ -2584,6 +2584,53 @@ test.skipIf(!tmuxAvailable)(
     30_000,
 );
 
+test.skipIf(!tmuxAvailable)(
+    "pair opens a tool-capable peer and shows its effective mode",
+    async () => {
+        const socket = `vera-pair-hosted-${process.pid}-${randomUUID()}`;
+        const session = "pair-hosted";
+        const home = mkdtempSync(join(tmpdir(), "vera-pair-hosted-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-btw-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/pair inspect this");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 1");
+            expect(pane).toContain("peer · ask");
+            expect(pane).not.toContain("AGENT ANSWERED 1");
+
+            sendText(socket, session, "/permissions readonly");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "peer · readonly");
+
+            sendKey(socket, session, "C-g");
+            sendText(socket, session, "main only");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED 1");
+            expect(pane).not.toContain("PEER ANSWERED 2");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
 // Superseded consult-lane acceptance remains skipped until its large fixtures
 // are deleted with the rest of the old Party vocabulary below.
 test.skip(

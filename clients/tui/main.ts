@@ -888,6 +888,7 @@ export async function startTui(
                     throw new Error(`${sidebarOwner} is using the sidebar`);
                 }
                 sidebarOwner = extensionId;
+                sidebar.setHeader(undefined);
                 sidebar.open();
                 renderState();
             },
@@ -908,6 +909,7 @@ export async function startTui(
                 void attached?.detach().catch(() => attached.close());
                 sidebarOwner = undefined;
                 clearSidebarEntryNodes();
+                sidebar.setHeader(undefined);
                 sidebar.close();
                 renderState();
             },
@@ -1453,6 +1455,9 @@ export async function startTui(
         sidebarAgentMention = mention ?? attached.agentId;
         clearSidebarEntryNodes();
         sidebar.clear();
+        sidebar.setHeader(
+            `${sidebarAgentMention} · ${attached.state.state.approvalMode ?? "loading"}`,
+        );
         sidebar.open();
         sidebar.setFocused(true);
         attached.start();
@@ -1490,6 +1495,9 @@ export async function startTui(
     ): void {
         if (pane !== sidebarAgentPane) return;
         const entries = pane.state.state.entries;
+        sidebar.setHeader(
+            `${sidebarAgentMention ?? pane.agentId} · ${pane.state.state.approvalMode ?? "loading"}`,
+        );
         const changedKindAt = entries.findIndex((entry, index) =>
             sidebarEntryNodes[index] !== undefined
             && sidebarEntryNodeKinds[index] !== entry.kind
@@ -5720,6 +5728,7 @@ export async function startTui(
             sidebarOwner = undefined;
             clearSidebarEntryNodes();
             sidebar.clear();
+            sidebar.setHeader(undefined);
             sidebar.close();
             extensionMentions = [];
             extensionAddressee = undefined;
