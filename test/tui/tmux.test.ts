@@ -2616,6 +2616,14 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("peer · ask · idle");
             expect(pane).not.toContain("AGENT ANSWERED 1");
 
+            sendText(socket, session, "ask from peer");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Answer the peer?");
+            expect(pane).toContain("Yes");
+            expect(pane).toContain("No");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 3");
+
             sendText(socket, session, "/permissions readonly");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "peer · readonly");

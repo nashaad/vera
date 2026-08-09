@@ -1503,6 +1503,12 @@ export async function startTui(
             onUpdate: (update, current) => {
                 handleSidebarAgentUpdate(update, current);
                 renderSidebarAgent(current);
+                if (
+                    update.type === "ui_request"
+                    || update.type === "ui_request_closed"
+                ) {
+                    focusActiveSurface();
+                }
             },
             onFailure: (error, current) => {
                 if (current !== sidebarAgentPane) return;
@@ -4457,15 +4463,16 @@ export async function startTui(
      * to", which is what the unfocused-state keys ask.
      */
     function activeOverlayFocus(): (() => void) | undefined {
+        const uiRequest = focusedUiRequest();
         if (
-            pendingUiRequest !== undefined
-            && isToolApprovalUiRequestUpdate(pendingUiRequest)
+            uiRequest !== undefined
+            && isToolApprovalUiRequestUpdate(uiRequest)
         ) {
             return () => approvalView.focus();
         }
         if (
-            pendingUiRequest !== undefined
-            && isUserQuestionUiRequestUpdate(pendingUiRequest)
+            uiRequest !== undefined
+            && isUserQuestionUiRequestUpdate(uiRequest)
         ) {
             return () => questionView.focus();
         }

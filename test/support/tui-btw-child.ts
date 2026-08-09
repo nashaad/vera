@@ -25,6 +25,7 @@ function session(
 ): TuiAgentClient {
     const channel = createInProcessChannel();
     let turns = 0;
+    let askedPeerQuestion = false;
     let approvalMode = initialApprovalMode
         ?? (speaker === "SIDEKICK" ? "readonly" : "auto");
     let modelSettings: ModelTurnSettings = {
@@ -47,6 +48,31 @@ function session(
     const adapter: ModelAdapter = {
         stream(request) {
             turns += 1;
+            if (
+                speaker === "PEER"
+                && !askedPeerQuestion
+                && JSON.stringify(request).includes("ask from peer")
+            ) {
+                askedPeerQuestion = true;
+                return new FauxAdapter([{
+                    role: "assistant",
+                    content: [{
+                        type: "tool_call",
+                        id: "peer-question",
+                        name: "ask_user",
+                        input: {
+                            question: "Answer the peer?",
+                            choices: [
+                                { id: "yes", label: "Yes" },
+                                { id: "no", label: "No" },
+                            ],
+                        },
+                    }],
+                    source: { provider: "faux", api: "scripted", model: "test" },
+                    usage: emptyUsage(),
+                    stopReason: "tool_use",
+                }]).stream(request);
+            }
             if (speaker === "SIDEKICK" && turns === 5) {
                 return new FauxAdapter([{
                     role: "assistant",
