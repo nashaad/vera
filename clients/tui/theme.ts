@@ -39,7 +39,7 @@ export function tuiThemeSwatch(name: TuiThemeName): readonly string[] | undefine
     return [theme.accent, theme.notice, theme.success, theme.text];
 }
 
-// Exact dark-mode role colors from OpenCode's MIT-licensed themes.
+// Dark-mode role colors adapted from OpenCode's MIT-licensed themes.
 // Palette detection follows OpenCode's system-theme mechanism (MIT, © 2025
 // opencode): ask OpenTUI for the terminal palette and retain Vera's own roles.
 export async function resolveTuiTheme(
