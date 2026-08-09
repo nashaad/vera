@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
     configuredModelFallback,
     configuredReviewer,
+    configuredReviewers,
     configuredSubagentModel,
     eventLogEnabled,
     loadOptionalVeraConfig,
@@ -872,4 +873,35 @@ test("a damaged config names the file and the parse problem", () => {
     expect(() => loadVeraConfig({ path })).toThrow(
         `Vera config at ${path} could not be read: it is not valid JSON`,
     );
+});
+
+test("a plain reviewer block is the default profile beside a catalog", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        models: [{
+            provider: "openrouter",
+            model: "anthropic/claude-opus-4.8",
+            reasoning_effort: "max",
+        }],
+        model_routes: {
+            deep: ["anthropic_claude_opus_4_8_max_openrouter"],
+        },
+        reviewer_profiles: {
+            deep: { model_route: "deep", policy: "Be careful." },
+        },
+        reviewer: {
+            model: "haiku",
+            provider: "openrouter",
+            fallback_model: "sonnet",
+        },
+    }));
+
+    const reviewers = configuredReviewers(loadVeraConfig({ path }));
+    expect(Object.keys(reviewers).toSorted()).toEqual(["deep", "default"]);
+    expect(reviewers.default?.models).toEqual([
+        { model: "haiku", provider: "openrouter" },
+        { model: "sonnet", provider: "openrouter" },
+    ]);
 });
