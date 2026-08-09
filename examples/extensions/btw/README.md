@@ -11,9 +11,11 @@ A readonly hosted agent beside the main conversation.
 @vera                        # focus the main agent
 ```
 
-Click either pane to focus it. A bare message goes to the focused pane, and
-the sidebar shows a green rail while it is selected. Mentions override focus
-for one message; only agents currently open in the two panes are mentionable.
+Press `Ctrl+B` to switch focus between the two agents. A bare message goes to
+the focused pane, and the sidebar shows a green rail while it is selected.
+Mentions override focus for one message; only agents currently open in the two
+panes are mentionable. Pointer input remains available for text selection and
+resizing, but does not change agent focus.
 
 The sidekick is a real hosted Vera session. It has its own transcript and can
 continue running if its pane is replaced. `/btw` creates it with readonly
