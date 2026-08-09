@@ -596,12 +596,12 @@ export async function startConfiguredTui(
             listAgents,
             createSession: async (workspace) =>
                 attach((await createAgentThroughHost(host.socket_path, workspace)).id),
-            createAgent: async (workspace, approvalMode) =>
+            createAgent: async (workspace, approvalMode, lifetime = "durable") =>
                 attach((await createAgentThroughHost(
                     host.socket_path,
                     workspace,
                     approvalMode,
-                    "durable",
+                    lifetime,
                 )).id),
             attachAgent: attach,
             cloneSession: async (currentAgentId) =>
