@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test";
 
 import {
+    applyReviewerDecisionMatrix,
     createRoutedToolReviewer,
     createToolReviewer,
     createEscalatingToolReviewer,
     parseReviewDecision,
+    type ToolReviewDecision,
     type ToolReviewRequest,
 } from "../../src/engine/reviewer.ts";
 import {
@@ -26,6 +28,19 @@ const request: ToolReviewRequest = {
     workspace: "/Users/nash/Projects/vera",
     reason: "This command may access a path outside the workspace.",
 };
+
+function reviewDecision(
+    decision: ToolReviewDecision["decision"],
+    riskLevel: ToolReviewDecision["riskLevel"],
+    userAuthorization: ToolReviewDecision["userAuthorization"],
+): ToolReviewDecision {
+    return {
+        decision,
+        reason: `${riskLevel} ${userAuthorization}`,
+        riskLevel,
+        userAuthorization,
+    };
+}
 
 function assistantText(text: string): AssistantMessage {
     return {
@@ -117,6 +132,68 @@ class RouteAdapter implements ModelAdapter {
         return stream;
     }
 }
+
+const allowMatrixCases: readonly [
+    ToolReviewDecision["riskLevel"],
+    ToolReviewDecision["userAuthorization"],
+    ToolReviewDecision["decision"],
+][] = [
+    ["low", "unknown", "allow"],
+    ["low", "low", "allow"],
+    ["low", "medium", "allow"],
+    ["low", "high", "allow"],
+    ["medium", "unknown", "allow"],
+    ["medium", "low", "allow"],
+    ["medium", "medium", "allow"],
+    ["medium", "high", "allow"],
+    ["high", "unknown", "deny"],
+    ["high", "low", "deny"],
+    ["high", "medium", "allow"],
+    ["high", "high", "allow"],
+    ["critical", "unknown", "deny"],
+    ["critical", "low", "deny"],
+    ["critical", "medium", "deny"],
+    ["critical", "high", "deny"],
+];
+
+for (const [riskLevel, userAuthorization, expected] of allowMatrixCases) {
+    test(
+        `reviewer matrix maps allow ${riskLevel} ${userAuthorization} to ${expected}`,
+        () => {
+            const decision = reviewDecision(
+                "allow",
+                riskLevel,
+                userAuthorization,
+            );
+
+            const result = applyReviewerDecisionMatrix(decision);
+
+            expect(result.decision).toBe(expected);
+            expect(result.riskLevel).toBe(riskLevel);
+            expect(result.userAuthorization).toBe(userAuthorization);
+            if (expected === "allow") {
+                expect(result).toBe(decision);
+            } else {
+                expect(result.reason).toContain(
+                    "judged high risk and the conversation does not clearly support it",
+                );
+                expect(result.reason).toContain(decision.reason);
+            }
+        },
+    );
+}
+
+test("reviewer matrix leaves deny unchanged", () => {
+    const decision = reviewDecision("deny", "critical", "unknown");
+
+    expect(applyReviewerDecisionMatrix(decision)).toBe(decision);
+});
+
+test("reviewer matrix leaves unavailable unchanged", () => {
+    const decision = reviewDecision("unavailable", "high", "unknown");
+
+    expect(applyReviewerDecisionMatrix(decision)).toBe(decision);
+});
 
 test("reviewer routes try models in order only when one is unavailable", async () => {
     const adapter = new RouteAdapter();
@@ -716,6 +793,55 @@ test("an allow the fast tier itself rates high risk escalates", async () => {
 
     expect(decision.decision).toBe("allow");
     expect(decision.escalated).toBe(true);
+    expect(testAdapter.requests).toHaveLength(2);
+    expect(testAdapter.requests[1]?.model).toBe("strong-model");
+});
+
+test("the reviewer matrix acts on the escalated final decision", async () => {
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
+
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: assistantText(JSON.stringify(requestCount === 1
+                    ? {
+                        risk_level: "high",
+                        user_authorization: "medium",
+                        outcome: "allow",
+                        rationale: "The fast tier requests escalation.",
+                    }
+                    : {
+                        risk_level: "high",
+                        user_authorization: "low",
+                        outcome: "allow",
+                        rationale: "The transcript only hints at consent.",
+                    })),
+            });
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("deny");
+    expect(decision.riskLevel).toBe("high");
+    expect(decision.userAuthorization).toBe("low");
+    expect(decision.escalated).toBe(true);
+    expect(decision.reason).toContain(
+        "judged high risk and the conversation does not clearly support it",
+    );
+    expect(decision.reason).toContain("The transcript only hints at consent.");
     expect(testAdapter.requests).toHaveLength(2);
     expect(testAdapter.requests[1]?.model).toBe("strong-model");
 });
