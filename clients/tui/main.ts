@@ -907,6 +907,7 @@ export async function startTui(
                 sidebarAgentMention = undefined;
                 void attached?.detach().catch(() => attached.close());
                 sidebarOwner = undefined;
+                clearSidebarEntryNodes();
                 sidebar.close();
                 renderState();
             },
@@ -1168,6 +1169,18 @@ export async function startTui(
     // (recreated blocks paint nothing until the tree-sitter worker returns).
     const entryNodes: (TextRenderable | MarkdownRenderable | BoxRenderable)[] = [];
     const entryNodeKinds: TuiTranscriptEntry["kind"][] = [];
+    const sidebarEntryNodes: (
+        TextRenderable | MarkdownRenderable | BoxRenderable
+    )[] = [];
+    const sidebarEntryNodeKinds: TuiTranscriptEntry["kind"][] = [];
+    let sidebarEntryGeneration = 0;
+
+    function clearSidebarEntryNodes(): void {
+        while (sidebarEntryNodes.length > 0) {
+            sidebarEntryNodes.pop()?.destroy();
+            sidebarEntryNodeKinds.pop();
+        }
+    }
 
     const statusText = new TextRenderable(renderer, {
         id: "status",
@@ -1438,6 +1451,7 @@ export async function startTui(
         });
         sidebarAgentPane = attached;
         sidebarAgentMention = mention ?? attached.agentId;
+        clearSidebarEntryNodes();
         sidebar.clear();
         sidebar.open();
         sidebar.setFocused(true);
@@ -1475,15 +1489,91 @@ export async function startTui(
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
         if (pane !== sidebarAgentPane) return;
-        sidebar.replace(pane.state.state.entries.flatMap((entry) => {
-            if (entry.text.length === 0 || entry.kind === "thinking") return [];
-            const label = entry.kind === "user"
-                ? "you"
-                : entry.kind === "assistant"
-                ? "agent"
-                : entry.kind.replaceAll("_", " ");
-            return [{ label, text: entry.text, speaker: label }];
-        }));
+        const entries = pane.state.state.entries;
+        const changedKindAt = entries.findIndex((entry, index) =>
+            sidebarEntryNodes[index] !== undefined
+            && sidebarEntryNodeKinds[index] !== entry.kind
+        );
+        const retained = changedKindAt === -1
+            ? Math.min(entries.length, sidebarEntryNodes.length)
+            : changedKindAt;
+        const discarded = sidebarEntryNodes.splice(retained);
+        sidebarEntryNodeKinds.splice(retained);
+
+        entries.forEach((entry, index) => {
+            const existing = sidebarEntryNodes[index];
+            if (existing !== undefined) {
+                existing.visible = entry.kind !== "tool" || entry.hidden !== true;
+                if (
+                    existing instanceof MarkdownRenderable
+                    && existing.content !== entry.text
+                ) {
+                    existing.content = entry.text;
+                } else if (
+                    entry.kind === "tool"
+                    && existing instanceof BoxRenderable
+                ) {
+                    updateTuiToolRow(existing, entry);
+                } else if (
+                    entry.kind === "tool_header"
+                    && existing instanceof BoxRenderable
+                ) {
+                    updateTuiToolHeader(existing, entry);
+                } else if (
+                    (entry.kind === "thought"
+                        || entry.kind === "thinking"
+                        || entry.kind === "notice")
+                    && existing instanceof TextRenderable
+                ) {
+                    existing.content = renderTuiEntry(entry);
+                }
+                return;
+            }
+
+            const id = `sidebar-entry-${++sidebarEntryGeneration}`;
+            const marginTop = tuiEntryMarginTop(entries, index);
+            const markdownNode = entry.kind === "diff"
+                ? undefined
+                : createTuiMarkdownEntry(
+                    renderer,
+                    id,
+                    entry,
+                    markdownStyle,
+                    TUI_TEXT,
+                    marginTop,
+                );
+            const node = entry.kind === "tool"
+                ? createTuiToolRow(renderer, id, entry, marginTop)
+                : entry.kind === "tool_header"
+                ? createTuiToolHeader(renderer, id, entry, marginTop)
+                : entry.kind === "user"
+                ? createTuiUserEntry(renderer, id, entry, marginTop)
+                : entry.kind === "diff"
+                ? createTuiDiff(
+                    renderer,
+                    id,
+                    tuiDisplayPath(entry.path),
+                    entry.patch,
+                    markdownStyle,
+                    marginTop,
+                )
+                : markdownNode ?? new TextRenderable(renderer, {
+                    id,
+                    content: renderTuiEntry(entry),
+                    width: "100%",
+                    wrapMode: "word",
+                    selectable: true,
+                    marginTop,
+                });
+            node.visible = entry.kind !== "tool" || entry.hidden !== true;
+            sidebarEntryNodes.push(node);
+            sidebarEntryNodeKinds.push(entry.kind);
+        });
+        sidebar.replaceRendered(sidebarEntryNodes.map((node, index) => ({
+            node,
+            speaker: entries[index]?.kind === "user" ? "you" : "agent",
+        })));
+        for (const node of discarded) node.destroy();
         renderSidebarJump();
         renderState();
     }
@@ -2343,9 +2433,17 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            const wasFollowing = transcript.scrollTop
-                >= transcript.scrollHeight - transcript.viewport.height;
-            state = toggleTuiThinking(state);
+            const side = sidebar.isFocused() ? sidebarAgentPane : undefined;
+            const wasFollowing = side === undefined
+                ? transcript.scrollTop
+                    >= transcript.scrollHeight - transcript.viewport.height
+                : sidebar.isFollowing();
+            if (side === undefined) {
+                state = toggleTuiThinking(state);
+            } else {
+                side.state.state = toggleTuiThinking(side.state.state);
+                renderSidebarAgent(side);
+            }
             renderState();
             // Opening every fold grows the transcript above the viewport, which
             // walks the view backwards through the conversation. The reasoning
@@ -2356,12 +2454,17 @@ export async function startTui(
             // drops sticky scroll for the rest of the session, so a transcript
             // that was keeping up with the stream is put back on the bottom
             // rather than pointed at a row.
-            const lastThought = state.entries.findLastIndex((entry) =>
+            const activeState = side?.state.state ?? state;
+            const lastThought = activeState.entries.findLastIndex((entry) =>
                 entry.kind === "thought"
             );
             if (wasFollowing) {
-                transcript.scrollTo(transcript.scrollHeight);
-            } else if (lastThought >= 0) {
+                if (side === undefined) {
+                    transcript.scrollTo(transcript.scrollHeight);
+                } else {
+                    sidebar.scrollToBottom();
+                }
+            } else if (side === undefined && lastThought >= 0) {
                 transcript.scrollChildIntoView(`entry-${lastThought}`);
             }
             return;
@@ -2385,18 +2488,31 @@ export async function startTui(
             key.stopPropagation();
             // Read this before the fold changes the transcript height. Once
             // expanded, the old bottom can look like a manually scrolled view.
-            const wasFollowing = transcript.scrollTop
-                >= transcript.scrollHeight - transcript.viewport.height;
-            state = toggleTuiToolDetails(state);
+            const side = sidebar.isFocused() ? sidebarAgentPane : undefined;
+            const wasFollowing = side === undefined
+                ? transcript.scrollTop
+                    >= transcript.scrollHeight - transcript.viewport.height
+                : sidebar.isFollowing();
+            if (side === undefined) {
+                state = toggleTuiToolDetails(state);
+            } else {
+                side.state.state = toggleTuiToolDetails(side.state.state);
+                renderSidebarAgent(side);
+            }
             renderState();
             if (wasFollowing) {
-                transcript.scrollTo(transcript.scrollHeight);
+                if (side === undefined) {
+                    transcript.scrollTo(transcript.scrollHeight);
+                } else {
+                    sidebar.scrollToBottom();
+                }
             } else {
-                const lastToolGroup = state.entries.findLastIndex((entry) =>
+                const activeState = side?.state.state ?? state;
+                const lastToolGroup = activeState.entries.findLastIndex((entry) =>
                     entry.kind === "tool_header"
                     && entry.detailLines !== undefined
                 );
-                if (lastToolGroup >= 0) {
+                if (side === undefined && lastToolGroup >= 0) {
                     transcript.scrollChildIntoView(`entry-${lastToolGroup}`);
                 }
             }
@@ -5602,6 +5718,7 @@ export async function startTui(
                 previousSidebarAgent.close()
             );
             sidebarOwner = undefined;
+            clearSidebarEntryNodes();
             sidebar.clear();
             sidebar.close();
             extensionMentions = [];
