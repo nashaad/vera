@@ -57,7 +57,12 @@ import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
 } from "../engine/agent-limits.ts";
+import type { ReviewLog } from "../engine/review-log.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
+import type {
+    ReviewerModelDefault,
+    ReviewerSettingsPatch,
+} from "../engine/model-settings.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { providerOf } from "../model/pool-file.ts";
 import { resolvePoolRef } from "../model/pool-names.ts";
@@ -217,6 +222,11 @@ export interface AgentRegistryOptions {
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
+    /** Persists a reviewer choice. `null` clears it. */
+    readonly writeReviewer?: (
+        reviewer: ToolReviewerSettings | null,
+    ) => void;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     /** Resolved once at startup, bound per agent to that agent's adapter. */
     readonly compaction?: ResolvedCompactionProfile;
@@ -573,6 +583,12 @@ export class AgentRegistry {
     private defaultProvider: string;
     private defaultReasoningEffort: ModelReasoningEffort | undefined;
     private defaultApprovalMode: ApprovalMode;
+    /**
+     * The reviewer route in effect. Held here rather than read from options
+     * because choosing a reviewer has to reach a session already running: an
+     * agent reads it at each review, not once at start.
+     */
+    private reviewerSettings: ToolReviewerSettings | undefined;
     private isClosed = false;
     private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
     private readonly maxConcurrentBackgroundAgents: number;
@@ -583,6 +599,7 @@ export class AgentRegistry {
     private readonly rosterListeners = new Set<() => void>();
 
     constructor(private readonly options: AgentRegistryOptions) {
+        this.reviewerSettings = options.reviewer;
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
         this.defaultReasoningEffort = options.reasoningEffort;
@@ -931,6 +948,45 @@ export class AgentRegistry {
         return false;
     }
 
+    private reviewerDefault(): ReviewerModelDefault {
+        return reviewerDefaultOf(this.reviewerSettings);
+    }
+
+    /** The reviewer route agents read at each review, not once at start. */
+    readReviewer(): ToolReviewerSettings | undefined {
+        return this.reviewerSettings;
+    }
+
+    /**
+     * Applies a reviewer choice to every running agent and writes it to the
+     * config file, so the session the user is in changes with the file rather
+     * than at the next start. Any model may be a reviewer: nothing here checks
+     * the pool or the catalog, because a reviewer that turns out to be
+     * unreachable falls through to the failsafe on its own.
+     */
+    private applyReviewerPatch(patch: ReviewerSettingsPatch | null): boolean {
+        if (patch === null) {
+            this.reviewerSettings = undefined;
+            this.options.writeReviewer?.(null);
+            return true;
+        }
+        const carried = this.reviewerSettings;
+        const fallback = patch.fallback === undefined
+            ? carried?.models[1]
+            : patch.fallback === null
+                ? undefined
+                : patch.fallback;
+        this.reviewerSettings = {
+            ...carried,
+            models: [
+                { ...patch.primary },
+                ...(fallback === undefined ? [] : [{ ...fallback }]),
+            ],
+        };
+        this.options.writeReviewer?.(this.reviewerSettings);
+        return true;
+    }
+
     async updateModelSettings(
         id: string,
         patch: ModelSettingsPatch,
@@ -938,6 +994,29 @@ export class AgentRegistry {
         const entry = this.agents.get(id);
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return undefined;
+        }
+        if (patch.reviewer !== undefined) {
+            if (!this.applyReviewerPatch(patch.reviewer)) {
+                return undefined;
+            }
+            if (
+                patch.provider === undefined
+                && patch.model === undefined
+                && patch.reasoningEffort === undefined
+            ) {
+                // A reviewer-only patch changes no running model, so the reply
+                // is the current settings carrying the new reviewer.
+                return settingsForClient(
+                    entry.modelSettings,
+                    entry.modelSettings.provider ?? this.defaultProvider,
+                    this.catalog,
+                    this.options.availableModels,
+                    this.options.readPool?.(entry.store.header.cwd),
+                    this.options.subagentModel,
+                    entry.requestedReasoningEffort,
+                    this.reviewerDefault(),
+                );
+            }
         }
         if (
             (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
@@ -1037,6 +1116,7 @@ export class AgentRegistry {
             this.options.readPool?.(entry.store.header.cwd),
             this.options.subagentModel,
             entry.requestedReasoningEffort,
+            this.reviewerDefault(),
         );
     }
 
@@ -1085,6 +1165,7 @@ export class AgentRegistry {
                 this.options.readPool?.(agentEntry.store.header.cwd),
                 this.options.subagentModel,
                 agentEntry.requestedReasoningEffort,
+                this.reviewerDefault(),
             ),
         };
     }
@@ -1211,6 +1292,7 @@ export class AgentRegistry {
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
+            this.reviewerDefault(),
         );
     }
 
@@ -1243,6 +1325,7 @@ export class AgentRegistry {
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
+            this.reviewerDefault(),
         );
     }
 
@@ -1581,6 +1664,19 @@ export class AgentRegistry {
             ...(this.options.modelFallback === undefined
                 ? {}
                 : { modelFallback: this.options.modelFallback }),
+            ...(this.options.reviewer === undefined
+                ? {}
+                : { reviewer: this.options.reviewer }),
+            readReviewer: () => this.readReviewer(),
+            ...(this.options.reviewers === undefined
+                ? {}
+                : { reviewers: this.options.reviewers }),
+            ...(this.options.reviewLog === undefined
+                ? {}
+                : { reviewLog: this.options.reviewLog }),
+            ...(this.options.permissionModes === undefined
+                ? {}
+                : { permissionModes: this.options.permissionModes }),
         });
         const compaction = bindCompaction(
             this.options.compaction,
@@ -1643,9 +1739,13 @@ export class AgentRegistry {
                 ...(this.options.reviewer === undefined
                     ? {}
                     : { reviewer: this.options.reviewer }),
+                readReviewer: () => this.readReviewer(),
                 ...(this.options.reviewers === undefined
                     ? {}
                     : { reviewers: this.options.reviewers }),
+                ...(this.options.reviewLog === undefined
+                    ? {}
+                    : { reviewLog: this.options.reviewLog }),
                 ...(this.options.permissionModes === undefined
                     ? {}
                     : { permissionModes: this.options.permissionModes }),
@@ -1673,6 +1773,7 @@ export class AgentRegistry {
                     this.options.readPool?.(store.header.cwd),
                     this.options.subagentModel,
                     entry.requestedReasoningEffort,
+                    this.reviewerDefault(),
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -2236,6 +2337,7 @@ function settingsForClient(
     pooled: readonly PooledModel[] = [],
     subagentModel?: SpawnModelDefault,
     requestedReasoningEffort?: ModelReasoningEffort,
+    reviewerDefault?: ReviewerModelDefault,
 ): ModelTurnSettings {
     const contextWindow = contextWindowForModel(provider, settings.model, models);
     const { efforts } = publishedReasoningLevels(
@@ -2275,7 +2377,29 @@ function settingsForClient(
                     ? {}
                     : { reasoningEffort: subagentModel.reasoningEffort }),
             },
+        ...(reviewerDefault === undefined ? {} : { reviewerDefault }),
         ...(contextWindow === undefined ? {} : { contextWindow }),
+    };
+}
+
+/**
+ * The reviewer route as the client sees it. The first entry is the reviewer
+ * auto mode consults; a second is the failsafe, tried only when the first
+ * cannot answer. No configured reviewer means auto mode reviews on the
+ * agent's own model, which is `agent` rather than an empty selection.
+ */
+function reviewerDefaultOf(
+    settings: ToolReviewerSettings | undefined,
+): ReviewerModelDefault {
+    const primary = settings?.models[0];
+    if (primary === undefined) {
+        return { mode: "agent" };
+    }
+    const fallback = settings?.models[1];
+    return {
+        mode: "fixed",
+        primary: { ...primary },
+        ...(fallback === undefined ? {} : { fallback: { ...fallback } }),
     };
 }
 

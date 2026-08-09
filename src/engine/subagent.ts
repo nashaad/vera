@@ -10,6 +10,7 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
+import type { ReviewLog } from "./review-log.ts";
 import { EngineEventBus } from "./events.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
@@ -18,7 +19,7 @@ import {
     createInProcessChannel,
     type InProcessChannel,
 } from "./message-channel.ts";
-import type { ApprovalMode } from "./permissions.ts";
+import type { ApprovalMode, PermissionMode } from "./permissions.ts";
 import { sessionAttachmentName } from "../attachments/service.ts";
 import {
     createProtocolEncoder,
@@ -27,7 +28,15 @@ import {
 } from "./protocol.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
-import { runTurn, type RunTurnState } from "./run-turn.ts";
+import {
+    createRoutedToolReviewer,
+    type ToolReviewerSettings,
+} from "./reviewer.ts";
+import {
+    createReviewerProfileRouter,
+    runTurn,
+    type RunTurnState,
+} from "./run-turn.ts";
 import { newStashingToolRuntime } from "./preimage.ts";
 import type {
     ApplyToolEffect,
@@ -69,6 +78,16 @@ export interface CreateSubagentEffectApplierOptions {
     readonly subagentModel?: SpawnModelDefault;
     /** Allow/deny, the failsafe list and families; absent, nothing is gated. */
     readonly readPolicy?: () => SubagentPoolPolicy;
+    /**
+     * The same reviewer settings the parent runs under. Settings, not the
+     * parent's reviewer instance: a reviewer keeps a running conversation
+     * about one transcript, and each child has its own.
+     */
+    readonly reviewer?: ToolReviewerSettings;
+    readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
+    readonly readReviewer?: () => ToolReviewerSettings | undefined;
+    readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
 }
 
 export interface SpawnModelDefault {
@@ -328,6 +347,11 @@ export interface RunSubagentOptions {
     readonly signal?: AbortSignal;
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly reviewer?: ToolReviewerSettings;
+    readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
+    readonly readReviewer?: () => ToolReviewerSettings | undefined;
+    readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
 }
 
 export type ChildToolApprovalRelay = (
@@ -412,6 +436,21 @@ export function createSubagentEffectApplier(
                 ...(options.sessionPathForId === undefined
                     ? {}
                     : { sessionPath: options.sessionPathForId(sessionId) }),
+                ...(options.reviewer === undefined
+                    ? {}
+                    : { reviewer: options.reviewer }),
+                ...(options.reviewers === undefined
+                    ? {}
+                    : { reviewers: options.reviewers }),
+                ...(options.reviewLog === undefined
+                    ? {}
+                    : { reviewLog: options.reviewLog }),
+                ...(options.readReviewer === undefined
+                    ? {}
+                    : { readReviewer: options.readReviewer }),
+                ...(options.permissionModes === undefined
+                    ? {}
+                    : { permissionModes: options.permissionModes }),
             });
             return {
                 kind: "output",
@@ -453,6 +492,33 @@ export async function runSubagent(
         events.subscribe(protocol);
         const instructionRoot: InstructionRoot = options.instructionRoot
             ?? { path: options.workspace, source: "workspace" };
+        // The child builds its own reviewer instances rather than borrowing
+        // the parent's: a reviewer keeps a running conversation about one
+        // transcript, and interleaving two transcripts would read as a rewind
+        // on every review. Without configured settings the reviewer runs on
+        // the child's own model, mirroring the parent's fallback. Leaving it
+        // unwired is not an option in `auto`: every non-routine action would
+        // fall back to a human approval prompt, or a denial when nobody is
+        // attached, which quietly turns the child's auto mode into ask.
+        const reviewToolCall = createRoutedToolReviewer(
+            options.adapter,
+            {
+                ...(options.readReviewer?.() ?? options.reviewer ?? {
+                    models: [{
+                        model: options.model,
+                        ...(options.provider === undefined
+                            ? {}
+                            : { provider: options.provider }),
+                        ...(options.reasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: options.reasoningEffort }),
+                    }],
+                }),
+                ...(options.reviewLog === undefined
+                    ? {}
+                    : { log: options.reviewLog }),
+            },
+        );
         const state: RunTurnState = {
             messages: [],
             store,
@@ -468,6 +534,16 @@ export async function runSubagent(
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
             extensionTools: options.extensionTools,
+            reviewToolCall,
+            reviewToolCallForProfile: createReviewerProfileRouter(
+                reviewToolCall,
+                options.adapter,
+                options.reviewers,
+                options.reviewLog,
+            ),
+            ...(options.permissionModes === undefined
+                ? {}
+                : { permissionModes: options.permissionModes }),
             promptPrefixTracker: new PromptPrefixTracker(),
             ...(options.scratchDir === undefined
                 ? {}

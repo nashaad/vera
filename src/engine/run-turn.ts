@@ -45,6 +45,7 @@ import {
     createJsonlEventLogger,
 } from "./events.ts";
 import type { PoolAdmissionVerdict } from "./events.ts";
+import type { ReviewLog } from "./review-log.ts";
 import {
     boundToolResult,
     executeToolHandler,
@@ -227,6 +228,13 @@ export interface RunHeadlessLoopOptions {
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
+    readonly reviewLog?: ReviewLog;
+    /**
+     * The reviewer route as it stands now, read at each review. A reviewer
+     * chosen mid-session has to reach the session that chose it, so the
+     * option below is only the starting point.
+     */
+    readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly sessionStore?: SessionStore;
     readonly sessionId?: string;
     readonly sessionPath?: string;
@@ -498,6 +506,15 @@ export async function runHeadlessLoop(
             ...(options.modelFallback === undefined
                 ? {}
                 : { modelFallback: options.modelFallback }),
+            ...(options.reviewer === undefined
+                ? {}
+                : { reviewer: options.reviewer }),
+            ...(options.reviewers === undefined
+                ? {}
+                : { reviewers: options.reviewers }),
+            ...(options.permissionModes === undefined
+                ? {}
+                : { permissionModes: options.permissionModes }),
         });
     // A configured reviewer wins, because the point of configuring one is to
     // pay for a cheaper model than the agent. Without it the reviewer reads the
@@ -512,7 +529,7 @@ export async function runHeadlessLoop(
     let activeReviewer: { key: string; review: ReviewToolCall } | undefined;
     const reviewToolCall: ReviewToolCall = options.reviewToolCall
         ?? ((request, signal) => {
-            const configured = options.reviewer;
+            const configured = options.readReviewer?.() ?? options.reviewer;
             const current = options.readModelSettings?.()
                 ?? {
                     model,
@@ -525,18 +542,18 @@ export async function runHeadlessLoop(
                 models,
                 configured?.policy,
                 configured?.timeoutMs,
+                configured?.twoTier,
+                configured?.escalationModel,
             ]);
             if (activeReviewer?.key !== key) {
                 activeReviewer = {
                     key,
                     review: createRoutedToolReviewer(adapter, {
+                        ...configured,
                         models,
-                        ...(configured?.policy === undefined
+                        ...(options.reviewLog === undefined
                             ? {}
-                            : { policy: configured.policy }),
-                        ...(configured?.timeoutMs === undefined
-                            ? {}
-                            : { timeoutMs: configured.timeoutMs }),
+                            : { log: options.reviewLog }),
                     }),
                 };
             }
@@ -711,6 +728,7 @@ export async function runHeadlessLoop(
             reviewToolCall,
             adapter,
             options.reviewers,
+            options.reviewLog,
         ),
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
@@ -737,10 +755,11 @@ export async function runHeadlessLoop(
     }
 }
 
-function createReviewerProfileRouter(
+export function createReviewerProfileRouter(
     defaultReviewer: ReviewToolCall,
     adapter: ModelAdapter,
     profiles: Readonly<Record<string, ToolReviewerSettings>> | undefined,
+    log?: ReviewLog,
 ): NonNullable<RunTurnState["reviewToolCallForProfile"]> {
     const reviewers = new Map<string, ReviewToolCall>();
     return (profile, request, signal) => {
@@ -758,7 +777,10 @@ function createReviewerProfileRouter(
                     userAuthorization: "unknown",
                 });
             }
-            reviewer = createRoutedToolReviewer(adapter, settings);
+            reviewer = createRoutedToolReviewer(adapter, {
+                ...settings,
+                ...(log === undefined ? {} : { log }),
+            });
             reviewers.set(profile, reviewer);
         }
         return reviewer(request, signal);

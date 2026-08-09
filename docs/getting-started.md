@@ -62,6 +62,51 @@ of that turn. OpenRouter resolves the configured effort against each model. On
 OpenAI Codex, a backup model Vera has no reasoning mapping for runs without an
 effort, and the primary keeps its own.
 
+## Auto-approval reviews
+
+In `auto` approval mode, tool calls are reviewed automatically. By default,
+each reviewed action makes one reviewer call. To give uncertain requests a
+second pass, opt in with `two_tier`:
+
+```json
+{
+  "reviewer": {
+    "model": "anthropic/claude-haiku-4.5",
+    "provider": "openrouter",
+    "two_tier": true,
+    "escalation_reasoning_effort": "high"
+  }
+}
+```
+
+The first pass answers clearly low-risk actions with a bare
+`{"outcome":"allow"}` and grades everything else with a risk level and how well
+the transcript supports the user having authorized the action. With `two_tier`
+enabled, low and medium risk allows settle after the first pass. Everything
+else gets a second pass on the same model by default. Set `escalation_model`
+and optionally `escalation_provider` only when the second pass should use a
+different model.
+
+To keep a backup reviewer for when the first one cannot answer, add
+`fallback_model`, and optionally `fallback_provider` and
+`fallback_reasoning_effort`. Vera tries the reviewers in order and moves to the
+next one when the current one errors or is unreachable.
+
+Both slots can also be set from the TUI: run `/settings` and choose Reviewer.
+Any model is offered, including one that is not in your pool.
+
+The reviewer never sees tool output. Its transcript carries user turns and
+tool calls, but results are stripped: tool output is the one part of the
+transcript written by the outside world, which makes it the channel prompt
+injection arrives through.
+
+Every reviewer call is appended to `~/.vera/logs/reviewer.jsonl`, one line per
+call, so a two-tier review writes two. A line holds the exact prompt sent, the
+exact text returned, both grades, and the latency. That makes the file as
+sensitive as the conversation it quotes, so it is written readable only by you
+and never leaves the machine. Delete it whenever you like; it is diagnostics,
+nothing reads it back.
+
 ## OpenRouter
 
 Set `OPENROUTER_API_KEY`, then create `~/.vera/config.json`:

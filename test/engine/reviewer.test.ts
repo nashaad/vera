@@ -3,9 +3,11 @@ import { expect, test } from "bun:test";
 import {
     createRoutedToolReviewer,
     createToolReviewer,
+    createEscalatingToolReviewer,
     parseReviewDecision,
     type ToolReviewRequest,
 } from "../../src/engine/reviewer.ts";
+import type { ReviewLogEntry } from "../../src/engine/review-log.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -157,6 +159,141 @@ test("reviewer routes do not fall through a valid denial", async () => {
         new AbortController().signal,
     )).decision).toBe("deny");
     expect(adapter.requests).toHaveLength(1);
+});
+
+test("default reviewer settings make one call for a high-risk allow", async () => {
+    const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
+        risk_level: "high",
+        user_authorization: "medium",
+        outcome: "allow",
+        rationale: "The action has external effect.",
+    })));
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        escalationModel: { model: "second-model" },
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBeUndefined();
+    expect(adapter.requests).toHaveLength(1);
+    expect(adapter.requests[0]?.model).toBe("review-model");
+});
+
+test("two-tier reviewer settings reuse the same model by default", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        twoTier: true,
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(adapter.requests.map((next) => next.model)).toEqual([
+        "review-model",
+        "review-model",
+    ]);
+});
+
+test("two-tier reviewer settings can name a second-pass model", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "medium",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        twoTier: true,
+        escalationModel: { model: "second-model" },
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(adapter.requests.map((next) => next.model)).toEqual([
+        "review-model",
+        "second-model",
+    ]);
+});
+
+test("two-tier reviewer settings settle low and medium risk allows", async () => {
+    for (const risk_level of ["low", "medium"] as const) {
+        const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
+            risk_level,
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the action.",
+        })));
+        const review = createRoutedToolReviewer(adapter, {
+            models: [{ model: "review-model" }],
+            twoTier: true,
+            escalationModel: { model: "second-model" },
+        });
+
+        const decision = await review(request, new AbortController().signal);
+
+        expect(decision.decision).toBe("allow");
+        expect(decision.escalated).toBeUndefined();
+        expect(adapter.requests).toHaveLength(1);
+    }
+});
+
+test("two-tier reviewer settings pass reasoning effort to the second call", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "medium",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model", reasoningEffort: "low" }],
+        twoTier: true,
+        escalationModel: {
+            model: "review-model",
+            reasoningEffort: "high",
+        },
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(adapter.requests.map((next) => next.reasoningEffort)).toEqual([
+        "low",
+        "high",
+    ]);
 });
 
 test("a well formed allow passes through with its scoring", async () => {
@@ -634,4 +771,210 @@ test("a review that overlaps another runs on a fork and is not remembered", asyn
     // Only the trunk review was committed: one question and one answer, not
     // two of each interleaved into a conversation that never happened.
     expect(adapter.requests[2]!.messages).toHaveLength(3);
+});
+
+test("the fast-path reply settles without escalation", async () => {
+    // `{"outcome":"allow"}` is the cheapest correct answer the fast tier can
+    // give: it defaults to a low-risk allow and must stand on its own.
+    const adapter = new ScriptedAdapter(assistantText('{"outcome":"allow"}'));
+    const review = createEscalatingToolReviewer(adapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.riskLevel).toBe("low");
+    expect(decision.escalated).toBeUndefined();
+    expect(adapter.requests).toHaveLength(1);
+    expect(adapter.requests[0]?.model).toBe("fast-model");
+});
+
+test("a graded medium-risk allow settles without escalation", async () => {
+    const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
+        risk_level: "medium",
+        user_authorization: "high",
+        outcome: "allow",
+        rationale: "In-workspace edit the user asked for.",
+    })));
+    const review = createEscalatingToolReviewer(adapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBeUndefined();
+    expect(adapter.requests).toHaveLength(1);
+});
+
+test("an allow the fast tier itself rates high risk escalates", async () => {
+    // The fast tier settles low and medium risk; a high or critical rating is
+    // the fast model saying this decision is above its pay grade, whatever
+    // outcome it attached.
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
+
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: assistantText(JSON.stringify(requestCount === 1
+                    ? {
+                        risk_level: "high",
+                        user_authorization: "medium",
+                        outcome: "allow",
+                        rationale: "Force push, but the user seemed to want it.",
+                    }
+                    : {
+                        risk_level: "high",
+                        user_authorization: "high",
+                        outcome: "allow",
+                        rationale: "The transcript shows explicit authorization.",
+                    })),
+            });
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(testAdapter.requests).toHaveLength(2);
+    expect(testAdapter.requests[1]?.model).toBe("strong-model");
+});
+
+test("a fast-tier denial gets a second opinion", async () => {
+    // A cheap model's false denial costs the agent a turn against the denial
+    // circuit breaker, so every deny is confirmed by the strong tier before
+    // it lands.
+    let requestCount = 0;
+    const testAdapter = new (class implements ModelAdapter {
+        requests: ModelRequest[] = [];
+
+        stream(req: ModelRequest): ModelStream {
+            this.requests.push(req);
+            requestCount += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: assistantText(JSON.stringify(requestCount === 1
+                    ? {
+                        risk_level: "high",
+                        user_authorization: "unknown",
+                        outcome: "deny",
+                        rationale: "Looks unauthorized.",
+                    }
+                    : {
+                        risk_level: "medium",
+                        user_authorization: "high",
+                        outcome: "allow",
+                        rationale: "The user asked for exactly this file.",
+                    })),
+            });
+            return stream;
+        }
+    })();
+
+    const review = createEscalatingToolReviewer(testAdapter, {
+        model: "fast-model",
+        escalationModel: "strong-model",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("allow");
+    expect(decision.escalated).toBe(true);
+    expect(decision.reason).toBe("The user asked for exactly this file.");
+    expect(testAdapter.requests).toHaveLength(2);
+});
+
+test("a single-tier review records one log line carrying prompt and response", async () => {
+    const body = JSON.stringify({
+        risk_level: "medium",
+        user_authorization: "high",
+        outcome: "allow",
+        rationale: "The user asked for this listing.",
+    });
+    const adapter = new ScriptedAdapter(assistantText(body));
+    const entries: ReviewLogEntry[] = [];
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model", provider: "faux" }],
+        log: (entry) => entries.push(entry),
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(entries).toHaveLength(1);
+    const entry = entries[0]!;
+    expect(entry.tier).toBe("single");
+    expect(entry.outcome).toBe("decided");
+    expect(entry.tool).toBe("bash");
+    expect(entry.toolInput).toEqual({ command: "ls /Users/nash/Projects" });
+    expect(entry.model).toBe("review-model");
+    expect(entry.provider).toBe("faux");
+    expect(entry.decision).toBe("allow");
+    expect(entry.riskLevel).toBe("medium");
+    expect(entry.userAuthorization).toBe("high");
+    expect(entry.responseText).toBe(body);
+    expect(entry.systemPrompt).toContain("You review one proposed action");
+    expect(entry.prompt).toContain("ls /Users/nash/Projects");
+    expect(entry.latencyMs).toBeGreaterThanOrEqual(0);
+});
+
+test("a two-tier review records one log line per tier", async () => {
+    const adapter = new FlakyAdapter([
+        assistantText(JSON.stringify({
+            risk_level: "high",
+            user_authorization: "medium",
+            outcome: "allow",
+            rationale: "The action has external effect.",
+        })),
+        assistantText(JSON.stringify({
+            risk_level: "medium",
+            user_authorization: "high",
+            outcome: "allow",
+            rationale: "The transcript authorizes the effect.",
+        })),
+    ]);
+    const entries: ReviewLogEntry[] = [];
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        twoTier: true,
+        log: (entry) => entries.push(entry),
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(entries.map((entry) => entry.tier)).toEqual(["fast", "strong"]);
+    expect(entries.map((entry) => entry.riskLevel)).toEqual(["high", "medium"]);
+});
+
+test("an unreadable reviewer answer is still logged with its raw text", async () => {
+    const adapter = new ScriptedAdapter(assistantText("not json at all"));
+    const entries: ReviewLogEntry[] = [];
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{ model: "review-model" }],
+        log: (entry) => entries.push(entry),
+    });
+
+    await review(request, new AbortController().signal);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.outcome).toBe("unreadable");
+    expect(entries[0]?.responseText).toBe("not json at all");
+    expect(entries[0]?.decision).toBe("unavailable");
 });

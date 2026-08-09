@@ -5,24 +5,23 @@ import type { ModelMessage } from "../model/types.ts";
  *
  * Without this the reviewer has no way to tell an action the user asked for
  * from one the agent invented, so `user_authorization` is permanently
- * `unknown` and every high-risk action is denied. That is strictly more
- * denying than codex, which is the opposite of what this mode is for.
+ * `unknown` and every high-risk action is denied.
  *
- * The budgets, the entry limit, the selection order, and the truncation
- * markers mirror `codex-rs/core/src/guardian/prompt.rs` in openai/codex
- * (Apache-2.0).
+ * Tool results are stripped. Vera has no sandbox under the reviewer, so the
+ * reviewer is the enforcement line, and tool output is the injectable part of
+ * what it would read.
  */
 
 /** Total budget for user and assistant messages. */
 export const MAX_MESSAGE_TRANSCRIPT_TOKENS = 10_000;
 
-/** Total budget for tool calls and their results. */
+/** Total budget for tool calls. Results are not rendered at all. */
 export const MAX_TOOL_TRANSCRIPT_TOKENS = 10_000;
 
 /** Per-entry cap for a user or assistant message. */
 export const MAX_MESSAGE_ENTRY_TOKENS = 2_000;
 
-/** Per-entry cap for one tool call or result. */
+/** Per-entry cap for one tool call. */
 export const MAX_TOOL_ENTRY_TOKENS = 1_000;
 
 /** How many of the most recent entries are considered at all. */
@@ -80,14 +79,13 @@ export function renderReviewTranscript(
         return { text: "", signatures, diverged };
     }
 
-    // Selection order mirrors `codex-rs/core/src/guardian/prompt.rs`: every
-    // user turn that fits the message budget is kept, and only then do recent
-    // non-user entries compete for what is left. User turns are what
-    // authorization is scored against, so letting tool output crowd them out
+    // Every user turn that fits the message budget is kept, and only then do
+    // recent non-user entries compete for what is left. User turns are what
+    // authorization is scored against, so letting tool calls crowd them out
     // would quietly push every high-risk action toward a denial.
-    // Budgeted on the rendered line rather than the bare text, matching
-    // codex: the `[n] role: ` prefix is real context and over forty entries it
-    // is not a rounding error.
+    // Budgeted on the rendered line rather than the bare text. The
+    // `[n] role: ` prefix is real context and over forty entries it is not a
+    // rounding error.
     const rendered = items.map((item) =>
         `[${item.index}] ${item.role}: ${
             truncateToTokens(
@@ -202,15 +200,6 @@ function collectItems(
             continue;
         }
         if (message.role === "assistant") {
-            const text = textOf(message.content);
-            if (text.length > 0) {
-                items.push({
-                    index: items.length + 1,
-                    role: "assistant",
-                    text,
-                    kind: "message",
-                });
-            }
             for (const block of message.content) {
                 if (block.type === "tool_call") {
                     items.push({
@@ -218,19 +207,15 @@ function collectItems(
                         role: `tool_call ${block.name}`,
                         text: JSON.stringify(block.input),
                         kind: "tool",
-                        });
+                    });
                 }
             }
             continue;
         }
-        if (message.role === "tool_result") {
-            items.push({
-                index: items.length + 1,
-                role: `tool_result ${message.toolName}`,
-                text: textOf(message.content),
-                kind: "tool",
-            });
-        }
+        // Neither tool results nor assistant prose are rendered. Tool results
+        // carry outside text: file contents, command output, fetched pages.
+        // Assistant prose is written by the model under review. Tool calls
+        // stay, because they are the trajectory behind the proposed action.
     }
     return items;
 }
@@ -242,17 +227,17 @@ function textOf(content: ModelMessage["content"]): string {
         .trim();
 }
 
-/** Bytes assumed per token, matching `APPROX_BYTES_PER_TOKEN` in openai/codex. */
+/** Bytes assumed per token. */
 const APPROX_BYTES_PER_TOKEN = 4;
 
 /**
  * Roughly four bytes per token. The budgets are coarse guardrails, so an
  * estimate is enough and avoids pulling a tokenizer into the engine.
  *
- * Measured in UTF-8 bytes, not UTF-16 code units, because that is what codex
- * measures and because the code-unit count is wrong in the direction that
- * matters: a transcript of CJK text is about three bytes per unit, so counting
- * units would let each entry carry roughly three times its stated budget.
+ * Measured in UTF-8 bytes, not UTF-16 code units, because the code-unit count
+ * is wrong in the direction that matters: a transcript of CJK text is about
+ * three bytes per unit, so counting units would let each entry carry roughly
+ * three times its stated budget.
  */
 export function approxTokens(text: string): number {
     return Math.ceil(utf8Length(text) / APPROX_BYTES_PER_TOKEN);
@@ -264,10 +249,9 @@ function utf8Length(text: string): number {
 
 /**
  * Keeps the head and the tail, dropping the middle, and fits the marker inside
- * the cap rather than adding to it. Mirrors `guardian_truncate_text` in
- * openai/codex. Head-only truncation loses the end of a tool result, which is
- * usually where the outcome is, and the end of a long user turn, which is
- * often where the actual request lands.
+ * the cap rather than adding to it. Head-only truncation loses the end of a
+ * tool result, which is usually where the outcome is, and the end of a long
+ * user turn, which is often where the actual request lands.
  */
 function truncateToTokens(text: string, maxTokens: number): string {
     const maxBytes = Math.max(0, maxTokens) * APPROX_BYTES_PER_TOKEN;
@@ -295,11 +279,10 @@ function truncateToTokens(text: string, maxTokens: number): string {
 
 /**
  * The longest prefix fitting `prefixBytes` and the longest suffix fitting
- * `suffixBytes`, both cut between characters. Mirrors
- * `split_guardian_truncation_bounds` in openai/codex: slicing at a raw byte or
- * code-unit offset can land inside a multi-byte character or between the halves
- * of a surrogate pair, which would put a replacement character into the
- * evidence the reviewer is judging.
+ * `suffixBytes`, both cut between characters. Slicing at a raw byte or
+ * code-unit offset can land inside a multi-byte character or between the
+ * halves of a surrogate pair, which would put a replacement character into
+ * the evidence the reviewer is judging.
  */
 function splitOnCharBoundaries(
     text: string,
