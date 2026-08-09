@@ -326,6 +326,45 @@ test("the sidekick is consulted at the provider its pool entry names", async () 
     await harness.registry.close();
 });
 
+test("reset clears the lane and the column, and keeps the seat", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "gpt-5.5", WORKSPACE);
+    await harness.registry.interceptMessage({
+        text: "@sidekick first",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    await harness.settle();
+
+    await harness.registry.invokeCommand("reset", "", WORKSPACE);
+    expect(harness.sidebar.open).toBe(true);
+    expect(harness.sidebar.blocks).toEqual([{
+        label: "sidekick (gpt-5.5)",
+        text: "Fresh start. Ask with @sidekick, or @all.",
+    }]);
+
+    await harness.registry.interceptMessage({
+        text: "@sidekick second",
+        workspace: WORKSPACE,
+        imageCount: 0,
+    });
+    await harness.settle();
+    // The seat is the same one, and it remembers nothing before the reset.
+    expect(harness.consults[1]?.model).toBe("gpt-5.5");
+    expect(harness.consults[1]?.messages).toEqual([{
+        role: "user",
+        content: "second",
+    }]);
+    await harness.registry.close();
+});
+
+test("resetting nobody says so", async () => {
+    const harness = await start();
+    expect(harness.registry.invokeCommand("reset", "", WORKSPACE))
+        .rejects.toThrow("No sidekick");
+    await harness.registry.close();
+});
+
 test("removing the sidekick takes its column with it", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "gpt-5.5", WORKSPACE);

@@ -265,6 +265,28 @@ export function activateClient(vera: any): void {
     }
 
     vera.commands.register({
+        name: "reset",
+        description: "Clear what the sidekick remembers",
+        usage: "/reset",
+        run() {
+            if (seat === undefined) {
+                throw new Error(`No ${SIDEKICK}. /consult [model] seats one.`);
+            }
+            seat.lane.length = 0;
+            // The column and the lane are the same conversation, so a column
+            // still showing turns the model no longer remembers is a lie.
+            if (sidebarOpen) {
+                vera.ui.sidebar.clear();
+                vera.ui.sidebar.append({
+                    label: `${SIDEKICK} (${seat.model})`,
+                    text: `Fresh start. Ask with @${SIDEKICK}, or @all.`,
+                });
+            }
+            vera.ui.notice(`@${SIDEKICK} starts over`);
+        },
+    });
+
+    vera.commands.register({
         name: "remove",
         description: "Send the sidekick away",
         usage: "/remove",
