@@ -14,6 +14,55 @@ import { randomUUID } from "node:crypto";
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
+    "ctrl+c clears an idle draft before it quits",
+    async () => {
+        const socket = `vera-draft-interrupt-${process.pid}-${randomUUID()}`;
+        const session = "draft-interrupt";
+        const home = mkdtempSync(join(tmpdir(), "vera-draft-interrupt-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "keep me from quitting");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "keep me from quitting",
+            );
+
+            sendKey(socket, session, "C-c");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && !visible.includes("keep me from quitting"),
+                "ctrl+c to clear the draft without quitting",
+            );
+            expect(pane).toContain("ready");
+
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "diagnostics opens as a large copyable overlay instead of transcript text",
     async () => {
         const socket = `vera-diagnostics-${process.pid}-${randomUUID()}`;
