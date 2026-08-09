@@ -47,15 +47,22 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "create_agent",
         workspace: "/work/one",
         approval_mode: "readonly",
+        lifetime: "ephemeral",
     }))).toEqual({
         type: "create_agent",
         workspace: "/work/one",
         approval_mode: "readonly",
+        lifetime: "ephemeral",
     });
     expect(parseHostRequest(JSON.stringify({
         type: "create_agent",
         workspace: "/work/one",
         approval_mode: "not valid",
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "create_agent",
+        workspace: "/work/one",
+        lifetime: "temporary",
     }))).toBeUndefined();
     expect(parseHostRequest(
         '{"type":"resume_agent","session_path":"/sessions/one.jsonl"}',

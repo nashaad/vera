@@ -15,7 +15,7 @@ import { isApprovalMode } from "../sdk/permissions.ts";
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 26;
+export const HOST_PROTOCOL_VERSION = 27;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -349,6 +349,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && value.workspace.length > 0
         && (value.approval_mode === undefined
             || isApprovalMode(value.approval_mode))
+        && (value.lifetime === undefined
+            || value.lifetime === "ephemeral"
+            || value.lifetime === "durable")
     ) {
         return {
             type: "create_agent",
@@ -356,6 +359,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.approval_mode === undefined
                 ? {}
                 : { approval_mode: value.approval_mode }),
+            ...(value.lifetime === undefined
+                ? {}
+                : { lifetime: value.lifetime }),
         };
     }
     if (
