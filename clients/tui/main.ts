@@ -316,7 +316,6 @@ import {
     resolveTuiTheme,
     tuiHandleActiveColor,
     tuiHandleColor,
-    tuiRecessColor,
     VERA_TUI_THEME,
 } from "./theme.ts";
 import {
@@ -1337,10 +1336,15 @@ export async function startTui(
     const commandSuggestionsBox = new BoxRenderable(renderer, {
         id: "command-suggestions",
         border: false,
-        width: "100%",
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 7,
         height: 1,
         paddingLeft: 1,
         paddingRight: 1,
+        backgroundColor: theme.background,
+        zIndex: 5,
         visible: false,
     });
     commandSuggestionsBox.add(commandSuggestionsText);
@@ -1644,6 +1648,7 @@ export async function startTui(
     });
     app.add(overlayScrim);
     upper.add(queuedPromptText);
+    app.add(commandSuggestionsBox);
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
@@ -1748,7 +1753,6 @@ export async function startTui(
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
     app.add(composerTipText);
-    upper.add(commandSuggestionsBox);
     // Beside the composer rather than in the column above it: the column ends
     // where the sidebar starts, and the line is too long to be cut there.
     app.add(quoteText);
@@ -1798,8 +1802,6 @@ export async function startTui(
     /** The column's share of whichever theme is current. */
     function sidebarTheme() {
         return {
-            background: theme.background,
-            panel: tuiRecessColor(theme),
             handle: tuiHandleColor(theme),
             handleActive: tuiHandleActiveColor(theme),
             muted: theme.muted,
@@ -6142,6 +6144,7 @@ export async function startTui(
         sidebarJumpText.bg = theme.accent;
         sidebarJump.backgroundColor = theme.accent;
         commandSuggestionsText.fg = theme.text;
+        commandSuggestionsBox.backgroundColor = theme.background;
         composerBox.backgroundColor = theme.panel;
         composerBox.borderColor = theme.accent;
         composer.backgroundColor = theme.panel;
@@ -6226,6 +6229,14 @@ export async function startTui(
     const SUGGESTIONS_RESERVED_ROWS = 12;
 
     function renderCommandSuggestions(): void {
+        // The composer is five rows plus its two-row status margin. These
+        // transient lines sit above it in normal flow, so the overlay clears
+        // whichever of them are currently visible instead of painting over
+        // quote/address context.
+        commandSuggestionsBox.bottom = 7
+            + (composerTipText.visible ? 1 : 0)
+            + (quoteText.visible ? 2 : 0)
+            + (heldAddressText.visible ? 1 : 0);
         if (composer.plainText.length === 0) {
             commandSuggestionIndex = 0;
         }
@@ -6277,8 +6288,8 @@ export async function startTui(
             selected < 0 ? -1 : selected - window.start,
             // Less the box's own horizontal padding, or the last word of a
             // just-too-long row wraps anyway.
-            typeof upper.width === "number" && upper.width > 2
-                ? upper.width - 2
+            renderer.width > 2
+                ? renderer.width - 2
                 : undefined,
             window.hidden,
         );

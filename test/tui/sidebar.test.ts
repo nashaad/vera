@@ -52,8 +52,6 @@ async function openSidebar(
         renderer: setup.renderer,
         transcript,
         theme: {
-            background: "#000000",
-            panel: "#161616",
             handle: "#333333",
             handleActive: "#666666",
             muted: "#888888",
@@ -99,8 +97,6 @@ test("a settled drag reports the width once", async () => {
         renderer: setup.renderer,
         transcript,
         theme: {
-            background: "#000000",
-            panel: "#161616",
             handle: "#333333",
             handleActive: "#666666",
             muted: "#888888",
@@ -171,11 +167,13 @@ test("replacing sidebar blocks publishes one completed layout", async () => {
     }
 });
 
-test("focus is shown as a rail below the sidebar", async () => {
+test("focus rail follows the active pane symmetrically", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
         expect(SIDEBAR_FOCUS_GREEN).toBe("#22c55e");
         expect(sidebar.isFocused()).toBe(false);
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("▁".repeat(75));
         sidebar.setFocused(true);
         await setup.flush();
         expect(sidebar.isFocused()).toBe(true);
@@ -185,7 +183,7 @@ test("focus is shown as a rail below the sidebar", async () => {
         sidebar.setFocused(false);
         await setup.flush();
         expect(sidebar.isFocused()).toBe(false);
-        expect(setup.captureCharFrame()).not.toContain("▁");
+        expect(setup.captureCharFrame()).toContain("▁".repeat(75));
         sidebar.setFocused(true);
         await setup.flush();
         expect(sidebar.isFocused()).toBe(true);
