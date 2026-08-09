@@ -1532,6 +1532,25 @@ export async function startTui(
             : pendingUiRequest;
     }
 
+    function focusedAbortRequested(): boolean {
+        return sidebar.isFocused() && sidebarAgentPane !== undefined
+            ? sidebarAgentPane.state.abortRequested
+            : abortRequested;
+    }
+
+    function abortFocusedAgent(): void {
+        if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
+            sidebarAgentPane.state.abortRequested = true;
+            sidebarAgentPane.state.activity = "stopping";
+            void sidebarAgentPane.client.send({ type: "abort" })
+                .catch(reportConnectionError);
+            return;
+        }
+        abortRequested = true;
+        activity = "stopping";
+        sendCommand({ type: "abort" });
+    }
+
     function visibleMentions(): readonly string[] {
         if (sidebarAgentPane === undefined || sidebarAgentMention === undefined) {
             return extensionMentions;
@@ -1684,6 +1703,18 @@ export async function startTui(
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
         if (pane !== sidebarAgentPane) return;
+        if (update.type === "turn_finished") {
+            pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
+            if (pane.state.state.working) {
+                pane.state.workingSince = Date.now();
+                pane.state.phaseSince = pane.state.workingSince;
+                pane.state.activity = "thinking";
+            } else {
+                pane.state.workingSince = undefined;
+                pane.state.phaseSince = undefined;
+                pane.state.activity = "ready";
+            }
+        }
         if (update.type === "model_settings") {
             requestedModelChanges.delete(update.requestId);
         } else if (update.type === "model_settings_rejected") {
@@ -2008,7 +2039,7 @@ export async function startTui(
                 return;
             }
             if (
-                !state.working
+                !focusedAgentState().working
                 && composer.focused
                 && composer.plainText.length > 0
                 && !anyOverlayOpen()
@@ -2022,17 +2053,15 @@ export async function startTui(
             }
             const action = tuiInterruptAction(
                 key,
-                state.working,
-                abortRequested,
+                focusedAgentState().working,
+                focusedAbortRequested(),
             );
             key.preventDefault();
             key.stopPropagation();
             if (action === "quit") {
                 renderer.destroy();
             } else if (action === "abort") {
-                abortRequested = true;
-                activity = "stopping";
-                sendCommand({ type: "abort" });
+                abortFocusedAgent();
                 renderStatus();
             }
             return;
@@ -2665,7 +2694,11 @@ export async function startTui(
             return;
         }
 
-        const action = tuiInterruptAction(key, state.working, abortRequested);
+        const action = tuiInterruptAction(
+            key,
+            focusedAgentState().working,
+            focusedAbortRequested(),
+        );
         if (action === "pass") {
             return;
         }
@@ -2678,9 +2711,7 @@ export async function startTui(
             return;
         }
         if (action === "abort") {
-            abortRequested = true;
-            activity = "stopping";
-            sendCommand({ type: "abort" });
+            abortFocusedAgent();
             renderStatus();
         }
     }
@@ -3665,6 +3696,12 @@ export async function startTui(
             return true;
         }
         if (sendsToSidebar) {
+            side.state.state = side.state.state.working
+                ? queueTuiPrompt(side.state.state, route.text)
+                : beginTuiTurn(side.state.state, route.text);
+            side.state.workingSince ??= Date.now();
+            side.state.phaseSince ??= side.state.workingSince;
+            side.state.activity = "thinking";
             void side.client.send({ type: "prompt", content: route.text })
                 .catch((error) => {
                     state = appendTuiNotice(
@@ -4640,8 +4677,9 @@ export async function startTui(
                 : COMPOSER_PLACEHOLDER
             : `Message ${extensionAddressee}\u2026`;
         renderPendingQuote();
-        queuedPromptText.content = renderTuiQueuedPrompt(state);
-        queuedPromptText.visible = state.queuedPrompts.length > 0;
+        const focusedState = focusedAgentState();
+        queuedPromptText.content = renderTuiQueuedPrompt(focusedState);
+        queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
         approvalView.box.visible = uiRequest?.request.type
             === "tool_approval";
         questionView.box.visible = uiRequest?.request.type
@@ -6564,6 +6602,16 @@ export async function startTui(
         }
         const statusState = focusedAgentState();
         const uiRequest = focusedUiRequest();
+        const focusedSide = sidebar.isFocused() ? sidebarAgentPane : undefined;
+        const focusedAbort = focusedAbortRequested();
+        const focusedActivity = focusedSide?.state.activity ?? activity;
+        const focusedElapsed = focusedSide?.state.elapsedWorkingTime()
+            ?? elapsedWorkingTime();
+        const workingHint = focusedSide === undefined
+            ? WORKING_HINT
+            : `enter queue → ${sidebarAgentMention ?? focusedSide.agentId}`
+                + ` · esc steer ${sidebarAgentMention ?? focusedSide.agentId}`
+                + ` · ${tuiKeyHint("interrupt")}`;
         renderPendingQuote();
         renderHeldAddress();
         renderJumpToBottom();
@@ -6575,24 +6623,24 @@ export async function startTui(
         );
         if (connectionFailed) {
             lifecycleHint = "disconnected · /reconnect host · ctrl+c quit";
-        } else if (abortRequested) {
-            lifecycleHint = `${STOPPING_HINT} · ${elapsedWorkingTime()}`;
+        } else if (focusedAbort) {
+            lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
         } else if (
             uiRequest !== undefined
             && isToolApprovalUiRequestUpdate(uiRequest)
         ) {
             lifecycleHint = tuiApprovalHint(uiRequest);
         } else if (uiRequest?.request.type === "user_question") {
-            lifecycleHint = `${QUESTION_HINT} · ${elapsedWorkingTime()}`;
-        } else if (state.working) {
-            const modelActivity = state.modelActivity;
+            lifecycleHint = `${QUESTION_HINT} · ${focusedElapsed}`;
+        } else if (statusState.working) {
+            const modelActivity = statusState.modelActivity;
             const waitingToRetry = modelActivity !== undefined
                 && Date.parse(modelActivity.retryAt) > Date.now();
             lifecycleHint = waitingToRetry
                 ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
-                    + ` · ${elapsedWorkingTime()} · ${WORKING_HINT}`
-                : `${modelActivity === undefined ? activity : "thinking"}`
-                    + ` · ${elapsedWorkingTime()} · ${WORKING_HINT}`;
+                    + ` · ${focusedElapsed} · ${workingHint}`
+                : `${modelActivity === undefined ? focusedActivity : "thinking"}`
+                    + ` · ${focusedElapsed} · ${workingHint}`;
         } else if (pendingImages.some((image) => image.id === undefined)) {
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
@@ -6610,7 +6658,7 @@ export async function startTui(
             ? "#ff3b30"
             : statusNotice !== undefined
             ? TUI_NOTICE
-            : state.working
+            : statusState.working
                     || uiRequest !== undefined
                     || extensionCommandPending
                 ? TUI_ACCENT
@@ -6709,10 +6757,10 @@ export async function startTui(
             ? 1
             : 2 + agentSection.length;
         composerBox.marginBottom = 2 + backgroundStatusText.height;
-        statusText.content = state.working
+        statusText.content = statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined
-                && !abortRequested
+                && !focusedAbort
             ? renderTuiActivityAnimation(
                 activityAnimation,
                 activityFrame(),

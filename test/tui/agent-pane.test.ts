@@ -120,3 +120,10 @@ test("a pane reports its own connection failure", async () => {
     expect(await reported.promise).toBe("broken:socket closed");
     await pane.detach();
 });
+
+test("a pane clears its own abort state when its turn finishes", () => {
+    const pane = new TuiAgentPane({ client: client("side") });
+    pane.state.abortRequested = true;
+    pane.state.apply({ type: "turn_finished", seq: 1 });
+    expect(pane.state.abortRequested).toBe(false);
+});
