@@ -1,4 +1,8 @@
-export type BuiltInPermissionModeName = "ask" | "auto" | "full_access";
+export type BuiltInPermissionModeName =
+    | "readonly"
+    | "ask"
+    | "auto"
+    | "full_access";
 export type ApprovalMode = string;
 
 export function isApprovalMode(value: unknown): value is ApprovalMode {

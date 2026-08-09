@@ -260,6 +260,29 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
     },
 ];
 
+const READONLY_RULES: readonly PermissionRule[] = [
+    ...SECRET_FILE_HYGIENE_DENY_GLOBS.map((glob): PermissionRule => ({
+        name: `readonly.secret_file_hygiene_deny.${glob}`,
+        when: { verb: "read", pathGlob: glob },
+        then: "deny",
+    })),
+    {
+        name: "readonly.bash_deny",
+        when: { tool: "bash" },
+        then: "deny",
+    },
+    {
+        name: "readonly.user_interaction",
+        when: { tool: "ask_user" },
+        then: "allow",
+    },
+    {
+        name: "readonly.read",
+        when: { verb: "read" },
+        then: "allow",
+    },
+];
+
 export const BUILT_IN_PERMISSION_MODES: Readonly<
     Record<BuiltInPermissionModeName, PermissionMode>
 > = {
@@ -278,6 +301,11 @@ export const BUILT_IN_PERMISSION_MODES: Readonly<
         rules: ROUTINE_RULES,
         defaultOutcome: "review",
         reviewerProfile: "default",
+    },
+    readonly: {
+        name: "readonly",
+        rules: READONLY_RULES,
+        defaultOutcome: "deny",
     },
 };
 
@@ -518,7 +546,8 @@ export function decideToolPermission(
 export function builtInPermissionMode(
     name: string,
 ): PermissionMode | undefined {
-    return name === "ask" || name === "auto" || name === "full_access"
+    return name === "readonly" || name === "ask" || name === "auto"
+            || name === "full_access"
         ? BUILT_IN_PERMISSION_MODES[name]
         : undefined;
 }
