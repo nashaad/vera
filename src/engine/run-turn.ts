@@ -534,18 +534,15 @@ export async function runHeadlessLoop(
                 models,
                 configured?.policy,
                 configured?.timeoutMs,
+                configured?.twoTier,
+                configured?.escalationModel,
             ]);
             if (activeReviewer?.key !== key) {
                 activeReviewer = {
                     key,
                     review: createRoutedToolReviewer(adapter, {
+                        ...configured,
                         models,
-                        ...(configured?.policy === undefined
-                            ? {}
-                            : { policy: configured.policy }),
-                        ...(configured?.timeoutMs === undefined
-                            ? {}
-                            : { timeoutMs: configured.timeoutMs }),
                     }),
                 };
             }
