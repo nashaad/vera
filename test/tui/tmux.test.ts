@@ -2404,6 +2404,26 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("readonly");
             expect(pane).toContain("Message sidekick");
 
+            // Pointer focus survives a complete sidebar -> main -> sidebar
+            // cycle, and the sidebar rail returns with it.
+            sendMouseClick(socket, session, 20, 10);
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes(" · auto · "),
+                "a main-pane click to focus the main agent",
+            );
+            sendMouseClick(socket, session, 80, 10);
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes(" · readonly · "),
+                "a sidebar click to restore sidekick focus",
+            );
+            expect(captureVisiblePaneWithStyles(socket, session)).toMatch(
+                /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*▁+/,
+            );
+
             // `/btw` focuses the attached pane, so a bare follow-up stays in
             // the hosted sidekick without an extension interceptor.
             sendText(socket, session, "follow up");
@@ -3037,6 +3057,19 @@ function sendText(socket: string, session: string, value: string): void {
 
 function sendKey(socket: string, session: string, key: string): void {
     runTmux(socket, ["send-keys", "-t", session, key]);
+}
+
+function sendMouseClick(
+    socket: string,
+    session: string,
+    x: number,
+    y: number,
+): void {
+    sendEscapeSequence(
+        socket,
+        session,
+        `\x1b[<0;${x};${y}M\x1b[<0;${x};${y}m`,
+    );
 }
 
 function sendEscapeSequence(
