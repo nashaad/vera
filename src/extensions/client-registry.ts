@@ -29,6 +29,10 @@ import type {
     VeraClientPickerResult,
     VeraClientModelAvailability,
     VeraClientReasoningLevel,
+    VeraClientAgentCreateRequest,
+    VeraClientAgentOpenRequest,
+    VeraClientAgentMessageRequest,
+    VeraClientAgentRef,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
 import {
@@ -67,6 +71,7 @@ const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
 const CLIENT_ADDRESSING_CAPABILITY = "client.ui.addressing";
 const CLIENT_THREAD_CAPABILITY = "client.thread.read";
 const CLIENT_TIPS_CAPABILITY = "client.tips.register";
+const CLIENT_AGENTS_CAPABILITY = "client.agents";
 
 /** What an extension tip waits, in client launches, when it names no cooldown. */
 const DEFAULT_TIP_COOLDOWN_LAUNCHES = 10;
@@ -201,6 +206,24 @@ export interface ClientExtensionThreadAdapter {
     read(extensionId: string): readonly VeraClientThreadTurn[];
 }
 
+export interface ClientExtensionAgentsAdapter {
+    create(
+        extensionId: string,
+        request: VeraClientAgentCreateRequest,
+        signal: AbortSignal,
+    ): Promise<VeraClientAgentRef>;
+    open(
+        extensionId: string,
+        request: VeraClientAgentOpenRequest,
+        signal: AbortSignal,
+    ): Promise<void>;
+    message(
+        extensionId: string,
+        request: VeraClientAgentMessageRequest,
+        signal: AbortSignal,
+    ): Promise<void>;
+}
+
 export interface StartClientExtensionRegistryOptions {
     readonly extensions: readonly ClientExtensionConfig[];
     readonly preferences: ClientExtensionPreferencesAdapter;
@@ -213,6 +236,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly mentions?: ClientExtensionMentionsAdapter;
     readonly addressing?: ClientExtensionAddressingAdapter;
     readonly thread?: ClientExtensionThreadAdapter;
+    readonly agents?: ClientExtensionAgentsAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -399,6 +423,7 @@ export async function startClientExtensionRegistry(
                 mentions: options.mentions,
                 addressing: options.addressing,
                 thread: options.thread,
+                agents: options.agents,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -695,6 +720,7 @@ interface ActivateClientExtensionOptions {
     readonly mentions: ClientExtensionMentionsAdapter | undefined;
     readonly addressing: ClientExtensionAddressingAdapter | undefined;
     readonly thread: ClientExtensionThreadAdapter | undefined;
+    readonly agents: ClientExtensionAgentsAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
 
@@ -763,6 +789,14 @@ async function activateClientExtension(
             throw new Error("This client has no thread to read");
         }
         return options.thread;
+    };
+    const requireAgents = (): ClientExtensionAgentsAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_AGENTS_CAPABILITY);
+        if (options.agents === undefined) {
+            throw new Error("This client cannot attach agents");
+        }
+        return options.agents;
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
@@ -957,6 +991,47 @@ async function activateClientExtension(
                     );
                 },
             }),
+        }),
+        agents: Object.freeze({
+            create(
+                request: VeraClientAgentCreateRequest,
+                signal?: AbortSignal,
+            ): Promise<VeraClientAgentRef> {
+                const operationSignal = signal
+                    ?? invocationSignal.getStore()
+                    ?? new AbortController().signal;
+                return requireAgents().create(
+                    options.id,
+                    validateAgentCreateRequest(request),
+                    operationSignal,
+                );
+            },
+            open(
+                request: VeraClientAgentOpenRequest,
+                signal?: AbortSignal,
+            ): Promise<void> {
+                const operationSignal = signal
+                    ?? invocationSignal.getStore()
+                    ?? new AbortController().signal;
+                return requireAgents().open(
+                    options.id,
+                    validateAgentOpenRequest(request),
+                    operationSignal,
+                );
+            },
+            message(
+                request: VeraClientAgentMessageRequest,
+                signal?: AbortSignal,
+            ): Promise<void> {
+                const operationSignal = signal
+                    ?? invocationSignal.getStore()
+                    ?? new AbortController().signal;
+                return requireAgents().message(
+                    options.id,
+                    validateAgentMessageRequest(request),
+                    operationSignal,
+                );
+            },
         }),
         keybindings: Object.freeze({
             register(spec: VeraClientExtensionKeybindingSpec): void {
@@ -1562,6 +1637,53 @@ function validateNoticeText(text: string): string {
         throw new Error("Client extension notice text must not be empty");
     }
     return trimmed;
+}
+
+function validateAgentPane(pane: unknown): "main" | "sidebar" {
+    if (pane !== "main" && pane !== "sidebar") {
+        throw new Error("Client extension agent pane must be main or sidebar");
+    }
+    return pane;
+}
+
+function validateAgentCreateRequest(
+    request: VeraClientAgentCreateRequest,
+): VeraClientAgentCreateRequest {
+    const workspace = request?.workspace?.trim();
+    const approvalMode = request?.approvalMode?.trim();
+    return {
+        pane: validateAgentPane(request?.pane),
+        ...(workspace === undefined || workspace.length === 0
+            ? {}
+            : { workspace }),
+        ...(approvalMode === undefined || approvalMode.length === 0
+            ? {}
+            : { approvalMode }),
+    };
+}
+
+function validateAgentOpenRequest(
+    request: VeraClientAgentOpenRequest,
+): VeraClientAgentOpenRequest {
+    const agentId = request?.agentId?.trim();
+    if (agentId === undefined || agentId.length === 0) {
+        throw new Error("Client extension must name an agent to open");
+    }
+    return { agentId, pane: validateAgentPane(request.pane) };
+}
+
+function validateAgentMessageRequest(
+    request: VeraClientAgentMessageRequest,
+): VeraClientAgentMessageRequest {
+    const agentId = request?.agentId?.trim();
+    const text = request?.text?.trim();
+    if (agentId === undefined || agentId.length === 0) {
+        throw new Error("Client extension must name an agent to message");
+    }
+    if (text === undefined || text.length === 0) {
+        throw new Error("Client extension agent message must not be empty");
+    }
+    return { agentId, text };
 }
 
 function validateConsultRequest(request: VeraClientConsultRequest): void {
