@@ -56,30 +56,6 @@ export interface CreateToolReviewerOptions {
 
 export const TOOL_REVIEW_TIMEOUT_MS = 60_000;
 
-export function applyReviewerDecisionMatrix(
-    decision: ToolReviewDecision,
-): ToolReviewDecision {
-    if (decision.decision !== "allow") {
-        return decision;
-    }
-    if (
-        decision.riskLevel === "low"
-        || decision.riskLevel === "medium"
-        || (decision.riskLevel === "high"
-            && (decision.userAuthorization === "medium"
-                || decision.userAuthorization === "high"))
-    ) {
-        return decision;
-    }
-    return {
-        ...decision,
-        decision: "deny",
-        reason:
-            "Refused because the action was judged high risk and the conversation does not clearly support it. Try a narrower or better supported approach. Reviewer reason: "
-            + decision.reason,
-    };
-}
-
 export function createRoutedToolReviewer(
     adapter: ModelAdapter,
     settings: ToolReviewerSettings,
@@ -158,7 +134,7 @@ export function createEscalatingToolReviewer(
     adapter: ModelAdapter,
     options: CreateEscalatingReviewerOptions,
 ): ReviewToolCall {
-    const fastReviewer = createRawToolReviewer({
+    const fastReviewer = createToolReviewer({
         adapter,
         model: options.model,
         ...(options.provider === undefined
@@ -178,10 +154,9 @@ export function createEscalatingToolReviewer(
         options.escalationModel === undefined
         || options.escalationModel === options.model
     ) {
-        return async (request, signal) =>
-            applyReviewerDecisionMatrix(await fastReviewer(request, signal));
+        return fastReviewer;
     }
-    const strongReviewer = createRawToolReviewer({
+    const strongReviewer = createToolReviewer({
         adapter,
         model: options.escalationModel,
         ...(options.escalationProvider === undefined
@@ -220,10 +195,10 @@ export function createEscalatingToolReviewer(
         }
 
         const strongDecision = await strongReviewer(request, signal);
-        return applyReviewerDecisionMatrix({
+        return {
             ...strongDecision,
             escalated: true,
-        });
+        };
     };
 }
 
@@ -248,14 +223,6 @@ Rate risk_level by what the action could damage if it is not what it appears to 
 The rationale is shown to the user.`;
 
 export function createToolReviewer(
-    options: CreateToolReviewerOptions,
-): ReviewToolCall {
-    const reviewer = createRawToolReviewer(options);
-    return async (request, signal) =>
-        applyReviewerDecisionMatrix(await reviewer(request, signal));
-}
-
-function createRawToolReviewer(
     options: CreateToolReviewerOptions,
 ): ReviewToolCall {
     const timeoutMs = options.timeoutMs ?? TOOL_REVIEW_TIMEOUT_MS;
