@@ -4,6 +4,10 @@ Vera's resident host owns the clock. The schedule database owns definitions and
 occurrences. Each occurrence becomes an ordinary durable inbox entry, and the
 recipient reads and acknowledges it through the existing inbox API.
 
+Scheduling uses the native inbox and therefore requires
+`"experimental": { "inbox": true }` in `~/.vera/config.json`. Use
+`agent_roster` in Vera to find the recipient's `participant_id`.
+
 ```text
 clock -> schedule occurrence -> durable inbox -> participant
 ```
@@ -14,7 +18,7 @@ Create a five-field cron schedule with a stable participant ID:
 vera schedule add daily-review \
   --cron "0 9 * * *" \
   --timezone America/New_York \
-  --to claude:reviewer \
+  --to 71d070d1-6f70-4114-a5b6-2104fd2b9ab2 \
   --text "Review open work"
 ```
 
@@ -34,10 +38,10 @@ vera schedule remove daily-review
 coalesces missed times into one occurrence. A transient delivery failure stays
 pending and retries; a restart cannot duplicate the inbox entry.
 
-An `emitted` run has reached the durable inbox. The recipient's normal inbox
-acknowledgement proves retrieval, not execution or comprehension. A participant
-that has joined before can leave and later resume from its durable offset; join
-external participants once before targeting them with schedules.
+An `emitted` run has reached the durable inbox. It does not start a model turn.
+An attached recipient gets the ordinary unread notice and reads it explicitly
+with `agent_inbox`. Acknowledgement proves retrieval, not execution or
+comprehension.
 
 `show` includes the newest 100 occurrences plus the total run count, keeping the
 host response bounded while the authoritative run history remains durable.
