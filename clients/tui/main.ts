@@ -108,6 +108,7 @@ import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
 import { createTuiExperimentalHost } from "./experimental-tui-host.ts";
+import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
 import {
     routeTuiAgentMessage,
     type TuiHostedAgentAddressing,
@@ -922,6 +923,18 @@ export async function startTui(
         ...bundledClientExtensionConfigs(disabledBuiltinExtensions),
         ...(dependencies.clientExtensions ?? []),
     ];
+    const hostedAgentSurface = createTuiHostedAgentSurface({
+        owner: () => sidebarOwner,
+        hasAgent: () => sidebarAgentPane !== undefined,
+        layout: () => sidebar.layout(),
+        isFocused: () => sidebar.isFocused(),
+        cycleSidebarLayout: () => sidebar.cycleLayout(),
+        setSidebarFocused: (focused) => sidebar.setFocused(focused),
+        focusComposer: () => composer.focus(),
+        renderState,
+        renderStatus,
+        requestRender: () => renderer.requestRender(),
+    });
     clientExtensionRegistry = await startClientExtensionRegistry({
         extensions: configuredClientExtensions,
         preferences: {
@@ -1096,48 +1109,7 @@ export async function startTui(
         },
         experimentalTui: {
             ...experimentalTuiHost.adapter,
-            agentSurface: {
-                current(extensionId) {
-                    if (
-                        sidebarOwner !== extensionId
-                        || sidebarAgentPane === undefined
-                    ) {
-                        return undefined;
-                    }
-                    const layout = sidebar.layout();
-                    return {
-                        layout: layout === "sidebar"
-                            ? "secondary"
-                            : layout === "main" ? "primary" : "split",
-                        focused: sidebar.isFocused()
-                            ? "secondary"
-                            : "primary",
-                    };
-                },
-                cycleLayout(extensionId) {
-                    if (
-                        sidebarOwner !== extensionId
-                        || sidebarAgentPane === undefined
-                    ) return false;
-                    sidebar.cycleLayout();
-                    composer.focus();
-                    renderState();
-                    renderStatus();
-                    renderer.requestRender();
-                    return true;
-                },
-                toggleFocus(extensionId) {
-                    if (
-                        sidebarOwner !== extensionId
-                        || sidebarAgentPane === undefined
-                        || sidebar.layout() !== "split"
-                    ) return false;
-                    sidebar.setFocused(!sidebar.isFocused());
-                    composer.focus();
-                    renderState();
-                    return true;
-                },
-            },
+            agentSurface: hostedAgentSurface,
         },
         thread: {
             read(_extensionId) {
