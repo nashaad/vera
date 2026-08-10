@@ -527,7 +527,7 @@ export function dialogOptionRow(
     // wiring rather than one per overlay. A row without handlers behaves
     // exactly as it did before.
     attachRowPointer(row, content);
-    addMarker(renderer, row, content.marker, accent);
+    addMarker(renderer, row, content.marker, TUI_ACCENT);
     // Only when there is leading text to draw: an empty text node still takes
     // a column, which would push every label one off the title above it.
     if (content.leading !== undefined && content.leading.length > 0) {
@@ -593,7 +593,7 @@ function cardRow(
         backgroundColor: TUI_PANEL,
     });
     attachRowPointer(card, content);
-    addMarker(renderer, card, content.marker, accent);
+    addMarker(renderer, card, content.marker, TUI_ACCENT);
     card.add(cardLine(renderer, background, accent, content.leading ?? "", [
         fg(label)(content.label),
         ...(content.description === undefined
@@ -613,7 +613,11 @@ function cardRow(
     return card;
 }
 
-/** The hanging mark, drawn in the padding to the left of the label column. */
+/**
+ * The hanging mark, drawn in the padding to the left of the label column. It
+ * sits outside the row's box, so it stays on the panel colour even while the
+ * row is highlighted and keeps the accent the rest of the gutter uses.
+ */
 function addMarker(
     renderer: RenderContext,
     row: BoxRenderable,
