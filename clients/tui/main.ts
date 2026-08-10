@@ -108,6 +108,10 @@ import {
     createTuiClientExtensionHostController,
     startTuiClientExtensionHost,
 } from "./client-extension-host.ts";
+import {
+    boundedExtensionReloadFailure,
+    ClientExtensionReloadPartialFailure,
+} from "./client-extension-reload.ts";
 import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
 import { TuiHostedSidebarAgent } from "./hosted-sidebar-agent.ts";
 import {
@@ -410,32 +414,6 @@ function truncateFooterLine(text: string, width: number): string {
 
 function displayModeLabel(label: string): string {
     return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`;
-}
-
-class ClientExtensionReloadPartialFailure extends Error {
-    readonly kind: "none" | "some";
-    readonly loadedExtensionIds: readonly string[];
-    readonly failures: readonly string[];
-
-    constructor(
-        kind: "none" | "some",
-        details: string,
-        loadedExtensionIds: readonly string[],
-        failures: readonly string[],
-    ) {
-        super(details);
-        this.name = "ClientExtensionReloadPartialFailure";
-        this.kind = kind;
-        this.loadedExtensionIds = loadedExtensionIds;
-        this.failures = failures;
-    }
-}
-
-function boundedExtensionReloadFailure(message: string): string {
-    const compact = message.replaceAll(/\s+/g, " ").trim();
-    return compact.length <= 240
-        ? compact
-        : `${compact.slice(0, 239).trimEnd()}…`;
 }
 
 export interface TuiDependencies {
