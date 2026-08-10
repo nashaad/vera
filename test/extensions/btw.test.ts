@@ -113,6 +113,54 @@ test("btw text sends the text to the hosted sidekick", async () => {
     await harness.registry.close();
 });
 
+test("btw sends submitted images to the sidekick", async () => {
+    const harness = await start();
+
+    await harness.registry.invokeCommand(
+        "btw",
+        "what do you see",
+        "/workspace",
+        undefined,
+        1,
+        ["/tmp/screenshot.png"],
+    );
+
+    expect(harness.calls.at(-1)).toEqual({
+        operation: "message",
+        extensionId: "vera.btw",
+        request: {
+            agentId: "side-1",
+            text: "what do you see",
+            imagePaths: ["/tmp/screenshot.png"],
+        },
+    });
+    await harness.registry.close();
+});
+
+test("btw can send an image without accompanying text", async () => {
+    const harness = await start();
+
+    await harness.registry.invokeCommand(
+        "btw",
+        "",
+        "/workspace",
+        undefined,
+        1,
+        ["/tmp/screenshot.png"],
+    );
+
+    expect(harness.calls.at(-1)).toEqual({
+        operation: "message",
+        extensionId: "vera.btw",
+        request: {
+            agentId: "side-1",
+            text: "",
+            imagePaths: ["/tmp/screenshot.png"],
+        },
+    });
+    await harness.registry.close();
+});
+
 test("another btw reopens the same sidekick instead of creating one", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "first", "/workspace");

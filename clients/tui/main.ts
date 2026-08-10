@@ -29,6 +29,7 @@ import {
     isTimelineReplyUpdate,
     isUserQuestionUiRequestUpdate,
     type AgentUpdate,
+    type AttachmentRef,
     type ClientCommand,
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
@@ -840,6 +841,7 @@ export async function startTui(
     let sessionSwitchActivity = "starting new session…";
     let extensionCommandPending = false;
     let extensionCommandActivity: string | undefined;
+    let sidebarPromptSubmitting = false;
     let extensionCommandsLoading =
         dependencies.client.listExtensionCommands !== undefined;
     let runningBackgroundAgents = 0;
@@ -869,6 +871,7 @@ export async function startTui(
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
+        path?: string;
         id?: string;
         name?: string;
     }> = [];
@@ -1025,15 +1028,35 @@ export async function startTui(
             },
             async message(_extensionId, request, signal) {
                 if (signal.aborted) throw signal.reason;
-                const target = request.agentId === client.agentId
-                    ? client
-                    : request.agentId === sidebarAgentPane?.agentId
-                    ? sidebarAgentPane.client
+                const side = request.agentId === sidebarAgentPane?.agentId
+                    ? sidebarAgentPane
                     : undefined;
-                if (target === undefined) {
+                if (side !== undefined) {
+                    const attachments = await attachImagesToSidebar(
+                        side,
+                        request.imagePaths ?? [],
+                        signal,
+                    );
+                    await side.client.send({
+                        type: "prompt",
+                        content: request.text,
+                        ...(attachments.length === 0
+                            ? {}
+                            : {
+                                attachmentIds: attachments.map(
+                                    (attachment) => attachment.id,
+                                ),
+                            }),
+                    });
+                    return;
+                }
+                if (request.agentId !== client.agentId) {
                     throw new Error("Agent must be open before it can be messaged");
                 }
-                await target.send({ type: "prompt", content: request.text });
+                if ((request.imagePaths?.length ?? 0) > 0) {
+                    throw new Error("Submitted images already belong to the main agent");
+                }
+                await client.send({ type: "prompt", content: request.text });
             },
         },
         thread: {
@@ -2964,6 +2987,7 @@ export async function startTui(
             || sessionSwitchPending
             || pendingSessionRename
             || extensionCommandPending
+            || sidebarPromptSubmitting
             || messageInterceptPending
         ) {
             return;
@@ -3173,6 +3197,7 @@ export async function startTui(
             extensionCommandPending = true;
             extensionCommandActivity = `running /${commandAction.command}`;
             renderStatus();
+            const extensionSubmittedImages = [...pendingImages];
             const invocation = commandAction.origin === "host"
                 ? client.runExtensionCommand!(
                     commandAction.command,
@@ -3183,6 +3208,11 @@ export async function startTui(
                     commandAction.command,
                     commandAction.argumentsText,
                     client.workspace ?? process.cwd(),
+                    undefined,
+                    extensionSubmittedImages.length,
+                    extensionSubmittedImages.flatMap((image) =>
+                        image.path === undefined ? [] : [image.path]
+                    ),
                 )
                 : invokeDirectClientExtensionCommand(
                     directExtension!,
@@ -3191,6 +3221,17 @@ export async function startTui(
                     { timeoutMs: DIRECT_EXTENSION_COMMAND_TIMEOUT_MS },
                 );
             void invocation.then((result) => {
+                if (
+                    commandAction.origin === "client"
+                    && extensionSubmittedImages.length > 0
+                ) {
+                    const submitted = new Set(
+                        extensionSubmittedImages.map((image) => image.requestId),
+                    );
+                    pendingImages = pendingImages.filter(
+                        (image) => !submitted.has(image.requestId),
+                    );
+                }
                 if (shuttingDown || result === undefined) {
                     return;
                 }
@@ -3863,39 +3904,107 @@ export async function startTui(
             (target) => target.pane === "sidebar",
         );
         const sendsToMain = route.targets.some((target) => target.pane === "main");
-        if (sendsToSidebar && pendingImages.length > 0) {
-            state = appendTuiNotice(
-                state,
-                "Images can only be sent to the main agent for now",
-            );
-            renderState();
-            return true;
-        }
         if (sendsToSidebar) {
-            side.state.state = side.state.state.working
-                ? queueTuiPrompt(side.state.state, route.text)
-                : beginTuiTurn(side.state.state, route.text);
-            side.state.workingSince ??= Date.now();
-            side.state.phaseSince ??= side.state.workingSince;
-            side.state.activity = "thinking";
-            void side.client.send({ type: "prompt", content: route.text })
+            const submittedImages = [...pendingImages];
+            const imagePaths = pendingImages.flatMap((image) =>
+                image.path === undefined ? [] : [image.path]
+            );
+            if (imagePaths.length !== pendingImages.length) {
+                state = appendTuiNotice(
+                    state,
+                    "Every sidebar image needs a readable source path",
+                );
+                renderState();
+                return true;
+            }
+            const controller = new AbortController();
+            sidebarPromptSubmitting = true;
+            void attachImagesToSidebar(side, imagePaths, controller.signal)
+                .then(async (attachments) => {
+                    await side.client.send({
+                        type: "prompt",
+                        content: route.text,
+                        ...(attachments.length === 0
+                            ? {}
+                            : {
+                                attachmentIds: attachments.map(
+                                    (attachment) => attachment.id,
+                                ),
+                            }),
+                    });
+                    if (
+                        !userEntryShows(
+                            side.state.state.entries.at(-1),
+                            route.text,
+                            attachments,
+                        )
+                    ) {
+                        side.state.state = side.state.state.working
+                            ? queueTuiPrompt(side.state.state, route.text)
+                            : beginTuiTurn(
+                                side.state.state,
+                                route.text,
+                                attachments,
+                            );
+                    } else if (!side.state.state.working) {
+                        side.state.state = {
+                            ...side.state.state,
+                            working: true,
+                        };
+                    }
+                    side.state.workingSince ??= Date.now();
+                    side.state.phaseSince ??= side.state.workingSince;
+                    side.state.activity = "thinking";
+                    if (sendsToMain) {
+                        sidebarPromptSubmitting = false;
+                        submitPrompt(route.text);
+                        return;
+                    }
+                    if (composer.expandedText().trim() === prompt) {
+                        composer.rememberSubmittedText(prompt);
+                        composer.clearComposer();
+                    }
+                    const sent = new Set(
+                        submittedImages.map((image) => image.requestId),
+                    );
+                    pendingImages = pendingImages.filter(
+                        (image) => !sent.has(image.requestId),
+                    );
+                })
                 .catch((error) => {
+                    side.state.state = {
+                        ...side.state.state,
+                        working: false,
+                    };
+                    side.state.workingSince = undefined;
+                    side.state.phaseSince = undefined;
                     state = appendTuiNotice(
                         state,
                         error instanceof Error ? error.message : String(error),
                     );
                     renderState();
+                }).finally(() => {
+                    sidebarPromptSubmitting = false;
+                    renderState();
                 });
-        }
-        if (sendsToMain) {
-            submitPrompt(route.text);
             return true;
         }
         composer.rememberSubmittedText(prompt);
         composer.clearComposer();
+        pendingImages = [];
         renderCommandSuggestions();
         renderState();
         return true;
+    }
+
+    async function attachImagesToSidebar(
+        side: TuiAgentPane<IdentifiedTuiAgentClient>,
+        imagePaths: readonly string[],
+        signal: AbortSignal,
+    ): Promise<readonly AttachmentRef[]> {
+        return Promise.all(imagePaths.map((path) =>
+            side.attachImage(randomUUID(), path, signal)
+        ));
     }
 
     /**
@@ -3946,7 +4055,7 @@ export async function startTui(
             return;
         }
         const requestId = randomUUID();
-        pendingImages.push({ requestId });
+        pendingImages.push({ requestId, path });
         composer.attachImageChip(requestId);
         sendCommand({ type: "attach_image", requestId, path });
         renderState();
@@ -3974,6 +4083,7 @@ export async function startTui(
                     if (imageIndex === -1) continue;
                     if (update.type === "image_attached") {
                         pendingImages[imageIndex] = {
+                            ...pendingImages[imageIndex],
                             requestId: update.requestId,
                             id: update.attachment.id,
                             name: update.attachment.name,

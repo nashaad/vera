@@ -24,7 +24,10 @@ function session(
     initialApprovalMode?: string,
 ): TuiAgentClient {
     const channel = createInProcessChannel();
+    const clientReady = Promise.withResolvers<void>();
     let turns = 0;
+    let imageTurns = 0;
+    let manualSeq = 3;
     let askedPeerQuestion = false;
     let approvalMode = initialApprovalMode
         ?? (speaker === "SIDEKICK" ? "readonly" : "auto");
@@ -122,10 +125,54 @@ function session(
         agentId: id,
         workspace: process.cwd(),
         async send(command): Promise<void> {
+            if (command.type === "attach_image") {
+                await clientReady.promise;
+                channel.engine.send({
+                    type: "image_attached",
+                    requestId: command.requestId,
+                    attachment: {
+                        id: `${id}-${command.requestId}`,
+                        name: "screenshot.png",
+                        mediaType: "image/png",
+                        bytes: 3,
+                        width: 1,
+                        height: 1,
+                    },
+                });
+                return;
+            }
+            if (
+                speaker === "SIDEKICK"
+                && command.type === "prompt"
+                && (command.attachmentIds?.length ?? 0) > 0
+            ) {
+                imageTurns += 1;
+                channel.engine.send({
+                    type: "user_prompt",
+                    content: command.content,
+                    attachments: command.attachmentIds?.map((attachmentId) => ({
+                        id: attachmentId,
+                        name: "screenshot.png",
+                    })),
+                    seq: manualSeq++,
+                });
+                channel.engine.send({
+                    type: "assistant_delta",
+                    text: `SIDEKICK SAW IMAGE ${imageTurns}`,
+                    seq: manualSeq++,
+                });
+                channel.engine.send({
+                    type: "turn_finished",
+                    seq: manualSeq++,
+                });
+                return;
+            }
             channel.client.send(command);
         },
-        receive(signal) {
-            return channel.client.receive(signal);
+        async receive(signal) {
+            const update = await channel.client.receive(signal);
+            if (update.type === "permissions") clientReady.resolve();
+            return update;
         },
         async detach(): Promise<void> {},
         close(): void {},

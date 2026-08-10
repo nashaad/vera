@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type {
+    AgentUpdate,
+    ClientCommand,
+} from "../../src/engine/protocol.ts";
 import {
     TuiAgentPane,
     type TuiAgentPaneClient,
@@ -10,15 +13,21 @@ import {
 interface FakePaneClient extends TuiAgentPaneClient {
     readonly updates: AsyncQueue<AgentUpdate>;
     readonly detached: string[];
+    readonly sent: ClientCommand[];
 }
 
 function client(agentId: string): FakePaneClient {
     const updates = new AsyncQueue<AgentUpdate>();
     const detached: string[] = [];
+    const sent: ClientCommand[] = [];
     return {
         agentId,
         updates,
         detached,
+        sent,
+        async send(command) {
+            sent.push(command);
+        },
         receive: (signal) => updates.receive(signal),
         async detach() {
             detached.push(agentId);
@@ -104,6 +113,7 @@ test("detaching one pane stops only its pump", async () => {
 test("a pane reports its own connection failure", async () => {
     const broken: TuiAgentPaneClient = {
         agentId: "broken",
+        async send() {},
         receive: () => Promise.reject(new Error("socket closed")),
         async detach() {},
         close() {},
@@ -126,4 +136,79 @@ test("a pane clears its own abort state when its turn finishes", () => {
     pane.state.abortRequested = true;
     pane.state.apply({ type: "turn_finished", seq: 1 });
     expect(pane.state.abortRequested).toBe(false);
+});
+
+test("sidebar image attachment resolves through the pane update pump", async () => {
+    const sideClient = client("side");
+    const pane = new TuiAgentPane({ client: sideClient });
+    pane.start();
+    const controller = new AbortController();
+
+    const attachment = pane.attachImage(
+        "request-1",
+        "/tmp/screenshot.png",
+        controller.signal,
+    );
+    expect(sideClient.sent).toEqual([{
+        type: "attach_image",
+        requestId: "request-1",
+        path: "/tmp/screenshot.png",
+    }]);
+    sideClient.updates.push({
+        type: "image_attached",
+        requestId: "request-1",
+        attachment: {
+            id: "side-image-1",
+            name: "screenshot.png",
+            mediaType: "image/png",
+            bytes: 42,
+            width: 10,
+            height: 10,
+        },
+    });
+
+    expect(await attachment).toMatchObject({
+        id: "side-image-1",
+        name: "screenshot.png",
+    });
+    await pane.detach();
+});
+
+test("sidebar image rejection is visible and a later attachment can succeed", async () => {
+    const sideClient = client("side");
+    const pane = new TuiAgentPane({ client: sideClient });
+    pane.start();
+    const controller = new AbortController();
+
+    const rejected = pane.attachImage(
+        "request-1",
+        "/tmp/missing.png",
+        controller.signal,
+    );
+    sideClient.updates.push({
+        type: "image_attachment_rejected",
+        requestId: "request-1",
+        error: "missing image",
+    });
+    await expect(rejected).rejects.toThrow("missing image");
+
+    const recovered = pane.attachImage(
+        "request-2",
+        "/tmp/next.png",
+        controller.signal,
+    );
+    sideClient.updates.push({
+        type: "image_attached",
+        requestId: "request-2",
+        attachment: {
+            id: "side-image-2",
+            name: "next.png",
+            mediaType: "image/png",
+            bytes: 42,
+            width: 10,
+            height: 10,
+        },
+    });
+    expect((await recovered).id).toBe("side-image-2");
+    await pane.detach();
 });
