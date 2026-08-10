@@ -6732,6 +6732,7 @@ export async function startTui(
         // whichever of them are currently visible instead of painting over
         // quote/address context.
         commandSuggestionsBox.bottom = 7
+            + (sidebarAgentPane === undefined ? 0 : 1)
             + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0);
