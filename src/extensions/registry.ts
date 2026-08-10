@@ -13,6 +13,14 @@ import type {
     VeraExtensionToolHandler,
     VeraExtensionToolSpec,
 } from "../sdk/extensions.ts";
+import type {
+    PostToolUseHook,
+    PostToolUseHookPayload,
+    PostToolUseHookResult,
+    PreToolUseHook,
+    PreToolUseHookPayload,
+    PreToolUseHookResult,
+} from "../sdk/hooks.ts";
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
@@ -41,6 +49,8 @@ const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000;
 const MAX_EXTENSION_PRESENTATION_BYTES = 64 * 1024;
 const MAX_EXTENSION_DIFF_LINES = 400;
+const PRE_TOOL_HOOK_CAPABILITY = "hooks.pre_tool_use";
+const POST_TOOL_HOOK_CAPABILITY = "hooks.post_tool_use";
 
 export interface StartExtensionRegistryOptions {
     readonly extensions: readonly VeraExtensionConfig[];
@@ -59,6 +69,8 @@ export interface ExtensionRegistryFailure {
 export interface ExtensionRegistry {
     commands(): readonly ExtensionCommandDescriptor[];
     tools(): readonly RegisteredTool[];
+    preToolUseHooks(): readonly PreToolUseHook[];
+    postToolUseHooks(): readonly PostToolUseHook[];
     contributions(): HostContributionSet;
     invokeCommand(
         name: string,
@@ -84,6 +96,8 @@ interface LoadedRegistryExtension {
     readonly path: string;
     readonly commands: readonly RegisteredExtensionCommand[];
     readonly tools: readonly RegisteredExtensionTool[];
+    readonly preToolUseHooks: readonly PreToolUseHook[];
+    readonly postToolUseHooks: readonly PostToolUseHook[];
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveExtensionInvocation>;
     disposing: boolean;
@@ -202,6 +216,12 @@ export async function startExtensionRegistry(
                 extension.tools.map((registered) => registered.tool)
             );
         },
+        preToolUseHooks(): readonly PreToolUseHook[] {
+            return loaded.flatMap((extension) => extension.preToolUseHooks);
+        },
+        postToolUseHooks(): readonly PostToolUseHook[] {
+            return loaded.flatMap((extension) => extension.postToolUseHooks);
+        },
         async invokeCommand(
             name: string,
             argumentsText: string,
@@ -309,6 +329,8 @@ async function activateExtension(
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
     const tools: RegisteredExtensionTool[] = [];
+    const preToolUseHooks: PreToolUseHook[] = [];
+    const postToolUseHooks: PostToolUseHook[] = [];
     const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
     const activeInvocations = new Set<ActiveExtensionInvocation>();
@@ -347,6 +369,44 @@ async function activateExtension(
                     handlerTimeoutMs,
                     activeInvocations,
                 );
+            },
+        }),
+        hooks: Object.freeze({
+            registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension hooks must be registered during activation",
+                    );
+                }
+                if (!loaded.manifest.capabilities.includes(PRE_TOOL_HOOK_CAPABILITY)) {
+                    throw new Error(
+                        `Extension did not declare ${PRE_TOOL_HOOK_CAPABILITY}`,
+                    );
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid pre-tool hook registration");
+                }
+                const safe = safePreToolHook(hook);
+                preToolUseHooks.push(safe);
+                return () => removeHook(preToolUseHooks, safe);
+            },
+            registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension hooks must be registered during activation",
+                    );
+                }
+                if (!loaded.manifest.capabilities.includes(POST_TOOL_HOOK_CAPABILITY)) {
+                    throw new Error(
+                        `Extension did not declare ${POST_TOOL_HOOK_CAPABILITY}`,
+                    );
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid post-tool hook registration");
+                }
+                const safe = safePostToolHook(hook);
+                postToolUseHooks.push(safe);
+                return () => removeHook(postToolUseHooks, safe);
             },
         }),
         onDispose(dispose: VeraExtensionDisposer): void {
@@ -397,6 +457,8 @@ async function activateExtension(
             path: loaded.directory,
             commands,
             tools,
+            preToolUseHooks,
+            postToolUseHooks,
             disposers,
             activeInvocations,
             disposing: false,
@@ -783,6 +845,71 @@ async function runDisposers(
         }
     }
     return failures;
+}
+
+/** Extension failures are isolated from the engine's built-in hook chain. */
+function safePreToolHook(hook: PreToolUseHook): PreToolUseHook {
+    return async (payload: PreToolUseHookPayload): Promise<PreToolUseHookResult> => {
+        try {
+            const result = await hook(structuredClone(payload));
+            return isPreToolUseResult(result) ? structuredClone(result) : { power: "observe" };
+        } catch {
+            return { power: "observe" };
+        }
+    };
+}
+
+function safePostToolHook(hook: PostToolUseHook): PostToolUseHook {
+    return async (payload: PostToolUseHookPayload): Promise<PostToolUseHookResult> => {
+        try {
+            const result = await hook(structuredClone(payload));
+            return isPostToolUseResult(result) ? structuredClone(result) : { power: "observe" };
+        } catch {
+            return { power: "observe" };
+        }
+    };
+}
+
+function isPreToolUseResult(value: unknown): value is PreToolUseHookResult {
+    if (!isPlainObject(value) || typeof value.power !== "string") return false;
+    if (value.power === "observe") return true;
+    if (value.power === "mutate") {
+        return isPlainObject(value.input);
+    }
+    if (value.power === "block") {
+        return typeof value.reason === "string" && value.reason.length > 0;
+    }
+    return value.power === "replace"
+        && isToolResultValue(value.result);
+}
+
+function isPostToolUseResult(value: unknown): value is PostToolUseHookResult {
+    if (!isPlainObject(value) || typeof value.power !== "string") return false;
+    if (value.power === "observe") return true;
+    if (value.power !== "mutate" || !isPlainObject(value.patch)) return false;
+    const patch = value.patch;
+    return (patch.content === undefined || isHookTextContentArray(patch.content))
+        && (patch.isError === undefined || typeof patch.isError === "boolean");
+}
+
+function isToolResultValue(value: unknown): boolean {
+    return isPlainObject(value)
+        && typeof value.isError === "boolean"
+        && isHookTextContentArray(value.content);
+}
+
+function isHookTextContentArray(value: unknown): boolean {
+    return Array.isArray(value)
+        && value.every((item) =>
+            isPlainObject(item)
+            && item.type === "text"
+            && typeof item.text === "string"
+        );
+}
+
+function removeHook<Hook>(hooks: Hook[], hook: Hook): void {
+    const index = hooks.indexOf(hook);
+    if (index !== -1) hooks.splice(index, 1);
 }
 
 function parseExtensionModule(value: unknown): VeraExtensionModule | undefined {

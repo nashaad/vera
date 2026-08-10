@@ -1,4 +1,8 @@
 import type { JsonValue } from "./hooks.ts";
+import type {
+    PostToolUseHook,
+    PreToolUseHook,
+} from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
 import type {
     StatusLineSegment,
@@ -13,6 +17,7 @@ export interface VeraExtensionApi {
     readonly config: JsonValue;
     readonly commands: VeraExtensionCommands;
     readonly tools: VeraExtensionTools;
+    readonly hooks: VeraExtensionHooks;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 
@@ -28,6 +33,11 @@ export interface VeraExtensionCommands {
 
 export interface VeraExtensionTools {
     register(spec: VeraExtensionToolSpec): void;
+}
+
+export interface VeraExtensionHooks {
+    registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
+    registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
 }
 
 export interface VeraExtensionToolSpec {

@@ -354,6 +354,12 @@ export async function startResidentHost(
         createToolHooks: () => {
             const hooks = new ToolHooks();
             hooks.registerPostToolUse(createReminderHook());
+            for (const hook of extensions.preToolUseHooks()) {
+                hooks.registerPreToolUse(hook);
+            }
+            for (const hook of extensions.postToolUseHooks()) {
+                hooks.registerPostToolUse(hook);
+            }
             return hooks;
         },
         ...(options.config.disabled_prompt_contributions === undefined

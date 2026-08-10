@@ -162,6 +162,7 @@ export interface ContextWatch {
 }
 
 export interface RunTurnState {
+    readonly sessionId?: string;
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
     /**
@@ -688,6 +689,7 @@ export async function runHeadlessLoop(
         };
     }
     const state: RunTurnState = {
+        sessionId,
         messages,
         store,
         modelContext: () => store.modelContext(),
@@ -1516,6 +1518,9 @@ async function prepareAssistantToolCalls(
             outcome = await state.hooks.runPreToolUse({
                 type: "pre_tool_use",
                 toolCall: original,
+                ...(state.sessionId === undefined
+                    ? {}
+                    : { sessionId: state.sessionId }),
                 workspace: state.toolRuntime.workspace,
             }, { timeoutMs: PRE_TOOL_HOOK_TIMEOUT_MS });
         } catch (error) {
@@ -1837,6 +1842,9 @@ async function finishExecutedTool(
             type: "post_tool_use",
             toolCall: hookCall,
             result: hookResult(result),
+            ...(state.sessionId === undefined
+                ? {}
+                : { sessionId: state.sessionId }),
             workspace: state.toolRuntime.workspace,
             durationMs,
         }, { timeoutMs: POST_TOOL_HOOK_TIMEOUT_MS });
