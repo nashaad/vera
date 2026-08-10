@@ -5,7 +5,11 @@ import { startClientExtensionRegistry } from "../../src/extensions/client-regist
 
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
 
-async function start() {
+async function start(visible: readonly {
+    agentId: string;
+    pane: "main" | "sidebar";
+    mention?: string;
+}[] = []) {
     const calls: unknown[] = [];
     let mentions: readonly string[] = [];
     let created = 0;
@@ -37,6 +41,9 @@ async function start() {
             },
         },
         agents: {
+            visible() {
+                return visible;
+            },
             async create(extensionId, request) {
                 created += 1;
                 calls.push({ operation: "create", extensionId, request });
@@ -123,6 +130,24 @@ test("another btw reopens the same sidekick instead of creating one", async () =
     });
     expect(harness.calls.filter((call: any) => call.operation === "create"))
         .toHaveLength(1);
+    await harness.registry.close();
+});
+
+test("pair reuses a restored visible peer", async () => {
+    const harness = await start([{
+        agentId: "restored-peer",
+        pane: "sidebar",
+        mention: "peer",
+    }]);
+    await harness.registry.invokeCommand("pair", "continue", "/workspace");
+
+    expect(harness.calls.filter((call: any) => call.operation === "create"))
+        .toHaveLength(0);
+    expect(harness.calls).toContainEqual({
+        operation: "message",
+        extensionId: "vera.btw",
+        request: { agentId: "restored-peer", text: "continue" },
+    });
     await harness.registry.close();
 });
 
