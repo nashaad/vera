@@ -107,6 +107,7 @@ import {
     createTuiClientExtensionAgentsAdapter,
 } from "./client-extension-agents.ts";
 import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
+import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
 import { TuiHostedSidebarAgent } from "./hosted-sidebar-agent.ts";
 import {
     requireIdentifiedTuiAgentClient,
@@ -336,11 +337,8 @@ import {
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
-    loadTuiSharedSessionGroups,
     loadTuiPersistedAgentPane,
     saveTuiSidebarWidth,
-    saveTuiSharedSessionGroups,
-    saveTuiPersistedAgentPane,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
     loadTuiExtensionPreference,
@@ -672,7 +670,7 @@ export async function startTui(
         loadTuiActivityAnimationIntervalPreference();
     const activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
     const sidebarWidth = loadTuiSidebarWidth();
-    let sharedSessionGroups = loadTuiSharedSessionGroups();
+    const hostedPanePersistence = new TuiHostedPanePersistence();
     let theme = await resolveTuiTheme(renderer, themeName);
     applyTuiTheme(theme);
 
@@ -1670,54 +1668,18 @@ export async function startTui(
     }
 
     function rememberOpenPaneGroup(): void {
-        const mainId = client.agentId;
-        const sidebarId = hostedSidebar.pane?.agentId;
-        if (mainId === undefined || sidebarId === undefined) return;
-        if (hostedSidebar.attachmentLifetime === "ephemeral") {
-            sharedSessionGroups = sharedSessionGroups.filter((group) =>
-                !group.includes(mainId) && !group.includes(sidebarId)
-            );
-            try {
-                saveTuiSharedSessionGroups(sharedSessionGroups);
-                if (client.agentId !== undefined) {
-                    saveTuiPersistedAgentPane(client.agentId, undefined);
-                }
-            } catch {
-                // A failed UI preference write must not prevent an attachment.
-            }
-            return;
-        }
-        sharedSessionGroups = [
-            ...sharedSessionGroups.filter((group) =>
-                !group.includes(mainId) && !group.includes(sidebarId)
-            ),
-            [mainId, sidebarId] as const,
-        ];
-        try {
-            saveTuiSharedSessionGroups(sharedSessionGroups);
-            saveTuiPersistedAgentPane(mainId, {
-                mainAgentId: mainId,
-                sidebarAgentId: sidebarId,
-                owner: hostedSidebar.owner ?? "vera.tui.agent-attachments",
-                ...(hostedSidebar.mention === undefined
-                    ? {}
-                    : { mention: hostedSidebar.mention }),
-                ...(hostedSidebar.modeLabel === undefined
-                    ? {}
-                    : { statusLabel: hostedSidebar.modeLabel }),
-            });
-        } catch {
-            // A failed UI preference write must not prevent an attachment.
-        }
+        hostedPanePersistence.remember({
+            mainAgentId: client.agentId,
+            sidebarAgentId: hostedSidebar.pane?.agentId,
+            owner: hostedSidebar.owner,
+            mention: hostedSidebar.mention,
+            statusLabel: hostedSidebar.modeLabel,
+            attachmentLifetime: hostedSidebar.attachmentLifetime,
+        });
     }
 
     function forgetPersistedAgentPane(mainAgentId = client.agentId): void {
-        if (mainAgentId === undefined) return;
-        try {
-            saveTuiPersistedAgentPane(mainAgentId, undefined);
-        } catch {
-            // A failed preference cleanup cannot block closing a pane.
-        }
+        hostedPanePersistence.forget(mainAgentId);
     }
 
     function renderSidebarAgent(
@@ -3415,7 +3377,7 @@ export async function startTui(
                     false,
                     new Date(),
                     false,
-                    sharedSessionGroups,
+                    hostedPanePersistence.groups,
                 );
                 focusActiveSurface();
                 renderState();
@@ -5835,7 +5797,7 @@ export async function startTui(
                 false,
                 new Date(),
                 false,
-                sharedSessionGroups,
+                hostedPanePersistence.groups,
             );
             renderState();
         } catch {
@@ -6447,7 +6409,7 @@ export async function startTui(
                             false,
                             new Date(),
                             false,
-                            sharedSessionGroups,
+                            hostedPanePersistence.groups,
                         );
                     } catch {
                         settingsPicker = removeSessionPickerOption(
