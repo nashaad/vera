@@ -8,13 +8,18 @@ import { startClientExtensionRegistry } from "../../src/extensions/client-regist
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/review-room");
 const TUI_ROOT = join(import.meta.dir, "../../clients/tui");
 
-async function start() {
+async function start(savedPanel: any = undefined) {
     const calls: unknown[] = [];
-    const mounted: { extensionId: string; id: string }[] = [];
+    const mounted: {
+        extensionId: string;
+        id: string;
+        spec: any;
+    }[] = [];
+    const events: string[] = [];
     const registry = await startClientExtensionRegistry({
         extensions: [{ path: EXTENSION, enabled: true, config: null }],
         preferences: {
-            async get() { return undefined; },
+            async get() { return savedPanel; },
             async set() {},
             async delete() {},
         },
@@ -29,11 +34,12 @@ async function start() {
         notice: { post() {} },
         experimentalTui: {
             mount(extensionId, spec) {
-                mounted.push({ extensionId, id: spec.id });
+                mounted.push({ extensionId, id: spec.id, spec });
                 return async () => {};
             },
             events: {
-                on() {
+                on(event: string) {
+                    events.push(event);
                     return async () => {};
                 },
             },
@@ -54,17 +60,18 @@ async function start() {
             },
         },
     });
-    return { registry, calls, mounted };
+    return { registry, calls, mounted, events };
 }
 
 test("review-room declares different hosted-agent policy through the registry", async () => {
     const harness = await start();
-    expect(harness.mounted).toEqual([
-        { extensionId: "vera.review-room", id: "review-panel" },
-        { extensionId: "vera.review-room", id: "review-overlay" },
-        { extensionId: "vera.review-room", id: "review-footer" },
-        { extensionId: "vera.review-room", id: "review-composer-adornment" },
-    ]);
+    expect(harness.mounted.map(({ extensionId, id }) => ({ extensionId, id })))
+        .toEqual([
+            { extensionId: "vera.review-room", id: "review-panel" },
+            { extensionId: "vera.review-room", id: "review-overlay" },
+            { extensionId: "vera.review-room", id: "review-footer" },
+            { extensionId: "vera.review-room", id: "review-composer-adornment" },
+        ]);
     await harness.registry.invokeCommand(
         "review-room",
         " inspect this ",
@@ -99,6 +106,41 @@ test("review-room declares different hosted-agent policy through the registry", 
                 imagePaths: ["/tmp/review.png"],
             },
         },
+    ]);
+    await harness.registry.close();
+});
+
+test("review-room owns restorable state, actions, and TUI subscriptions", async () => {
+    const harness = await start({ count: 4 });
+    const panel = harness.mounted.find(({ id }) => id === "review-panel")!.spec;
+    const overlay = harness.mounted.find(({ id }) => id === "review-overlay")!.spec;
+    const context = {
+        workspace: "/workspace",
+        focused: true,
+        theme: {
+            text: "#fff",
+            muted: "#aaa",
+            accent: "#0f0",
+            notice: "#ff0",
+            success: "#0f0",
+            panel: "#000",
+        },
+        transcript: [],
+    };
+
+    expect(panel.render(context).children[0].text).toContain("Notes 4");
+    expect(panel.keybindings).toEqual([
+        { keys: ["ctrl+shift+r"], action: "increment" },
+        { keys: ["ctrl+shift+o"], action: "toggle-overlay" },
+    ]);
+    await panel.onAction("increment", context);
+    expect(panel.render(context).children[0].text).toContain("Notes 5");
+    await panel.onAction("toggle-overlay", context);
+    expect(overlay.visible()).toBeTrue();
+    expect(harness.events).toEqual([
+        "transcript_changed",
+        "agent_event",
+        "conversation_changed",
     ]);
     await harness.registry.close();
 });
