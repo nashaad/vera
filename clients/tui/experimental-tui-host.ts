@@ -13,6 +13,11 @@ import {
     refreshTuiExperimentalSlotVisibility,
     tuiExperimentalBottomInsetRows,
 } from "./experimental-tui-layout.ts";
+import {
+    createTuiExperimentalRawView,
+    disposeTuiExperimentalRawView,
+    type TuiExperimentalRawView,
+} from "./experimental-tui-raw-view.ts";
 import { tuiChord, type TuiChordKey } from "./keymap.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
@@ -64,13 +69,6 @@ interface MountedView {
     focused: boolean;
 }
 
-interface MountedRawView {
-    readonly extensionId: string;
-    readonly spec: VeraExperimentalTuiRawViewSpec;
-    readonly root: Renderable;
-    readonly container: BoxRenderable;
-}
-
 interface ExperimentalTuiListener {
     readonly extensionId: string;
     readonly listener: (...args: any[]) => void | Promise<void>;
@@ -90,7 +88,7 @@ export function createTuiExperimentalHost(
     let focusedView: MountedView | undefined;
     let closed = false;
     const views = new Map<string, MountedView>();
-    const rawViews = new Map<string, MountedRawView>();
+    const rawViews = new Map<string, TuiExperimentalRawView>();
     const listeners: EventListeners = {
         conversation_changed: new Set(),
         transcript_changed: new Set(),
@@ -158,41 +156,26 @@ export function createTuiExperimentalHost(
             if (rawViews.has(key) || views.has(key)) {
                 throw new Error(`Duplicate experimental TUI view: ${spec.id}`);
             }
-            const root = spec.create({
+            const view = createTuiExperimentalRawView({
                 renderer: options.renderer,
+                extensionId,
+                spec,
                 workspace: options.workspace(),
                 theme: experimentalTheme(theme),
                 transcript: options.transcript(),
                 requestRender: options.onRenderRequested,
             });
-            if (
-                typeof root !== "object"
-                || root === null
-                || typeof root.destroy !== "function"
-            ) {
-                throw new Error("Raw experimental TUI view must return a Renderable");
-            }
-            const container = new BoxRenderable(options.renderer, {
-                id: `experimental-tui-raw-${extensionId}-${spec.id}`,
-                width: "100%",
-                flexDirection: "column",
-            });
-            container.add(root);
-            const view: MountedRawView = {
-                extensionId,
-                spec,
-                root,
-                container,
-            };
             rawViews.set(key, view);
-            slotFor(spec.slot).add(container);
+            slotFor(spec.slot).add(view.container);
             options.onRenderRequested();
             let active = true;
             return async () => {
                 if (!active) return;
                 active = false;
-                slotFor(spec.slot).remove(container.id);
-                container.destroy();
+                disposeTuiExperimentalRawView(
+                    view,
+                    (containerId) => slotFor(spec.slot).remove(containerId),
+                );
                 rawViews.delete(key);
                 options.onRenderRequested();
             };
@@ -540,8 +523,10 @@ export function createTuiExperimentalHost(
             for (const view of [...views.values()]) removeView(view);
             views.clear();
             for (const view of rawViews.values()) {
-                slotFor(view.spec.slot).remove(view.container.id);
-                view.container.destroy();
+                disposeTuiExperimentalRawView(
+                    view,
+                    (containerId) => slotFor(view.spec.slot).remove(containerId),
+                );
             }
             rawViews.clear();
             for (const set of Object.values(listeners)) set.clear();
