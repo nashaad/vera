@@ -1,6 +1,10 @@
 export const SCHEDULER_SOURCE = "vera.scheduler";
 export const SCHEDULE_TRIGGERED_KIND = "schedule.triggered";
 export const MAX_SCHEDULE_PAYLOAD_BYTES = 16 * 1024;
+export const MAX_SCHEDULE_CRON_BYTES = 256;
+export const MAX_SCHEDULE_TIMEZONE_BYTES = 128;
+export const MAX_SCHEDULE_ADDRESS_BYTES = 256;
+export const MAX_SCHEDULE_RUN_RESULTS = 100;
 
 export interface ScheduleDefinition {
     readonly id: string;
