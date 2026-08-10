@@ -1464,12 +1464,16 @@ export async function startTui(
     const modeToast = new BoxRenderable(renderer, {
         id: "mode-toast",
         position: "absolute",
-        // The app's one reserved top row spans both panes, so this message is
-        // shared chrome rather than appearing to belong to either agent.
-        top: 0,
-        right: 1,
+        // Positioned against the shared app, not either pane, with enough
+        // inset to read as a floating notice rather than terminal chrome.
+        top: 1,
+        right: 2,
         width: 1,
-        height: 1,
+        height: 3,
+        paddingTop: 1,
+        paddingBottom: 1,
+        paddingLeft: 2,
+        paddingRight: 2,
         backgroundColor: theme.panel,
         zIndex: 4,
         visible: false,
@@ -6897,11 +6901,10 @@ export async function startTui(
     }
 
     function showModeToast(message: string): void {
-        const content = ` ${message} `;
         modeToastVersion += 1;
         const version = modeToastVersion;
-        modeToastText.content = content;
-        modeToast.width = content.length;
+        modeToastText.content = message;
+        modeToast.width = message.length + 4;
         modeToast.visible = true;
         setTimeout(() => {
             if (modeToastVersion !== version) return;
