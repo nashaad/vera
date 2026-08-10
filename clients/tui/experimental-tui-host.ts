@@ -19,6 +19,10 @@ import {
     refreshTuiExperimentalRawView,
     type TuiExperimentalRawView,
 } from "./experimental-tui-raw-view.ts";
+import {
+    createTuiExperimentalEventBus,
+    type TuiExperimentalEventBus,
+} from "./experimental-tui-events.ts";
 import { tuiChord, type TuiChordKey } from "./keymap.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
@@ -70,31 +74,14 @@ interface MountedView {
     focused: boolean;
 }
 
-interface ExperimentalTuiListener {
-    readonly extensionId: string;
-    readonly listener: (...args: any[]) => void | Promise<void>;
-}
-
-interface EventListeners {
-    readonly conversation_changed: Set<ExperimentalTuiListener>;
-    readonly transcript_changed: Set<ExperimentalTuiListener>;
-    readonly agent_event: Set<ExperimentalTuiListener>;
-}
-
 export function createTuiExperimentalHost(
     options: TuiExperimentalHostOptions,
 ): TuiExperimentalHost {
     let theme = options.theme;
-    let lastTranscript: VeraExperimentalTuiContext["transcript"] = [];
     let focusedView: MountedView | undefined;
     let closed = false;
     const views = new Map<string, MountedView>();
     const rawViews = new Map<string, TuiExperimentalRawView>();
-    const listeners: EventListeners = {
-        conversation_changed: new Set(),
-        transcript_changed: new Set(),
-        agent_event: new Set(),
-    };
 
     const transcriptTop = createSlot("transcript-top");
     const transcriptBottom = createSlot("transcript-bottom");
@@ -112,24 +99,9 @@ export function createTuiExperimentalHost(
         zIndex: 30,
         visible: false,
     });
-
-    const events: ClientExtensionExperimentalTuiAdapter["events"] = {
-        on(extensionId, event, listener): VeraExtensionDisposer {
-            if (closed) throw new Error("Experimental TUI host is closed");
-            if (typeof listener !== "function") {
-                throw new Error("Experimental TUI event listener must be a function");
-            }
-            const set = listeners[event];
-            const registered = { extensionId, listener };
-            set.add(registered);
-            let active = true;
-            return async () => {
-                if (!active) return;
-                active = false;
-                set.delete(registered);
-            };
-        },
-    };
+    const eventBus: TuiExperimentalEventBus = createTuiExperimentalEventBus(
+        options.onFailure,
+    );
 
     const adapter: ClientExtensionExperimentalTuiAdapter = {
         mount(extensionId, spec): VeraExtensionDisposer {
@@ -181,7 +153,7 @@ export function createTuiExperimentalHost(
                 options.onRenderRequested();
             };
         },
-        events,
+        events: eventBus.events,
         agentSurface: {
             current: () => undefined,
             cycleLayout: () => false,
@@ -203,7 +175,7 @@ export function createTuiExperimentalHost(
             workspace: options.workspace(),
             focused: view === focusedView,
             theme: experimentalTheme(theme),
-            transcript: lastTranscript,
+            transcript: eventBus.currentTranscript(),
         };
     }
 
@@ -331,51 +303,9 @@ export function createTuiExperimentalHost(
         }
     }
 
-    function fireTranscriptChanged(
-        transcript: VeraExperimentalTuiContext["transcript"],
-    ): void {
-        const signature = JSON.stringify(transcript);
-        if (signature === JSON.stringify(lastTranscript)) return;
-        lastTranscript = transcript;
-        for (const registered of listeners.transcript_changed) {
-            fireListener(registered, transcript);
-        }
-    }
-
-    function fireConversationChanged(): void {
-        for (const registered of listeners.conversation_changed) {
-            fireListener(registered);
-        }
-    }
-
-    function fireAgentEvent(event: VeraExperimentalTuiAgentEvent): void {
-        for (const registered of listeners.agent_event) {
-            fireListener(registered, event);
-        }
-    }
-
-    function fireListener(
-        registered: ExperimentalTuiListener,
-        ...args: any[]
-    ): void {
-        try {
-            void Promise.resolve(registered.listener(...args)).catch((error) => {
-                options.onFailure(
-                    registered.extensionId,
-                    error instanceof Error ? error.message : String(error),
-                );
-            });
-        } catch (error) {
-            options.onFailure(
-                registered.extensionId,
-                error instanceof Error ? error.message : String(error),
-            );
-        }
-    }
-
     function render(): void {
         if (closed) return;
-        fireTranscriptChanged(options.transcript());
+        eventBus.transcriptChanged(options.transcript());
         for (const view of views.values()) {
             renderView(view);
         }
@@ -409,8 +339,8 @@ export function createTuiExperimentalHost(
             theme = nextTheme;
             for (const view of views.values()) view.lastRender = undefined;
         },
-        conversationChanged: fireConversationChanged,
-        agentEvent: fireAgentEvent,
+        conversationChanged: eventBus.conversationChanged,
+        agentEvent: eventBus.agentEvent,
         hasModal: () => [...views.values()].some((view) =>
             view.spec.slot === "overlay"
             && view.spec.modal === true
@@ -522,7 +452,7 @@ export function createTuiExperimentalHost(
                 );
             }
             rawViews.clear();
-            for (const set of Object.values(listeners)) set.clear();
+            eventBus.clear();
             for (const slot of [
                 transcriptTop,
                 transcriptBottom,
