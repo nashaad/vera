@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
     configuredTuiClientExtensions,
     createTuiClientExtensionHostController,
-    startTuiClientExtensionHost,
+    createTuiClientExtensionHostStarter,
 } from "../../clients/tui/client-extension-host.ts";
 import { TuiCommandRegistry } from "../../clients/tui/commands.ts";
 import type { ClientExtensionRegistry } from
@@ -128,8 +128,8 @@ test("the TUI extension host binds a configured extension to client surfaces", a
             config: {},
         }],
     );
-    const registry = await startTuiClientExtensionHost({
-        extensions,
+    const start = createTuiClientExtensionHostStarter({
+        extensions: () => extensions,
         currentModelSettings: () => undefined,
         updateModelSettings: async () => {
             throw new Error("unused");
@@ -178,6 +178,7 @@ test("the TUI extension host binds a configured extension to client surfaces", a
             throw new Error(failure.message);
         },
     });
+    const registry = await start(new AbortController().signal);
 
     await registry.invokeCommand("pane", "", "/tmp");
     await registry.invokeCommand("unpane", "", "/tmp");
