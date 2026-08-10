@@ -119,6 +119,50 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "reload failure reaches the TUI diagnostics overlay",
+    async () => {
+        const socket = `vera-reload-failure-${process.pid}-${randomUUID()}`;
+        const session = "reload-failure";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-reload-failure-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-reload-failure-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/reload-extensions");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Client extensions reloaded with failures: none",
+            );
+
+            sendText(socket, session, "/diagnostics");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "reload       failed");
+            expect(pane).toContain("reload error");
+            expect(pane).not.toContain("reload       partial");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "help is browse-only and ctrl+p opens the functional palette",
     async () => {
         const socket = `vera-help-${process.pid}-${randomUUID()}`;
