@@ -313,6 +313,32 @@ test.skipIf(!tmuxAvailable)(
                 "the sidebar to close",
             );
             expect(pane).not.toContain("m1 (faux)");
+
+            sendText(socket, session, "/pane");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "beside the transcript");
+
+            sendText(socket, session, "/reload-extensions");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Client extensions reloaded",
+            );
+            expect(pane).not.toContain("m1 (faux)");
+            expect(readFileSync(
+                join(home, "client-extensions-reloaded.txt"),
+                "utf8",
+            )).toBe("reloaded");
+
+            sendText(socket, session, "/pane");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "beside the transcript",
+            );
+            expect(pane).toContain("m1 (faux)");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);

@@ -1,4 +1,3 @@
-import { pathToFileURL } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { inferReasoningSelection } from "../model/reasoning-effort.ts";
@@ -1368,8 +1367,8 @@ async function activateClientExtension(
         await runExtensionOperation(
             async () => {
                 try {
-                    const imported: unknown = await import(
-                        pathToFileURL(options.entrypointPath).href
+                    const imported = await importFreshClientExtension(
+                        options.entrypointPath,
                     );
                     const extension = parseClientExtensionModule(imported);
                     if (extension === undefined) {
@@ -1802,6 +1801,41 @@ function parseClientExtensionModule(
         activateClient:
             value.activateClient as VeraClientExtensionModule["activateClient"],
     };
+}
+
+/**
+ * Bun caches dynamic imports for the life of the TUI, even when a query is
+ * added to the file URL. A one-file in-memory bundle gives each client
+ * generation a fresh module graph without writing build artifacts beside the
+ * user's extension.
+ */
+async function importFreshClientExtension(
+    entrypointPath: string,
+): Promise<unknown> {
+    const build = await Bun.build({
+        entrypoints: [entrypointPath],
+        target: "bun",
+        format: "esm",
+        sourcemap: "inline",
+    });
+    if (!build.success) {
+        throw new Error(
+            `Client extension build failed: ${build.logs.map(String).join("; ")}`,
+        );
+    }
+    const output = build.outputs[0];
+    if (output === undefined) {
+        throw new Error("Client extension build produced no module");
+    }
+    const source = await output.text();
+    const moduleUrl = URL.createObjectURL(new Blob([source], {
+        type: "text/javascript",
+    }));
+    try {
+        return await import(moduleUrl);
+    } finally {
+        URL.revokeObjectURL(moduleUrl);
+    }
 }
 
 function requireRegistrationPhase(

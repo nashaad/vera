@@ -1366,6 +1366,45 @@ test("an extension writes a labeled block into the transcript", async () => {
     await registry.close();
 });
 
+test("a new client registry imports edited extension entrypoint code", async () => {
+    const extension = createExtension("client.reloadable", [
+        "client.commands.register",
+    ], reloadableCommandSource("before"));
+    const adapters = createHarness().adapters;
+    const first = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...adapters,
+    });
+    expect((await first.invokeCommand("version", "", "/tmp"))?.body)
+        .toEqual({ kind: "text", text: "before" });
+    await first.close();
+
+    writeFileSync(
+        join(extension, "extension.ts"),
+        reloadableCommandSource("after"),
+    );
+    const second = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...adapters,
+    });
+    expect((await second.invokeCommand("version", "", "/tmp"))?.body)
+        .toEqual({ kind: "text", text: "after" });
+    await second.close();
+});
+
+function reloadableCommandSource(text: string): string {
+    return `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "version",
+                description: "Report version",
+                usage: "/version",
+                run() { return { kind: "text", text: ${JSON.stringify(text)} }; },
+            });
+        }
+    `;
+}
+
 function createExtension(
     id: string,
     capabilities: readonly string[],

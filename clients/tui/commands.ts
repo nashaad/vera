@@ -119,6 +119,10 @@ export interface ShowDiagnosticsTuiCommandAction {
     readonly type: "show_diagnostics";
 }
 
+export interface ReloadClientExtensionsTuiCommandAction {
+    readonly type: "reload_client_extensions";
+}
+
 export interface ShowPoolTuiCommandAction {
     readonly type: "show_pool";
 }
@@ -164,6 +168,7 @@ export type TuiCommandAction =
     | CloneSessionTuiCommandAction
     | CompactSessionTuiCommandAction
     | ShowDiagnosticsTuiCommandAction
+    | ReloadClientExtensionsTuiCommandAction
     | ShowPoolTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
@@ -201,6 +206,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "prefill_composer":
         case "open_theme_picker":
         case "show_diagnostics":
+        case "reload_client_extensions":
         case "show_pool":
         case "pool_current_model":
         case "run_extension":
@@ -256,7 +262,8 @@ export interface TuiCommandDefinition {
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction
         | CompactSessionTuiCommandAction
-        | ShowDiagnosticsTuiCommandAction;
+        | ShowDiagnosticsTuiCommandAction
+        | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly arguments?: TuiCommandArgumentKind;
     readonly isAvailable?: () => boolean;
@@ -371,6 +378,12 @@ const DIAGNOSTICS_COMMAND = {
     usage: "/diagnostics",
 } as const satisfies TuiCommandCatalogEntry;
 
+const RELOAD_EXTENSIONS_COMMAND = {
+    name: "reload-extensions",
+    description: "Reload client extensions without restarting Vera",
+    usage: "/reload-extensions",
+} as const satisfies TuiCommandCatalogEntry;
+
 export const BUILTIN_COMMANDS = [
     REWIND_COMMAND,
     FORK_COMMAND,
@@ -388,6 +401,7 @@ export const BUILTIN_COMMANDS = [
     CLONE_COMMAND,
     COMPACT_COMMAND,
     DIAGNOSTICS_COMMAND,
+    RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
@@ -1006,6 +1020,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "diagnostics",
             action: { type: "show_diagnostics" },
+        },
+    });
+    registry.registerCommand({
+        ...RELOAD_EXTENSIONS_COMMAND,
+        action: { type: "reload_client_extensions" },
+        palette: {
+            name: "reload_extensions",
+            label: "Reload client extensions",
+            description: "re-read extension code and client configuration",
+            group: "Extensions",
+            slashName: "reload-extensions",
+            action: { type: "reload_client_extensions" },
         },
     });
     registry.registerCommand({
