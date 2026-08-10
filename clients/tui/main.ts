@@ -111,6 +111,7 @@ import {
 import {
     boundedExtensionReloadFailure,
     ClientExtensionReloadPartialFailure,
+    reloadTuiClientExtensions,
 } from "./client-extension-reload.ts";
 import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
 import { TuiHostedSidebarAgent } from "./hosted-sidebar-agent.ts";
@@ -1076,45 +1077,6 @@ export async function startTui(
         },
     );
     await clientExtensionHost.reload();
-    async function reloadConfiguredClientExtensions(): Promise<readonly string[]> {
-        const refreshed = dependencies.loadClientExtensionConfiguration?.();
-        let nextDisabledBuiltinExtensions = disabledBuiltinExtensions;
-        let nextConfiguredClientExtensions = configuredClientExtensions;
-        const failures: string[] = [];
-        if (refreshed !== undefined) {
-            nextDisabledBuiltinExtensions = refreshed.disabledBuiltinExtensions;
-            nextConfiguredClientExtensions = configuredTuiClientExtensions(
-                nextDisabledBuiltinExtensions,
-                refreshed.clientExtensions,
-            );
-        }
-        // The new config describes the generation we are replacing. Keep the
-        // diagnostics view truthful even if that generation fails to activate.
-        disabledBuiltinExtensions = nextDisabledBuiltinExtensions;
-        configuredClientExtensions = nextConfiguredClientExtensions;
-        await clientExtensionHost.reload((signal) =>
-            startConfiguredClientExtensionHost(
-                signal,
-                nextConfiguredClientExtensions,
-                failures,
-            )
-        );
-        const loaded = clientExtensionHost.current()?.loadedExtensionIds() ?? [];
-        if (failures.length === 0) {
-            return loaded;
-        }
-        const stateLabel = loaded.length === 0 ? "none loaded" : "some failed";
-        throw new ClientExtensionReloadPartialFailure(
-            loaded.length === 0 ? "none" : "some",
-            `${stateLabel}: ${failures.slice(0, 3)
-                .map(boundedExtensionReloadFailure).join("; ")}`
-                + (failures.length > 3
-                    ? `; and ${failures.length - 3} more`
-                    : ""),
-            loaded,
-            failures.map(boundedExtensionReloadFailure),
-        );
-    }
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
         if (
@@ -3101,7 +3063,27 @@ export async function startTui(
                     copyReady: diagnosticsDialog.copyReady,
                 };
             }
-            void reloadConfiguredClientExtensions().then((loadedExtensionIds) => {
+            void reloadTuiClientExtensions({
+                configuration: {
+                    disabledBuiltinExtensions,
+                    clientExtensions: configuredClientExtensions,
+                },
+                refreshConfiguration:
+                    dependencies.loadClientExtensionConfiguration,
+                applyConfiguration(configuration) {
+                    disabledBuiltinExtensions =
+                        configuration.disabledBuiltinExtensions;
+                    configuredClientExtensions = configuration.clientExtensions;
+                },
+                host: clientExtensionHost,
+                start(signal, extensions, failures) {
+                    return startConfiguredClientExtensionHost(
+                        signal,
+                        extensions,
+                        failures,
+                    );
+                },
+            }).then((loadedExtensionIds) => {
                 if (shuttingDown) return;
                 clientExtensionReload = {
                     status: "success",
