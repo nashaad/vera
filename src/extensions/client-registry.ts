@@ -1935,7 +1935,8 @@ function validateAgentCreateRequest(
         request?.source !== undefined
         && (request.source.type !== "branch"
             || sourceAgentId === undefined
-            || sourceAgentId.length === 0)
+            || sourceAgentId.length === 0
+            || sourceAgentId.length > 256)
     ) {
         throw new Error("Client extension agent source must name a branch agent");
     }
@@ -1967,7 +1968,7 @@ function validateAgentInitialMessages(
     if (!Array.isArray(messages) || messages.length > 8) {
         throw new Error("Client extension initial messages must contain at most 8 items");
     }
-    return messages.map((message) => {
+    const validated = messages.map((message) => {
         const text = message?.text?.trim();
         if (
             message?.role !== "user"
@@ -1985,6 +1986,11 @@ function validateAgentInitialMessages(
             ...(message.hidden === undefined ? {} : { hidden: message.hidden }),
         };
     });
+    const bytes = new TextEncoder().encode(JSON.stringify(validated)).byteLength;
+    if (bytes > 48 * 1_024) {
+        throw new Error("Client extension initial messages exceed 48 KiB");
+    }
+    return validated;
 }
 
 function validateAgentOpenRequest(

@@ -13,7 +13,10 @@ import {
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
-import { HOST_CAPABILITY_AGENT_BRANCH_OPTIONS } from "../../src/host/capabilities.ts";
+import {
+    HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+} from "../../src/host/capabilities.ts";
 import { connectHost } from "../../src/host/connection.ts";
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
@@ -29,7 +32,10 @@ import { connectHost } from "../../src/host/connection.ts";
         const host = await startHostServer({
             socketPath,
             lockPath: join(root, "host.json"),
-            capabilities: [HOST_CAPABILITY_AGENT_BRANCH_OPTIONS],
+            capabilities: [
+                HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+                HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+            ],
             commitBranch: () => true,
             createAgent: async (options) => {
                 createOptions = options;
@@ -203,6 +209,46 @@ import { connectHost } from "../../src/host/connection.ts";
                 { lifetime: "durable" },
             )).rejects.toMatchObject({ reason: "source_unavailable" });
             expect(called).toBe(true);
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "branch initial messages require their own host capability",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-branch-messages-"));
+        const socketPath = join(root, "host.sock");
+        let called = false;
+        const host = await startHostServer({
+            socketPath,
+            lockPath: join(root, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_BRANCH_OPTIONS],
+            branchAgent: async () => {
+                called = true;
+                return undefined;
+            },
+        });
+        try {
+            await expect(branchAgentThroughHost(
+                socketPath,
+                "source",
+                "at",
+                undefined,
+                {
+                    initialMessages: [{
+                        role: "user",
+                        content: [{ type: "text", text: "boundary" }],
+                        internal: true,
+                    }],
+                },
+            )).rejects.toMatchObject({
+                name: AgentBranchError.name,
+                reason: "unsupported_options",
+            });
+            expect(called).toBe(false);
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });

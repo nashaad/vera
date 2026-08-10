@@ -188,6 +188,7 @@ function collectItems(
     const items: TranscriptItem[] = [];
     for (const message of messages) {
         if (message.role === "user") {
+            if (message.internal === true) continue;
             const text = textOf(message.content);
             if (text.length > 0) {
                 items.push({

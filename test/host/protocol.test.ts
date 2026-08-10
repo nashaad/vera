@@ -140,6 +140,32 @@ test("host protocol parses identity requests and encodes responses", () => {
     }))).toBeUndefined();
     expect(parseHostRequest(JSON.stringify({
         type: "branch_agent",
+        source_agent_id: "x".repeat(257),
+        position: "at",
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "branch_agent",
+        source_agent_id: "source",
+        position: "at",
+        initial_messages: [{
+            role: "user",
+            content: [{ type: "text", text: "\\".repeat(16_000) }],
+        }, {
+            role: "user",
+            content: [{ type: "text", text: "\\".repeat(16_000) }],
+        }],
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "branch_agent",
+        source_agent_id: "source",
+        position: "at",
+        initial_messages: Array.from({ length: 4 }, () => ({
+            role: "user",
+            content: [{ type: "text", text: "x".repeat(16_000) }],
+        })),
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "branch_agent",
         source_agent_id: "source",
         position: "at",
         approval_mode: "not valid",

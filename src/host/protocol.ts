@@ -424,6 +424,7 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         value?.type === "branch_agent"
         && typeof value.source_agent_id === "string"
         && value.source_agent_id.length > 0
+        && value.source_agent_id.length <= 256
         && (value.position === "before" || value.position === "at")
         && (
             value.position === "at"
@@ -553,10 +554,12 @@ export function parseHostRequest(source: string): HostRequest | undefined {
 function isBranchInitialMessages(
     value: unknown,
 ): value is BranchAgentRequest["initial_messages"] {
-    return value === undefined || (
-        Array.isArray(value)
-        && value.length <= 8
-        && value.every((message) => {
+    if (value === undefined) return true;
+    if (!Array.isArray(value) || value.length > 8) return false;
+    if (Buffer.byteLength(JSON.stringify(value), "utf8") > 48 * 1_024) {
+        return false;
+    }
+    return value.every((message) => {
             if (typeof message !== "object" || message === null) return false;
             const candidate = message as Record<string, unknown>;
             return candidate.role === "user"
@@ -564,16 +567,22 @@ function isBranchInitialMessages(
                     || typeof candidate.internal === "boolean")
                 && Array.isArray(candidate.content)
                 && candidate.content.length === 1
-                && candidate.content.every((content) =>
-                    typeof content === "object"
-                    && content !== null
-                    && (content as Record<string, unknown>).type === "text"
-                    && typeof (content as Record<string, unknown>).text === "string"
-                    && ((content as Record<string, unknown>).text as string).length > 0
-                    && ((content as Record<string, unknown>).text as string).length <= 16_000
-                );
-        })
-    );
+                && candidate.content.every((content) => {
+                    if (typeof content !== "object" || content === null) {
+                        return false;
+                    }
+                    const text = (content as Record<string, unknown>).text;
+                    if (
+                        (content as Record<string, unknown>).type !== "text"
+                        || typeof text !== "string"
+                        || text.length === 0
+                        || text.length > 16_000
+                    ) {
+                        return false;
+                    }
+                    return true;
+                });
+        });
 }
 
 export function parseAttachedClientMessage(
