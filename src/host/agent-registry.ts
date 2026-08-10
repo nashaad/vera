@@ -1507,7 +1507,10 @@ export class AgentRegistry {
             });
         return Promise.resolve({
             kind: "output",
-            output: JSON.stringify({ participants: rows }),
+            output: JSON.stringify({
+                self_participant_id: callerId,
+                participants: rows,
+            }),
             isError: false,
         });
     }

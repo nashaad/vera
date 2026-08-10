@@ -193,6 +193,7 @@ test("agent_roster reports the workspace's other live sessions", async () => {
         await runPrompt(caller.attach(), "who else is here");
 
         const roster = JSON.parse(await toolResultText(callerSession) ?? "{}");
+        expect(roster.self_participant_id).toBe("caller");
         const peer = registry.list().find((agent) => agent.id === "peer");
         expect(roster.participants).toHaveLength(1);
         expect(roster.participants[0]).toMatchObject({
@@ -228,7 +229,7 @@ test("agent_roster reports an empty workspace as empty", async () => {
         await runPrompt(caller.attach(), "who else is here");
 
         expect(JSON.parse(await toolResultText(callerSession) ?? "{}"))
-            .toEqual({ participants: [] });
+            .toEqual({ self_participant_id: "caller", participants: [] });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -255,7 +256,7 @@ test("compact agent_roster omits inactive resident sessions", async () => {
         await runPrompt(caller.attach(), "who is live here");
 
         expect(JSON.parse(await toolResultText(callerSession) ?? "{}"))
-            .toEqual({ participants: [] });
+            .toEqual({ self_participant_id: "caller", participants: [] });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -300,6 +301,7 @@ test("detailed agent_roster derives repository and dirty-file facts at inspectio
         await runPrompt(caller.attach(), "inspect the roster");
 
         const roster = JSON.parse(await toolResultText(callerSession) ?? "{}");
+        expect(roster.self_participant_id).toBe("caller");
         expect(roster.participants[0]).toMatchObject({
             participant_id: "peer",
             repository: await realpath(root),
