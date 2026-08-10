@@ -6778,8 +6778,7 @@ export async function startTui(
         // transient lines sit above it in normal flow, so the overlay clears
         // whichever of them are currently visible instead of painting over
         // quote/address context.
-        commandSuggestionsBox.bottom = 7
-            + (sidebarAgentPane === undefined ? 0 : 1)
+        commandSuggestionsBox.bottom = 8
             + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0);
@@ -7014,9 +7013,10 @@ export async function startTui(
         const sidePaneStatus = sidebarAgentPane === undefined
             ? ""
             : `${sidebarAgentMention ?? sidebarAgentPane.agentId} · ${sidebarAgentPane.state.state.approvalMode ?? "loading"} · ${sidePaneActivity}`;
-        paneStatusText.visible = sidebarAgentPane !== undefined
-            && !anyOverlayOpen();
-        paneStatusText.content = layout === "split"
+        paneStatusText.visible = !anyOverlayOpen();
+        paneStatusText.content = sidebarAgentPane === undefined
+            ? ""
+            : layout === "split"
             ? new StyledText([
                 fg(sidebar.isFocused() ? TUI_MUTED : TUI_ACCENT)(
                     mainPaneStatus,
