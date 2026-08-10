@@ -83,7 +83,7 @@ test("midnight blue maps its editor and syntax palette to TUI roles", async () =
 
     expect(await resolveTuiTheme(renderer, "midnight-blue")).toEqual({
         accent: "#82AAFF",
-        text: "#EEFFFF",
+        text: "#c7d5d6",
         muted: "#546E7A",
         notice: "#F9D768",
         success: "#C3E88D",
