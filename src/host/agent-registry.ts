@@ -258,6 +258,8 @@ export interface AgentRegistryOptions {
      */
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
+    /** Rebuilds dynamic provider rows after credentials change in this process. */
+    readonly refreshAvailableModels?: () => readonly SuggestedModel[];
     /**
      * Read per settings snapshot, not once at startup: the pool changes while
      * the host runs, so a snapshot taken when it came up would freeze the
@@ -820,6 +822,7 @@ export class AgentRegistry {
     /** Child id to the ladder notice its spawn produced, if any. */
     private readonly spawnNotices = new Map<string, string>();
     private readonly catalog: EffectiveCatalogOptions;
+    private availableModels: readonly SuggestedModel[];
     private readonly rosterListeners = new Set<() => void>();
 
     constructor(private readonly options: AgentRegistryOptions) {
@@ -827,6 +830,7 @@ export class AgentRegistry {
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
         this.defaultReasoningEffort = options.reasoningEffort;
+        this.availableModels = options.availableModels ?? [];
         this.defaultApprovalMode = options.approvalMode;
         this.maxConcurrentBackgroundAgents = validChildAgentLimit(
             options.maxConcurrentBackgroundAgents
@@ -837,6 +841,14 @@ export class AgentRegistry {
         this.catalog = options.cacheDir === undefined
             ? {}
             : { cacheDir: options.cacheDir };
+    }
+
+    private modelsForClient(): readonly SuggestedModel[] {
+        const refreshed = this.options.refreshAvailableModels?.();
+        if (refreshed !== undefined) {
+            this.availableModels = refreshed;
+        }
+        return this.availableModels;
     }
 
     async create(
@@ -1250,7 +1262,7 @@ export class AgentRegistry {
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.catalog,
-                    this.options.availableModels,
+                    this.modelsForClient(),
                     this.options.readPool?.(entry.store.header.cwd),
                     this.options.subagentModel,
                     entry.requestedReasoningEffort,
@@ -1352,7 +1364,7 @@ export class AgentRegistry {
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
-            this.options.availableModels,
+            this.modelsForClient(),
             this.options.readPool?.(entry.store.header.cwd),
             this.options.subagentModel,
             entry.requestedReasoningEffort,
@@ -1401,7 +1413,7 @@ export class AgentRegistry {
                 agentEntry.modelSettings,
                 agentEntry.modelSettings.provider ?? this.defaultProvider,
                 this.catalog,
-                this.options.availableModels,
+                this.modelsForClient(),
                 this.options.readPool?.(agentEntry.store.header.cwd),
                 this.options.subagentModel,
                 agentEntry.requestedReasoningEffort,
@@ -1686,7 +1698,7 @@ export class AgentRegistry {
             agentEntry.modelSettings,
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
-            this.options.availableModels,
+            this.modelsForClient(),
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
@@ -1719,7 +1731,7 @@ export class AgentRegistry {
             agentEntry.modelSettings,
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
-            this.options.availableModels,
+            this.modelsForClient(),
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
@@ -2234,7 +2246,7 @@ export class AgentRegistry {
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.catalog,
-                    this.options.availableModels,
+                    this.modelsForClient(),
                     this.options.readPool?.(store.header.cwd),
                     this.options.subagentModel,
                     entry.requestedReasoningEffort,

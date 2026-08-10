@@ -9,6 +9,7 @@ import { availableModelsWithLevels } from "../../src/model/catalog-view.ts";
 import type { AuthStorage } from "../../src/providers/auth-storage.ts";
 import {
     discoveredCodexModels,
+    discoveredDeepSeekModels,
     discoveredOllamaModels,
     ollamaContextWindow,
 } from "../../src/host/runtime.ts";
@@ -102,6 +103,44 @@ test("no stored Codex credential means no Codex models offered", () => {
                 authStorage: stubAuth(undefined),
             },
         ).length).toBeGreaterThan(0);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("DeepSeek discovery publishes native models and levels after connection", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-runtime-deepseek-"));
+    try {
+        const config = {
+            ...codexConfig,
+            provider: "openrouter",
+        } as VeraConfig;
+        const models = discoveredDeepSeekModels(config, {
+            cacheDir: directory,
+            authStorage: stubAuth("stored-deepseek-key"),
+        });
+
+        expect(models.map((model) => model.model)).toEqual([
+            "deepseek-v4-pro",
+            "deepseek-v4-flash",
+        ]);
+        expect(availableModelsWithLevels(models, {
+            cacheDir: directory,
+        })).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                provider: "deepseek",
+                model: "deepseek-v4-pro",
+                levels: [
+                    { id: "max", label: "Max" },
+                    { id: "high", label: "High" },
+                    { id: "off", label: "Off" },
+                ],
+            }),
+        ]));
+        expect(discoveredDeepSeekModels(config, {
+            cacheDir: directory,
+            authStorage: stubAuth(undefined),
+        })).toEqual([]);
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }
