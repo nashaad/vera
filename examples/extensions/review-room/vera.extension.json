@@ -5,6 +5,8 @@
   "entrypoint": "./extension.ts",
   "capabilities": [
     "client.commands.register",
-    "client.agents"
+    "client.agents",
+    "client.experimental_tui",
+    "client.preferences"
   ]
 }

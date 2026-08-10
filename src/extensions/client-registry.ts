@@ -37,6 +37,11 @@ import type {
     VeraClientExperimentalHostedAgentAddressing,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
+import type {
+    VeraClientExperimentalTui,
+    VeraExperimentalTuiEvents,
+    VeraExperimentalTuiViewSpec,
+} from "../sdk/experimental-tui.ts";
 import {
     EXTENSION_COMMAND_RESULT_VERSION,
     isExtensionCommandName,
@@ -74,6 +79,7 @@ const CLIENT_ADDRESSING_CAPABILITY = "client.ui.addressing";
 const CLIENT_THREAD_CAPABILITY = "client.thread.read";
 const CLIENT_TIPS_CAPABILITY = "client.tips.register";
 const CLIENT_AGENTS_CAPABILITY = "client.agents";
+const CLIENT_EXPERIMENTAL_TUI_CAPABILITY = "client.experimental_tui";
 
 /** What an extension tip waits, in client launches, when it names no cooldown. */
 const DEFAULT_TIP_COOLDOWN_LAUNCHES = 10;
@@ -228,6 +234,14 @@ export interface ClientExtensionAgentsAdapter {
     ): Promise<void>;
 }
 
+export interface ClientExtensionExperimentalTuiAdapter {
+    mount(
+        extensionId: string,
+        spec: VeraExperimentalTuiViewSpec,
+    ): VeraExtensionDisposer;
+    events: VeraExperimentalTuiEvents;
+}
+
 export interface StartClientExtensionRegistryOptions {
     readonly extensions: readonly ClientExtensionConfig[];
     readonly preferences: ClientExtensionPreferencesAdapter;
@@ -241,6 +255,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly addressing?: ClientExtensionAddressingAdapter;
     readonly thread?: ClientExtensionThreadAdapter;
     readonly agents?: ClientExtensionAgentsAdapter;
+    readonly experimentalTui?: ClientExtensionExperimentalTuiAdapter;
     readonly reservedCommandNames?: readonly string[];
     readonly reservedKeybindingKeys?: readonly string[];
     readonly activationTimeoutMs?: number;
@@ -440,6 +455,7 @@ export async function startClientExtensionRegistry(
                 addressing: options.addressing,
                 thread: options.thread,
                 agents: options.agents,
+                experimentalTui: options.experimentalTui,
                 activationTimeoutMs,
             });
             validateOwnership(
@@ -768,6 +784,7 @@ interface ActivateClientExtensionOptions {
     readonly addressing: ClientExtensionAddressingAdapter | undefined;
     readonly thread: ClientExtensionThreadAdapter | undefined;
     readonly agents: ClientExtensionAgentsAdapter | undefined;
+    readonly experimentalTui: ClientExtensionExperimentalTuiAdapter | undefined;
     readonly activationTimeoutMs: number;
 }
 
@@ -780,6 +797,7 @@ async function activateClientExtension(
     const commandNames = new Set<string>();
     const keybindingIds = new Set<string>();
     const tipIds = new Set<string>();
+    const experimentalTuiViewIds = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
     const conversationListeners: (() => void)[] = [];
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
@@ -847,6 +865,14 @@ async function activateClientExtension(
             throw new Error("This client cannot attach agents");
         }
         return options.agents;
+    };
+    const requireExperimentalTui = (): ClientExtensionExperimentalTuiAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_EXPERIMENTAL_TUI_CAPABILITY);
+        if (options.experimentalTui === undefined) {
+            throw new Error("This client has no experimental TUI host");
+        }
+        return options.experimentalTui;
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
@@ -1104,6 +1130,55 @@ async function activateClientExtension(
                 );
             },
         }),
+        experimentalTui: Object.freeze({
+            mount(spec: VeraExperimentalTuiViewSpec): VeraExtensionDisposer {
+                validateExperimentalTuiViewSpec(spec);
+                if (experimentalTuiViewIds.has(spec.id)) {
+                    throw new Error(
+                        `Duplicate experimental TUI view: ${spec.id}`,
+                    );
+                }
+                const mounted = requireExperimentalTui().mount(options.id, spec);
+                experimentalTuiViewIds.add(spec.id);
+                let active = true;
+                const dispose = async (): Promise<void> => {
+                    if (!active) return;
+                    active = false;
+                    experimentalTuiViewIds.delete(spec.id);
+                    await mounted();
+                };
+                disposers.push(dispose);
+                return dispose;
+            },
+            events: Object.freeze({
+                on(...args: unknown[]): VeraExtensionDisposer {
+                    const [event, listener] = args;
+                    requireExperimentalTui();
+                    if (
+                        event !== "conversation_changed"
+                        && event !== "transcript_changed"
+                        && event !== "agent_event"
+                    ) {
+                        throw new Error("Unknown experimental TUI event");
+                    }
+                    if (typeof listener !== "function") {
+                        throw new Error("Experimental TUI event listener must be a function");
+                    }
+                    const subscribed = options.experimentalTui!.events.on(
+                        event as never,
+                        listener as never,
+                    );
+                    let active = true;
+                    const dispose = async (): Promise<void> => {
+                        if (!active) return;
+                        active = false;
+                        await subscribed();
+                    };
+                    disposers.push(dispose);
+                    return dispose;
+                },
+            }),
+        }) as VeraClientExperimentalTui,
         keybindings: Object.freeze({
             register(spec: VeraClientExtensionKeybindingSpec): void {
                 requireRegistrationPhase(phase, "keybindings");
@@ -1513,6 +1588,44 @@ function validateStatusLineSpec(spec: VeraClientExtensionStatusLineSpec): void {
         || typeof spec.render !== "function"
     ) {
         throw new Error("Invalid client extension status line registration");
+    }
+}
+
+function validateExperimentalTuiViewSpec(
+    spec: VeraExperimentalTuiViewSpec,
+): void {
+    if (
+        typeof spec !== "object"
+        || spec === null
+        || !isRegistrationId(spec.id)
+        || spec.slot !== "transcript-top"
+        && spec.slot !== "transcript-bottom"
+        && spec.slot !== "footer"
+        && spec.slot !== "composer-adornment"
+        && spec.slot !== "overlay"
+        || (spec.title !== undefined
+            && (typeof spec.title !== "string" || spec.title.trim().length === 0))
+        || (spec.modal !== undefined && typeof spec.modal !== "boolean")
+        || (spec.focusable !== undefined && typeof spec.focusable !== "boolean")
+        || (spec.visible !== undefined && typeof spec.visible !== "function")
+        || typeof spec.render !== "function"
+        || (spec.onKey !== undefined && typeof spec.onKey !== "function")
+        || (spec.onAction !== undefined && typeof spec.onAction !== "function")
+        || (spec.keybindings !== undefined
+            && (!Array.isArray(spec.keybindings)
+                || spec.keybindings.some((binding) =>
+                    typeof binding !== "object"
+                    || binding === null
+                    || !Array.isArray(binding.keys)
+                    || binding.keys.length === 0
+                    || binding.keys.some((key: unknown) =>
+                        typeof key !== "string" || key.trim().length === 0
+                    )
+                    || typeof binding.action !== "string"
+                    || binding.action.trim().length === 0
+                )))
+    ) {
+        throw new Error("Invalid experimental TUI view registration");
     }
 }
 

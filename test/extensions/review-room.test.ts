@@ -10,6 +10,7 @@ const TUI_ROOT = join(import.meta.dir, "../../clients/tui");
 
 async function start() {
     const calls: unknown[] = [];
+    const mounted: { extensionId: string; id: string }[] = [];
     const registry = await startClientExtensionRegistry({
         extensions: [{ path: EXTENSION, enabled: true, config: null }],
         preferences: {
@@ -26,6 +27,17 @@ async function start() {
         },
         picker: { async request() { return { outcome: "cancelled" }; } },
         notice: { post() {} },
+        experimentalTui: {
+            mount(extensionId, spec) {
+                mounted.push({ extensionId, id: spec.id });
+                return async () => {};
+            },
+            events: {
+                on() {
+                    return async () => {};
+                },
+            },
+        },
         agents: {
             visible() {
                 return [{ agentId: "author-id", pane: "main" as const }];
@@ -42,11 +54,17 @@ async function start() {
             },
         },
     });
-    return { registry, calls };
+    return { registry, calls, mounted };
 }
 
 test("review-room declares different hosted-agent policy through the registry", async () => {
     const harness = await start();
+    expect(harness.mounted).toEqual([
+        { extensionId: "vera.review-room", id: "review-panel" },
+        { extensionId: "vera.review-room", id: "review-overlay" },
+        { extensionId: "vera.review-room", id: "review-footer" },
+        { extensionId: "vera.review-room", id: "review-composer-adornment" },
+    ]);
     await harness.registry.invokeCommand(
         "review-room",
         " inspect this ",
