@@ -337,7 +337,6 @@ import {
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
-    loadTuiPersistedAgentPane,
     saveTuiSidebarWidth,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
@@ -2887,37 +2886,28 @@ export async function startTui(
 
     async function restorePersistedAgentPane(): Promise<void> {
         const mainAgentId = client.agentId;
-        const saved = mainAgentId === undefined
-            ? undefined
-            : loadTuiPersistedAgentPane(mainAgentId);
-        if (
-            mainAgentId === undefined
-            || saved === undefined
-            || saved.mainAgentId !== mainAgentId
-            || dependencies.attachAgent === undefined
-        ) {
-            return;
-        }
+        if (dependencies.attachAgent === undefined) return;
         try {
-            const next = requireIdentifiedClient(
-                await dependencies.attachAgent(saved.sidebarAgentId),
-            );
-            if (shuttingDown || client.agentId !== mainAgentId) {
-                await next.detach().catch(() => next.close());
-                return;
-            }
-            await openExtensionAgent(
-                saved.owner,
-                next,
-                "sidebar",
-                false,
-                saved.mention,
-                "durable",
-                undefined,
-                saved.statusLabel,
-            );
+            await hostedPanePersistence.restore(mainAgentId, {
+                attach: async (agentId) =>
+                    requireIdentifiedClient(
+                        await dependencies.attachAgent!(agentId),
+                    ),
+                isCurrent: () =>
+                    !shuttingDown && client.agentId === mainAgentId,
+                adopt: (saved, next) =>
+                    openExtensionAgent(
+                        saved.owner,
+                        next,
+                        "sidebar",
+                        false,
+                        saved.mention,
+                        "durable",
+                        undefined,
+                        saved.statusLabel,
+                    ),
+            });
         } catch (error) {
-            forgetPersistedAgentPane();
             if (shuttingDown || client.agentId !== mainAgentId) return;
             state = appendTuiNotice(
                 state,

@@ -20,6 +20,23 @@ function recorder(groups: readonly (readonly [string, string])[] = []) {
     return { persistence, savedGroups, savedPanes };
 }
 
+function restorableClient() {
+    const detached: string[] = [];
+    const closed: string[] = [];
+    return {
+        detached,
+        closed,
+        client: {
+            async detach() {
+                detached.push("detached");
+            },
+            close() {
+                closed.push("closed");
+            },
+        },
+    };
+}
+
 test("a durable sidebar replaces overlapping groups and persists its identity", () => {
     const { persistence, savedGroups, savedPanes } = recorder([
         ["main", "old-side"],
@@ -84,4 +101,82 @@ test("preference failures do not prevent in-memory pane grouping", () => {
     })).not.toThrow();
     expect(persistence.groups).toEqual([["main", "side"]]);
     expect(() => persistence.forget("main")).not.toThrow();
+});
+
+test("restore attaches and adopts the saved sidebar for the current main agent", async () => {
+    const attached: string[] = [];
+    const adopted: string[] = [];
+    const side = restorableClient();
+    const persistence = new TuiHostedPanePersistence({
+        groups: [],
+        loadPane: () => ({
+            mainAgentId: "main",
+            sidebarAgentId: "side",
+            owner: "vera.btw",
+        }),
+        saveGroups() {},
+        savePane() {},
+    });
+
+    expect(await persistence.restore("main", {
+        async attach(agentId) {
+            attached.push(agentId);
+            return side.client;
+        },
+        isCurrent: () => true,
+        async adopt(saved) {
+            adopted.push(saved.owner);
+        },
+    })).toBe(true);
+    expect(attached).toEqual(["side"]);
+    expect(adopted).toEqual(["vera.btw"]);
+});
+
+test("restore detaches a sidebar when the main agent changes during attach", async () => {
+    const side = restorableClient();
+    const persistence = new TuiHostedPanePersistence({
+        groups: [],
+        loadPane: () => ({
+            mainAgentId: "main",
+            sidebarAgentId: "side",
+            owner: "vera.btw",
+        }),
+        saveGroups() {},
+        savePane() {},
+    });
+
+    expect(await persistence.restore("main", {
+        attach: async () => side.client,
+        isCurrent: () => false,
+        adopt: async () => {
+            throw new Error("must not adopt");
+        },
+    })).toBe(false);
+    expect(side.detached).toEqual(["detached"]);
+    expect(side.closed).toEqual([]);
+});
+
+test("a failed restore forgets the stale pane", async () => {
+    const forgotten: string[] = [];
+    const persistence = new TuiHostedPanePersistence({
+        groups: [],
+        loadPane: () => ({
+            mainAgentId: "main",
+            sidebarAgentId: "missing",
+            owner: "vera.btw",
+        }),
+        saveGroups() {},
+        savePane(mainId, pane) {
+            if (pane === undefined) forgotten.push(mainId);
+        },
+    });
+
+    await expect(persistence.restore("main", {
+        attach: async () => {
+            throw new Error("not found");
+        },
+        isCurrent: () => true,
+        adopt: async () => {},
+    })).rejects.toThrow("not found");
+    expect(forgotten).toEqual(["main"]);
 });
