@@ -23,6 +23,10 @@ import {
     createTuiExperimentalEventBus,
     type TuiExperimentalEventBus,
 } from "./experimental-tui-events.ts";
+import {
+    isTuiExperimentalViewVisible,
+    tuiExperimentalViewSignature,
+} from "./experimental-tui-view-state.ts";
 import { tuiChord, type TuiChordKey } from "./keymap.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
@@ -180,13 +184,11 @@ export function createTuiExperimentalHost(
     }
 
     function visible(view: MountedView): boolean {
-        if (view.spec.visible === undefined) return true;
-        try {
-            return view.spec.visible() === true;
-        } catch (error) {
-            reportFailure(view, error);
-            return false;
-        }
+        return isTuiExperimentalViewVisible({
+            extensionId: view.extensionId,
+            visible: view.spec.visible,
+            onFailure: options.onFailure,
+        });
     }
 
     function reportFailure(view: MountedView, error: unknown): void {
@@ -214,11 +216,11 @@ export function createTuiExperimentalHost(
         }
         let signature: string | undefined;
         try {
-            signature = JSON.stringify({
+            signature = tuiExperimentalViewSignature(
                 node,
-                focused: context.focused,
-                theme: context.theme,
-            });
+                context.focused,
+                context.theme,
+            );
         } catch (error) {
             reportFailure(view, error);
             removeView(view);
