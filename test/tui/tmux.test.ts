@@ -575,7 +575,7 @@ test.skipIf(!tmuxAvailable)(
                 "Model error: Model returned no visible response or structured tool call.",
             );
             expect(pane).toContain(
-                "• Explored · 37 lines  ctrl+e details",
+                "• Explored · 38 lines  ctrl+e details",
             );
             expect(pane).toContain("│ Read package.json");
 
