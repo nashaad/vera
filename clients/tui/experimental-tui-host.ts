@@ -1,13 +1,14 @@
 import {
     BoxRenderable,
-    TextAttributes,
-    TextRenderable,
     type CliRenderer,
-    type MouseEvent,
     type Renderable,
 } from "@opentui/core";
 
 import type { TuiTheme } from "./theme.ts";
+import {
+    renderTuiExperimentalView,
+    validateTuiExperimentalNode,
+} from "./experimental-tui-renderer.ts";
 import { tuiChord, type TuiChordKey } from "./keymap.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
@@ -17,16 +18,11 @@ import type {
     VeraExperimentalTuiAgentEvent,
     VeraExperimentalTuiKey,
     VeraExperimentalTuiNode,
-    VeraExperimentalTuiTone,
     VeraExperimentalTuiTheme,
     VeraExperimentalTuiViewSpec,
     VeraExperimentalTuiRawViewSpec,
 } from "../../src/sdk/experimental-tui.ts";
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
-
-const MAX_NODE_DEPTH = 20;
-const MAX_NODE_CHILDREN = 100;
-const MAX_TEXT_LENGTH = 8_000;
 
 export interface TuiExperimentalHostOptions {
     readonly renderer: CliRenderer;
@@ -250,7 +246,7 @@ export function createTuiExperimentalHost(
         let node: VeraExperimentalTuiNode;
         try {
             node = view.spec.render(context);
-            validateNode(node, 0);
+            validateTuiExperimentalNode(node);
         } catch (error) {
             reportFailure(view, error);
             removeView(view);
@@ -277,97 +273,19 @@ export function createTuiExperimentalHost(
             return;
         }
         removeView(view);
-        const root = new BoxRenderable(options.renderer, {
-            id: `experimental-tui-view-${view.extensionId}-${view.spec.id}`,
-            width: "100%",
-            flexDirection: "column",
-            paddingLeft: 1,
-            paddingRight: 1,
-            ...(view.spec.slot === "overlay"
-                ? { flexGrow: 1 }
-                : {}),
-        });
-        if (view.spec.title !== undefined) {
-            root.add(new TextRenderable(options.renderer, {
-                id: `${root.id}-title`,
-                content: view.spec.title,
-                fg: theme.accent,
-                attributes: TextAttributes.BOLD,
-                width: "100%",
-                height: 1,
-            }));
-        }
-        root.add(renderNode(
-            options.renderer,
+        const root = renderTuiExperimentalView({
+            renderer: options.renderer,
+            theme,
             node,
-            view,
-            `${root.id}-content`,
-        ));
+            id: `experimental-tui-view-${view.extensionId}-${view.spec.id}`,
+            overlay: view.spec.slot === "overlay",
+            title: view.spec.title,
+            focus: () => focusView(view),
+            triggerAction: (action) => triggerAction(view, action),
+        });
         view.root = root;
         view.lastRender = signature;
         slotFor(view.spec.slot).add(root);
-    }
-
-    function renderNode(
-        renderer: CliRenderer,
-        node: VeraExperimentalTuiNode,
-        view: MountedView,
-        id: string,
-    ): Renderable {
-        if (node.kind === "text") {
-            return new TextRenderable(renderer, {
-                id,
-                content: node.text,
-                fg: toneColor(node.tone),
-                attributes: node.bold ? TextAttributes.BOLD : undefined,
-                width: "100%",
-                wrapMode: "word",
-            });
-        }
-        if (node.kind === "rule") {
-            return new TextRenderable(renderer, {
-                id,
-                content: "─".repeat(Math.max(1, Math.min(240, renderer.terminalWidth - 4))),
-                fg: toneColor(node.tone ?? "muted"),
-                width: "100%",
-                height: 1,
-            });
-        }
-        if (node.kind === "button") {
-            const button = new BoxRenderable(renderer, {
-                id,
-                width: "100%",
-                height: 1,
-                paddingLeft: 1,
-                paddingRight: 1,
-                backgroundColor: node.selected ? theme.accent : theme.panel,
-                visible: !node.disabled,
-                onMouseDown: (event: MouseEvent) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    focusView(view);
-                    void triggerAction(view, node.action);
-                },
-            });
-            button.add(new TextRenderable(renderer, {
-                id: `${id}-label`,
-                content: node.label,
-                fg: toneColor(node.tone ?? "text"),
-                width: "100%",
-                height: 1,
-            }));
-            return button;
-        }
-        const stack = new BoxRenderable(renderer, {
-            id,
-            width: "100%",
-            flexDirection: node.direction,
-            gap: node.gap ?? 0,
-        });
-        node.children.forEach((child, index) => {
-            stack.add(renderNode(renderer, child, view, `${id}-${index}`));
-        });
-        return stack;
     }
 
     function slotFor(slot: VeraExperimentalTuiViewSpec["slot"]): BoxRenderable {
@@ -387,16 +305,6 @@ export function createTuiExperimentalHost(
         view.root = undefined;
         view.lastRender = undefined;
         if (focusedView === view) focusedView = undefined;
-    }
-
-    function toneColor(tone: VeraExperimentalTuiTone | undefined): string {
-        switch (tone) {
-            case "muted": return theme.muted;
-            case "accent": return theme.accent;
-            case "notice": return theme.notice;
-            case "success": return theme.success;
-            default: return theme.text;
-        }
     }
 
     function focusView(view: MountedView): void {
@@ -681,39 +589,4 @@ function experimentalTheme(theme: TuiTheme): VeraExperimentalTuiTheme {
         success: theme.success,
         panel: theme.panel,
     };
-}
-
-function validateNode(node: VeraExperimentalTuiNode, depth: number): void {
-    if (depth > MAX_NODE_DEPTH || typeof node !== "object" || node === null) {
-        throw new Error("Experimental TUI view returned an invalid node tree");
-    }
-    if (node.kind === "text") {
-        if (typeof node.text !== "string" || node.text.length > MAX_TEXT_LENGTH) {
-            throw new Error("Experimental TUI text is invalid or too long");
-        }
-        return;
-    }
-    if (node.kind === "rule") return;
-    if (node.kind === "button") {
-        if (
-            typeof node.label !== "string"
-            || node.label.length === 0
-            || node.label.length > 240
-            || typeof node.action !== "string"
-            || node.action.length === 0
-        ) {
-            throw new Error("Experimental TUI button is invalid");
-        }
-        return;
-    }
-    if (
-        node.kind !== "stack"
-        || !Array.isArray(node.children)
-        || node.children.length > MAX_NODE_CHILDREN
-        || (node.gap !== undefined
-            && (!Number.isInteger(node.gap) || node.gap < 0 || node.gap > 8))
-    ) {
-        throw new Error("Experimental TUI stack is invalid");
-    }
-    for (const child of node.children) validateNode(child, depth + 1);
 }
