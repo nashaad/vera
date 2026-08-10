@@ -563,6 +563,9 @@ export async function startConfiguredTui(
         ? (await createAgentThroughHost(
             host.socket_path,
             resolvedTarget.workspace,
+            undefined,
+            undefined,
+            resolvedTarget.startupProfile,
         )).id
         : resolvedTarget.type === "resume"
             ? (await resumeAgentThroughHost(
@@ -604,7 +607,10 @@ export async function startConfiguredTui(
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
             createSession: async (workspace) =>
-                attach((await createAgentThroughHost(host.socket_path, workspace)).id),
+                attach((await createAgentThroughHost(
+                    host.socket_path,
+                    workspace,
+                )).id),
             createAgent: async (workspace, approvalMode, lifetime = "durable") =>
                 attach((await createAgentThroughHost(
                     host.socket_path,

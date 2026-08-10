@@ -9,6 +9,7 @@ import type {
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionCreationMetadata,
 } from "../store/session-store.ts";
 import type { ReviewLog } from "./review-log.ts";
 import { EngineEventBus } from "./events.ts";
@@ -72,6 +73,9 @@ export interface CreateSubagentEffectApplierOptions {
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly maxConcurrentChildren?: number;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly offerTools?: boolean;
+    readonly loadOptionalContext?: boolean;
+    readonly sessionMetadata?: SessionCreationMetadata;
     /** Makes the spawn tools' model override resolvable; absent, it is refused. */
     readonly readPool?: () => readonly PooledModel[];
     /** What a spawn with no model override runs on; absent, the parent model. */
@@ -347,6 +351,9 @@ export interface RunSubagentOptions {
     readonly signal?: AbortSignal;
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly offerTools?: boolean;
+    readonly loadOptionalContext?: boolean;
+    readonly sessionMetadata?: SessionCreationMetadata;
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
@@ -422,6 +429,9 @@ export function createSubagentEffectApplier(
                 }),
                 approvalMode: context.approvalMode,
                 extensionTools: options.extensionTools,
+                offerTools: options.offerTools,
+                loadOptionalContext: options.loadOptionalContext,
+                sessionMetadata: options.sessionMetadata,
                 signal,
                 sessionId,
                 ...(options.relayToolApproval === undefined
@@ -479,7 +489,11 @@ export async function runSubagent(
         const sessionId = options.sessionId ?? randomUUID();
         const store = await SessionStore.create(
             options.sessionPath ?? defaultSessionPath(sessionId),
-            { sessionId, cwd: options.workspace },
+            {
+                sessionId,
+                cwd: options.workspace,
+                ...options.sessionMetadata,
+            },
         );
         options.signal?.throwIfAborted();
         await store.appendApprovalMode(options.approvalMode);
@@ -534,6 +548,8 @@ export async function runSubagent(
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
             extensionTools: options.extensionTools,
+            offerTools: options.offerTools ?? true,
+            loadOptionalContext: options.loadOptionalContext ?? true,
             reviewToolCall,
             reviewToolCallForProfile: createReviewerProfileRouter(
                 reviewToolCall,

@@ -98,6 +98,11 @@ import {
 } from "../store/session-store.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 import { createSessionBranch } from "../store/session-branch.ts";
+import {
+    disabledContributionsForProfile,
+    storedStartupProfile,
+    type StartupProfile,
+} from "../startup-profile.ts";
 import type { UserMessage } from "../model/types.ts";
 import type { ConsultMessage } from "../engine/protocol.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
@@ -328,6 +333,7 @@ export interface CreateRegisteredAgentOptions {
     readonly eventLogPath?: string;
     /** Keep this session only for the lifetime of the resident host. */
     readonly ephemeral?: boolean;
+    readonly startupProfile?: StartupProfile;
     /**
      * The mode this agent starts in, when it must not be the host default.
      * It is written to the session like any other approval-mode change, so a
@@ -988,6 +994,9 @@ export class AgentRegistry {
         this.reserveId(id);
         try {
             const workspace = await realpath(options.workspace);
+            const startupProfile = storedStartupProfile(
+                options.startupProfile ?? "default",
+            );
             const ephemeralDirectory = options.ephemeral === true
                 ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
                 : undefined;
@@ -1001,6 +1010,9 @@ export class AgentRegistry {
                 {
                     sessionId: id,
                     cwd: workspace,
+                    ...(startupProfile === undefined
+                        ? {}
+                        : { startupProfile }),
                     ...(inherited?.parentId === undefined
                         ? {}
                         : { parentId: inherited.parentId }),
@@ -1935,6 +1947,14 @@ export class AgentRegistry {
         clientPromptRefusal?: string,
         ephemeral = false,
     ): ResidentAgent {
+        const startupProfile = store.header.startupProfile ?? "default";
+        const extensionTools = startupProfile === "default"
+            ? this.options.extensionTools
+            : [];
+        const disabledPromptContributions = disabledContributionsForProfile(
+            startupProfile,
+            this.options.disabledPromptContributions,
+        );
         const storedFailure = store.agentFailure();
         const captureFailedRequest = (
             this.options.createFailedRequestCapture
@@ -2025,13 +2045,22 @@ export class AgentRegistry {
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),
-            ...(this.options.disabledPromptContributions === undefined
+            ...(disabledPromptContributions.length === 0
                 ? {}
                 : {
                     disabledPromptContributions:
-                        this.options.disabledPromptContributions,
+                        disabledPromptContributions,
                 }),
-            extensionTools: this.options.extensionTools,
+            extensionTools,
+            offerTools: startupProfile !== "prompt_only",
+            loadOptionalContext: startupProfile === "default",
+            ...(store.header.startupProfile === undefined
+                ? {}
+                : {
+                    sessionMetadata: {
+                        startupProfile: store.header.startupProfile,
+                    },
+                }),
             ...(this.options.readPool === undefined
                 ? {}
                 : {
@@ -2195,7 +2224,9 @@ export class AgentRegistry {
                     ]
                     : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
-                extensionTools: this.options.extensionTools,
+                extensionTools,
+                offerTools: startupProfile !== "prompt_only",
+                loadOptionalContext: startupProfile === "default",
                 onInboundReady: (inbound) => {
                     entry.inbound = inbound;
                 },
@@ -2269,13 +2300,14 @@ export class AgentRegistry {
                     agent.sendTimelineReply(ownerId, reply),
                 sendSessionNameReply: (ownerId, reply) =>
                     agent.sendSessionNameReply(ownerId, reply),
-                ...(this.options.disabledPromptContributions === undefined
+                ...(disabledPromptContributions.length === 0
                     ? {}
                     : {
                         disabledPromptContributions:
-                            this.options.disabledPromptContributions,
+                            disabledPromptContributions,
                     }),
-                ...(this.options.createToolHooks === undefined
+                ...(startupProfile !== "default"
+                        || this.options.createToolHooks === undefined
                     ? {}
                     : { hooks: this.options.createToolHooks() }),
             },
@@ -2376,7 +2408,15 @@ export class AgentRegistry {
         let child: ResidentAgent;
         try {
             child = await this.createWithKind(
-                { workspace: parentStore.header.cwd },
+                {
+                    workspace: parentStore.header.cwd,
+                    ...(parentStore.header.startupProfile === undefined
+                        ? {}
+                        : {
+                            startupProfile:
+                                parentStore.header.startupProfile,
+                        }),
+                },
                 "background",
                 {
                     approvalMode: context.approvalMode,

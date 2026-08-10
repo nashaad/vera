@@ -1,5 +1,6 @@
 import { connectHost } from "./connection.ts";
 import type { UserMessage } from "../model/types.ts";
+import type { StartupProfile } from "../startup-profile.ts";
 
 export interface ReadyAgent {
     readonly id: string;
@@ -30,6 +31,7 @@ export function createAgentThroughHost(
     workspace: string,
     approvalMode?: string,
     lifetime?: "ephemeral" | "durable",
+    startupProfile: StartupProfile = "default",
 ): Promise<ReadyAgent> {
     return requestAgentStart(socketPath, {
         type: "create_agent",
@@ -38,6 +40,9 @@ export function createAgentThroughHost(
             ? {}
             : { approval_mode: approvalMode }),
         ...(lifetime === undefined ? {} : { lifetime }),
+        ...(startupProfile === "default"
+            ? {}
+            : { startup_profile: startupProfile }),
     });
 }
 
@@ -96,6 +101,7 @@ interface CreateAgentMessage {
     readonly workspace: string;
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
+    readonly startup_profile?: StartupProfile;
 }
 
 interface ResumeAgentMessage {

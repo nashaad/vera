@@ -164,6 +164,24 @@ model pane discovers the models currently exposed by Cerebras.
 vera
 ```
 
+Start without model-side extensions, project instructions, memory, or scratch
+context. Client-side UI extensions remain available because they are not part
+of the model request:
+
+```sh
+vera --bare
+```
+
+Send only Vera's identity prompt and the user message, with no tools:
+
+```sh
+vera --prompt-only
+```
+
+Both flags also work with print mode, for example
+`vera -p "Summarize this text" --prompt-only`. The selected startup profile is
+saved with the session and restored when that session resumes.
+
 For development without linking the command, run
 `bun run clients/cli/main.ts`.
 

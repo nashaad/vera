@@ -1,8 +1,10 @@
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import type { StartupProfile } from "../../src/startup-profile.ts";
 
 export interface CreateTuiTarget {
     readonly type: "create";
     readonly workspace: string;
+    readonly startupProfile?: StartupProfile;
 }
 
 export interface AttachTuiTarget {

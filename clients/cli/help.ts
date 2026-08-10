@@ -4,7 +4,7 @@ export interface CliCommandHelp {
 }
 
 export const CLI_COMMANDS: readonly CliCommandHelp[] = [
-    { usage: "vera", description: "Start a new agent in the current directory" },
+    { usage: "vera [--bare|--prompt-only]", description: "Start a new agent in the current directory" },
     { usage: "vera -c", description: "Continue the most recent session" },
     { usage: "vera -p \"prompt\" [flags]", description: "Run one bounded turn and print the final reply" },
     { usage: "vera ls [--all]", description: "List this workspace's agents, or every one" },
@@ -35,6 +35,8 @@ export function renderCliHelp(): string {
         + "  -y, --yes     Skip host stop or busy-host restart confirmation\n"
         + "  -v, --version  Show the source revision\n"
         + "\nFlags for -p:\n"
+        + "  --bare                    Skip model extensions, project guidance, memory, and scratch prompt state\n"
+        + "  --prompt-only             Send only Vera's identity prompt and user message; offer no tools\n"
         + "  --permission-mode <mode>  Run under a named permission mode\n"
         + "  --model <pool name|id>    Run on one pooled model, by name or provider/model\n"
         + "  --effort <level>          Run at one reasoning effort\n";

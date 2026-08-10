@@ -53,6 +53,7 @@ import { renderCliHelp, renderCliUsage } from "./help.ts";
 import { runScheduleCli } from "./schedule.ts";
 import type { ScheduleOperation } from "../../src/scheduler/types.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
+import type { StartupProfile } from "../../src/startup-profile.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -78,6 +79,7 @@ export interface CliDependencies {
         readonly approvalMode?: string;
         readonly model?: string;
         readonly effort?: string;
+        readonly startupProfile?: StartupProfile;
     }) => Promise<RunOnceOutcome>;
     readonly runTui?: (
         target: TuiStartTarget,
@@ -126,6 +128,18 @@ export async function runCli(
 
     if (args.length === 0) {
         await runTui({ type: "create", workspace: process.cwd() }, tuiOptions);
+        return 0;
+    }
+
+    if (
+        args.length === 1
+        && (args[0] === "--bare" || args[0] === "--prompt-only")
+    ) {
+        await runTui({
+            type: "create",
+            workspace: process.cwd(),
+            startupProfile: args[0] === "--bare" ? "bare" : "prompt_only",
+        }, tuiOptions);
         return 0;
     }
 
@@ -337,6 +351,7 @@ interface PrintRequest {
         readonly approvalMode?: string;
         readonly model?: string;
         readonly effort?: string;
+        readonly startupProfile?: StartupProfile;
     };
 }
 
@@ -354,8 +369,15 @@ function parsePrintRequest(
     if (typeof prompt !== "string" || prompt.length === 0) {
         return undefined;
     }
-    const options: Record<string, string> = {};
-    for (let index = 2; index < args.length; index += 2) {
+    const options: Record<string, string> & { startupProfile?: StartupProfile } = {};
+    for (let index = 2; index < args.length;) {
+        const flag = args[index];
+        if (flag === "--bare" || flag === "--prompt-only") {
+            if (options.startupProfile !== undefined) return undefined;
+            options.startupProfile = flag === "--bare" ? "bare" : "prompt_only";
+            index += 1;
+            continue;
+        }
         const field = PRINT_FLAGS[args[index] ?? ""];
         const value = args[index + 1];
         if (
@@ -367,6 +389,7 @@ function parsePrintRequest(
             return undefined;
         }
         options[field] = value;
+        index += 2;
     }
     return { prompt, options };
 }
@@ -377,6 +400,7 @@ async function runOnceOnResidentHost(request: {
     readonly approvalMode?: string;
     readonly model?: string;
     readonly effort?: string;
+    readonly startupProfile?: StartupProfile;
 }): Promise<RunOnceOutcome> {
     const { findOrStartResidentHost } = await import("../host/launch.ts");
     const host = await findOrStartResidentHost();

@@ -73,12 +73,19 @@ test("host protocol parses identity requests and encodes responses", () => {
         workspace: "/work/one",
         approval_mode: "readonly",
         lifetime: "ephemeral",
+        startup_profile: "bare",
     }))).toEqual({
         type: "create_agent",
         workspace: "/work/one",
         approval_mode: "readonly",
         lifetime: "ephemeral",
+        startup_profile: "bare",
     });
+    expect(parseHostRequest(JSON.stringify({
+        type: "create_agent",
+        workspace: "/work/one",
+        startup_profile: "unknown",
+    }))).toBeUndefined();
     expect(parseHostRequest(JSON.stringify({
         type: "create_agent",
         workspace: "/work/one",
@@ -89,6 +96,17 @@ test("host protocol parses identity requests and encodes responses", () => {
         workspace: "/work/one",
         lifetime: "temporary",
     }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "run_once",
+        workspace: "/work/one",
+        prompt: "measure",
+        startup_profile: "prompt_only",
+    }))).toEqual({
+        type: "run_once",
+        workspace: "/work/one",
+        prompt: "measure",
+        startup_profile: "prompt_only",
+    });
     expect(parseHostRequest(
         '{"type":"resume_agent","session_path":"/sessions/one.jsonl"}',
     )).toEqual({
