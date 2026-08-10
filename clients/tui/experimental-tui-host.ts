@@ -38,6 +38,7 @@ import {
     findTuiExperimentalKeybinding,
     tuiExperimentalKeyEvent,
 } from "./experimental-tui-input.ts";
+import { invokeTuiExperimentalAction } from "./experimental-tui-actions.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
 } from "../../src/extensions/client-registry.ts";
@@ -281,15 +282,13 @@ export function createTuiExperimentalHost(
     }
 
     function triggerAction(view: MountedView, action: string): Promise<void> {
-        if (view.spec.onAction === undefined) return Promise.resolve();
-        try {
-            return Promise.resolve(view.spec.onAction(action, contextFor(view)))
-                .catch((error) => reportFailure(view, error))
-                .then(() => options.onRenderRequested());
-        } catch (error) {
-            reportFailure(view, error);
-            return Promise.resolve();
-        }
+        return invokeTuiExperimentalAction({
+            action,
+            context: contextFor(view),
+            onAction: view.spec.onAction,
+            onFailure: (error) => reportFailure(view, error),
+            onRenderRequested: options.onRenderRequested,
+        });
     }
 
     function render(): void {
