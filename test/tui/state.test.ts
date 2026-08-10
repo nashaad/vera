@@ -62,6 +62,44 @@ test("what an extension injected is not drawn, and survives a rebuild", () => {
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("hi @all");
 });
 
+test("ask_user completion is semantic in live and replayed transcripts", () => {
+    const output = JSON.stringify({
+        choice_id: "preview-channel",
+        label: "Preview",
+        notes: "ship after lunch",
+    });
+    let live = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "ask_user",
+        args: { question: "Which channel?" },
+        seq: 1,
+    });
+    live = applyAgentUpdate(live, {
+        type: "tool_finished",
+        tool: "ask_user",
+        output,
+        seq: 2,
+    });
+    const liveResult = live.entries.find((entry) =>
+        entry.kind === "tool" && entry.result === true
+    );
+    expect(liveResult?.text).toBe("Answered: Preview (notes: ship after lunch)");
+    expect(liveResult?.text).not.toContain("choice_id");
+
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "tool", tool: "ask_user", args: { question: "Which channel?" } },
+            { kind: "tool_result", tool: "ask_user", output, isError: false },
+        ],
+        seq: 3,
+    });
+    const replayResult = replayed.entries.find((entry) =>
+        entry.kind === "tool" && entry.result === true
+    );
+    expect(replayResult?.text).toBe(liveResult?.text);
+});
+
 test("a thought with no reasoning behind it carries no fold marker", () => {
     const state = appendTuiThought(createTuiState(), 3.04);
 
