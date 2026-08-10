@@ -5762,6 +5762,7 @@ export async function startTui(
                     key: transition.submitted,
                 });
                 state = appendTuiNotice(state, `stored ${prompt.label} API key`);
+                requestAgentSettings(focusedAgentClient());
             } catch (error) {
                 state = appendTuiNotice(
                     state,

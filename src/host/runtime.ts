@@ -38,6 +38,9 @@ import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitToPool } from "../model/pool-admission.ts";
 import { createFeedRowReader } from "../model/feed-cache.ts";
+import {
+    refreshDeepSeekCatalog,
+} from "../model/deepseek-catalog.ts";
 import { migrateConfigPool } from "../model/pool-migration.ts";
 import { createPoolEffortPool } from "../model/effort-pool.ts";
 import {
@@ -154,7 +157,7 @@ export async function startResidentHost(
     // One store for the host, so a sign-in from anywhere is the same fact to
     // every agent it is running.
     const authStorage = options.authStorage ?? createAuthStorage();
-    const models = options.createAdapter === undefined
+    let models = options.createAdapter === undefined
         ? await discoverAvailableModels(options.config, authStorage)
         : configuredCatalog(options.config);
     // Opened once per host, not per agent: the file is per-user. A malformed
@@ -226,6 +229,16 @@ export async function startResidentHost(
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,
+        refreshAvailableModels: options.createAdapter === undefined
+            ? () => {
+                models = refreshDynamicAvailableModels(
+                    models,
+                    options.config,
+                    authStorage,
+                );
+                return models;
+            }
+            : undefined,
         readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
         // Built here because the pool lives in a file the host owns; the
         // engine receives only the interface. One per agent, because the
@@ -552,6 +565,7 @@ async function discoverAvailableModels(
         catalog.push(...openrouter);
     }
     catalog.push(...cerebras);
+    catalog.push(...discoveredDeepSeekModels(config, { authStorage }));
     catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -905,6 +919,64 @@ function catalogModels(config: VeraConfig): SuggestedModel[] {
         model.provider !== "openrouter"
         || hasOpenRouterCredential(config)
     );
+}
+
+export interface DeepSeekDiscoveryOptions {
+    readonly authStorage?: Pick<AuthStorage, "getCredential">;
+    readonly cacheDir?: string;
+}
+
+export function discoveredDeepSeekModels(
+    config: VeraConfig,
+    options: DeepSeekDiscoveryOptions = {},
+): readonly SuggestedModel[] {
+    if (!hasDeepSeekCredential(config, options.authStorage)) {
+        return [];
+    }
+    const catalog = refreshDeepSeekCatalog(options);
+    return catalog.models.map((model) => ({
+        provider: "deepseek",
+        model: model.id,
+        label: model.label,
+        description: model.description ?? "",
+        ...(model.context_window === undefined
+            ? {}
+            : { contextWindow: model.context_window }),
+    }));
+}
+
+function hasDeepSeekCredential(
+    config: VeraConfig,
+    authStorage?: Pick<AuthStorage, "getCredential">,
+): boolean {
+    return config.provider === "deepseek"
+        || hasProviderCredential("deepseek", authStorage)
+        || Boolean(process.env.DEEPSEEK_API_KEY);
+}
+
+function refreshDynamicAvailableModels(
+    models: readonly SuggestedModel[],
+    config: VeraConfig,
+    authStorage: AuthStorage,
+): readonly SuggestedModel[] {
+    const withoutDeepSeek = models.filter((model) => model.provider !== "deepseek");
+    const deepSeek = discoveredDeepSeekModels(config, { authStorage });
+    if (config.provider !== "deepseek") {
+        return [...withoutDeepSeek, ...deepSeek];
+    }
+    if (deepSeek.some((model) => model.model === config.model)) {
+        return [...withoutDeepSeek, ...deepSeek];
+    }
+    return [
+        ...withoutDeepSeek,
+        ...deepSeek,
+        {
+            provider: config.provider,
+            model: config.model,
+            label: config.model,
+            description: "configured model",
+        },
+    ];
 }
 
 function hasOpenRouterCredential(config: VeraConfig): boolean {
