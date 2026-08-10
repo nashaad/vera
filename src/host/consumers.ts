@@ -4,6 +4,8 @@ import type {
     ConsumerId,
     Inbox,
     InboxEntry,
+    InboxEntryInput,
+    InboxAcknowledgement,
 } from "../store/inbox.ts";
 
 /**
@@ -49,6 +51,12 @@ export interface ConsumerReadOptions {
     readonly addresses?: readonly string[];
     /** Set to false to see the consumer's own entries. */
     readonly excludeSelfEcho?: boolean;
+    readonly excludeKinds?: readonly string[];
+}
+
+export interface ConsumerUnreadStatus {
+    readonly count: number;
+    readonly oldestAgeMs: number | null;
 }
 
 /** What `list()` reports for both live and dormant consumers. */
@@ -146,12 +154,50 @@ export class ConsumerHandle {
             ...(options.excludeSelfEcho === false || !this.hasSelfEcho
                 ? {}
                 : { excludeOrigin: this.selfEcho }),
+            ...(options.excludeKinds === undefined
+                ? {}
+                : { excludeKinds: options.excludeKinds }),
         });
+    }
+
+    /** Filtered unread bookkeeping without exposing entry payloads. */
+    unreadStatus(
+        options: ConsumerReadOptions,
+        nowMs: number = Date.now(),
+    ): ConsumerUnreadStatus {
+        this.assertLive();
+        const stats = this.inbox.unreadStats(this.id, {
+            limit: options.limit,
+            ...(options.addresses === undefined
+                ? {}
+                : { addresses: options.addresses }),
+            ...(options.excludeSelfEcho === false || !this.hasSelfEcho
+                ? {}
+                : { excludeOrigin: this.selfEcho }),
+            ...(options.excludeKinds === undefined
+                ? {}
+                : { excludeKinds: options.excludeKinds }),
+        });
+        const oldestMs = stats.oldestTs === null ? Number.NaN : Date.parse(stats.oldestTs);
+        return {
+            count: stats.count,
+            oldestAgeMs: Number.isFinite(oldestMs)
+                ? Math.max(0, nowMs - oldestMs)
+                : null,
+        };
     }
 
     advance(seq: number): number {
         this.assertLive();
         return this.inbox.advance(this.id, seq);
+    }
+
+    acknowledge(
+        seq: number,
+        receipt?: InboxEntryInput,
+    ): InboxAcknowledgement {
+        this.assertLive();
+        return this.inbox.acknowledge(this.id, seq, receipt);
     }
 
     /**
@@ -246,6 +292,14 @@ export class ConsumerRegistry {
 
     liveHandles(): ConsumerHandle[] {
         return [...this.live.values()];
+    }
+
+    append(entry: InboxEntryInput): InboxEntry {
+        return this.inbox.append(entry);
+    }
+
+    entry(seq: number): InboxEntry | undefined {
+        return this.inbox.entry(seq);
     }
 
     /** Every consumer the inbox knows, live and dormant, with offset and lag. */

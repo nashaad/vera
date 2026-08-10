@@ -244,6 +244,21 @@ test("host wire validates task notifications", () => {
     })).toBeUndefined();
 });
 
+test("host wire validates bounded-data notices", () => {
+    const notice = {
+        type: "notice" as const,
+        key: "inbox",
+        count: 4,
+        seq: 7,
+    };
+
+    expect(parseAgentUpdate(notice)).toEqual(notice);
+    expect(parseAgentUpdate({ ...notice, key: "" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...notice, count: -1 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...notice, count: 1.5 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...notice, count: "4" })).toBeUndefined();
+});
+
 test("host wire validates model settings results", () => {
     const availableModels = [{
         provider: "openrouter",

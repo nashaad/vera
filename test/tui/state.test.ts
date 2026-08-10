@@ -407,6 +407,20 @@ test("TUI shows multiline tool notices live and from history", () => {
     );
 });
 
+test("TUI shows an inbox count without exposing message metadata", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "notice",
+        key: "inbox",
+        count: 3,
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notification",
+        text: "3 unread inbox entries",
+    }]);
+});
+
 test("TUI shows model failures when a turn finishes", () => {
     const state = applyAgentUpdate(
         beginTuiTurn(createTuiState(), "testing"),

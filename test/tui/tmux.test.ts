@@ -2270,15 +2270,14 @@ test.skipIf(!tmuxAvailable)(
             // scrollbar column goes too: it sits at the wrap boundary and would
             // otherwise land inside a wrapped path.
             const flat = pane.replaceAll(/[\s█]+/g, "");
-            expect(flat).toContain("1otheragentinthisworkspace:");
-            expect(flat).toContain(`name=${peer.name}`);
-            expect(flat).toContain(`last_activity=${peer.updated_at}`);
-            expect(flat).toContain("session_id=roster-peer");
-            expect(flat).toContain(`session_path=${peer.session_path}`);
-            expect(flat).not.toContain("session_id=roster-caller");
-            expect(flat).not.toContain(`name=${caller.name}`);
-            expect(flat).not.toContain("session_id=roster-stranger");
-            expect(flat).not.toContain(`name=${stranger.name}`);
+            expect(flat).toContain('"participant_id":"roster-peer"');
+            expect(flat).toContain(`"name":"${peer.name}"`);
+            expect(flat).toContain(`"last_activity":"${peer.updated_at}"`);
+            expect(flat).toContain(`"session_path":"${peer.session_path}"`);
+            expect(flat).not.toContain('"participant_id":"roster-caller"');
+            expect(flat).not.toContain(`"name":"${caller.name}"`);
+            expect(flat).not.toContain('"participant_id":"roster-stranger"');
+            expect(flat).not.toContain(`"name":"${stranger.name}"`);
             expect(pane).not.toContain("Connection error");
         } catch (error) {
             pane = capturePane(socket, session);
@@ -2291,6 +2290,104 @@ test.skipIf(!tmuxAvailable)(
             if (hostProcess.exitCode === null) {
                 hostProcess.kill("SIGTERM");
             }
+            await hostProcess.exited;
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "two native TUI panes complete the explicit local participation loop",
+    async () => {
+        const socket = `vera-local-loop-${process.pid}-${randomUUID()}`;
+        const session = "participants";
+        const leftPane = `${session}:0.0`;
+        const rightPane = `${session}:0.1`;
+        const home = mkdtempSync(join(tmpdir(), "vera-local-loop-"));
+        const readyPath = join(home, "host-ready");
+        let panes = "";
+        const hostProcess = Bun.spawn([
+            process.execPath,
+            "run",
+            "test/support/tui-local-participation-resident-host.ts",
+        ], {
+            cwd: process.cwd(),
+            env: {
+                ...process.env,
+                HOME: home,
+                VERA_TEST_READY_PATH: readyPath,
+            },
+            stdout: "ignore",
+            stderr: "pipe",
+        });
+
+        try {
+            await waitForFile(readyPath, hostProcess);
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "160",
+                "-y",
+                "36",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    shellQuote(process.execPath)
+                } run clients/cli/main.ts attach left`,
+            ]);
+            runTmux(socket, [
+                "split-window",
+                "-h",
+                "-t",
+                leftPane,
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    shellQuote(process.execPath)
+                } run clients/cli/main.ts attach right`,
+            ]);
+            await Promise.all([
+                waitForPane(socket, leftPane, "Start a conversation"),
+                waitForPane(socket, rightPane, "Start a conversation"),
+            ]);
+
+            sendText(socket, leftPane, "Question context from left");
+            sendKey(socket, leftPane, "Enter");
+            await waitForPane(socket, leftPane, "LEFT SENT");
+            const unread = await waitForPane(
+                socket,
+                rightPane,
+                "1 unread inbox entry",
+            );
+            expect(unread).not.toContain("acknowledgement ordering");
+            expect(unread).not.toContain("Question context from left");
+
+            sendText(socket, rightPane, "Read and answer the pending inbox");
+            sendKey(socket, rightPane, "Enter");
+            await waitForPane(socket, rightPane, "RIGHT REPLIED");
+            await waitForPane(socket, leftPane, "unread inbox");
+
+            sendText(socket, leftPane, "Read the receipt and reply");
+            sendKey(socket, leftPane, "Enter");
+            const completed = await waitForPane(
+                socket,
+                leftPane,
+                "LEFT READ REPLY Use serialized acknowledgement.",
+            );
+            expect(completed).not.toContain("Connection error");
+        } catch (error) {
+            panes = `LEFT:\n${capturePane(socket, leftPane)}\nRIGHT:\n${
+                capturePane(socket, rightPane)
+            }`;
+            throw new Error(`${errorMessage(error)}\n\nLast panes:\n${panes}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            if (hostProcess.exitCode === null) hostProcess.kill("SIGTERM");
             await hostProcess.exited;
             rmSync(home, { recursive: true, force: true });
         }

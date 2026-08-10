@@ -205,6 +205,30 @@ test("agent messages are recognized routine operations", () => {
     }
 });
 
+test("explicit inbox reads are recognized routine operations", () => {
+    const toolCall = {
+        id: "call-inbox",
+        name: "agent_inbox",
+        input: {},
+    };
+    expect(extractPermissionActions({
+        toolCall,
+        workspace,
+        homeDirectory,
+    })).toEqual([{
+        tool: "agent_inbox",
+        verb: "unknown",
+        operation: "agent.inbox",
+    }]);
+    expect(decideToolPermission(
+        "ask",
+        toolCall,
+        workspace,
+        [],
+        { homeDirectory },
+    ).behavior).toBe("allow");
+});
+
 test("2>&1 duplicates an fd rather than writing to a file named 1", () => {
     expect(
         extractPermissionActions({

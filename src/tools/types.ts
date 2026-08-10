@@ -5,6 +5,7 @@ import type {
     ToolPresentation,
 } from "../model/types.ts";
 import type { ApprovalMode } from "../sdk/permissions.ts";
+import type { JsonObject } from "../sdk/hooks.ts";
 import type { ToolRuntime } from "./runtime.ts";
 
 export interface ToolOutput {
@@ -20,6 +21,21 @@ export interface ToolOutput {
      */
     readonly substitutions?: readonly ModelSubstitution[];
 }
+
+/**
+ * Plain host-owned completion state for an effect. The engine carries this
+ * inert value across its durable commit boundary but never interprets it.
+ */
+export interface AppliedToolEffectOutput extends ToolOutput {
+    readonly afterCommit?: CommitEffect;
+}
+
+export interface CommitEffect {
+    readonly key: string;
+    readonly data: JsonObject;
+}
+
+export type ApplyCommittedToolEffect = (effect: CommitEffect) => Promise<void>;
 
 export interface SpawnSubagentEffect {
     readonly type: "spawn_subagent";
@@ -65,13 +81,27 @@ export interface AgentRosterEffect {
     readonly type: "agent_roster";
 }
 
+export interface AgentSendEffect {
+    readonly type: "agent_send";
+    readonly to: string;
+    readonly text: string;
+    readonly replyTo?: number;
+}
+
+export interface AgentInboxEffect {
+    readonly type: "agent_inbox";
+    readonly messageId?: number;
+}
+
 export type ToolEffect =
     | SpawnSubagentEffect
     | SpawnAsyncSubagentEffect
     | MessageSubagentEffect
     | NotifyParentEffect
     | PoolAddEffect
-    | AgentRosterEffect;
+    | AgentRosterEffect
+    | AgentSendEffect
+    | AgentInboxEffect;
 
 export interface AskUserChoice {
     readonly id: string;
@@ -116,7 +146,7 @@ export type ApplyToolEffect = (
     effect: ToolEffect,
     signal: AbortSignal,
     context: ToolEffectContext,
-) => Promise<ToolOutput>;
+) => Promise<AppliedToolEffectOutput>;
 
 // Tools either finish with text or return a plain-data request for the engine
 // owner to resolve. Live loops, stores, UI objects, and AbortControllers never

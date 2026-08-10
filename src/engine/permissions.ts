@@ -227,6 +227,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        name: "routine.agent_inbox",
+        when: { operation: "agent.inbox" },
+        then: "allow",
+    },
+    {
         // Reads in-memory state the owner already holds and reaches nothing
         // outside it, so it is gated no harder than reading a file.
         name: "routine.agent_roster",
@@ -433,6 +438,7 @@ const NETWORK_GIT_OPERATIONS = new Map([
 const GIT_READ_SUBCOMMANDS = new Set(["log", "status", "diff", "show"]);
 
 export const CORE_PERMISSION_OPERATIONS = new Set([
+    "agent.inbox",
     "agent.message",
     "agent.roster",
     "agent.spawn",

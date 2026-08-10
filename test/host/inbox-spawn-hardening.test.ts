@@ -110,6 +110,17 @@ describe("spawn controller hardening", () => {
         h.inbox.close();
     });
 
+    test("a peer message addressed to a dormant session never spawns", async () => {
+        const h = harness();
+        h.append({ kind: "peer.message", address: "dormant" });
+
+        await h.controller.scan();
+
+        expect(h.host.requests).toHaveLength(0);
+        expect(h.offset()).toBe(1);
+        h.inbox.close();
+    });
+
     test("a rate-limited entry leaves the offset behind it", async () => {
         const h = harness({ minSpawnIntervalMs: 60_000 });
         h.append({ address: "noisy" });

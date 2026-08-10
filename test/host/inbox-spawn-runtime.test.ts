@@ -114,3 +114,15 @@ hostTest("a confirmation alone spawns nothing while the subsystem is off", async
         await harness.cleanup();
     }
 });
+
+hostTest("confirmed inbox arrivals cannot cold-spawn a session", async () => {
+    const harness = await bench();
+    const host = await harness.start({ subsystem: true, confirmed: true });
+    try {
+        appendEntry(harness.inboxPath);
+        await host.close();
+        expect(harness.requests).toHaveLength(0);
+    } finally {
+        await harness.cleanup();
+    }
+});

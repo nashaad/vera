@@ -67,6 +67,12 @@ export interface TaskNotificationEvent {
     readonly kind?: "attention" | "completion";
 }
 
+export interface NoticeEvent {
+    readonly type: "notice";
+    readonly key: string;
+    readonly count: number;
+}
+
 export interface ToolApprovalUiRequest {
     readonly type: "tool_approval";
     readonly toolCall: HookToolCall;
@@ -422,6 +428,7 @@ export type EngineEvent =
     | PromptQueuedEvent
     | AbortRequestedEvent
     | TaskNotificationEvent
+    | NoticeEvent
     | UiRequestEvent
     | UiResponseEvent
     | UiRequestClosedEvent

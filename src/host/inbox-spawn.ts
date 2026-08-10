@@ -6,6 +6,8 @@ import type { ConsumerRegistry } from "./consumers.ts";
 import type { Inbox, InboxEntry } from "../store/inbox.ts";
 import { SOURCE_GAP_KIND } from "../watch/source.ts";
 
+const PEER_MESSAGE_KIND = "peer.message";
+
 /**
  * Starting a session because an entry arrived, rather than waking one that is
  * already running.
@@ -264,7 +266,7 @@ export class InboxSpawnController {
         const address = entry.address;
         // A gap record is a status entry about the source itself; a session
         // must never be spawned to react to one.
-        if (entry.kind === SOURCE_GAP_KIND) {
+        if (entry.kind === SOURCE_GAP_KIND || entry.kind === PEER_MESSAGE_KIND) {
             return { entry, address: null, final: true };
         }
         if (address === null || this.consumers.get(address) !== undefined) {
