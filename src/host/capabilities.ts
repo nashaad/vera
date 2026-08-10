@@ -1,6 +1,8 @@
 const MAX_HOST_CAPABILITIES = 64;
 const HOST_CAPABILITY_NAME = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\.v[1-9][0-9]*$/;
 
+export const HOST_CAPABILITY_AGENT_BRANCH_OPTIONS = "agent.branch-options.v1";
+
 export function parseHostCapabilities(
     value: unknown,
 ): readonly string[] | undefined {

@@ -110,11 +110,21 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "branch_agent",
         source_agent_id: "source",
         position: "at",
+        approval_mode: "readonly",
+        lifetime: "ephemeral",
     }))).toEqual({
         type: "branch_agent",
         source_agent_id: "source",
         position: "at",
+        approval_mode: "readonly",
+        lifetime: "ephemeral",
     });
+    expect(parseHostRequest(JSON.stringify({
+        type: "branch_agent",
+        source_agent_id: "source",
+        position: "at",
+        approval_mode: "not valid",
+    }))).toBeUndefined();
     expect(parseHostRequest(JSON.stringify({
         type: "trash_session",
         target_agent_id: "saved",
@@ -122,6 +132,10 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "trash_session",
         target_agent_id: "saved",
     });
+    expect(parseHostRequest(JSON.stringify({
+        type: "commit_agent_branch",
+        agent_id: "branch",
+    }))).toEqual({ type: "commit_agent_branch", agent_id: "branch" });
     expect(parseHostRequest(JSON.stringify({
         type: "trash_session",
         target_agent_id: "",

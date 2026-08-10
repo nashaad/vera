@@ -17,7 +17,7 @@ import { parseHostCapabilities } from "./capabilities.ts";
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 30;
+export const HOST_PROTOCOL_VERSION = 31;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -72,6 +72,13 @@ export interface BranchAgentRequest {
     readonly source_agent_id: string;
     readonly position: "before" | "at";
     readonly entry_id?: string;
+    readonly approval_mode?: string;
+    readonly lifetime?: "ephemeral" | "durable";
+}
+
+export interface CommitAgentBranchRequest {
+    readonly type: "commit_agent_branch";
+    readonly agent_id: string;
 }
 
 /**
@@ -241,6 +248,7 @@ export interface AgentBranchedResponse {
     readonly type: "agent_branched";
     readonly agent_id: string;
     readonly workspace: string;
+    readonly requires_commit?: true;
     readonly prompt?: {
         readonly role: "user";
         readonly content: readonly (
@@ -253,8 +261,14 @@ export interface AgentBranchedResponse {
     };
 }
 
+export interface AgentBranchCommittedResponse {
+    readonly type: "agent_branch_committed";
+    readonly agent_id: string;
+}
+
 export interface AgentBranchFailedResponse {
     readonly type: "agent_branch_failed";
+    readonly reason?: "unsupported_options" | "source_unavailable" | "failed";
 }
 
 export interface SessionTrashedResponse {
@@ -308,6 +322,7 @@ export type HostRequest =
     | CreateAgentRequest
     | ResumeAgentRequest
     | BranchAgentRequest
+    | CommitAgentBranchRequest
     | TrashSessionRequest
     | RenameSessionRequest
     | RunOnceRequest
@@ -325,6 +340,7 @@ export type HostResponse =
     | AgentReadyResponse
     | AgentStartFailedResponse
     | AgentBranchedResponse
+    | AgentBranchCommittedResponse
     | AgentBranchFailedResponse
     | SessionTrashedResponse
     | SessionTrashRejectedResponse
@@ -410,12 +426,23 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 : typeof value.entry_id === "string"
                     && value.entry_id.length > 0
         )
+        && (value.approval_mode === undefined
+            || isApprovalMode(value.approval_mode))
+        && (value.lifetime === undefined
+            || value.lifetime === "ephemeral"
+            || value.lifetime === "durable")
     ) {
         if (value.position === "at") {
             return {
                 type: "branch_agent",
                 source_agent_id: value.source_agent_id,
                 position: "at",
+                ...(value.approval_mode === undefined
+                    ? {}
+                    : { approval_mode: value.approval_mode }),
+                ...(value.lifetime === undefined
+                    ? {}
+                    : { lifetime: value.lifetime }),
             };
         }
         return {
@@ -423,7 +450,20 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             source_agent_id: value.source_agent_id,
             position: "before",
             entry_id: value.entry_id as string,
+            ...(value.approval_mode === undefined
+                ? {}
+                : { approval_mode: value.approval_mode }),
+            ...(value.lifetime === undefined
+                ? {}
+                : { lifetime: value.lifetime }),
         };
+    }
+    if (
+        value?.type === "commit_agent_branch"
+        && typeof value.agent_id === "string"
+        && value.agent_id.length > 0
+    ) {
+        return { type: "commit_agent_branch", agent_id: value.agent_id };
     }
     if (
         value?.type === "trash_session"

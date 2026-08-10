@@ -16,6 +16,7 @@ import {
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 import { sourceVersion } from "../../src/build-info.ts";
+import { HOST_CAPABILITY_AGENT_BRANCH_OPTIONS } from "../../src/host/capabilities.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -566,6 +567,7 @@ export async function startConfiguredTui(
     const client = await attachAgent({
         socketPath: host.socket_path,
         agentId,
+        requestedCapabilities: [HOST_CAPABILITY_AGENT_BRANCH_OPTIONS],
     });
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);
@@ -579,7 +581,11 @@ export async function startConfiguredTui(
     // to without closing, so there is no longer a "start me again against this
     // other session" answer for a caller to act on.
     const attach = (id: string) =>
-        attachAgent({ socketPath: host.socket_path, agentId: id });
+        attachAgent({
+            socketPath: host.socket_path,
+            agentId: id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_BRANCH_OPTIONS],
+        });
     try {
         const listAgents = () => listAgentsThroughHost(host.socket_path);
         const mismatchNotice = hostEntrypointMismatchNotice(host);
