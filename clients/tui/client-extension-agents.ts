@@ -9,7 +9,10 @@ import {
     type IdentifiedTuiAgentClient,
     type TuiAgentClient,
 } from "./agent-client.ts";
-import { HOST_CAPABILITY_AGENT_BRANCH_OPTIONS } from "../../src/host/capabilities.ts";
+import {
+    HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+} from "../../src/host/capabilities.ts";
 import type { UserMessage } from "../../src/model/types.ts";
 
 export interface TuiClientExtensionAgentsOptions {
@@ -84,6 +87,16 @@ export function createTuiClientExtensionAgentsAdapter(
                 )
             ) {
                 throw new Error("Resident host does not support branching with options");
+            }
+            if (
+                (request.initialMessages?.length ?? 0) > 0
+                && !primary.supportsHostCapability?.(
+                    HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+                )
+            ) {
+                throw new Error(
+                    "Resident host does not support branch initial messages",
+                );
             }
             const next = requireIdentifiedTuiAgentClient(await (
                 source === undefined
