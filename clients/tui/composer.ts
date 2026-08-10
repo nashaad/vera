@@ -4,10 +4,18 @@ import {
     stripAnsiSequences,
     SyntaxStyle,
     TextareaRenderable,
+    TextRenderable,
     type PasteEvent,
     type RenderContext,
 } from "@opentui/core";
-import { TUI_ACCENT, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import {
+    TUI_ACCENT,
+    TUI_BACKGROUND,
+    TUI_ELEMENT,
+    TUI_MUTED,
+    TUI_PANEL,
+    TUI_TEXT,
+} from "./state.ts";
 import { pastedImagePaths } from "./image-path.ts";
 import {
     displayOffsetWidth,
@@ -296,8 +304,8 @@ export function createTuiComposer(
         width: "100%",
         height: 3,
         placeholder: COMPOSER_PLACEHOLDER,
-        backgroundColor: TUI_PANEL,
-        focusedBackgroundColor: TUI_PANEL,
+        backgroundColor: TUI_BACKGROUND,
+        focusedBackgroundColor: TUI_BACKGROUND,
         textColor: TUI_TEXT,
         focusedTextColor: TUI_TEXT,
         cursorColor: TUI_ACCENT,
@@ -315,28 +323,68 @@ export function createTuiComposer(
     return composer;
 }
 
+/**
+ * How tall the composer panel is: three rows of text, a rule, and the row of
+ * session state that sits inside the frame. Anything that reserves room for
+ * the composer measures from this rather than from a number of its own, which
+ * is free to disagree with it.
+ */
+export const TUI_COMPOSER_PANEL_ROWS = 7;
+
+export interface TuiComposerPanel {
+    readonly panel: BoxRenderable;
+    /** The row inside the frame, written by whoever owns the status line. */
+    readonly status: TextRenderable;
+    /** The line between the text and that row, repainted with the theme. */
+    readonly rule: BoxRenderable;
+}
+
 export function createTuiComposerPanel(
     renderer: RenderContext,
     composer: TuiComposer,
-): BoxRenderable {
+): TuiComposerPanel {
     const panel = new BoxRenderable(renderer, {
         id: "composer-box",
-        border: ["left"],
-        borderStyle: "heavy",
-        borderColor: TUI_ACCENT,
-        backgroundColor: TUI_PANEL,
-        width: "100%",
-        height: 5,
-        paddingX: 2,
-        paddingY: 1,
-        // Reserve the status row and its bottom gutter.
+        border: true,
+        borderStyle: "rounded",
+        borderColor: TUI_ELEMENT,
+        height: TUI_COMPOSER_PANEL_ROWS,
+        paddingLeft: 1,
+        paddingRight: 1,
+        // Indented to where the lines under it start, so the frame and what it
+        // says about the session read as one column.
+        marginLeft: 2,
+        marginRight: 2,
+        // Reserve the rows under the frame; whoever draws them sizes this to
+        // what they actually take.
         marginBottom: 2,
+        flexDirection: "column",
         // OpenCode focuses its textarea from mouse-down. Vera extends that
         // mechanic to the padded panel because the whole panel reads as input.
         onMouseDown: () => composer.focus(),
     });
+    // A bordered box rather than a row of glyphs: the rule then spans the
+    // panel at whatever width it is drawn, with nothing to recompute.
+    const rule = new BoxRenderable(renderer, {
+        id: "composer-rule",
+        border: ["top"],
+        borderColor: TUI_ELEMENT,
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+    });
+    const status = new TextRenderable(renderer, {
+        id: "composer-status",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+    });
     panel.add(composer);
-    return panel;
+    panel.add(rule);
+    panel.add(status);
+    return { panel, status, rule };
 }
 
 function stripOneMarker(text: string, marker: string): string {

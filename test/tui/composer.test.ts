@@ -9,9 +9,9 @@ import {
 import { applyTuiTheme } from "../../clients/tui/state.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
-test("TUI composer uses one theme color across its padded surface", async () => {
+test("TUI composer takes the background it is drawn on", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
-    const theme = { ...VERA_TUI_THEME, panel: "#123456" };
+    const theme = { ...VERA_TUI_THEME, background: "#123456" };
     applyTuiTheme(theme);
     const composer = createTuiComposer(setup.renderer, () => {});
 
@@ -30,7 +30,7 @@ test("TUI composer uses one theme color across its padded surface", async () => 
 test("clicking composer padding focuses the textarea", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
     const composer = createTuiComposer(setup.renderer, () => {});
-    const panel = createTuiComposerPanel(setup.renderer, composer);
+    const { panel } = createTuiComposerPanel(setup.renderer, composer);
     setup.renderer.root.add(panel);
 
     try {
@@ -44,9 +44,9 @@ test("clicking composer padding focuses the textarea", async () => {
 });
 
 test("TUI status sits below the composer with a bottom gutter", async () => {
-    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const setup = await createTestRenderer({ width: 40, height: 12 });
     const composer = createTuiComposer(setup.renderer, () => {});
-    const panel = createTuiComposerPanel(setup.renderer, composer);
+    const { panel } = createTuiComposerPanel(setup.renderer, composer);
     const app = new BoxRenderable(setup.renderer, {
         width: "100%",
         height: "100%",

@@ -86,7 +86,9 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Extensions");
             expect(pane).toContain("Runtime");
             expect(pane).toContain("copy  enter");
-            expect(pane).toContain("┃");
+            // The composer stays behind the overlay, and its frame carries the
+            // row that says what the session is answering as.
+            expect(pane).toContain("test · HIGH");
 
             sendKey(socket, session, "C-p");
             await Bun.sleep(100);
@@ -172,7 +174,9 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(socket, session, "Rewind the active conversation");
             sendKey(socket, session, "C-p");
             pane = await waitForVisiblePane(socket, session, "Commands");
-            expect(pane).toContain("┃");
+            // The composer stays behind the overlay, and its frame carries the
+            // row that says what the session is answering as.
+            expect(pane).toContain("test · HIGH");
             expect(pane).toContain("Settings");
             expect(pane).toContain("Switch model");
             expect(pane).not.toContain("Rewind the active conversation");
@@ -181,7 +185,9 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Switch model");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Select model");
-            expect(pane).toContain("┃");
+            // The composer stays behind the overlay, and its frame carries the
+            // row that says what the session is answering as.
+            expect(pane).toContain("test · HIGH");
             expect(pane).not.toContain("switch model");
             sendKey(socket, session, "Escape");
             await waitForVisiblePaneWhere(
