@@ -3,6 +3,7 @@ import { createOpenAICodexAdapter } from "./openai-codex.ts";
 import { createOpenRouterAdapter } from "./openrouter.ts";
 import { createOllamaAdapter } from "./ollama-openai.ts";
 import { createCerebrasAdapter } from "./cerebras-openai.ts";
+import { createDeepSeekAdapter } from "./deepseek-openai.ts";
 import {
     poolEffortLevels,
     type EffortLevelsLookup,
@@ -55,6 +56,11 @@ const ADAPTERS: Readonly<Record<
 >> = {
     cerebras: (options) => createCerebrasAdapter({
         apiKey: requiredApiKey("cerebras", options),
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...capture(options),
+    }),
+    deepseek: (options) => createDeepSeekAdapter({
+        apiKey: requiredApiKey("deepseek", options),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...capture(options),
     }),

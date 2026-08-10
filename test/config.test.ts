@@ -652,7 +652,7 @@ test("Vera config rejects a missing model", () => {
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "expected schema_version 1, provider openrouter, openai-codex, ollama, or cerebras, a non-empty model string",
+        "expected schema_version 1, provider openrouter, openai-codex, ollama, cerebras, or deepseek, a non-empty model string",
     );
 });
 

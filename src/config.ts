@@ -44,6 +44,7 @@ export const VERA_PROVIDER_IDS = [
     "openai-codex",
     "ollama",
     "cerebras",
+    "deepseek",
 ] as const;
 
 export type VeraProviderId = typeof VERA_PROVIDER_IDS[number];
@@ -243,7 +244,7 @@ export function loadVeraConfig(
             path,
             "it is valid JSON but not a Vera config. It expected"
                 + " schema_version 1, provider openrouter, openai-codex,"
-                + " ollama, or cerebras, a non-empty model string, an optional"
+                + " ollama, cerebras, or deepseek, a non-empty model string, an optional"
                 + " non-empty reasoning_effort string, optional approval_mode"
                 + " ask, auto, or full_access, and optional fallback with a"
                 + " different model and after_failures from 1 to 3.",
@@ -445,10 +446,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
-            && config.provider !== "openrouter"
-            && config.provider !== "openai-codex"
-            && config.provider !== "ollama"
-            && config.provider !== "cerebras")
+            && (typeof config.provider !== "string"
+                || !isVeraProviderId(config.provider)))
         || typeof config.model !== "string"
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined
@@ -646,20 +645,16 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         typeof reviewer.model !== "string"
         || reviewer.model.trim().length === 0
         || (reviewer.provider !== undefined
-            && reviewer.provider !== "openrouter"
-            && reviewer.provider !== "openai-codex"
-            && reviewer.provider !== "ollama"
-            && reviewer.provider !== "cerebras")
+            && (typeof reviewer.provider !== "string"
+                || !isVeraProviderId(reviewer.provider)))
         || (reviewer.reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.reasoning_effort))
         || (reviewer.fallback_model !== undefined
             && (typeof reviewer.fallback_model !== "string"
                 || reviewer.fallback_model.trim().length === 0))
         || (reviewer.fallback_provider !== undefined
-            && reviewer.fallback_provider !== "openrouter"
-            && reviewer.fallback_provider !== "openai-codex"
-            && reviewer.fallback_provider !== "ollama"
-            && reviewer.fallback_provider !== "cerebras")
+            && (typeof reviewer.fallback_provider !== "string"
+                || !isVeraProviderId(reviewer.fallback_provider)))
         || (reviewer.fallback_reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.fallback_reasoning_effort))
         || (reviewer.timeout_ms !== undefined
@@ -673,10 +668,8 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
             && (typeof reviewer.escalation_model !== "string"
                 || reviewer.escalation_model.trim().length === 0))
         || (reviewer.escalation_provider !== undefined
-            && reviewer.escalation_provider !== "openrouter"
-            && reviewer.escalation_provider !== "openai-codex"
-            && reviewer.escalation_provider !== "ollama"
-            && reviewer.escalation_provider !== "cerebras")
+            && (typeof reviewer.escalation_provider !== "string"
+                || !isVeraProviderId(reviewer.escalation_provider)))
         || (reviewer.escalation_reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.escalation_reasoning_effort))
     ) {
@@ -726,10 +719,8 @@ function parseSubagentModel(value: unknown): VeraSubagentConfig | undefined {
         typeof subagent.model !== "string"
         || subagent.model.trim().length === 0
         || (subagent.provider !== undefined
-            && subagent.provider !== "openrouter"
-            && subagent.provider !== "openai-codex"
-            && subagent.provider !== "ollama"
-            && subagent.provider !== "cerebras")
+            && (typeof subagent.provider !== "string"
+                || !isVeraProviderId(subagent.provider)))
         || (subagent.reasoning_effort !== undefined
             && !isReasoningEffort(subagent.reasoning_effort))
     ) {

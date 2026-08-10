@@ -56,6 +56,15 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         envVar: "CEREBRAS_API_KEY",
     },
     {
+        id: "deepseek",
+        label: "DeepSeek",
+        shortLabel: "deepseek",
+        group: "popular",
+        credential: "api_key",
+        hint: "API key, pay per token",
+        envVar: "DEEPSEEK_API_KEY",
+    },
+    {
         id: "openai-codex",
         label: "OpenAI Codex",
         shortLabel: "codex",
