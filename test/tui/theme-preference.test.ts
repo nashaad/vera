@@ -148,6 +148,13 @@ test("TUI activity animation accepts bounded numeric tuning", () => {
     expect(loadTuiActivityAnimationWidthPreference(path)).toBe(7);
 
     writeFileSync(path, JSON.stringify({
+        animation: "shimmer",
+        animation_interval_ms: 40,
+    }));
+    expect(loadTuiActivityAnimationPreference(path)).toBe("shimmer");
+    expect(loadTuiActivityAnimationIntervalPreference(path)).toBe(40);
+
+    writeFileSync(path, JSON.stringify({
         animation_interval_ms: 20,
         animation_width: 100,
     }));

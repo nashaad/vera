@@ -281,7 +281,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             const recentSessionId = Reflect.get(value, "recent_session_id");
             const interval = boundedInteger(
                 Reflect.get(value, "animation_interval_ms"),
-                80,
+                32,
                 2_000,
             );
             const width = boundedInteger(
@@ -491,6 +491,7 @@ export function isTuiActivityAnimation(
 ): value is TuiActivityAnimation {
     return value === "conveyor"
         || value === "symmetric_wave"
+        || value === "shimmer"
         || value === "braille"
         || value === "off";
 }
