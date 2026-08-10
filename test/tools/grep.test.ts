@@ -32,6 +32,26 @@ test("grep finds matches and defaults to files_with_matches", async () => {
     }
 });
 
+test("grep treats an empty path as the workspace", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
+    try {
+        await writeFile(join(workspace, "workspace-file.txt"), "needle\n");
+
+        const result = await grepTool.execute(
+            { pattern: "needle", path: "" },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+
+        expect(result).toMatchObject({ kind: "output", isError: false });
+        if (result.kind === "output") {
+            expect(result.output).toContain("workspace-file.txt");
+        }
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("grep content mode reports the matching line", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
     try {
@@ -186,6 +206,27 @@ test("grep is a routine read allowed under every profile, even outside the works
                 .behavior,
         ).toBe("allow");
     }
+});
+
+test("grep with an empty path is a routine workspace read", () => {
+    const workspace = "/Users/nash/Projects/vera";
+    const call = {
+        id: "call_1",
+        name: "grep",
+        input: { pattern: "needle", path: "" },
+    };
+
+    expect(extractPermissionActions({
+        toolCall: call,
+        workspace,
+        homeDirectory: "/Users/nash",
+    })).toEqual([{
+        tool: "grep",
+        verb: "read",
+        path: workspace,
+        scope: "workspace",
+    }]);
+    expect(decideToolPermission("ask", call, workspace).behavior).toBe("allow");
 });
 
 test("missing ripgrep produces a clean error, never a bash fallback", async () => {

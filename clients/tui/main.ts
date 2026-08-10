@@ -754,6 +754,7 @@ export async function startTui(
     }
     let pendingUiRequest: UiRequestUpdate | undefined;
     const queuedUiRequests: UiRequestUpdate[] = [];
+    let followTranscriptAfterUiRequest = false;
     let timelinePicker: TuiTimelinePickerState | undefined;
     let settingsPicker: TuiAnySettingsPickerState | undefined;
     let settingsPickerAgent: TuiAgentClient | undefined;
@@ -3992,6 +3993,11 @@ export async function startTui(
                     || update.type === "ui_request_closed"
                 ) {
                     if (update.type === "ui_request") {
+                        if (pendingUiRequest === undefined) {
+                            followTranscriptAfterUiRequest = transcript.scrollTop
+                                >= transcript.scrollHeight
+                                    - transcript.viewport.height;
+                        }
                         // Requests must reveal the pane that owns them. A
                         // hidden question otherwise disables composer UI while
                         // looking like neither agent needs an answer.
@@ -4013,6 +4019,15 @@ export async function startTui(
                     );
                     if (pendingUiRequest !== previousRequest) {
                         renderState();
+                        if (
+                            update.type === "ui_request_closed"
+                            && pendingUiRequest === undefined
+                            && followTranscriptAfterUiRequest
+                        ) {
+                            transcript.scrollTo(transcript.scrollHeight);
+                            followTranscriptAfterUiRequest = false;
+                            renderJumpToBottom();
+                        }
                         focusActiveSurface();
                     }
                     continue;

@@ -32,7 +32,7 @@ export const listTool: RegisteredTool = {
         },
     },
     async execute(input, context): Promise<ToolOutput> {
-        const requestedPath = requiredString(input, "path");
+        const requestedPath = workspacePath(input, "path");
         const targetPath = await resolveReadPath(
             context.workspace,
             requestedPath,
@@ -113,13 +113,13 @@ function parseOffset(value: unknown): number {
     return value;
 }
 
-function requiredString(
+function workspacePath(
     input: Readonly<Record<string, unknown>>,
     field: string,
 ): string {
     const value = input[field];
-    if (typeof value !== "string" || value.length === 0) {
-        throw new Error(`list tool requires a non-empty string ${field}`);
+    if (typeof value !== "string") {
+        throw new Error(`list tool requires a string ${field}`);
     }
-    return value;
+    return value || ".";
 }

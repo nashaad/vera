@@ -63,7 +63,7 @@ export const grepTool: RegisteredTool = {
     },
     async execute(input, context): Promise<ToolOutput> {
         const pattern = requiredString(input, "pattern");
-        const requestedPath = requiredString(input, "path");
+        const requestedPath = workspacePath(input, "path");
         const targetPath = await resolveReadPath(context.workspace, requestedPath);
         const outputMode = parseOutputMode(input.output_mode);
         const maxResults = parseMaxResults(input.max_results);
@@ -386,4 +386,15 @@ function requiredString(
         throw new Error(`grep tool requires a non-empty string ${field}`);
     }
     return value;
+}
+
+function workspacePath(
+    input: Readonly<Record<string, unknown>>,
+    field: string,
+): string {
+    const value = input[field];
+    if (typeof value !== "string") {
+        throw new Error(`grep tool requires a string ${field}`);
+    }
+    return value || ".";
 }
