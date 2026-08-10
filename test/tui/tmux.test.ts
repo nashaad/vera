@@ -2624,6 +2624,7 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("SIDEKICK ANSWERED 1");
             expect(pane).toContain("Message sidekick");
+            expect(pane).toContain("› sidekick · readonly · idle");
             sendEscapeSequence(socket, session, String.fromCharCode(31));
             pane = await waitForVisiblePaneWhere(
                 socket,
@@ -2633,6 +2634,7 @@ test.skipIf(!tmuxAvailable)(
                 "ctrl+/ to show only Vera",
             );
             expect(pane).toContain("Message Vera");
+            expect(pane).toContain("› Vera · auto · idle");
             sendText(socket, session, "main after layout switch");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED 1");
