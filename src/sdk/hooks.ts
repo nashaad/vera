@@ -63,6 +63,8 @@ export interface MutateToolResultHookResult {
 export interface PreToolUseHookPayload {
     readonly type: "pre_tool_use";
     readonly toolCall: HookToolCall;
+    /** Present for host-run sessions; direct engine fixtures may omit it. */
+    readonly sessionId?: string;
     readonly workspace: string;
 }
 
@@ -76,6 +78,8 @@ export interface PostToolUseHookPayload {
     readonly type: "post_tool_use";
     readonly toolCall: HookToolCall;
     readonly result: HookToolResult;
+    /** Present for host-run sessions; direct engine fixtures may omit it. */
+    readonly sessionId?: string;
     readonly workspace: string;
     readonly durationMs: number;
 }

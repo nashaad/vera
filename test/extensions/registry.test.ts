@@ -21,6 +21,7 @@ import {
     startExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
+import { ToolHooks } from "../../src/engine/hooks.ts";
 import {
     decideToolPermission,
     extractPermissionActions,
@@ -165,6 +166,137 @@ test("registry exposes extension tools through the ordinary tool and permission 
         },
     });
 
+    await registry.close();
+});
+
+test("public hook capabilities register in order, carry plain identity, and isolate failures", async () => {
+    const extension = createExtension("hooks.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreToolUse((payload) => {
+                if (payload.sessionId !== "session-1" || payload.workspace !== "/work") {
+                    return { power: "block", reason: "identity missing" };
+                }
+                return { power: "mutate", input: { command: "changed" } };
+            });
+            vera.hooks.registerPostToolUse((payload) => {
+                if (payload.sessionId !== "session-1" || payload.workspace !== "/work") {
+                    return { power: "mutate", patch: { isError: true } };
+                }
+                return { power: "observe" };
+            });
+        }
+    `, ["hooks.pre_tool_use", "hooks.post_tool_use"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preToolUseHooks()) hooks.registerPreToolUse(hook);
+    for (const hook of registry.postToolUseHooks()) hooks.registerPostToolUse(hook);
+
+    const pre = await hooks.runPreToolUse({
+        type: "pre_tool_use",
+        sessionId: "session-1",
+        workspace: "/work",
+        toolCall: { id: "call-1", name: "bash", input: { command: "pwd" } },
+    }, { timeoutMs: 100 });
+    expect(pre).toMatchObject({
+        result: { power: "mutate", input: { command: "changed" } },
+    });
+    expect(await hooks.runPostToolUse({
+        type: "post_tool_use",
+        sessionId: "session-1",
+        workspace: "/work",
+        toolCall: pre.toolCall,
+        result: {
+            toolCallId: "call-1",
+            toolName: "bash",
+            content: [{ type: "text", text: "ok" }],
+            isError: false,
+        },
+        durationMs: 1,
+    }, { timeoutMs: 100 })).toMatchObject({ isError: false });
+
+    await registry.close();
+});
+
+test("hook registration is capability-gated and unregisterable", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-hooks.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreToolUse(() => ({ power: "observe" }));
+        }
+    `);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(registry.preToolUseHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.pre_tool_use");
+    await registry.close();
+
+    const removable = createExtension("removable-hooks.extension", `
+        export function activate(vera) {
+            const dispose = vera.hooks.registerPreToolUse(() => ({ power: "observe" }));
+            vera.commands.register({
+                name: "remove-hook",
+                description: "Remove hook",
+                usage: "/remove_hook",
+                run() { dispose(); return { kind: "text", text: "removed" }; },
+            });
+        }
+    `, ["hooks.pre_tool_use", "commands.register"]);
+    const removableFailures: ExtensionRegistryFailure[] = [];
+    const second = await startExtensionRegistry({
+        extensions: [configured(removable)],
+        onFailure: (failure) => removableFailures.push(failure),
+    });
+    expect(removableFailures).toEqual([]);
+    expect(second.preToolUseHooks()).toHaveLength(1);
+    await second.invokeCommand("remove-hook", "", "/work");
+    expect(second.preToolUseHooks()).toHaveLength(0);
+    await second.close();
+});
+
+test("a throwing or malformed extension hook does not break the engine hook chain", async () => {
+    const extension = createExtension("broken-hooks.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreToolUse(() => { throw new Error("broken"); });
+            vera.hooks.registerPreToolUse(() => ({
+                power: "mutate", input: { command: "after-broken" },
+            }));
+            vera.hooks.registerPostToolUse(() => ({ power: "invalid" }));
+            vera.hooks.registerPostToolUse(() => ({ power: "observe" }));
+        }
+    `, ["hooks.pre_tool_use", "hooks.post_tool_use"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preToolUseHooks()) hooks.registerPreToolUse(hook);
+    for (const hook of registry.postToolUseHooks()) hooks.registerPostToolUse(hook);
+    const pre = await hooks.runPreToolUse({
+        type: "pre_tool_use",
+        sessionId: "session-1",
+        workspace: "/work",
+        toolCall: { id: "call-1", name: "bash", input: { command: "pwd" } },
+    }, { timeoutMs: 100 });
+    expect(pre.result).toEqual({
+        power: "mutate",
+        input: { command: "after-broken" },
+    });
+    await expect(hooks.runPostToolUse({
+        type: "post_tool_use",
+        sessionId: "session-1",
+        workspace: "/work",
+        toolCall: pre.toolCall,
+        result: {
+            toolCallId: "call-1",
+            toolName: "bash",
+            content: [{ type: "text", text: "ok" }],
+            isError: false,
+        },
+        durationMs: 1,
+    }, { timeoutMs: 100 })).resolves.toMatchObject({ isError: false });
     await registry.close();
 });
 

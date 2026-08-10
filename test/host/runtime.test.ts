@@ -73,6 +73,77 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host wires public extension tool hooks into each agent",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-extension-hook-"));
+        const extensionPath = join(root, "extension");
+        await mkdir(extensionPath);
+        await writeFile(
+            join(extensionPath, "vera.extension.json"),
+            JSON.stringify({
+                id: "test.hook",
+                version: "1.0.0",
+                sdk: "1",
+                entrypoint: "./extension.ts",
+                capabilities: ["hooks.pre_tool_use"],
+            }),
+        );
+        await writeFile(join(extensionPath, "extension.ts"), `
+            export function activate(vera) {
+                vera.hooks.registerPreToolUse((payload) =>
+                    payload.toolCall.name === "read"
+                        ? { power: "block", reason: "extension policy" }
+                        : { power: "observe" }
+                );
+            }
+        `);
+        const sessionPath = join(root, "agent.jsonl");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "full_access",
+                extensions: [{ path: extensionPath, enabled: true, config: null }],
+            },
+            createAdapter: () => new FauxAdapter([
+                toolResponse("read", { path: "missing.txt" }),
+                textResponse("done"),
+            ]),
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+        try {
+            const agent = await host.registry.create({
+                id: "hook-agent",
+                workspace: root,
+                sessionPath,
+                eventLogPath: join(root, "events.jsonl"),
+            });
+            const client = agent.attach();
+            await client.receive();
+            client.send({ type: "prompt", content: "read the file" });
+            await receiveUntilType(client, "turn_finished");
+            expect((await SessionStore.open(sessionPath)).messages())
+                .toContainEqual(expect.objectContaining({
+                    role: "tool_result",
+                    toolName: "read",
+                    isError: true,
+                    content: [{
+                        type: "text",
+                        text: expect.stringContaining("extension policy"),
+                    }],
+                }));
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "resident host wires its registry to list and attach requests",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-runtime-"));
