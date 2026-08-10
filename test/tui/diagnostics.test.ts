@@ -88,6 +88,55 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
     expect(text).not.toContain("────");
 });
 
+test("TUI diagnostics reports the latest client extension reload", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        clientExtensionReload: {
+            status: "partial",
+            loadedExtensionIds: ["sidebar", "search"],
+            failures: ["broken: activation timed out"],
+        },
+    });
+
+    expect(text).toContain("reload       partial (2 loaded)");
+    expect(text).toContain("active       sidebar, search");
+    expect(text).toContain("reload error broken: activation timed out");
+});
+
+test("TUI diagnostics shows when client extensions have never reloaded", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+    });
+
+    expect(text).toContain("reload       never");
+});
+
+test("TUI diagnostics does not present old extensions during a reload", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        clientExtensionReload: {
+            status: "reloading",
+            loadedExtensionIds: [],
+            failures: [],
+        },
+    });
+
+    expect(text).toContain("reload       reloading");
+    expect(text).not.toContain("active");
+});
+
 test("TUI diagnostics does not claim inheritance without host data", () => {
     const text = renderTuiDiagnostics({
         state: {

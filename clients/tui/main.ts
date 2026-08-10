@@ -122,7 +122,11 @@ import {
     type TuiHostedAgentAddressing,
     visibleTuiAgentMentions,
 } from "./agent-message-routing.ts";
-import { renderTuiDiagnostics } from "./diagnostics.ts";
+import {
+    renderTuiDiagnostics,
+    type TuiClientExtensionReloadSnapshot,
+    type TuiDiagnosticsSnapshot,
+} from "./diagnostics.ts";
 import {
     createTuiDiagnosticsDialogView,
     handleTuiDiagnosticsDialogKey,
@@ -410,12 +414,28 @@ function displayModeLabel(label: string): string {
 
 class ClientExtensionReloadPartialFailure extends Error {
     readonly kind: "none" | "some";
+    readonly loadedExtensionIds: readonly string[];
+    readonly failures: readonly string[];
 
-    constructor(kind: "none" | "some", details: string) {
+    constructor(
+        kind: "none" | "some",
+        details: string,
+        loadedExtensionIds: readonly string[],
+        failures: readonly string[],
+    ) {
         super(details);
         this.name = "ClientExtensionReloadPartialFailure";
         this.kind = kind;
+        this.loadedExtensionIds = loadedExtensionIds;
+        this.failures = failures;
     }
+}
+
+function boundedExtensionReloadFailure(message: string): string {
+    const compact = message.replaceAll(/\s+/g, " ").trim();
+    return compact.length <= 240
+        ? compact
+        : `${compact.slice(0, 239).trimEnd()}…`;
 }
 
 export interface TuiDependencies {
@@ -802,6 +822,7 @@ export async function startTui(
     let commandPalette: TuiCommandPaletteState | undefined;
     let help: TuiHelpState | undefined;
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
+    let diagnosticsSessionPath: string | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let confirmingFullAccess = false;
     let confirmingFullAccessAgent: TuiAgentClient | undefined;
@@ -854,6 +875,11 @@ export async function startTui(
     let sessionSwitchActivity = "starting new session…";
     let extensionCommandPending = false;
     let clientExtensionReloadPending = false;
+    let clientExtensionReload: TuiClientExtensionReloadSnapshot = {
+        status: "never",
+        loadedExtensionIds: [],
+        failures: [],
+    };
     let extensionCommandActivity: string | undefined;
     let sidebarPromptSubmitting = false;
     let extensionCommandsLoading =
@@ -1072,7 +1098,7 @@ export async function startTui(
         },
     );
     await clientExtensionHost.reload();
-    async function reloadConfiguredClientExtensions(): Promise<void> {
+    async function reloadConfiguredClientExtensions(): Promise<readonly string[]> {
         const refreshed = dependencies.loadClientExtensionConfiguration?.();
         let nextDisabledBuiltinExtensions = disabledBuiltinExtensions;
         let nextConfiguredClientExtensions = configuredClientExtensions;
@@ -1084,6 +1110,10 @@ export async function startTui(
                 refreshed.clientExtensions,
             );
         }
+        // The new config describes the generation we are replacing. Keep the
+        // diagnostics view truthful even if that generation fails to activate.
+        disabledBuiltinExtensions = nextDisabledBuiltinExtensions;
+        configuredClientExtensions = nextConfiguredClientExtensions;
         await clientExtensionHost.reload((signal) =>
             startConfiguredClientExtensionHost(
                 signal,
@@ -1091,19 +1121,20 @@ export async function startTui(
                 failures,
             )
         );
-        disabledBuiltinExtensions = nextDisabledBuiltinExtensions;
-        configuredClientExtensions = nextConfiguredClientExtensions;
         const loaded = clientExtensionHost.current()?.loadedExtensionIds() ?? [];
         if (failures.length === 0) {
-            return;
+            return loaded;
         }
         const stateLabel = loaded.length === 0 ? "none loaded" : "some failed";
         throw new ClientExtensionReloadPartialFailure(
             loaded.length === 0 ? "none" : "some",
-            `${stateLabel}: ${failures.slice(0, 3).join("; ")}`
+            `${stateLabel}: ${failures.slice(0, 3)
+                .map(boundedExtensionReloadFailure).join("; ")}`
                 + (failures.length > 3
                     ? `; and ${failures.length - 3} more`
                     : ""),
+            loaded,
+            failures.map(boundedExtensionReloadFailure),
         );
     }
     const directClientExtensions = bundledClientExtensions();
@@ -2488,6 +2519,7 @@ export async function startTui(
                 key.stopPropagation();
                 if (action === "dismiss") {
                     diagnosticsDialog = undefined;
+                    diagnosticsSessionPath = undefined;
                     focusActiveSurface();
                     renderState();
                     return;
@@ -2966,6 +2998,21 @@ export async function startTui(
      * what the user typed. Its presence is also what stops a second trip
      * through the interceptors.
      */
+    function diagnosticsSnapshot(): TuiDiagnosticsSnapshot {
+        return {
+            state,
+            activity,
+            elapsed: elapsedWorkingTime(),
+            workspace: client.workspace ?? process.cwd(),
+            runningBackgroundAgents,
+            stash: summarizeStash(),
+            stashRoot: defaultStashRoot(),
+            build: dependencies.build,
+            extensions: configuredClientExtensions,
+            clientExtensionReload,
+        };
+    }
+
     function submitPrompt(
         interceptedText?: string,
         injectedPrefix?: number,
@@ -3062,18 +3109,70 @@ export async function startTui(
                 return;
             }
             clientExtensionReloadPending = true;
-            void reloadConfiguredClientExtensions().then(() => {
+            clientExtensionReload = {
+                status: "reloading",
+                loadedExtensionIds: [],
+                failures: [],
+            };
+            if (diagnosticsDialog !== undefined) {
+                diagnosticsDialog = {
+                    text: renderTuiDiagnostics({
+                        ...diagnosticsSnapshot(),
+                        sessionPath: diagnosticsSessionPath,
+                    }),
+                    copyReady: diagnosticsDialog.copyReady,
+                };
+            }
+            void reloadConfiguredClientExtensions().then((loadedExtensionIds) => {
                 if (shuttingDown) return;
+                clientExtensionReload = {
+                    status: "success",
+                    loadedExtensionIds,
+                    failures: [],
+                };
+                if (diagnosticsDialog !== undefined) {
+                    diagnosticsDialog = {
+                        text: renderTuiDiagnostics({
+                            ...diagnosticsSnapshot(),
+                            sessionPath: diagnosticsSessionPath,
+                        }),
+                        copyReady: diagnosticsDialog.copyReady,
+                    };
+                }
                 state = appendTuiNotice(state, "Client extensions reloaded");
                 renderState();
                 focusActiveSurface();
             }).catch((error) => {
                 if (shuttingDown) return;
-                const message = error instanceof Error
-                    ? error.message
-                    : String(error);
                 const partialReload =
                     error instanceof ClientExtensionReloadPartialFailure;
+                const loadedExtensionIds = partialReload
+                    ? error.loadedExtensionIds
+                    : clientExtensionHost.current()?.loadedExtensionIds() ?? [];
+                const failures = partialReload
+                    ? error.failures
+                    : [boundedExtensionReloadFailure(
+                        error instanceof Error ? error.message : String(error),
+                    )];
+                clientExtensionReload = {
+                    status: partialReload && error.kind === "some"
+                        ? "partial"
+                        : "failed",
+                    loadedExtensionIds,
+                    failures,
+                };
+                const message = boundedExtensionReloadFailure(
+                    error instanceof Error ? error.message : String(error),
+                );
+                if (diagnosticsDialog !== undefined) {
+                    diagnosticsDialog = {
+                        text: renderTuiDiagnostics({
+                            ...diagnosticsSnapshot(),
+                            sessionPath: diagnosticsSessionPath,
+                        }),
+                        copyReady: diagnosticsDialog.copyReady,
+                    };
+                }
                 state = appendTuiNotice(
                     state,
                     partialReload
@@ -3093,6 +3192,7 @@ export async function startTui(
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
+            diagnosticsSessionPath = undefined;
             const agentId = client.agentId;
             const resolvingSessionPath = agentId !== undefined
                 && dependencies.listAgents !== undefined;
@@ -3107,6 +3207,7 @@ export async function startTui(
                     stashRoot: defaultStashRoot(),
                     build: dependencies.build,
                     extensions: configuredClientExtensions,
+                    clientExtensionReload,
                 }),
                 copyReady: !resolvingSessionPath,
             };
@@ -3129,6 +3230,7 @@ export async function startTui(
                         renderState();
                         return;
                     }
+                    diagnosticsSessionPath = sessionPath;
                     diagnosticsDialog = {
                         text: renderTuiDiagnostics({
                             state,
@@ -3141,6 +3243,7 @@ export async function startTui(
                             stashRoot: defaultStashRoot(),
                             build: dependencies.build,
                             extensions: configuredClientExtensions,
+                            clientExtensionReload,
                         }),
                         copyReady: true,
                     };
