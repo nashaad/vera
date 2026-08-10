@@ -1639,7 +1639,7 @@ export async function startTui(
         return Math.max(
             1,
             (sidebar.layout() === "sidebar"
-                ? renderer.terminalWidth
+                ? renderer.terminalWidth - 1
                 : sidebar.width()) - 2,
         );
     }
