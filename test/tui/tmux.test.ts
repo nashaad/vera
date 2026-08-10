@@ -163,6 +163,50 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "partial reload names the extensions that stayed active",
+    async () => {
+        const socket = `vera-partial-reload-${process.pid}-${randomUUID()}`;
+        const session = "partial-reload";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-partial-reload-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-partial-reload-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/reload-extensions");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Client extensions reloaded with failures: some",
+            );
+
+            sendText(socket, session, "/diagnostics");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "reload       partial (1 loaded)");
+            expect(pane).toContain("active       test.sidebar");
+            expect(pane).toContain("reload error");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "help is browse-only and ctrl+p opens the functional palette",
     async () => {
         const socket = `vera-help-${process.pid}-${randomUUID()}`;
