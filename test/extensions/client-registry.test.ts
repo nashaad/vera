@@ -895,6 +895,77 @@ test("an extension can create, open, and message hosted agents through the clien
     await registry.close();
 });
 
+test("experimental hosted-agent addressing is validated and remains plain data", async () => {
+    const extension = createExtension("client.addressing", [
+        "client.agents",
+    ], `
+        export function activateClient(vera) {
+            vera.agents.declareExperimentalAddressing({
+                primary: "author",
+                secondary: "critic",
+            });
+        }
+    `);
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        agents: {
+            visible: () => [],
+            async create() { return { agentId: "created" }; },
+            async open() {},
+            async message() {},
+        },
+    });
+
+    expect(registry.experimentalHostedAgentAddressing("client.addressing"))
+        .toEqual({ primary: "author", secondary: "critic" });
+    const returned = registry.experimentalHostedAgentAddressing(
+        "client.addressing",
+    ) as { primary: string; secondary: string };
+    returned.primary = "mutated";
+    expect(registry.experimentalHostedAgentAddressing("client.addressing"))
+        .toEqual({ primary: "author", secondary: "critic" });
+    await registry.close();
+});
+
+test("experimental hosted-agent addressing rejects collisions and ambiguity", async () => {
+    const invalid = [
+        { primary: "same", secondary: "same" },
+        { primary: "has space", secondary: "critic" },
+        { primary: "@author", secondary: "critic" },
+        { primary: "all", secondary: "critic" },
+        { primary: "author", secondary: "critic", broadcast: "critic" },
+    ];
+    const failures: ClientExtensionRegistryFailure[] = [];
+    for (const [index, addressing] of invalid.entries()) {
+        const extension = createExtension(`client.invalid-address-${index}`, [
+            "client.agents",
+        ], `
+            export function activateClient(vera) {
+                vera.agents.declareExperimentalAddressing(${JSON.stringify(addressing)});
+            }
+        `);
+        const registry = await startClientExtensionRegistry({
+            extensions: [configured(extension)],
+            ...createHarness().adapters,
+            agents: {
+                visible: () => [],
+                async create() { return { agentId: "created" }; },
+                async open() {},
+                async message() {},
+            },
+            onFailure(failure) {
+                failures.push(failure);
+            },
+        });
+        expect(registry.experimentalHostedAgentAddressing(
+            `client.invalid-address-${index}`,
+        )).toBeUndefined();
+        await registry.close();
+    }
+    expect(failures).toHaveLength(invalid.length);
+});
+
 function createHarness(): {
     readonly adapters: {
         readonly preferences: ClientExtensionPreferencesAdapter;

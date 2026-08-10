@@ -34,6 +34,7 @@ import type {
     VeraClientAgentMessageRequest,
     VeraClientAgentRef,
     VeraClientVisibleAgent,
+    VeraClientExperimentalHostedAgentAddressing,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
 import {
@@ -299,6 +300,13 @@ export interface ClientExtensionRegistry {
     renderStatusLine(
         snapshot: StatusLineSnapshot,
     ): readonly StatusLineSegment[] | undefined;
+    /**
+     * Experimental plain-data addressing owned by one loaded extension.
+     * Undefined is the explicit compatibility path for older extensions.
+     */
+    experimentalHostedAgentAddressing(
+        extensionId: string | undefined,
+    ): VeraClientExperimentalHostedAgentAddressing | undefined;
     close(): Promise<void>;
 }
 
@@ -336,6 +344,9 @@ interface LoadedClientExtension {
     readonly tips: readonly RegisteredTip[];
     readonly statusLine: VeraClientStatusLineRenderer | undefined;
     readonly messageInterceptor: VeraClientMessageInterceptor | undefined;
+    readonly hostedAgentAddressing:
+        | VeraClientExperimentalHostedAgentAddressing
+        | undefined;
     readonly conversationListeners: readonly (() => void)[];
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveInvocation>;
@@ -682,6 +693,18 @@ export async function startClientExtensionRegistry(
             owner.failures = 0;
             return segments;
         },
+        experimentalHostedAgentAddressing(
+            extensionId: string | undefined,
+        ): VeraClientExperimentalHostedAgentAddressing | undefined {
+            if (extensionId === undefined) return undefined;
+            const extension = loaded.find((candidate) =>
+                candidate.id === extensionId
+                && !candidate.disposing
+            );
+            return extension?.hostedAgentAddressing === undefined
+                ? undefined
+                : structuredClone(extension.hostedAgentAddressing);
+        },
         close(): Promise<void> {
             closing ??= close();
             return closing;
@@ -762,6 +785,9 @@ async function activateClientExtension(
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
     let statusLine: VeraClientStatusLineRenderer | undefined;
     let messageInterceptor: VeraClientMessageInterceptor | undefined;
+    let hostedAgentAddressing:
+        | VeraClientExperimentalHostedAgentAddressing
+        | undefined;
     let phase: "activating" | "active" | "unavailable" = "activating";
     let activationCompletion: Promise<unknown> | undefined;
     let activationSettled = false;
@@ -1024,6 +1050,20 @@ async function activateClientExtension(
                 return requireAgents().visible(options.id)
                     .map((agent) => structuredClone(agent));
             },
+            declareExperimentalAddressing(
+                addressing: VeraClientExperimentalHostedAgentAddressing,
+            ): void {
+                requireRegistrationPhase(phase, "hosted-agent addressing");
+                requireAgents();
+                if (hostedAgentAddressing !== undefined) {
+                    throw new Error(
+                        `Extension ${options.id} registered hosted-agent addressing more than once`,
+                    );
+                }
+                hostedAgentAddressing = validateExperimentalHostedAgentAddressing(
+                    addressing,
+                );
+            },
             create(
                 request: VeraClientAgentCreateRequest,
                 signal?: AbortSignal,
@@ -1240,6 +1280,7 @@ async function activateClientExtension(
         tips,
         statusLine,
         messageInterceptor,
+        hostedAgentAddressing,
         disposers,
         conversationListeners,
         activeInvocations: new Set(),
@@ -1752,6 +1793,44 @@ function validateOptionalAgentMention(value: unknown): string | undefined {
         throw new Error("Client extension agent mention must be one bare word");
     }
     return mention;
+}
+
+function validateExperimentalHostedAgentAddressing(
+    value: VeraClientExperimentalHostedAgentAddressing,
+): VeraClientExperimentalHostedAgentAddressing {
+    if (typeof value !== "object" || value === null) {
+        throw new Error("Invalid experimental hosted-agent addressing");
+    }
+    const primary = validateHostedAgentAlias(value.primary, "primary");
+    const secondary = validateHostedAgentAlias(value.secondary, "secondary");
+    const broadcast = value.broadcast === undefined
+        ? undefined
+        : validateHostedAgentAlias(value.broadcast, "broadcast");
+    if (primary === secondary) {
+        throw new Error("Experimental hosted-agent aliases must be distinct");
+    }
+    if (broadcast === primary || broadcast === secondary) {
+        throw new Error("Experimental hosted-agent aliases must be distinct");
+    }
+    return {
+        primary,
+        secondary,
+        ...(broadcast === undefined ? {} : { broadcast }),
+    };
+}
+
+function validateHostedAgentAlias(value: unknown, role: string): string {
+    if (
+        typeof value !== "string"
+        || value.length === 0
+        || !/^[^\s@]+$/.test(value)
+        || (role !== "broadcast" && value === "all")
+    ) {
+        throw new Error(
+            `Invalid experimental hosted-agent ${role} alias`,
+        );
+    }
+    return value;
 }
 
 function validateAgentMessageRequest(

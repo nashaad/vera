@@ -129,9 +129,22 @@ export interface VeraClientAgentMessageRequest {
     readonly imagePaths?: readonly string[];
 }
 
+/**
+ * Experimental client-only addressing for the two visible hosted-agent
+ * participants. This is plain data and does not cross the runtime boundary.
+ */
+export interface VeraClientExperimentalHostedAgentAddressing {
+    readonly primary: string;
+    readonly secondary: string;
+    readonly broadcast?: string;
+}
+
 /** Hosted-agent operations; the client owns attachment and presentation. */
 export interface VeraClientExtensionAgents {
     visible(): readonly VeraClientVisibleAgent[];
+    declareExperimentalAddressing(
+        addressing: VeraClientExperimentalHostedAgentAddressing,
+    ): void;
     create(
         request: VeraClientAgentCreateRequest,
         signal?: AbortSignal,
