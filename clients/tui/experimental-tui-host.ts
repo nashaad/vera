@@ -193,11 +193,23 @@ export function createTuiExperimentalHost(
             removeView(view);
             return;
         }
-        const signature = JSON.stringify({
-            node,
-            focused: context.focused,
-            theme: context.theme,
-        });
+        let signature: string | undefined;
+        try {
+            signature = JSON.stringify({
+                node,
+                focused: context.focused,
+                theme: context.theme,
+            });
+        } catch (error) {
+            reportFailure(view, error);
+            removeView(view);
+            return;
+        }
+        if (signature === undefined) {
+            reportFailure(view, "Experimental TUI view has no render signature");
+            removeView(view);
+            return;
+        }
         if (view.root !== undefined && view.lastRender === signature) {
             return;
         }
