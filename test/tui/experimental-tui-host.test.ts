@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createCliRenderer, TextRenderable } from "@opentui/core";
+import { BoxRenderable, createCliRenderer, TextRenderable } from "@opentui/core";
 
 import { createTuiExperimentalHost } from "../../clients/tui/experimental-tui-host.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
@@ -173,6 +173,7 @@ test("experimental TUI host mounts and disposes extension-owned renderables", as
         targetFps: 30,
     });
     let requested = 0;
+    let adornmentVisible = true;
     const host = createTuiExperimentalHost({
         renderer,
         theme: VERA_TUI_THEME,
@@ -205,14 +206,46 @@ test("experimental TUI host mounts and disposes extension-owned renderables", as
                 });
             },
         });
+        const disposeAdornment = host.adapter.mountRenderable("fixture", {
+            id: "raw-adornment",
+            slot: "composer-adornment",
+            visible: () => adornmentVisible,
+            create(context) {
+                const stack = new BoxRenderable(context.renderer, {
+                    id: "raw-adornment-stack",
+                    flexDirection: "column",
+                });
+                stack.add(new TextRenderable(context.renderer, {
+                    id: "raw-adornment-first",
+                    content: "composer context",
+                    height: 1,
+                }));
+                stack.add(new TextRenderable(context.renderer, {
+                    id: "raw-adornment-second",
+                    content: "more context",
+                    height: 1,
+                }));
+                return stack;
+            },
+        });
 
         host.render();
         expect(host.footer.getChildren()).toHaveLength(2);
+        expect(host.bottomInsetRows()).toBe(4);
         expect(requested).toBeGreaterThan(0);
         await dispose();
         expect(host.footer.getChildren()).toHaveLength(1);
+        host.render();
+        expect(host.bottomInsetRows()).toBe(3);
+        adornmentVisible = false;
+        host.render();
+        expect(host.composerAdornment.visible).toBe(false);
+        expect(host.bottomInsetRows()).toBe(1);
         await disposeSecond();
         expect(host.footer.getChildren()).toHaveLength(0);
+        await disposeAdornment();
+        host.render();
+        expect(host.bottomInsetRows()).toBe(0);
     } finally {
         await host.close();
         renderer.destroy();
