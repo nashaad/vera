@@ -7176,6 +7176,8 @@ export async function startTui(
         const agentHeader = agentSection[0] ?? "";
         const animatedAgentHeader = runningNames.length === 0
             ? new StyledText([fg(TUI_MUTED)(agentHeader)])
+            : activityAnimation === "shimmer"
+            ? new StyledText([fg(TUI_MUTED)(agentHeader)])
             : renderTuiActivityAnimation(
                 activityAnimation,
                 activityFrame(),
@@ -7220,7 +7222,9 @@ export async function startTui(
                     active: TUI_ACCENT,
                     // The trail is part of Vera's ActiveGrid identity, not a
                     // success indicator inherited from the selected theme.
-                    trail: VERA_TUI_THEME.success,
+                    trail: activityAnimation === "shimmer"
+                        ? TUI_ELEMENT
+                        : VERA_TUI_THEME.success,
                     inactive: TUI_MUTED,
                     text: state.approvalMode === "full_access"
                         ? "#ff3b30"

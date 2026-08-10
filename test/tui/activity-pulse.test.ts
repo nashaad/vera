@@ -13,6 +13,11 @@ const colors = {
     text: "#7AA2F7",
 };
 
+const shimmerColors = {
+    ...colors,
+    trail: "#24283B",
+};
+
 test("TUI activity pulse advances an ActiveGrid-style shaded rail", () => {
     const pulse = renderTuiActivityPulse(4, "thinking · 2s", colors);
     expect(plainText(pulse)).toBe("░░▒▓█▓▒ thinking · 2s");
@@ -73,29 +78,44 @@ test("TUI activity animation can use Braille or disable motion", () => {
     ))).toBe("working");
 });
 
-test("TUI shimmer pulses a bullet while a highlight crosses the text", () => {
-    const shimmer = renderTuiActivityAnimation("shimmer", 12, "working", colors);
-    expect(plainText(shimmer)).toBe("• working");
+test("TUI shimmer diffuses a dark band across the bold activity verb", () => {
+    const shimmer = renderTuiActivityAnimation(
+        "shimmer",
+        12,
+        "working · 2s · esc stop",
+        shimmerColors,
+    );
+    expect(plainText(shimmer)).toBe("•• working · 2s · esc stop");
     expect(shimmer.chunks.map((chunk) => String(chunk.fg))).toEqual([
         "rgba(0.36, 0.39, 0.44, 1.00)",
         "rgba(0.36, 0.39, 0.44, 1.00)",
-        "rgba(0.72, 0.71, 0.85, 1.00)",
-        "rgba(0.72, 0.71, 0.85, 1.00)",
+        "rgba(0.26, 0.33, 0.50, 1.00)",
+        "rgba(0.24, 0.29, 0.44, 1.00)",
+        "rgba(0.23, 0.28, 0.42, 1.00)",
+        "rgba(0.24, 0.29, 0.44, 1.00)",
+        "rgba(0.26, 0.33, 0.50, 1.00)",
+        "rgba(0.30, 0.39, 0.59, 1.00)",
+        "rgba(0.35, 0.45, 0.69, 1.00)",
         "rgba(0.48, 0.64, 0.97, 1.00)",
-        "rgba(0.72, 0.71, 0.85, 1.00)",
-        "rgba(0.72, 0.71, 0.85, 1.00)",
-        "rgba(0.36, 0.39, 0.44, 1.00)",
-        "rgba(0.36, 0.39, 0.44, 1.00)",
     ]);
     const dimShimmer = renderTuiActivityAnimation(
         "shimmer",
         15,
         "working 🚀",
-        colors,
+        shimmerColors,
     );
-    expect(plainText(dimShimmer)).toBe("• working 🚀");
+    expect(plainText(dimShimmer)).toBe("•• working 🚀");
     expect(String(dimShimmer.chunks[0]?.fg))
         .toBe("rgba(0.36, 0.39, 0.44, 1.00)");
+    expect(shimmer.chunks.slice(2, 9).every((chunk) => chunk.attributes === 1))
+        .toBe(true);
+    expect(shimmer.chunks.at(-1)?.attributes).toBe(0);
+    expect(plainText(renderTuiActivityAnimation(
+        "shimmer",
+        0,
+        " waiting",
+        shimmerColors,
+    ))).toBe("••  waiting");
 });
 
 test("TUI activity animation accepts a numeric width", () => {
