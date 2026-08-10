@@ -1,4 +1,5 @@
 import {
+    loadTuiPersistedAgentPane,
     loadTuiSharedSessionGroups,
     saveTuiPersistedAgentPane,
     saveTuiSharedSessionGroups,
@@ -14,6 +15,18 @@ export interface TuiHostedPanePersistenceOptions {
         mainAgentId: string,
         pane: TuiPersistedAgentPane | undefined,
     ) => void;
+    readonly loadPane?: (mainAgentId: string) => TuiPersistedAgentPane | undefined;
+}
+
+export interface TuiRestorableAgentClient {
+    detach(): Promise<void>;
+    close(): void;
+}
+
+export interface TuiHostedPaneRestoreOptions<Client extends TuiRestorableAgentClient> {
+    attach(agentId: string): Promise<Client>;
+    isCurrent(): boolean;
+    adopt(saved: TuiPersistedAgentPane, client: Client): Promise<void>;
 }
 
 export interface TuiHostedPaneSnapshot {
@@ -34,11 +47,15 @@ export class TuiHostedPanePersistence {
     private readonly savePane: NonNullable<
         TuiHostedPanePersistenceOptions["savePane"]
     >;
+    private readonly loadPane: NonNullable<
+        TuiHostedPanePersistenceOptions["loadPane"]
+    >;
 
     constructor(options: TuiHostedPanePersistenceOptions = {}) {
         this.groupsValue = options.groups ?? loadTuiSharedSessionGroups();
         this.saveGroups = options.saveGroups ?? saveTuiSharedSessionGroups;
         this.savePane = options.savePane ?? saveTuiPersistedAgentPane;
+        this.loadPane = options.loadPane ?? loadTuiPersistedAgentPane;
     }
 
     get groups(): readonly TuiSharedSessionGroup[] {
@@ -84,6 +101,27 @@ export class TuiHostedPanePersistence {
             this.savePane(mainAgentId, undefined);
         } catch {
             // Preference cleanup cannot block closing a pane.
+        }
+    }
+
+    async restore<Client extends TuiRestorableAgentClient>(
+        mainAgentId: string | undefined,
+        options: TuiHostedPaneRestoreOptions<Client>,
+    ): Promise<boolean> {
+        if (mainAgentId === undefined) return false;
+        const saved = this.loadPane(mainAgentId);
+        if (saved === undefined || saved.mainAgentId !== mainAgentId) return false;
+        try {
+            const next = await options.attach(saved.sidebarAgentId);
+            if (!options.isCurrent()) {
+                await next.detach().catch(() => next.close());
+                return false;
+            }
+            await options.adopt(saved, next);
+            return true;
+        } catch (error) {
+            this.forget(mainAgentId);
+            throw error;
         }
     }
 }
