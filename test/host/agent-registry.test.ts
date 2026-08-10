@@ -937,6 +937,100 @@ test("accepted settings become defaults for new agents in the live host", async 
     }
 });
 
+test("session model changes update global defaults but not other or resumed sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-model-defaults-boundary-"));
+    const firstPath = join(root, "first.jsonl");
+    const secondPath = join(root, "second.jsonl");
+    const legacyPath = join(root, "legacy.jsonl");
+    const defaultWrites: ModelSettingsUpdate["settings"][] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: "first-model",
+        reasoningEffort: "low",
+        approvalMode: "auto",
+        updateModelDefaults: (settings) => defaultWrites.push(settings),
+    });
+    try {
+        const first = await registry.create({
+            id: "defaults-first",
+            workspace: root,
+            sessionPath: firstPath,
+        });
+        const second = await registry.create({
+            id: "defaults-second",
+            workspace: root,
+            sessionPath: secondPath,
+        });
+        const legacy = await registry.create({
+            id: "defaults-legacy",
+            workspace: root,
+            sessionPath: legacyPath,
+        });
+        expect(await registry.updateModelSettings(legacy.id, {
+            provider: "openrouter",
+            model: "first-model",
+            reasoningEffort: "low",
+        })).toMatchObject({ model: "first-model", reasoningEffort: "low" });
+        expect(await registry.updateModelSettings(first.id, {
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "high",
+        })).toMatchObject({
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "high",
+        });
+        expect(defaultWrites).toEqual([
+            { provider: "openrouter", model: "first-model", reasoningEffort: "low" },
+            { provider: "openrouter", model: "z-ai/glm-5.2", reasoningEffort: "high" },
+        ]);
+
+        const secondSettings = await readAgentSettings(second, "second-live");
+        expect(secondSettings).toMatchObject({
+            provider: "openrouter",
+            model: "first-model",
+            reasoningEffort: "low",
+        });
+        const future = await registry.create({
+            id: "defaults-future",
+            workspace: root,
+            sessionPath: join(root, "future.jsonl"),
+        });
+        expect(await readAgentSettings(future, "future")).toMatchObject({
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "high",
+        });
+        expect(await readAgentSettings(legacy, "legacy-live")).toMatchObject({
+            provider: "openrouter",
+            model: "first-model",
+            reasoningEffort: "low",
+        });
+    } finally {
+        await registry.close();
+    }
+
+    const resumedRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: "new-global-default",
+        reasoningEffort: "medium",
+        approvalMode: "auto",
+    });
+    try {
+        const resumed = await resumedRegistry.resume({ sessionPath: legacyPath });
+        expect(await readAgentSettings(resumed, "legacy-resumed")).toMatchObject({
+            provider: "openrouter",
+            model: "first-model",
+            reasoningEffort: "low",
+        });
+    } finally {
+        await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("switching models settles an unsupported effort on a middle level", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-reasoning-fallback-"));
     const registry = new AgentRegistry({
@@ -2713,6 +2807,16 @@ async function receiveModelSettings(
             return update;
         }
     }
+}
+
+async function readAgentSettings(
+    agent: { attach(): AgentAttachment },
+    requestId: string,
+): Promise<ModelSettingsUpdate["settings"]> {
+    const attachment = agent.attach();
+    expect((await attachment.receive()).type).toBe("history");
+    attachment.send({ type: "get_model_settings", requestId });
+    return (await receiveModelSettings(attachment)).settings;
 }
 
 async function receivePermissions(
