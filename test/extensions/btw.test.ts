@@ -77,6 +77,7 @@ test("bare btw creates and opens a readonly hosted sidekick", async () => {
             workspace: "/workspace",
             approvalMode: "readonly",
             attachmentLifetime: "ephemeral",
+            statusLabel: "btw",
         },
     }]);
     expect(harness.mentions()).toEqual(["sidekick", "all", "vera"]);
@@ -96,6 +97,7 @@ test("pair creates a durable tool-capable peer", async () => {
             workspace: "/workspace",
             approvalMode: "ask",
             attachmentLifetime: "durable",
+            statusLabel: "pair",
         },
     }]);
     await harness.registry.close();
@@ -174,6 +176,7 @@ test("another btw reopens the same sidekick instead of creating one", async () =
             pane: "sidebar",
             mention: "sidekick",
             attachmentLifetime: "ephemeral",
+            statusLabel: "btw",
         },
     });
     expect(harness.calls.filter((call: any) => call.operation === "create"))
