@@ -356,8 +356,15 @@ function matchTopics(
             return { topic, index, score: relevant ? overlap.length : 0 };
         })
         .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score || a.topic.scope.localeCompare(b.topic.scope) || a.topic.file.localeCompare(b.topic.file) || a.index - b.index)
+        .sort((a, b) => b.score - a.score
+            || scopeOrder(a.topic.scope) - scopeOrder(b.topic.scope)
+            || a.topic.file.localeCompare(b.topic.file)
+            || a.index - b.index)
         .map((entry) => entry.topic);
+}
+
+function scopeOrder(scope: MemoryScope): number {
+    return scope === "user" ? 0 : 1;
 }
 
 function tokens(value: string): string[] {

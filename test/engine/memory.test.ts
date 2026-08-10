@@ -260,6 +260,30 @@ test("multiple matches are path ordered and stop at the topic bound", async () =
     );
 });
 
+test("matching keeps user and project scopes isolated and user topics first", async () => {
+    const dirs = await tempDirectories();
+    const root = await tempDir();
+    await mkdir(dirs.user, { recursive: true });
+    await mkdir(dirs.project, { recursive: true });
+    await writeFile(join(dirs.user, "user.md"), "User preference.");
+    await writeFile(join(dirs.project, "project.md"), "Project rule.");
+    await writeIndex(dirs.user, "- [User](user.md): shared topic\n");
+    await writeIndex(dirs.project, "- [Project](project.md): shared topic\n");
+
+    const snapshot = await loadMemory(
+        gitRoot(root),
+        dirs,
+        { query: "shared topic" },
+    );
+
+    expect(snapshot.recommendations.map((topic) => `${topic.scope}/${topic.file}`))
+        .toEqual(["user/user.md", "project/project.md"]);
+    expect(snapshot.loadedTopics.map((topic) => topic.scope)).toEqual([
+        "user",
+        "project",
+    ]);
+});
+
 test("invalid, missing, stale, unreadable, invalid-UTF8, and oversized topics are explicit", async () => {
     const dirs = await tempDirectories();
     const root = await tempDir();
