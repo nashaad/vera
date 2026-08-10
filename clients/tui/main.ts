@@ -1527,7 +1527,7 @@ export async function startTui(
             switchToClient(next, undefined, { preserveSidebar: true });
             return;
         }
-        const previousModeLabel = await hostedSidebar.adopt({
+        await hostedSidebar.adopt({
             extensionId,
             client: next,
             replaceOwner: replaceSidebarOwner,
@@ -1536,25 +1536,27 @@ export async function startTui(
             initialApprovalMode,
             statusLabel,
             signal,
+            activate(_attached, previousModeLabel) {
+                rememberOpenPaneGroup();
+                clearSidebarEntryNodes();
+                sidebar.clear();
+                sidebar.setHeader(undefined);
+                sidebar.open();
+                sidebar.setFocused(true);
+                hostedSidebar.start();
+                requestAgentSettings(next);
+                renderState();
+                if (
+                    previousModeLabel !== undefined
+                    && statusLabel !== undefined
+                    && previousModeLabel !== statusLabel
+                ) {
+                    showModeToast(
+                        `Switched from ${displayModeLabel(previousModeLabel)} to ${displayModeLabel(statusLabel)} mode`,
+                    );
+                }
+            },
         });
-        rememberOpenPaneGroup();
-        clearSidebarEntryNodes();
-        sidebar.clear();
-        sidebar.setHeader(undefined);
-        sidebar.open();
-        sidebar.setFocused(true);
-        hostedSidebar.start();
-        requestAgentSettings(next);
-        renderState();
-        if (
-            previousModeLabel !== undefined
-            && statusLabel !== undefined
-            && previousModeLabel !== statusLabel
-        ) {
-            showModeToast(
-                `Switched from ${displayModeLabel(previousModeLabel)} to ${displayModeLabel(statusLabel)} mode`,
-            );
-        }
     }
 
     function focusedAgentClient(): TuiAgentClient {

@@ -6,7 +6,7 @@ import type { IdentifiedTuiAgentClient } from "../../clients/tui/agent-client.ts
 import { TuiHostedSidebarAgent } from
     "../../clients/tui/hosted-sidebar-agent.ts";
 
-function client(agentId: string) {
+function client(agentId: string, detachGate?: Promise<void>) {
     const updates = new AsyncQueue<AgentUpdate>();
     const detached: string[] = [];
     const closed: string[] = [];
@@ -15,6 +15,7 @@ function client(agentId: string) {
         async send() {},
         receive: (signal) => updates.receive(signal),
         async detach() {
+            await detachGate;
             detached.push(agentId);
         },
         close() {
@@ -87,7 +88,7 @@ test("a cancelled or rejected adoption closes the incoming client", async () => 
         client: cancelled.value,
         signal: controller.signal,
     })).rejects.toThrow("cancelled");
-    expect(cancelled.closed).toEqual([]);
+    expect(cancelled.closed).toEqual(["cancelled"]);
 });
 
 test("the caller starts updates only after its sidebar is ready", async () => {
@@ -114,4 +115,77 @@ test("the caller starts updates only after its sidebar is ready", async () => {
     await Promise.resolve();
     expect(failures).toEqual(["connection lost"]);
     await slot.release()?.detach();
+});
+
+test("overlapping adoptions are serialized and the newest request wins", async () => {
+    const slot = sidebar();
+    const detachGate = Promise.withResolvers<void>();
+    const original = client("original", detachGate.promise);
+    const superseded = client("superseded");
+    const newest = client("newest");
+    const activated: string[] = [];
+    await slot.adopt({ extensionId: "vera.btw", client: original.value });
+
+    const first = slot.adopt({
+        extensionId: "vera.btw",
+        client: superseded.value,
+        activate: (pane) => activated.push(pane.agentId),
+    });
+    const second = slot.adopt({
+        extensionId: "vera.btw",
+        client: newest.value,
+        activate: (pane) => activated.push(pane.agentId),
+    });
+    detachGate.resolve();
+
+    await expect(first).rejects.toThrow("superseded");
+    await expect(second).resolves.toBeUndefined();
+    expect(original.detached).toEqual(["original"]);
+    expect(superseded.closed).toEqual(["superseded"]);
+    expect(slot.pane?.agentId).toBe("newest");
+    expect(activated).toEqual(["newest"]);
+    await slot.release()?.detach();
+});
+
+test("releasing the sidebar invalidates an adoption still detaching", async () => {
+    const slot = sidebar();
+    const detachGate = Promise.withResolvers<void>();
+    const original = client("original", detachGate.promise);
+    const incoming = client("incoming");
+    await slot.adopt({ extensionId: "vera.btw", client: original.value });
+
+    const pending = slot.adopt({
+        extensionId: "vera.btw",
+        client: incoming.value,
+    });
+    slot.release();
+    expect(incoming.closed).toEqual(["incoming"]);
+    detachGate.resolve();
+
+    await expect(pending).rejects.toThrow("superseded");
+    expect(incoming.closed).toEqual(["incoming"]);
+    expect(slot.pane).toBeUndefined();
+    expect(slot.owner).toBeUndefined();
+});
+
+test("an activation failure rolls back and closes the adopted pane", async () => {
+    const slot = sidebar();
+    const incoming = client("incoming");
+
+    await expect(slot.adopt({
+        extensionId: "vera.btw",
+        client: incoming.value,
+        attachmentLifetime: "ephemeral",
+        initialApprovalMode: "full_access",
+        activate() {
+            throw new Error("render failed");
+        },
+    })).rejects.toThrow("render failed");
+
+    expect(incoming.closed).toEqual(["incoming"]);
+    expect(slot.pane).toBeUndefined();
+    expect(slot.owner).toBeUndefined();
+    expect(slot.mention).toBeUndefined();
+    expect(slot.attachmentLifetime).toBe("durable");
+    expect(slot.initialApprovalMode).toBeUndefined();
 });
