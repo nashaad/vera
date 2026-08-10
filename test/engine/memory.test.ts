@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import {
+    mkdir,
+    mkdtemp,
+    rm,
+    symlink,
+    utimes,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -314,4 +321,24 @@ test("invalid, missing, stale, unreadable, invalid-UTF8, and oversized topics ar
     expect(snapshot.warnings.some((warning) => warning.includes("invalid-UTF8"))).toBe(false);
     expect(snapshot.warnings.some((warning) => warning.includes("bad.md") && warning.includes("invalid"))).toBe(true);
     expect(snapshot.warnings.some((warning) => warning.includes("missing.md") && warning.includes("missing"))).toBe(true);
+});
+
+test("memory topics never follow symlinks outside their indexed directory", async () => {
+    const dirs = await tempDirectories();
+    const root = await tempDir();
+    await mkdir(dirs.project, { recursive: true });
+    const outside = join(root, "outside.md");
+    await writeFile(outside, "private content");
+    await symlink(outside, join(dirs.project, "linked.md"));
+    await writeIndex(dirs.project, "- [Linked](linked.md): private content\n");
+
+    const snapshot = await loadMemory(gitRoot(root), dirs, {
+        query: "private content",
+    });
+
+    expect(snapshot.files[0]?.topics[0]?.availability).toBe("unreadable");
+    expect(snapshot.loadedTopics).toEqual([]);
+    expect(snapshot.warnings).toContain(
+        "memory topic project/linked.md was not loaded: unreadable",
+    );
 });
