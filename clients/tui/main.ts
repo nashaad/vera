@@ -2804,6 +2804,8 @@ export async function startTui(
             sidebar.cycleLayout();
             composer.focus();
             renderState();
+            renderStatus();
+            renderer.requestRender();
             return;
         }
 
@@ -7109,8 +7111,14 @@ export async function startTui(
                 ),
             ])
             : layout === "sidebar"
-            ? new StyledText([fg(TUI_ACCENT)(sidePaneStatus)])
-            : new StyledText([fg(TUI_ACCENT)(mainPaneStatus)]);
+            ? new StyledText([
+                fg(TUI_ACCENT)("› "),
+                fg(TUI_ACCENT)(sidePaneStatus),
+            ])
+            : new StyledText([
+                fg(TUI_ACCENT)("› "),
+                fg(TUI_ACCENT)(mainPaneStatus),
+            ]);
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
             : `enter queue → ${sidebarAgentMention ?? focusedSide.agentId}`
@@ -7233,9 +7241,13 @@ export async function startTui(
                     : `ctrl+g ${sidebarAgentMention ?? sidebarAgentPane.agentId}`]
                 : []),
         ];
+        // Keep extension-owned state on its own row. The model/path/context
+        // line can already fill a narrow terminal; appending layout controls
+        // to it would leave the only proof of a changed layout clipped past
+        // the right edge.
         const detailsLine = extensionState.length === 0
             ? statusDetailsLine
-            : `${statusDetailsLine} · ${extensionState.join(" · ")}`;
+            : `${extensionState.join(" · ")}\n${statusDetailsLine}`;
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
@@ -7281,9 +7293,8 @@ export async function startTui(
                         : `\n${agentSection.slice(1).join("\n")}`,
                 ),
             ]);
-        backgroundStatusText.height = agentSection.length === 0
-            ? 1
-            : 2 + agentSection.length;
+        backgroundStatusText.height = (extensionState.length === 0 ? 0 : 1)
+            + (agentSection.length === 0 ? 1 : 2 + agentSection.length);
         composerBox.marginBottom = 1 + backgroundStatusText.height
             + (paneStatusText.visible ? 1 : 0)
             + (statusText.visible ? 1 : 0);
