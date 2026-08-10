@@ -23,6 +23,40 @@ afterEach(() => {
 });
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached clients negotiate capabilities on each connection",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: ["agent.branch-options.v1"],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [
+                "agent.future.v1",
+                "agent.branch-options.v1",
+            ],
+        });
+        try {
+            expect(client.capabilities).toEqual(["agent.branch-options.v1"]);
+            expect(client.supportsHostCapability("agent.branch-options.v1"))
+                .toBe(true);
+            expect(client.supportsHostCapability("agent.future.v1"))
+                .toBe(false);
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "attached client exchanges typed commands and updates until detach",
     async () => {
         const directory = temporaryDirectory();
