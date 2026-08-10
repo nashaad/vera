@@ -1449,14 +1449,42 @@ function finishToolEntry(
             : completedHeader,
         result: true,
         prefix: "  └ ",
-        text: toolResultText(output),
+        text: toolResultText(output, tool),
     });
     return completed;
 }
 
-function toolResultText(output: string): string {
+function toolResultText(output: string, tool?: string): string {
     const text = output.trim();
+    if (tool === "ask_user") {
+        return formatAskUserResult(text);
+    }
     return text.length === 0 ? "(no output)" : bounded(text);
+}
+
+/** One semantic formatter shared by live rows and history replay. */
+export function formatAskUserResult(output: string): string {
+    if (output.length === 0) return "Question completed";
+    try {
+        const value = JSON.parse(output) as Record<string, unknown>;
+        if (value.cancelled === true) return "Question dismissed";
+        if (value.custom === true && typeof value.text === "string") {
+            return `Answered: ${bounded(value.text)}`;
+        }
+        if (
+            typeof value.choice_id === "string"
+            && typeof value.label === "string"
+        ) {
+            const notes = typeof value.notes === "string"
+                && value.notes.trim().length > 0
+                ? ` (notes: ${bounded(value.notes.trim())})`
+                : "";
+            return `Answered: ${bounded(value.label)}${notes}`;
+        }
+    } catch {
+        // A provider/tool error is still useful as its original text.
+    }
+    return bounded(output);
 }
 
 const AUTO_FOLD_TOOL_LINES = 8;
@@ -1658,7 +1686,7 @@ function withHistoricalToolResult(
         header: call.kind === "tool" ? call.header : toolHeader(tool, false),
         result: true,
         prefix: "  └ ",
-        text: toolResultText(output),
+        text: toolResultText(output, tool),
     });
     return next;
 }
