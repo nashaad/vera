@@ -39,6 +39,7 @@ import {
     tuiExperimentalKeyEvent,
 } from "./experimental-tui-input.ts";
 import { invokeTuiExperimentalAction } from "./experimental-tui-actions.ts";
+import { settleTuiExperimentalKeyResult } from "./experimental-tui-key-results.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
 } from "../../src/extensions/client-registry.ts";
@@ -363,19 +364,13 @@ export function createTuiExperimentalHost(
                 const event = tuiExperimentalKeyEvent(key);
                 try {
                     const handled = rawModal.spec.onKey(event);
-                    if (handled instanceof Promise) {
-                        void handled
-                            .then(() => options.onRenderRequested())
-                            .catch((error) => options.onFailure(
-                                rawModal.extensionId,
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                            ));
-                        return true;
-                    }
-                    options.onRenderRequested();
-                    return handled !== false;
+                    return settleTuiExperimentalKeyResult(handled, {
+                        onRenderRequested: options.onRenderRequested,
+                        onFailure: (error) => options.onFailure(
+                            rawModal.extensionId,
+                            error instanceof Error ? error.message : String(error),
+                        ),
+                    });
                 } catch (error) {
                     options.onFailure(
                         rawModal.extensionId,
@@ -399,14 +394,10 @@ export function createTuiExperimentalHost(
                 const event = tuiExperimentalKeyEvent(key);
                 try {
                     const handled = view.spec.onKey(event, contextFor(view));
-                    if (handled instanceof Promise) {
-                        void handled
-                            .then(() => options.onRenderRequested())
-                            .catch((error) => reportFailure(view, error));
-                        return true;
-                    }
-                    options.onRenderRequested();
-                    return handled !== false;
+                    return settleTuiExperimentalKeyResult(handled, {
+                        onRenderRequested: options.onRenderRequested,
+                        onFailure: (error) => reportFailure(view, error),
+                    });
                 } catch (error) {
                     reportFailure(view, error);
                     return false;
