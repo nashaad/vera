@@ -28,6 +28,11 @@ import {
     tuiExperimentalViewSignature,
 } from "./experimental-tui-view-state.ts";
 import { createTuiExperimentalSlotRegistry } from "./experimental-tui-slots.ts";
+import {
+    findTuiExperimentalFocusable,
+    findTuiExperimentalModal,
+    hasTuiExperimentalModal,
+} from "./experimental-tui-focus.ts";
 import { tuiChord, type TuiChordKey } from "./keymap.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
@@ -256,17 +261,19 @@ export function createTuiExperimentalHost(
     }
 
     function activeView(): MountedView | undefined {
-        const modal = [...views.values()].find((view) =>
-            view.spec.slot === "overlay"
-            && view.spec.modal === true
-            && visible(view)
+        const modal = findTuiExperimentalModal(
+            views.values(),
+            (view) => view.spec,
+            visible,
         );
         return modal ?? focusedView;
     }
 
     function firstFocusableView(): MountedView | undefined {
-        return [...views.values()].find((view) =>
-            view.spec.focusable === true && visible(view)
+        return findTuiExperimentalFocusable(
+            views.values(),
+            (view) => view.spec,
+            visible,
         );
     }
 
@@ -320,21 +327,21 @@ export function createTuiExperimentalHost(
         },
         conversationChanged: eventBus.conversationChanged,
         agentEvent: eventBus.agentEvent,
-        hasModal: () => [...views.values()].some((view) =>
-            view.spec.slot === "overlay"
-            && view.spec.modal === true
-            && visible(view)
-        ) || [...rawViews.values()].some((view) =>
-            view.spec.slot === "overlay"
-            && view.spec.modal === true
-            && view.container.visible
+        hasModal: () => hasTuiExperimentalModal(
+            views.values(),
+            (view) => view.spec,
+            visible,
+        ) || hasTuiExperimentalModal(
+            rawViews.values(),
+            (view) => view.spec,
+            (view) => view.container.visible,
         ),
         hasFocus: () => focusedView !== undefined,
         focus(): void {
-            const rawModal = [...rawViews.values()].find((view) =>
-                view.spec.slot === "overlay"
-                && view.spec.modal === true
-                && view.container.visible
+            const rawModal = findTuiExperimentalModal(
+                rawViews.values(),
+                (view) => view.spec,
+                (view) => view.container.visible,
             );
             if (rawModal !== undefined) {
                 rawModal.root.focus();
@@ -344,10 +351,10 @@ export function createTuiExperimentalHost(
             if (view !== undefined) focusView(view);
         },
         handleKey(key): boolean {
-            const rawModal = [...rawViews.values()].find((view) =>
-                view.spec.slot === "overlay"
-                && view.spec.modal === true
-                && view.container.visible
+            const rawModal = findTuiExperimentalModal(
+                rawViews.values(),
+                (view) => view.spec,
+                (view) => view.container.visible,
             );
             if (rawModal !== undefined) {
                 if (rawModal.spec.onKey === undefined) return true;
