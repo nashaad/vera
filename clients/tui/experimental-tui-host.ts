@@ -33,14 +33,17 @@ import {
     findTuiExperimentalModal,
     hasTuiExperimentalModal,
 } from "./experimental-tui-focus.ts";
-import { tuiChord, type TuiChordKey } from "./keymap.ts";
+import { type TuiChordKey } from "./keymap.ts";
+import {
+    findTuiExperimentalKeybinding,
+    tuiExperimentalKeyEvent,
+} from "./experimental-tui-input.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
 } from "../../src/extensions/client-registry.ts";
 import type {
     VeraExperimentalTuiContext,
     VeraExperimentalTuiAgentEvent,
-    VeraExperimentalTuiKey,
     VeraExperimentalTuiNode,
     VeraExperimentalTuiTheme,
     VeraExperimentalTuiViewSpec,
@@ -358,13 +361,7 @@ export function createTuiExperimentalHost(
             );
             if (rawModal !== undefined) {
                 if (rawModal.spec.onKey === undefined) return true;
-                const event: VeraExperimentalTuiKey = {
-                    chord: tuiChord(key) ?? key.name,
-                    name: key.name,
-                    ctrl: key.ctrl === true,
-                    shift: key.shift === true,
-                    meta: key.meta === true,
-                };
+                const event = tuiExperimentalKeyEvent(key);
                 try {
                     const handled = rawModal.spec.onKey(event);
                     if (handled instanceof Promise) {
@@ -391,24 +388,16 @@ export function createTuiExperimentalHost(
             const view = activeView();
             if (view === undefined) return false;
             if (!visible(view)) return false;
-            const chord = tuiChord(key);
-            const binding = chord === undefined
-                ? undefined
-                : view.spec.keybindings?.find((candidate) =>
-                    candidate.keys.includes(chord)
-                );
+            const binding = findTuiExperimentalKeybinding(
+                key,
+                view.spec.keybindings,
+            );
             if (binding !== undefined) {
                 void triggerAction(view, binding.action);
                 return true;
             }
             if (view.spec.onKey !== undefined) {
-                const event: VeraExperimentalTuiKey = {
-                    chord: chord ?? key.name,
-                    name: key.name,
-                    ctrl: key.ctrl === true,
-                    shift: key.shift === true,
-                    meta: key.meta === true,
-                };
+                const event = tuiExperimentalKeyEvent(key);
                 try {
                     const handled = view.spec.onKey(event, contextFor(view));
                     if (handled instanceof Promise) {
