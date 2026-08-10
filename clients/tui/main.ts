@@ -453,6 +453,10 @@ export interface TuiDependencies {
     ) => Promise<RenameSessionResult>;
     readonly disabledBuiltinExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
+    readonly loadClientExtensionConfiguration?: () => {
+        readonly disabledBuiltinExtensions: readonly string[];
+        readonly clientExtensions: readonly VeraExtensionConfig[];
+    };
     readonly build?: {
         readonly clientVersion: string;
         readonly clientEntrypoint: string;
@@ -622,6 +626,14 @@ export async function startConfiguredTui(
             ...(config?.extensions === undefined
                 ? {}
                 : { clientExtensions: config.extensions }),
+            loadClientExtensionConfiguration() {
+                const latest = loadOptionalVeraConfig();
+                return {
+                    disabledBuiltinExtensions:
+                        latest?.disabled_builtin_extensions ?? [],
+                    clientExtensions: latest?.extensions ?? [],
+                };
+            },
             build: {
                 clientVersion: sourceVersion(import.meta.dir),
                 clientEntrypoint: import.meta.path,
@@ -831,6 +843,7 @@ export async function startTui(
     let sessionSwitchPending = false;
     let sessionSwitchActivity = "starting new session…";
     let extensionCommandPending = false;
+    let clientExtensionReloadPending = false;
     let extensionCommandActivity: string | undefined;
     let sidebarPromptSubmitting = false;
     let extensionCommandsLoading =
@@ -883,12 +896,12 @@ export async function startTui(
         }));
     }
     const finished = Promise.withResolvers<TuiExit>();
-    const disabledBuiltinExtensions =
+    let disabledBuiltinExtensions =
         dependencies.disabledBuiltinExtensions ?? [];
     const commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
         disabledBuiltinExtensions,
     );
-    const configuredClientExtensions = configuredTuiClientExtensions(
+    let configuredClientExtensions = configuredTuiClientExtensions(
         disabledBuiltinExtensions,
         dependencies.clientExtensions,
     );
@@ -906,11 +919,12 @@ export async function startTui(
     });
     function startConfiguredClientExtensionHost(
         signal: AbortSignal,
+        extensions: readonly VeraExtensionConfig[] = configuredClientExtensions,
     ): Promise<
         ClientExtensionRegistry
     > {
         return startTuiClientExtensionHost({
-        extensions: configuredClientExtensions,
+        extensions,
         currentModelSettings: () => state.modelSettings,
         updateModelSettings: requestExtensionModelSettingsUpdate,
         subscribeModelSettings(listener) {
@@ -1022,9 +1036,46 @@ export async function startTui(
         startConfiguredClientExtensionHost,
         (registry) => {
             clientExtensionRegistry = registry;
+            if (registry === undefined) {
+                extensionMentions = [];
+                extensionAddressee = undefined;
+                commandPalette = undefined;
+                help = undefined;
+                const attached = hostedSidebar.release();
+                forgetPersistedAgentPane();
+                void attached?.detach().catch(() => attached.close());
+                clearSidebarEntryNodes();
+                sidebar.clear();
+                sidebar.setHeader(undefined);
+                sidebar.close();
+            }
+            if (clientSurfaceReady) {
+                renderCommandSuggestions();
+                renderState();
+            }
         },
     );
     await clientExtensionHost.reload();
+    async function reloadConfiguredClientExtensions(): Promise<void> {
+        const refreshed = dependencies.loadClientExtensionConfiguration?.();
+        let nextDisabledBuiltinExtensions = disabledBuiltinExtensions;
+        let nextConfiguredClientExtensions = configuredClientExtensions;
+        if (refreshed !== undefined) {
+            nextDisabledBuiltinExtensions = refreshed.disabledBuiltinExtensions;
+            nextConfiguredClientExtensions = configuredTuiClientExtensions(
+                nextDisabledBuiltinExtensions,
+                refreshed.clientExtensions,
+            );
+        }
+        await clientExtensionHost.reload((signal) =>
+            startConfiguredClientExtensionHost(
+                signal,
+                nextConfiguredClientExtensions,
+            )
+        );
+        disabledBuiltinExtensions = nextDisabledBuiltinExtensions;
+        configuredClientExtensions = nextConfiguredClientExtensions;
+    }
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
         if (
@@ -1042,9 +1093,13 @@ export async function startTui(
             "direct",
         );
     }
-    const coreHelpCommandNames = new Set(commandRegistry.commandNames());
     function coreHelpCommands(): readonly TuiCommandCatalogEntry[] {
-        return commandRegistry.registeredCommands(coreHelpCommandNames);
+        const hostCommandNames = new Set(
+            hostExtensionCommands.map((command) => command.name),
+        );
+        return commandRegistry.registeredCommands().filter(
+            (command) => !hostCommandNames.has(command.name),
+        );
     }
 
     function registeredPaletteEntries(): readonly TuiPaletteEntry[] {
@@ -2962,6 +3017,40 @@ export async function startTui(
         if (commandAction?.type === "command_error") {
             state = appendTuiNotice(state, commandAction.message);
             renderState();
+            return;
+        }
+        if (commandAction?.type === "reload_client_extensions") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            if (clientExtensionReloadPending) {
+                state = appendTuiNotice(
+                    state,
+                    "Client extensions are already reloading",
+                );
+                renderState();
+                return;
+            }
+            clientExtensionReloadPending = true;
+            void reloadConfiguredClientExtensions().then(() => {
+                if (shuttingDown) return;
+                state = appendTuiNotice(state, "Client extensions reloaded");
+                renderState();
+                focusActiveSurface();
+            }).catch((error) => {
+                if (shuttingDown) return;
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                state = appendTuiNotice(
+                    state,
+                    `Client extensions could not reload: ${message}`,
+                );
+                renderState();
+                focusActiveSurface();
+            }).finally(() => {
+                clientExtensionReloadPending = false;
+            });
             return;
         }
         if (commandAction?.type === "show_diagnostics") {

@@ -55,7 +55,9 @@ export interface StartTuiClientExtensionHostOptions {
 
 export interface TuiClientExtensionHostController {
     current(): ClientExtensionRegistry | undefined;
-    reload(): Promise<ClientExtensionRegistry | undefined>;
+    reload(
+        start?: (signal: AbortSignal) => Promise<ClientExtensionRegistry>,
+    ): Promise<ClientExtensionRegistry | undefined>;
     close(): Promise<void>;
 }
 
@@ -82,7 +84,9 @@ export function createTuiClientExtensionHostController(
 
     return {
         current: () => registry,
-        reload(): Promise<ClientExtensionRegistry | undefined> {
+        reload(
+            replacementStart = start,
+        ): Promise<ClientExtensionRegistry | undefined> {
             return enqueue(async () => {
                 if (closed) return undefined;
                 const previous = registry;
@@ -96,7 +100,7 @@ export function createTuiClientExtensionHostController(
                 activating = controller;
                 let replacement: ClientExtensionRegistry;
                 try {
-                    replacement = await start(controller.signal);
+                    replacement = await replacementStart(controller.signal);
                 } finally {
                     if (activating === controller) {
                         activating = undefined;

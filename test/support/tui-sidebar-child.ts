@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 
 import {
     startTui,
@@ -38,11 +39,23 @@ const client: TuiAgentClient = {
     close(): void {},
 };
 
+const extensions = [{
+    path: join(import.meta.dir, "fixtures/sidebar-extension"),
+    enabled: true,
+    config: null,
+}] as const;
+
 await startTui({
     client,
-    clientExtensions: [{
-        path: join(import.meta.dir, "fixtures/sidebar-extension"),
-        enabled: true,
-        config: null,
-    }],
+    clientExtensions: extensions,
+    loadClientExtensionConfiguration() {
+        writeFileSync(
+            join(process.env.HOME ?? "", "client-extensions-reloaded.txt"),
+            "reloaded",
+        );
+        return {
+            disabledBuiltinExtensions: [],
+            clientExtensions: extensions,
+        };
+    },
 });

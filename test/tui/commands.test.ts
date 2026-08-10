@@ -127,6 +127,14 @@ test("the rewind command returns a client-owned action", () => {
     expect(registry.dispatch("  /rewind  ")).toEqual({ type: "open_rewind" });
 });
 
+test("reload extensions is an application-owned client action", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    const action = registry.dispatch("/reload-extensions");
+    expect(action).toEqual({ type: "reload_client_extensions" });
+    expect(tuiCommandScope(action!)).toBe("application");
+});
+
 test("the fork command opens the prompt picker", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
@@ -148,10 +156,10 @@ test("typing slash exposes the built-in rewind command", () => {
     expect(registry.suggestions("/rewind now")).toEqual([]);
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
-    ))).toContain("/model        Change the model for the next turn");
+    ))).toContain("/model              Change the model for the next turn");
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
-    ))).toContain("/fork         Fork from an earlier prompt");
+    ))).toContain("/fork               Fork from an earlier prompt");
     // The highlighted command carries the chevron marker; others are indented.
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
