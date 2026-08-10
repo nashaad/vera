@@ -7085,15 +7085,16 @@ export async function startTui(
                     || extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
-        const statusLine = statusNotice ?? lifecycleHint;
         const quietAttachedPane = sidebarAgentPane !== undefined
             && statusNotice === undefined
             && !statusState.working
             && uiRequest === undefined
             && lifecycleHint === READY_HINT;
+        const statusLine = quietAttachedPane
+            ? ""
+            : statusNotice ?? lifecycleHint;
         statusText.visible = !(approvalView.box.visible
-            || questionView.box.visible)
-            && !quietAttachedPane;
+            || questionView.box.visible);
         // Pull on repaint: the renderer is handed the snapshot and answers
         // synchronously, or it does not answer at all. Nothing here waits on
         // an extension, and a renderer that fails leaves the built-in line.
