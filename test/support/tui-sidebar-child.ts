@@ -44,9 +44,14 @@ const extensions = [{
     enabled: true,
     config: null,
 }] as const;
+const disabledBuiltinExtensions = [
+    "vera.model-presets",
+    "vera.reasoning-cycle",
+] as const;
 
 await startTui({
     client,
+    disabledBuiltinExtensions,
     clientExtensions: extensions,
     loadClientExtensionConfiguration() {
         writeFileSync(
@@ -54,7 +59,7 @@ await startTui({
             "reloaded",
         );
         return {
-            disabledBuiltinExtensions: [],
+            disabledBuiltinExtensions,
             clientExtensions: extensions,
         };
     },

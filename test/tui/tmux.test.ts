@@ -419,6 +419,22 @@ test.skipIf(!tmuxAvailable)(
                 "utf8",
             )).toBe("reloaded");
 
+            sendText(socket, session, "/diagnostics");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "reload       success (1 loaded)",
+            );
+            expect(pane).toContain("active       test.sidebar");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => !visible.includes("Diagnostics"),
+                "diagnostics overlay to close",
+            );
+
             sendText(socket, session, "/pane");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
