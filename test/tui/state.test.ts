@@ -420,7 +420,7 @@ test("TUI shows an inbox count without exposing message metadata", () => {
         text: "3 unread inbox entries",
     }]);
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "╭─ Agent inbox\n╰─ 3 unread inbox entries",
+        "〰 Agent inbox 〰\n  3 unread inbox entries",
     );
 });
 

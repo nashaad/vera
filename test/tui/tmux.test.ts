@@ -2225,8 +2225,8 @@ test.skipIf(!tmuxAvailable)(
                 "test/support/tui-inbox-notice-child.ts",
             );
             pane = await waitForVisiblePane(socket, session, "Agent inbox");
-            expect(pane).toContain("╭─ Agent inbox");
-            expect(pane).toContain("╰─ 2 unread inbox entries");
+            expect(pane).toContain("〰 Agent inbox 〰");
+            expect(pane).toContain("2 unread inbox entries");
             expect(pane).not.toContain("1 unread inbox entry");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
@@ -2243,7 +2243,7 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
-    "agent_roster names the workspace's other session and not itself",
+    "agent_roster identifies self and lists only the workspace's other session",
     async () => {
         const socket = `vera-roster-${process.pid}-${randomUUID()}`;
         const session = "tui";
@@ -2304,6 +2304,7 @@ test.skipIf(!tmuxAvailable)(
             // scrollbar column goes too: it sits at the wrap boundary and would
             // otherwise land inside a wrapped path.
             const flat = pane.replaceAll(/[\s█]+/g, "");
+            expect(flat).toContain('"self_participant_id":"roster-caller"');
             expect(flat).toContain('"participant_id":"roster-peer"');
             expect(flat).toContain(`"name":"${peer.name}"`);
             expect(flat).toContain('"status":"idle"');

@@ -1019,9 +1019,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "inbox") {
         return new StyledText([
-            bold(fg(TUI_ACCENT)("╭─ Agent inbox\n")),
-            fg(TUI_NOTICE)("╰─ "),
-            bold(fg(TUI_NOTICE)(entry.text)),
+            bold(fg(TUI_ACCENT)("〰 Agent inbox 〰\n")),
+            fg(TUI_MUTED)("  "),
+            bold(fg(TUI_TEXT)(entry.text)),
         ]);
     }
     if (entry.kind === "extension_label") {

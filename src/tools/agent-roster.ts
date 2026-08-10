@@ -13,9 +13,11 @@ export const agentRosterTool: RegisteredTool = {
     definition: {
         name: "agent_roster",
         description: [
-            "List the other currently live vera participants in the current",
-            "workspace. The compact default returns the identity and status",
-            "needed for messaging. Set details to true only when the full",
+            "Return your own participant ID and list the other currently live",
+            "vera participants in the current workspace. self_participant_id",
+            "is always the caller; participants never includes the caller.",
+            "The compact default returns the identity and status needed for",
+            "messaging. Set details to true only when the full",
             "resident-session and repository diagnostics are needed.",
         ].join(" "),
         inputSchema: {
