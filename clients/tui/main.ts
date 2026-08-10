@@ -155,7 +155,6 @@ import {
     COMPOSER_PLACEHOLDER,
     createTuiComposer,
     createTuiComposerPanel,
-    COMPOSER_DEFAULT_TIP,
     TUI_COMPOSER_PANEL_ROWS,
 } from "./composer.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
@@ -1321,13 +1320,9 @@ export async function startTui(
     // things without a heading having to say it.
     const statusCard = new BoxRenderable(renderer, {
         id: "status-card",
-        border: true,
-        borderStyle: "rounded",
-        borderColor: TUI_ELEMENT,
+        border: false,
         width: "100%",
         height: "auto",
-        paddingLeft: 1,
-        paddingRight: 1,
         flexDirection: "column",
     });
     statusCard.add(backgroundStatusText);
@@ -1352,15 +1347,17 @@ export async function startTui(
         flexDirection: "column",
         // The rows are indented from the band, not from themselves: a text
         // node laid out as a flex child does not carry its own padding. The
-        // indent lands just inside the composer's edge, so the status reads as
-        // sitting under the composer rather than starting a new column.
-        paddingLeft: 2,
-        paddingRight: 2,
+        // indent clears the frame above and its padding, so these rows start
+        // in the same column as the text inside it.
+        paddingLeft: 4,
+        paddingRight: 4,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
+    // Where the session is, then what it is doing: the place row sits under
+    // the frame it belongs to, and the transient line reads last.
+    statusBand.add(statusCard);
     statusBand.add(paneStatusText);
     statusBand.add(statusText);
-    statusBand.add(statusCard);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -1379,6 +1376,16 @@ export async function startTui(
     let composerTip: string | undefined;
     let workingLastRender = false;
     let pickerTipKind: string | undefined;
+
+    const composerTipText = new TextRenderable(renderer, {
+        id: "composer-tip",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        paddingLeft: 2,
+        visible: false,
+    });
 
     // Text taken from one pane and waiting to ride along with the next
     // message. One at a time: a second selection replaces it, which is what a
@@ -1493,6 +1500,7 @@ export async function startTui(
     function positionCommandSuggestions(): void {
         commandSuggestionsBox.bottom = TUI_COMPOSER_PANEL_ROWS
             + composerMarginRows
+            + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0);
     }
@@ -1525,8 +1533,11 @@ export async function startTui(
     modeToast.add(modeToastText);
     let modeToastVersion = 0;
 
-    const { panel: composerBox, tip: composerTipText } =
-        createTuiComposerPanel(renderer, composer);
+    const {
+        panel: composerBox,
+        status: composerStatusText,
+        rule: composerRule,
+    } = createTuiComposerPanel(renderer, composer);
 
     const bodyFocus = new TuiBodyFocusController();
     // Everything the sidebar sits beside: the conversation and what hangs off
@@ -2103,6 +2114,7 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
+    app.add(composerTipText);
     // Pinned beside the composer, not written into the transcript: a mode the
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
@@ -5095,15 +5107,17 @@ export async function startTui(
             composerTip = takeTip(false);
         }
         workingLastRender = state.working;
-        // The footer is part of the composer's own frame, so it always says
-        // something: the turn's tip when there is one, and the way to the
-        // commands when there is not.
         composerTipText.content = composerTip === undefined
-            ? new StyledText([fg(TUI_MUTED)(COMPOSER_DEFAULT_TIP)])
+            ? new StyledText([])
+            // Text nodes lay their content out from column zero, so the
+            // indent the transcript rows share is written in rather than set
+            // as padding.
             : new StyledText([
-                fg(TUI_ACCENT)("Tip "),
+                fg(TUI_ACCENT)("  Tip "),
                 fg(TUI_MUTED)(composerTip),
             ]);
+        composerTipText.visible = composerTip !== undefined
+            && !anyOverlayOpen();
         renderHeldAddress();
         composer.placeholder = extensionAddressee === undefined
             ? sidebar.isFocused() && sidebarAgentMention !== undefined
@@ -6778,7 +6792,6 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
-        statusCard.borderColor = theme.element;
         app.backgroundColor = theme.background;
         quoteText.fg = theme.muted;
         heldAddressText.fg = theme.muted;
@@ -6795,10 +6808,12 @@ export async function startTui(
         modeToast.backgroundColor = theme.panel;
         commandSuggestionsText.fg = theme.text;
         commandSuggestionsBox.backgroundColor = theme.background;
-        composerBox.backgroundColor = theme.panel;
-        composerBox.borderColor = theme.accent;
-        composer.backgroundColor = theme.panel;
-        composer.focusedBackgroundColor = theme.panel;
+        composerBox.backgroundColor = theme.background;
+        composerBox.borderColor = theme.element;
+        composerStatusText.fg = theme.muted;
+        composerRule.borderColor = theme.element;
+        composer.backgroundColor = theme.background;
+        composer.focusedBackgroundColor = theme.background;
         composer.textColor = theme.text;
         composer.focusedTextColor = theme.text;
         composer.cursorColor = theme.accent;
@@ -7114,7 +7129,10 @@ export async function startTui(
         const sidePaneStatus = sidebarAgentPane === undefined
             ? ""
             : `${sidebarAgentMention ?? sidebarAgentPane.agentId} · ${sidebarAgentPane.state.state.approvalMode ?? "loading"} · ${sidePaneActivity}`;
-        paneStatusText.visible = !anyOverlayOpen();
+        // Only when there are two panes to tell apart: an empty row still
+        // takes a line under the frame.
+        paneStatusText.visible = sidebarAgentPane !== undefined
+            && !anyOverlayOpen();
         paneStatusText.content = sidebarAgentPane === undefined
             ? ""
             : layout === "split"
@@ -7270,7 +7288,6 @@ export async function startTui(
                     }]
                     : row
             );
-        const detailsHeight = detailsRows.length;
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
@@ -7309,9 +7326,18 @@ export async function startTui(
         const cardWidth = Math.max(1, renderer.width - 8);
         const rule = (glyph: string) =>
             fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
-        const detailChunks = detailsRows.flatMap((row, index) => [
+        // The first row says what the session is answering as, and it lives
+        // inside the composer's frame: it is a property of the thing being
+        // typed into. What is left describes where the session is, and reads
+        // under the frame.
+        const insideRow = detailsRows[0] ?? [];
+        const outsideRows = detailsRows.slice(1);
+        composerStatusText.content = new StyledText(
+            insideRow.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
+        );
+        const detailChunks = outsideRows.flatMap((row, index) => [
             ...row.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
-            ...(index === detailsRows.length - 1
+            ...(index === outsideRows.length - 1
                 ? []
                 : [fg(TUI_MUTED)("\n"), rule("─")]),
         ]);
@@ -7328,16 +7354,16 @@ export async function startTui(
                 ),
             ]),
         ]);
-        // A rule between every pair of detail rows, and one more above the
-        // agent section when there is one.
-        const cardRows = detailsHeight + (detailsHeight - 1)
+        // A rule between every pair of rows under the frame, and one more
+        // above the agent section when there is one.
+        const cardRows = Math.max(1, outsideRows.length * 2 - 1)
             + (agentSection.length === 0 ? 0 : 1 + agentSection.length);
         backgroundStatusText.height = cardRows;
         // The band's own rows, which the composer sits straight on top of with
         // no gutter of its own: the card, its border lines, and whichever
         // status lines are showing above it.
         setComposerMargin(
-            cardRows + 1
+            cardRows
                 + (paneStatusText.visible ? 1 : 0)
                 + (statusText.visible ? 1 : 0),
         );
