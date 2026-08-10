@@ -69,8 +69,9 @@ export interface TuiSidebar {
     isOpen(): boolean;
     /** True while the split is actually drawn: false when narrow or hidden. */
     isShown(): boolean;
-    /** Hides or restores the split without taking it from its owner. */
-    toggleHidden(): void;
+    layout(): "main" | "split" | "sidebar";
+    /** Cycles split -> sidebar-only -> main-only -> split. */
+    cycleLayout(): "main" | "split" | "sidebar";
     /** Marks this surface as the current composer target. */
     setFocused(focused: boolean): void;
     isFocused(): boolean;
@@ -121,9 +122,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         renderer.terminalWidth,
     );
     let open = false;
-    // Hidden is the user's call, and outlives a resize: the sidebar stays out
-    // of the way until it is asked back.
-    let hidden = false;
+    // Layout is explicit so a hidden pane can never remain the composer target.
+    let layout: "main" | "split" | "sidebar" = "split";
     let focused = false;
     let headerText: string | undefined;
     let blocks = 0;
@@ -278,14 +278,25 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         options.onLayoutChanged?.();
     }
 
+    function effectiveLayout(): "main" | "split" | "sidebar" {
+        if (!open) return "main";
+        if (layout === "split" && renderer.terminalWidth < MIN_SPLIT_WIDTH) {
+            return "main";
+        }
+        return layout;
+    }
+
     function shown(): boolean {
-        return open && !hidden && renderer.terminalWidth >= MIN_SPLIT_WIDTH;
+        return effectiveLayout() !== "main";
     }
 
     function paintFocusRails(): void {
-        if (!shown()) {
+        const current = effectiveLayout();
+        if (current !== "split") {
             mainFocusRail.content = "";
-            sidebarFocusRail.content = "";
+            sidebarFocusRail.content = current === "sidebar"
+                ? "▁".repeat(renderer.terminalWidth)
+                : "";
             return;
         }
         const mainWidth = Math.max(
@@ -297,13 +308,16 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     }
 
     function apply(): void {
-        const visible = shown();
-        if (!visible) {
+        const current = effectiveLayout();
+        if (current === "main") focused = false;
+        if (current !== "split") {
             dragging = false;
             divider.backgroundColor = theme.handle;
         }
-        sidebarColumn.visible = visible;
-        divider.visible = visible;
+        mainColumn.visible = current !== "sidebar";
+        sidebarColumn.visible = current !== "main";
+        sidebarColumn.width = current === "sidebar" ? "100%" : width;
+        divider.visible = current === "split";
         paintFocusRails();
         options.onLayoutChanged?.();
     }
@@ -370,9 +384,14 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         }),
         isOpen: () => open,
         isShown: shown,
-        toggleHidden(): void {
-            hidden = !hidden;
+        layout: effectiveLayout,
+        cycleLayout(): "main" | "split" | "sidebar" {
+            layout = layout === "split"
+                ? "sidebar"
+                : layout === "sidebar" ? "main" : "split";
+            focused = layout === "sidebar";
             apply();
+            return effectiveLayout();
         },
         setFocused(nextFocused): void {
             focused = nextFocused;
@@ -392,7 +411,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
         open(): void {
             open = true;
-            hidden = false;
+            layout = "split";
             // The terminal may have been resized while the sidebar was closed.
             resize(width);
             apply();

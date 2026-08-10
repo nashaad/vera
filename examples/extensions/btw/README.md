@@ -12,13 +12,15 @@ Readonly sidekicks and tool-capable peers beside the main conversation.
 @vera                        # focus the main agent
 ```
 
-Press `Ctrl+G` to switch focus between the two agents. A bare message goes to
-the focused pane, and the sidebar shows a green rail while it is selected.
+Press `Ctrl+G` to switch focus between the two agents while both are visible.
+A bare message goes to the focused pane, and a green rail marks its target.
 Mentions override focus for one message; only agents currently open in the two
 panes are mentionable. Pointer input remains available for text selection and
 resizing, but does not change agent focus.
 
-`Ctrl+B` hides or restores the sidebar without changing which agent is focused.
+`Ctrl+/` cycles split, side-agent-only, and Vera-only layouts. Focus follows a
+solo pane, so the composer never addresses an agent that is off screen. The
+footer names the active `btw` or `pair` mode and the current layout.
 
 `/btw` starts its agent in `readonly`; `/pair` starts its peer in `ask`. The
 sidebar header always shows the attached name and effective permission mode.

@@ -13,6 +13,7 @@ export function activateClient(vera: any): void {
     }
 
     async function openAgent(
+        statusLabel: string,
         mention: string,
         approvalMode: "readonly" | "ask",
         attachmentLifetime: "ephemeral" | "durable",
@@ -27,6 +28,7 @@ export function activateClient(vera: any): void {
             const created = await vera.agents.create({
                 pane: "sidebar",
                 mention,
+                statusLabel,
                 workspace,
                 approvalMode,
                 attachmentLifetime,
@@ -38,6 +40,7 @@ export function activateClient(vera: any): void {
                 agentId,
                 pane: "sidebar",
                 mention,
+                statusLabel,
                 attachmentLifetime,
             }, signal);
         }
@@ -66,6 +69,7 @@ export function activateClient(vera: any): void {
                 signal: AbortSignal;
             }) {
                 const target = await openAgent(
+                    name,
                     mention,
                     approvalMode,
                     attachmentLifetime,

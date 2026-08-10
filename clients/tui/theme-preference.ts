@@ -39,6 +39,7 @@ interface DiskPersistedAgentPane {
     readonly sidebar_agent_id: string;
     readonly owner: string;
     readonly mention?: string;
+    readonly status_label?: string;
 }
 
 export interface TuiPersistedAgentPane {
@@ -46,6 +47,7 @@ export interface TuiPersistedAgentPane {
     readonly sidebarAgentId: string;
     readonly owner: string;
     readonly mention?: string;
+    readonly statusLabel?: string;
 }
 
 export function tuiThemePreferencePath(): string {
@@ -157,6 +159,9 @@ export function loadTuiPersistedAgentPane(
             sidebarAgentId: saved.sidebar_agent_id,
             owner: saved.owner,
             ...(saved.mention === undefined ? {} : { mention: saved.mention }),
+            ...(saved.status_label === undefined
+                ? {}
+                : { statusLabel: saved.status_label }),
         };
 }
 
@@ -183,6 +188,9 @@ export function saveTuiPersistedAgentPane(
                         ...(pane.mention === undefined
                             ? {}
                             : { mention: pane.mention }),
+                        ...(pane.statusLabel === undefined
+                            ? {}
+                            : { status_label: pane.statusLabel }),
                     }]),
                 ],
             }),
@@ -354,6 +362,7 @@ function parsePersistedAgentPane(value: unknown): DiskPersistedAgentPane | undef
     const sidebarAgentId = Reflect.get(value, "sidebar_agent_id");
     const owner = Reflect.get(value, "owner");
     const mention = Reflect.get(value, "mention");
+    const statusLabel = Reflect.get(value, "status_label");
     if (
         typeof mainAgentId !== "string" || mainAgentId.length === 0
         || typeof sidebarAgentId !== "string" || sidebarAgentId.length === 0
@@ -361,6 +370,8 @@ function parsePersistedAgentPane(value: unknown): DiskPersistedAgentPane | undef
         || typeof owner !== "string" || owner.length === 0
         || (mention !== undefined
             && (typeof mention !== "string" || mention.length === 0))
+        || (statusLabel !== undefined
+            && (typeof statusLabel !== "string" || statusLabel.length === 0))
     ) {
         return undefined;
     }
@@ -369,6 +380,7 @@ function parsePersistedAgentPane(value: unknown): DiskPersistedAgentPane | undef
         sidebar_agent_id: sidebarAgentId,
         owner,
         ...(mention === undefined ? {} : { mention }),
+        ...(statusLabel === undefined ? {} : { status_label: statusLabel }),
     };
 }
 

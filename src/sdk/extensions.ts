@@ -110,6 +110,7 @@ export interface VeraClientAgentCreateRequest {
     readonly pane: VeraClientAgentPane;
     readonly attachmentLifetime?: VeraClientAgentAttachmentLifetime;
     readonly mention?: string;
+    readonly statusLabel?: string;
     readonly workspace?: string;
     readonly approvalMode?: string;
 }
@@ -119,6 +120,7 @@ export interface VeraClientAgentOpenRequest {
     readonly pane: VeraClientAgentPane;
     readonly attachmentLifetime?: VeraClientAgentAttachmentLifetime;
     readonly mention?: string;
+    readonly statusLabel?: string;
 }
 
 export interface VeraClientAgentMessageRequest {

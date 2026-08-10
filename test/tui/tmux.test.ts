@@ -2613,15 +2613,33 @@ test.skipIf(!tmuxAvailable)(
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(
                 /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*▁+/,
             );
-            sendKey(socket, session, "C-b");
+            sendEscapeSequence(socket, session, String.fromCharCode(31));
             pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
-                (visible) => !visible.includes("SIDEKICK ANSWERED 1"),
-                "ctrl+b to hide the focused sidebar",
+                (visible) => visible.includes("btw mode")
+                    && visible.includes("btw only")
+                    && !visible.includes("Start a conversation with Vera"),
+                "ctrl+/ to show only the sidekick",
             );
-            sendKey(socket, session, "C-b");
+            expect(pane).toContain("SIDEKICK ANSWERED 1");
+            expect(pane).toContain("Message sidekick");
+            sendEscapeSequence(socket, session, String.fromCharCode(31));
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("vera only")
+                    && !visible.includes("SIDEKICK ANSWERED 1"),
+                "ctrl+/ to show only Vera",
+            );
+            expect(pane).toContain("Message Vera");
+            sendText(socket, session, "main after layout switch");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED 1");
+            expect(pane).toContain("main after layout switch");
+            sendEscapeSequence(socket, session, String.fromCharCode(31));
             await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 1");
+            sendKey(socket, session, "C-g");
 
             // `/btw` focuses the attached pane, so a bare follow-up stays in
             // the hosted sidekick without an extension interceptor.

@@ -101,10 +101,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+o reasoning",
     },
     {
-        id: "toggle_sidebar",
-        keys: ["ctrl+b"],
+        id: "cycle_agent_layout",
+        keys: ["ctrl+/", "ctrl+_"],
         scope: "global",
-        description: "Show or hide the sidebar",
+        description: "Cycle split and single-agent layouts",
     },
     {
         id: "switch_agent_pane",
