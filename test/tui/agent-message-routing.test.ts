@@ -6,12 +6,22 @@ import {
 } from "../../clients/tui/agent-message-routing.ts";
 
 const visible: readonly TuiVisibleAgent[] = [
-    { agentId: "main-id", pane: "main", mention: "vera" },
-    { agentId: "second-id", pane: "sidebar", mention: "analyst" },
+    { agentId: "main-id", pane: "main" },
+    { agentId: "second-id", pane: "sidebar" },
 ];
+const addressing = {
+    primary: "vera",
+    secondary: "analyst",
+    broadcast: "all",
+} as const;
 
 test("an unaddressed message goes to the focused visible agent", () => {
-    expect(routeTuiAgentMessage("take a look", "sidebar", visible)).toEqual({
+    expect(routeTuiAgentMessage(
+        "take a look",
+        "sidebar",
+        visible,
+        addressing,
+    )).toEqual({
         kind: "message",
         text: "take a look",
         targets: [visible[1]!],
@@ -19,7 +29,12 @@ test("an unaddressed message goes to the focused visible agent", () => {
 });
 
 test("a visible mention overrides focus for one message", () => {
-    expect(routeTuiAgentMessage("@vera check this", "sidebar", visible)).toEqual({
+    expect(routeTuiAgentMessage(
+        "@vera check this",
+        "sidebar",
+        visible,
+        addressing,
+    )).toEqual({
         kind: "message",
         text: "check this",
         targets: [visible[0]!],
@@ -27,23 +42,46 @@ test("a visible mention overrides focus for one message", () => {
 });
 
 test("a bare visible mention changes focus without sending", () => {
-    expect(routeTuiAgentMessage("@analyst", "main", visible)).toEqual({
+    expect(routeTuiAgentMessage(
+        "@analyst",
+        "main",
+        visible,
+        addressing,
+    )).toEqual({
         kind: "focus",
         pane: "sidebar",
     });
 });
 
-test("literal all broadcasts without a declaration (current policy leak)", () => {
-    expect(visible.some((agent) => agent.mention === "all")).toBe(false);
-    expect(routeTuiAgentMessage("@all compare", "main", visible)).toEqual({
+test("a declared broadcast alias fans out to visible agents", () => {
+    expect(routeTuiAgentMessage(
+        "@all compare",
+        "main",
+        visible,
+        addressing,
+    )).toEqual({
         kind: "message",
         text: "compare",
         targets: visible,
     });
 });
 
+test("omitting a broadcast alias makes all unknown", () => {
+    expect(routeTuiAgentMessage(
+        "@all compare",
+        "main",
+        visible,
+        { primary: "author", secondary: "critic" },
+    )).toEqual({ kind: "unknown", mention: "all" });
+});
+
 test("an agent that is not open cannot be mentioned", () => {
-    expect(routeTuiAgentMessage("@hidden hello", "main", visible)).toEqual({
+    expect(routeTuiAgentMessage(
+        "@hidden hello",
+        "main",
+        visible,
+        addressing,
+    )).toEqual({
         kind: "unknown",
         mention: "hidden",
     });

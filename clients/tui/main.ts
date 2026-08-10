@@ -107,7 +107,10 @@ import {
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
-import { routeTuiAgentMessage } from "./agent-message-routing.ts";
+import {
+    routeTuiAgentMessage,
+    type TuiHostedAgentAddressing,
+} from "./agent-message-routing.ts";
 import { renderTuiDiagnostics } from "./diagnostics.ts";
 import {
     createTuiDiagnosticsDialogView,
@@ -1539,7 +1542,9 @@ export async function startTui(
             if (sidebarAgentPane !== undefined) {
                 return;
             }
-            const first = visibleMentions()[0];
+            const declared = clientExtensionRegistry
+                ?.experimentalHostedAgentAddressing(sidebarOwner);
+            const first = declared?.secondary ?? visibleMentions()[0];
             if (first === undefined) return;
             // Already addressing someone (even with a trailing space): a
             // second click must not stack another mention.
@@ -1675,7 +1680,33 @@ export async function startTui(
         if (sidebarAgentPane === undefined || sidebarAgentMention === undefined) {
             return extensionMentions;
         }
-        return [sidebarAgentMention, "all", "vera"];
+        const declared = clientExtensionRegistry
+            ?.experimentalHostedAgentAddressing(sidebarOwner);
+        if (declared !== undefined) {
+            return [
+                declared.primary,
+                declared.secondary,
+                ...(declared.broadcast === undefined
+                    ? []
+                    : [declared.broadcast]),
+            ];
+        }
+        return extensionMentions.length > 0
+            ? extensionMentions
+            : [sidebarAgentMention, "all", "vera"];
+    }
+
+    function hostedAgentAddressing(): TuiHostedAgentAddressing {
+        const declared = clientExtensionRegistry
+            ?.experimentalHostedAgentAddressing(sidebarOwner);
+        if (declared !== undefined) return declared;
+        return {
+            primary: "vera",
+            secondary: sidebarAgentMention
+                ?? sidebarAgentPane?.agentId
+                ?? "agent",
+            broadcast: "all",
+        };
     }
 
     function sidebarTranscriptWidth(): number {
@@ -3943,13 +3974,14 @@ export async function startTui(
             prompt,
             sidebar.isFocused() ? "sidebar" : "main",
             [
-                { agentId: client.agentId, pane: "main", mention: "vera" },
+                { agentId: client.agentId, pane: "main" },
                 {
                     agentId: side.agentId,
                     pane: "sidebar",
                     mention: sidebarAgentMention ?? side.agentId,
                 },
             ],
+            hostedAgentAddressing(),
         );
         if (route.kind === "unknown") {
             state = appendTuiNotice(state, `No open agent named @${route.mention}`);
