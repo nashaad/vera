@@ -215,6 +215,8 @@ export interface RunTurnState {
     /** Where a truncated tool result's full output goes. */
     readonly toolResultSpill?: ToolResultSpill;
     readonly disabledPromptContributions?: readonly string[];
+    readonly offerTools?: boolean;
+    readonly loadOptionalContext?: boolean;
 }
 
 export interface SessionCompactionOptions {
@@ -260,6 +262,8 @@ export interface RunHeadlessLoopOptions {
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly offerTools?: boolean;
+    readonly loadOptionalContext?: boolean;
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
@@ -715,6 +719,8 @@ export async function runHeadlessLoop(
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
         enableUserInteraction: options.enableUserInteraction ?? true,
         extensionTools: options.extensionTools ?? [],
+        offerTools: options.offerTools ?? true,
+        loadOptionalContext: options.loadOptionalContext ?? true,
         ...(options.modelFallback === undefined
             ? {}
             : { modelFallback: options.modelFallback }),
@@ -830,13 +836,15 @@ export async function runTurn(
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
         const reviewBreaker = createReviewCircuitBreaker();
-        const tools = toolDefinitionsForCapabilities(
-            state.applyToolEffect === undefined
-                ? []
-                : state.enabledToolEffects ?? [],
-            state.enableUserInteraction === true,
-            state.extensionTools,
-        );
+        const tools = state.offerTools === false
+            ? []
+            : toolDefinitionsForCapabilities(
+                state.applyToolEffect === undefined
+                    ? []
+                    : state.enabledToolEffects ?? [],
+                state.enableUserInteraction === true,
+                state.extensionTools,
+            );
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
             ? undefined
             : {
@@ -952,14 +960,20 @@ export async function runTurn(
                     reason: preflight.reason,
                 });
             }
-            const projectInstructions = await loadProjectInstructions(
-                state.toolRuntime.workspace,
-            );
-            const memory = await loadMemory(
-                state.instructionRoot
-                    ?? { path: state.toolRuntime.workspace, source: "workspace" },
-            );
-            const scratchState = state.scratchDir === undefined
+            const projectInstructions = state.loadOptionalContext !== false
+                ? await loadProjectInstructions(state.toolRuntime.workspace)
+                : { files: [], warnings: [] };
+            const memory = state.loadOptionalContext !== false
+                ? await loadMemory(
+                    state.instructionRoot
+                        ?? {
+                            path: state.toolRuntime.workspace,
+                            source: "workspace",
+                        },
+                )
+                : undefined;
+            const scratchState = state.loadOptionalContext === false
+                    || state.scratchDir === undefined
                 ? undefined
                 : await loadScratchState(state.scratchDir);
             const requestDate = new Date();
@@ -1189,6 +1203,12 @@ export async function runTurn(
             );
             assistantMessage = sanitizedErrorMessage(assistantMessage);
             assistantMessage = requireVisibleTerminalResponse(assistantMessage);
+            if (
+                state.offerTools === false
+                && assistantMessage.stopReason === "tool_use"
+            ) {
+                assistantMessage = rejectUnavailableToolCalls(assistantMessage);
+            }
             if (substitutions.length > 0) {
                 assistantMessage = { ...assistantMessage, substitutions };
             }
@@ -1768,6 +1788,17 @@ function requireVisibleTerminalResponse(
         ...message,
         stopReason: "error",
         errorMessage: "Model returned no visible response or structured tool call.",
+    };
+}
+
+function rejectUnavailableToolCalls(
+    message: AssistantMessage,
+): AssistantMessage {
+    return {
+        ...message,
+        content: message.content.filter((block) => block.type !== "tool_call"),
+        stopReason: "error",
+        errorMessage: "Model returned a tool call when no tools were offered.",
     };
 }
 

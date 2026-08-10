@@ -106,6 +106,19 @@ test("session store creates a header and reloads one message chain", async () =>
     expect(reopened.messages()).toEqual([user, assistant, toolResult]);
 });
 
+test("startup profile persists in the session header", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "bare.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "bare-session",
+        cwd: "/work/vera",
+        startupProfile: "bare",
+    });
+
+    expect(store.header.startupProfile).toBe("bare");
+    expect((await SessionStore.open(path)).header.startupProfile).toBe("bare");
+});
+
 test("session index metadata finds a title without loading the store", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "sessions", "indexed.jsonl");

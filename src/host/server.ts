@@ -74,7 +74,10 @@ export interface StartHostServerOptions {
      */
     readonly onRosterChanged?: (listener: () => void) => () => void;
     readonly createAgent?: (
-        options: Pick<CreateRegisteredAgentOptions, "workspace" | "approvalMode">,
+        options: Pick<
+            CreateRegisteredAgentOptions,
+            "workspace" | "approvalMode" | "ephemeral" | "startupProfile"
+        >,
     ) => Promise<ResidentAgent>;
     readonly resumeAgent?: (sessionPath: string) => Promise<ResidentAgent>;
     readonly branchAgent?: (
@@ -275,7 +278,10 @@ function receiveConnection(
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>,
     createAgent: (
-        options: Pick<CreateRegisteredAgentOptions, "workspace" | "approvalMode" | "ephemeral">,
+        options: Pick<
+            CreateRegisteredAgentOptions,
+            "workspace" | "approvalMode" | "ephemeral" | "startupProfile"
+        >,
     ) => Promise<ResidentAgent>,
     resumeAgent: (sessionPath: string) => Promise<ResidentAgent>,
     branchAgent: (
@@ -632,6 +638,9 @@ function receiveConnection(
                 ...(request.lifetime === "ephemeral"
                     ? { ephemeral: true }
                     : {}),
+                ...(request.startup_profile === undefined
+                    ? {}
+                    : { startupProfile: request.startup_profile }),
             }));
             return;
         }
@@ -732,6 +741,9 @@ function receiveConnection(
                 ...(request.effort === undefined
                     ? {}
                     : { reasoningEffort: request.effort }),
+                ...(request.startup_profile === undefined
+                    ? {}
+                    : { startupProfile: request.startup_profile }),
             }).then(
                 (result) => send({
                     type: "run_once_finished",

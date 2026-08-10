@@ -25,6 +25,10 @@ import {
     type PermissionGrant,
     type PermissionGrantProposal,
 } from "../engine/permissions.ts";
+import {
+    isStartupProfile,
+    type StartupProfile,
+} from "../startup-profile.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -37,6 +41,7 @@ export interface SessionHeader {
     readonly origin?: SessionOrigin;
     /** Session ID of the agent that spawned this one as a subagent. */
     readonly parentId?: string;
+    readonly startupProfile?: Exclude<StartupProfile, "default">;
 }
 
 export interface SessionOrigin {
@@ -186,8 +191,13 @@ export interface CreateSessionStoreOptions {
     readonly cwd: string;
     readonly origin?: SessionOrigin;
     readonly parentId?: string;
+    readonly startupProfile?: Exclude<StartupProfile, "default">;
     readonly now?: () => Date;
     readonly createId?: () => string;
+}
+
+export interface SessionCreationMetadata {
+    readonly startupProfile?: Exclude<StartupProfile, "default">;
 }
 
 export interface OpenSessionStoreOptions {
@@ -295,6 +305,9 @@ export class SessionStore {
             ...(options.parentId === undefined
                 ? {}
                 : { parentId: nonEmpty(options.parentId, "session parent ID") }),
+            ...(options.startupProfile === undefined
+                ? {}
+                : { startupProfile: options.startupProfile }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -1512,6 +1525,9 @@ function parseHeader(path: string, line: string | undefined): SessionHeader {
         || (value.origin !== undefined && !isSessionOrigin(value.origin))
         || (value.parentId !== undefined
             && (typeof value.parentId !== "string" || value.parentId.length === 0))
+        || (value.startupProfile !== undefined
+            && (!isStartupProfile(value.startupProfile)
+                || value.startupProfile === "default"))
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }

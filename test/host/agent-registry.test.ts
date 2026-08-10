@@ -38,6 +38,71 @@ import { Inbox } from "../../src/store/inbox.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import type { RegisteredTool } from "../../src/tools/types.ts";
+import { ToolHooks } from "../../src/engine/hooks.ts";
+
+test("bare startup survives resume and excludes extension context", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-bare-"));
+    const sessionPath = join(root, "bare.jsonl");
+    await writeFile(join(root, "AGENTS.local.md"), "PRIVATE_SENTINEL\n");
+    const requests: ModelRequest[] = [];
+    let hookBuilds = 0;
+    const extensionTool: RegisteredTool = {
+        definition: {
+            name: "extension_probe",
+            description: "Extension-only probe.",
+            inputSchema: { type: "object" },
+        },
+        async execute() {
+            return { kind: "output", output: "done", isError: false };
+        },
+    };
+    const createRegistry = () => new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return new FauxAdapter([textResponse("done")]).stream(request);
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "auto",
+        extensionTools: [extensionTool],
+        createToolHooks: () => {
+            hookBuilds += 1;
+            return new ToolHooks();
+        },
+    });
+
+    const first = createRegistry();
+    try {
+        const agent = await first.create({
+            id: "bare",
+            workspace: root,
+            sessionPath,
+            startupProfile: "bare",
+        });
+        await runPrompt(agent.attach(), "first");
+    } finally {
+        await first.close();
+    }
+    const resumed = createRegistry();
+    try {
+        const agent = await resumed.resume({ sessionPath });
+        await runPrompt(agent.attach(), "second");
+    } finally {
+        await resumed.close();
+        await rm(root, { recursive: true, force: true });
+    }
+
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+        expect(request.tools?.map((tool) => tool.name) ?? []).not.toContain(
+            "extension_probe",
+        );
+        expect(request.systemPrompt).not.toContain("PRIVATE_SENTINEL");
+    }
+    expect(hookBuilds).toBe(0);
+});
 
 test("a created agent persists its per-session permission mode", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-permissions-"));
@@ -1443,6 +1508,7 @@ test("an async subagent returns immediately and delivers its final summary", asy
             workspace: root,
             sessionPath: parentSession,
             eventLogPath: join(root, "parent-events.jsonl"),
+            startupProfile: "bare",
         });
         const parentAttachment = parent.attach();
         expect((await parentAttachment.receive()).type).toBe("history");
@@ -1505,6 +1571,7 @@ test("an async subagent returns immediately and delivers its final summary", asy
         expect(registry.find(child!.id)).toBeDefined();
         const childStore = await SessionStore.open(child!.session_path);
         expect(childStore.approvalMode()).toBe("full_access");
+        expect(childStore.header.startupProfile).toBe("bare");
         const childEvents = (await readFile(
             join(root, `${child!.id}-events.jsonl`),
             "utf8",

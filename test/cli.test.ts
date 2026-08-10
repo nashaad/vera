@@ -466,6 +466,43 @@ test("vera interactive commands select create, continue, attach, and resume targ
     ]);
 });
 
+test("vera startup profiles reach interactive and print sessions", async () => {
+    const targets: unknown[] = [];
+    const requests: unknown[] = [];
+    const runOnce = async (request: unknown) => {
+        requests.push(request);
+        return {
+            agentId: "bounded",
+            sessionPath: "/sessions/bounded.jsonl",
+            text: "done",
+            outcome: "completed" as const,
+            notes: [],
+        };
+    };
+
+    expect(await runCli(["--bare"], {
+        runTui: async (target) => {
+            targets.push(target);
+        },
+    })).toBe(0);
+    expect(await runCli(["-p", "measure", "--prompt-only"], {
+        runOnce: runOnce as never,
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+    })).toBe(0);
+
+    expect(targets).toEqual([{
+        type: "create",
+        workspace: process.cwd(),
+        startupProfile: "bare",
+    }]);
+    expect(requests).toEqual([{
+        workspace: process.cwd(),
+        prompt: "measure",
+        startupProfile: "prompt_only",
+    }]);
+});
+
 test("vera --yes preapproves a busy resident-host restart", async () => {
     let approved = false;
     const exitCode = await runCli(["--yes"], {
