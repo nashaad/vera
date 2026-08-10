@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import {
@@ -323,8 +323,10 @@ async function topicStat(
     indexModifiedAt: number,
 ): Promise<{ readonly availability: MemoryTopicAvailability; readonly bytes?: number }> {
     try {
-        const details = await stat(path);
-        if (!details.isFile()) return { availability: "unreadable" };
+        const details = await lstat(path);
+        if (details.isSymbolicLink() || !details.isFile()) {
+            return { availability: "unreadable" };
+        }
         if (details.size > MEMORY_TOPIC_MAX_BYTES) {
             return { availability: "oversized", bytes: details.size };
         }
@@ -387,7 +389,8 @@ async function readTopic(
         return undefined;
     }
     try {
-        const details = await stat(topic.path);
+        const details = await lstat(topic.path);
+        if (details.isSymbolicLink()) throw new Error("unreadable");
         const index = files.find((file) => file.scope === topic.scope);
         if (!details.isFile()) throw new Error("unreadable");
         if (details.size > MEMORY_TOPIC_MAX_BYTES) throw new Error("oversized");
