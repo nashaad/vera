@@ -48,13 +48,9 @@ import {
     loadPoolFile,
     poolFileIssueNotices,
 } from "../../src/model/pool-file-loader.ts";
-import {
-    bundledClientExtensionConfigs,
-    bundledClientExtensions,
-} from "../../src/extensions/bundled-client.ts";
+import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
 import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
 import {
-    startClientExtensionRegistry,
     type ClientExtensionRegistry,
 } from "../../src/extensions/client-registry.ts";
 import type {
@@ -107,6 +103,10 @@ import {
     createTuiClientExtensionAgentsAdapter,
 } from "./client-extension-agents.ts";
 import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
+import {
+    configuredTuiClientExtensions,
+    startTuiClientExtensionHost,
+} from "./client-extension-host.ts";
 import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
 import { TuiHostedSidebarAgent } from "./hosted-sidebar-agent.ts";
 import {
@@ -340,9 +340,6 @@ import {
     saveTuiSidebarWidth,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
-    loadTuiExtensionPreference,
-    deleteTuiExtensionPreference,
-    saveTuiExtensionPreference,
     saveTuiRecentSessionId,
     saveTuiThemePreference,
 } from "./theme-preference.ts";
@@ -891,10 +888,10 @@ export async function startTui(
     const commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
         disabledBuiltinExtensions,
     );
-    const configuredClientExtensions = [
-        ...bundledClientExtensionConfigs(disabledBuiltinExtensions),
-        ...(dependencies.clientExtensions ?? []),
-    ];
+    const configuredClientExtensions = configuredTuiClientExtensions(
+        disabledBuiltinExtensions,
+        dependencies.clientExtensions,
+    );
     const hostedAgentSurface = createTuiHostedAgentSurface({
         owner: () => hostedSidebar.owner,
         hasAgent: () => hostedSidebar.pane !== undefined,
@@ -907,82 +904,54 @@ export async function startTui(
         renderStatus,
         requestRender: () => renderer.requestRender(),
     });
-    clientExtensionRegistry = await startClientExtensionRegistry({
+    clientExtensionRegistry = await startTuiClientExtensionHost({
         extensions: configuredClientExtensions,
-        preferences: {
-            async get(namespace, key) {
-                return loadTuiExtensionPreference(namespace, key);
-            },
-            async set(namespace, key, value) {
-                saveTuiExtensionPreference(namespace, key, value);
-            },
-            async delete(namespace, key) {
-                deleteTuiExtensionPreference(namespace, key);
-            },
+        currentModelSettings: () => state.modelSettings,
+        updateModelSettings: requestExtensionModelSettingsUpdate,
+        subscribeModelSettings(listener) {
+            extensionSettingsListeners.add(listener);
+            return () => {
+                extensionSettingsListeners.delete(listener);
+            };
         },
-        modelSettings: {
-            current: () => state.modelSettings,
-            update: requestExtensionModelSettingsUpdate,
-            subscribe(listener) {
-                extensionSettingsListeners.add(listener);
-                return () => {
-                    extensionSettingsListeners.delete(listener);
-                };
-            },
+        requestPicker: (_extensionId, request, signal) =>
+            requestExtensionPicker(request, signal),
+        requestConsult: (_extensionId, request, signal) =>
+            requestExtensionConsult(request, signal),
+        openSidebar(extensionId) {
+            hostedSidebar.claim(extensionId);
+            sidebar.setHeader(undefined);
+            sidebar.open();
+            renderState();
         },
-        picker: {
-            request: (_extensionId, request, signal) =>
-                requestExtensionPicker(request, signal),
+        appendSidebar(extensionId, block) {
+            requireSidebarOwner(extensionId);
+            sidebar.append(block.label, block.text, block.speaker);
+            renderSidebarJump();
         },
-        consult: {
-            request: (_extensionId, request, signal) =>
-                requestExtensionConsult(request, signal),
+        clearSidebar(extensionId) {
+            requireSidebarOwner(extensionId);
+            sidebar.clear();
         },
-        sidebar: {
-            open(extensionId) {
-                if (
-                    hostedSidebar.owner !== undefined && hostedSidebar.owner !== extensionId
-                ) {
-                    throw new Error(`${hostedSidebar.owner} is using the sidebar`);
-                }
-                hostedSidebar.claim(extensionId);
-                sidebar.setHeader(undefined);
-                sidebar.open();
-                renderState();
-            },
-            append(extensionId, block) {
-                requireSidebarOwner(extensionId);
-                sidebar.append(block.label, block.text, block.speaker);
-                renderSidebarJump();
-            },
-            clear(extensionId) {
-                requireSidebarOwner(extensionId);
-                sidebar.clear();
-            },
-            close(extensionId) {
-                requireSidebarOwner(extensionId);
-                const attached = hostedSidebar.release(extensionId);
-                forgetPersistedAgentPane();
-                void attached?.detach().catch(() => attached.close());
-                clearSidebarEntryNodes();
-                sidebar.setHeader(undefined);
-                sidebar.close();
-                renderState();
-            },
+        closeSidebar(extensionId) {
+            requireSidebarOwner(extensionId);
+            const attached = hostedSidebar.release(extensionId);
+            forgetPersistedAgentPane();
+            void attached?.detach().catch(() => attached.close());
+            clearSidebarEntryNodes();
+            sidebar.setHeader(undefined);
+            sidebar.close();
+            renderState();
         },
-        mentions: {
-            set(_extensionId, names) {
-                extensionMentions = names;
-                if (clientSurfaceReady) {
-                    renderCommandSuggestions();
-                }
-            },
+        setMentions(_extensionId, names) {
+            extensionMentions = names;
+            if (clientSurfaceReady) {
+                renderCommandSuggestions();
+            }
         },
-        addressing: {
-            set(_extensionId, name) {
-                extensionAddressee = name;
-                renderState();
-            },
+        setAddressing(_extensionId, name) {
+            extensionAddressee = name;
+            renderState();
         },
         agents: createTuiClientExtensionAgentsAdapter({
             primary: () => client,
@@ -1016,33 +985,26 @@ export async function startTui(
             ...experimentalTuiHost.adapter,
             agentSurface: hostedAgentSurface,
         },
-        thread: {
-            read(_extensionId) {
-                return state.entries
-                    .filter((entry) =>
-                        (entry.kind === "user" || entry.kind === "assistant")
-                        && entry.text.length > 0)
-                    .map((entry) => ({
-                        role: entry.kind as "user" | "assistant",
-                        text: entry.text,
-                    }));
-            },
+        readThread() {
+            return state.entries
+                .filter((entry) =>
+                    (entry.kind === "user" || entry.kind === "assistant")
+                    && entry.text.length > 0)
+                .map((entry) => ({
+                    role: entry.kind as "user" | "assistant",
+                    text: entry.text,
+                }));
         },
-        transcript: {
-            append(_extensionId, block) {
-                state = appendTuiExtensionBlock(state, block.label, block.text);
-                renderState();
-            },
+        appendTranscript(block) {
+            state = appendTuiExtensionBlock(state, block.label, block.text);
+            renderState();
         },
-        notice: {
-            post(_extensionId, text) {
-                state = appendTuiNotice(state, text);
-                renderState();
-            },
+        postNotice(text) {
+            state = appendTuiNotice(state, text);
+            renderState();
         },
         reservedCommandNames:
             commandRegistry.registeredCommands().map(({ name }) => name),
-        reservedKeybindingKeys: [],
         onFailure(failure) {
             state = appendTuiNotice(
                 state,
