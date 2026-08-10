@@ -116,6 +116,11 @@ export interface VeraClientAgentCreateRequest {
     readonly statusLabel?: string;
     readonly workspace?: string;
     readonly approvalMode?: string;
+    /** Create from an existing hosted agent instead of a fresh session. */
+    readonly source?: {
+        readonly type: "branch";
+        readonly agentId: string;
+    };
 }
 
 export interface VeraClientAgentOpenRequest {

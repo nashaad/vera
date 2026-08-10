@@ -9,7 +9,7 @@ async function start(visible: readonly {
     agentId: string;
     pane: "main" | "sidebar";
     mention?: string;
-}[] = []) {
+}[] = [{ agentId: "main", pane: "main" }]) {
     const calls: unknown[] = [];
     let mentions: readonly string[] = [];
     let created = 0;
@@ -115,6 +115,7 @@ test("bare btw creates and opens a readonly hosted sidekick", async () => {
             approvalMode: "readonly",
             attachmentLifetime: "ephemeral",
             statusLabel: "btw",
+            source: { type: "branch", agentId: "main" },
         },
     }]);
     expect(harness.mentions()).toEqual(["sidekick", "all", "vera"]);

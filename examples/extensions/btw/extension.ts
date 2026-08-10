@@ -56,6 +56,7 @@ export function activateClient(vera: any): void {
         mention: string,
         approvalMode: "readonly" | "ask",
         attachmentLifetime: "ephemeral" | "durable",
+        inheritPrimary: boolean,
         workspace: string,
         signal: AbortSignal,
     ): Promise<string> {
@@ -64,6 +65,14 @@ export function activateClient(vera: any): void {
                 agent.mention === mention
             )?.agentId;
         if (agentId === undefined) {
+            const primaryAgentId = inheritPrimary
+                ? vera.agents.visible().find(
+                    (agent: { pane: string }) => agent.pane === "main",
+                )?.agentId
+                : undefined;
+            if (inheritPrimary && primaryAgentId === undefined) {
+                throw new Error("BTW needs a visible primary agent to branch");
+            }
             const created = await vera.agents.create({
                 pane: "sidebar",
                 mention,
@@ -71,6 +80,14 @@ export function activateClient(vera: any): void {
                 workspace,
                 approvalMode,
                 attachmentLifetime,
+                ...(primaryAgentId === undefined
+                    ? {}
+                    : {
+                        source: {
+                            type: "branch",
+                            agentId: primaryAgentId,
+                        },
+                    }),
             }, signal);
             agentId = created.agentId;
             agents[mention] = agentId;
@@ -96,6 +113,7 @@ export function activateClient(vera: any): void {
         mention: string,
         approvalMode: "readonly" | "ask",
         attachmentLifetime: "ephemeral" | "durable",
+        inheritPrimary: boolean,
         description: string,
     ): void {
         vera.commands.register({
@@ -115,6 +133,7 @@ export function activateClient(vera: any): void {
                     mention,
                     approvalMode,
                     attachmentLifetime,
+                    inheritPrimary,
                     workspace,
                     signal,
                 );
@@ -135,6 +154,7 @@ export function activateClient(vera: any): void {
         SIDEKICK,
         "readonly",
         "ephemeral",
+        true,
         "Open or message a readonly sidekick",
     );
     register(
@@ -142,6 +162,7 @@ export function activateClient(vera: any): void {
         PEER,
         "ask",
         "durable",
+        false,
         "Open or message a tool-capable peer",
     );
 

@@ -8,6 +8,8 @@ export interface TuiAgentClient {
     readonly agentId?: string;
     readonly workspace?: string;
     readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
+    readonly capabilities?: AttachedAgentClient["capabilities"];
+    supportsHostCapability?: AttachedAgentClient["supportsHostCapability"];
     onBackgroundAgents?: AttachedAgentClient["onBackgroundAgents"];
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
