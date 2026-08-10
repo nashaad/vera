@@ -50,7 +50,13 @@ export class ScheduleStore {
 
     static open(path: string = defaultSchedulePath()): ScheduleStore {
         if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-        return new ScheduleStore(new Database(path, { create: true }));
+        const database = new Database(path, { create: true });
+        try {
+            return new ScheduleStore(database);
+        } catch (error) {
+            database.close();
+            throw error;
+        }
     }
 
     close(): void {
@@ -184,13 +190,33 @@ export class ScheduleStore {
         return row === null ? undefined : runFromRow(row);
     }
 
-    listRuns(scheduleId: string): ScheduleRun[] {
-        return this.database.query<RunRow, [string]>(
+    listRuns(scheduleId: string, limit?: number): ScheduleRun[] {
+        if (limit === undefined) {
+            return this.database.query<RunRow, [string]>(
+                `SELECT schedule_id, scheduled_for, status, inbox_seq,
+                        created_at, emitted_at
+                 FROM schedule_runs WHERE schedule_id = ?
+                 ORDER BY scheduled_for`,
+            ).all(scheduleId).map(runFromRow);
+        }
+        if (!Number.isInteger(limit) || limit <= 0) {
+            throw new Error("schedule run limit must be a positive integer");
+        }
+        return this.database.query<RunRow, [string, number]>(
             `SELECT schedule_id, scheduled_for, status, inbox_seq,
                     created_at, emitted_at
              FROM schedule_runs WHERE schedule_id = ?
-             ORDER BY scheduled_for`,
-        ).all(scheduleId).map(runFromRow);
+             ORDER BY scheduled_for DESC
+             LIMIT ?`,
+        ).all(scheduleId, limit).map(runFromRow);
+    }
+
+    countRuns(scheduleId: string): number {
+        const row = this.database.query<{ count: number }, [string]>(
+            `SELECT COUNT(*) AS count FROM schedule_runs
+             WHERE schedule_id = ?`,
+        ).get(scheduleId);
+        return row?.count ?? 0;
     }
 
     markEmitted(
@@ -263,7 +289,15 @@ function pendingRunFromRow(row: PendingRunRow): PendingScheduleRun {
 }
 
 function migrate(database: Database): void {
-    database.exec(`
+    const version = storedVersion(database);
+    if (version > SCHEDULE_SCHEMA_VERSION) {
+        throw new Error(
+            `schedule database schema ${version} is newer than supported schema ${SCHEDULE_SCHEMA_VERSION}`,
+        );
+    }
+    if (version >= 1) return;
+    const migration = database.transaction(() => {
+        database.exec(`
         CREATE TABLE IF NOT EXISTS schedules (
             id TEXT PRIMARY KEY,
             cron TEXT NOT NULL,
@@ -289,6 +323,15 @@ function migrate(database: Database): void {
             PRIMARY KEY (schedule_id, scheduled_for)
         );
 
-        PRAGMA user_version = ${SCHEDULE_SCHEMA_VERSION};
     `);
+        database.exec("PRAGMA user_version = 1");
+    });
+    migration();
+}
+
+function storedVersion(database: Database): number {
+    const row = database
+        .query<{ user_version: number }, []>("PRAGMA user_version")
+        .get();
+    return row?.user_version ?? 0;
 }

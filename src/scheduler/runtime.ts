@@ -4,7 +4,11 @@ import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 import { UserFacingError } from "../user-facing-error.ts";
 import { ScheduleStore } from "./store.ts";
 import {
+    MAX_SCHEDULE_ADDRESS_BYTES,
+    MAX_SCHEDULE_CRON_BYTES,
     MAX_SCHEDULE_PAYLOAD_BYTES,
+    MAX_SCHEDULE_RUN_RESULTS,
+    MAX_SCHEDULE_TIMEZONE_BYTES,
     SCHEDULER_SOURCE,
     SCHEDULE_TRIGGERED_KIND,
     type PendingScheduleRun,
@@ -14,8 +18,9 @@ import {
 } from "./types.ts";
 
 const SCHEDULE_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
-const MAX_TIMER_MS = 2_147_000_000;
-const PENDING_RETRY_MS = 1_000;
+const MAX_TIMER_SLEEP_MS = 60_000;
+const INITIAL_RETRY_MS = 1_000;
+const MAX_RETRY_MS = 60_000;
 
 export interface SchedulerRuntimeOptions {
     readonly store: ScheduleStore;
@@ -36,6 +41,8 @@ export class SchedulerRuntime {
     private readonly clearTimer: (timer: unknown) => void;
     private queue: Promise<void> = Promise.resolve();
     private timer: unknown;
+    private timerGeneration = 0;
+    private retryDelayMs = INITIAL_RETRY_MS;
     private closed = false;
 
     constructor(private readonly options: SchedulerRuntimeOptions) {
@@ -51,12 +58,16 @@ export class SchedulerRuntime {
         try {
             await this.runDue();
         } catch (error) {
-            this.options.onError?.(error);
+            this.reportError(error);
         }
     }
 
     execute(operation: ScheduleOperation): Promise<Record<string, unknown>> {
+        if (this.closed) {
+            return Promise.reject(new UserFacingError("Scheduler is closed"));
+        }
         return this.enqueue(async () => {
+            let cycleFailed = false;
             try {
                 switch (operation.action) {
                     case "add": {
@@ -87,14 +98,20 @@ export class SchedulerRuntime {
                     }
                     case "list":
                         return {
-                            schedules: this.options.store.list().map(scheduleResult),
+                            schedules: this.options.store.list().map(scheduleSummary),
                         };
                     case "show": {
                         const schedule = this.requireSchedule(operation.id);
+                        const runCount = this.options.store.countRuns(operation.id);
+                        const runs = this.options.store.listRuns(
+                            operation.id,
+                            MAX_SCHEDULE_RUN_RESULTS,
+                        );
                         return {
                             ...scheduleResult(schedule),
-                            runs: this.options.store.listRuns(operation.id)
-                                .map(runResult),
+                            runs: runs.map(runResult),
+                            run_count: runCount,
+                            runs_truncated: runCount > runs.length,
                         };
                     }
                     case "pause":
@@ -119,7 +136,12 @@ export class SchedulerRuntime {
                             operation.id,
                             this.clock(),
                         );
-                        await this.deliverPending();
+                        try {
+                            await this.deliverPending();
+                        } catch (error) {
+                            cycleFailed = true;
+                            throw error;
+                        }
                         return {
                             schedule_id: operation.id,
                             triggered: true,
@@ -133,7 +155,7 @@ export class SchedulerRuntime {
                         error instanceof Error ? error.message : String(error),
                     );
             } finally {
-                this.scheduleTimer();
+                this.scheduleTimer(cycleFailed);
             }
         });
     }
@@ -141,13 +163,32 @@ export class SchedulerRuntime {
     runDue(): Promise<void> {
         return this.enqueue(async () => {
             if (this.closed) return;
+            let cycleFailed = false;
             try {
                 const now = this.clock();
                 const nowIso = now.toISOString();
                 for (const schedule of this.options.store.due(nowIso)) {
                     // One occurrence is retained after downtime; later missed
                     // occurrences are coalesced by calculating from `now`.
-                    const next = nextOccurrence(schedule.cron, schedule.timezone, now);
+                    if (!isCanonicalTimestamp(schedule.nextRunAt)) {
+                        this.pauseInvalidSchedule(
+                            schedule,
+                            `invalid next_run_at ${schedule.nextRunAt}`,
+                            nowIso,
+                        );
+                        continue;
+                    }
+                    let next: Date;
+                    try {
+                        next = nextOccurrence(schedule.cron, schedule.timezone, now);
+                    } catch (error) {
+                        this.pauseInvalidSchedule(
+                            schedule,
+                            errorMessage(error),
+                            nowIso,
+                        );
+                        continue;
+                    }
                     this.options.store.planDue(
                         schedule.id,
                         schedule.nextRunAt,
@@ -156,18 +197,18 @@ export class SchedulerRuntime {
                     );
                 }
                 await this.deliverPending();
+            } catch (error) {
+                cycleFailed = true;
+                throw error;
             } finally {
-                this.scheduleTimer();
+                this.scheduleTimer(cycleFailed);
             }
         });
     }
 
     async close(): Promise<void> {
         this.closed = true;
-        if (this.timer !== undefined) {
-            this.clearTimer(this.timer);
-            this.timer = undefined;
-        }
+        this.cancelTimer();
         await this.queue;
     }
 
@@ -177,44 +218,113 @@ export class SchedulerRuntime {
         return schedule;
     }
 
-    private async deliverPending(): Promise<void> {
-        for (const run of this.options.store.pendingRuns()) {
-            const result = await this.options.emit(
-                occurrenceKey(run),
-                triggerEntry(run),
-            );
-            this.options.store.markEmitted(
-                run.scheduleId,
-                run.scheduledFor,
-                result.entry.seq,
-                this.clock().toISOString(),
-            );
-        }
+    private pauseInvalidSchedule(
+        schedule: ScheduleDefinition,
+        reason: string,
+        now: string,
+    ): void {
+        this.options.store.setEnabled(schedule.id, false, now);
+        this.reportError(new Error(
+            `paused invalid schedule ${schedule.id}: ${reason}`,
+        ));
     }
 
-    private scheduleTimer(): void {
+    private async deliverPending(): Promise<void> {
+        let firstFailure: Error | undefined;
+        for (const run of this.options.store.pendingRuns()) {
+            try {
+                const result = await this.options.emit(
+                    occurrenceKey(run),
+                    triggerEntry(run),
+                );
+                this.options.store.markEmitted(
+                    run.scheduleId,
+                    run.scheduledFor,
+                    result.entry.seq,
+                    this.clock().toISOString(),
+                );
+            } catch (error) {
+                firstFailure ??= new Error(
+                    `schedule ${run.scheduleId} occurrence ${run.scheduledFor} failed: ${errorMessage(error)}`,
+                );
+            }
+        }
+        if (firstFailure !== undefined) throw firstFailure;
+    }
+
+    private scheduleTimer(cycleFailed = false): void {
         if (this.closed || this.options.autoStart === false) return;
-        if (this.timer !== undefined) this.clearTimer(this.timer);
+        this.cancelTimer();
+        if (cycleFailed) {
+            this.armRetry();
+            return;
+        }
         if (this.options.store.pendingRuns().length > 0) {
-            this.timer = this.setTimer(() => {
-                this.timer = undefined;
-                void this.runDue().catch((error) => this.options.onError?.(error));
-            }, PENDING_RETRY_MS);
+            this.retryDelayMs = INITIAL_RETRY_MS;
+            this.armTimer(INITIAL_RETRY_MS);
             return;
         }
         const next = this.options.store.nextDueAt();
         if (next === null) {
+            this.retryDelayMs = INITIAL_RETRY_MS;
             this.timer = undefined;
             return;
         }
+        const nextTime = Date.parse(next);
+        if (!isCanonicalTimestamp(next)) {
+            const now = this.clock().toISOString();
+            const invalid = this.options.store.list().filter((schedule) =>
+                schedule.enabled && schedule.nextRunAt === next
+            );
+            if (invalid.length === 0) {
+                this.armRetry();
+                return;
+            }
+            for (const schedule of invalid) {
+                this.pauseInvalidSchedule(
+                    schedule,
+                    `invalid next_run_at ${next}`,
+                    now,
+                );
+            }
+            this.scheduleTimer();
+            return;
+        }
+        this.retryDelayMs = INITIAL_RETRY_MS;
         const delay = Math.min(
-            MAX_TIMER_MS,
-            Math.max(0, Date.parse(next) - this.clock().getTime()),
+            MAX_TIMER_SLEEP_MS,
+            Math.max(0, nextTime - this.clock().getTime()),
         );
+        this.armTimer(delay);
+    }
+
+    private armRetry(): void {
+        const delay = this.retryDelayMs;
+        this.retryDelayMs = Math.min(MAX_RETRY_MS, delay * 2);
+        this.armTimer(delay);
+    }
+
+    private armTimer(delayMs: number): void {
+        const generation = ++this.timerGeneration;
         this.timer = this.setTimer(() => {
+            if (this.closed || generation !== this.timerGeneration) return;
             this.timer = undefined;
-            void this.runDue().catch((error) => this.options.onError?.(error));
-        }, delay);
+            void this.runDue().catch((error) => this.reportError(error));
+        }, delayMs);
+    }
+
+    private cancelTimer(): void {
+        this.timerGeneration += 1;
+        if (this.timer !== undefined) this.clearTimer(this.timer);
+        this.timer = undefined;
+    }
+
+    private reportError(error: unknown): void {
+        try {
+            this.options.onError?.(error);
+        } catch {
+            // Error reporting must not stop the scheduler.
+        }
     }
 
     private enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -237,6 +347,8 @@ export function nextOccurrence(
     timezone: string,
     after: Date,
 ): Date {
+    validateBoundedText(expression, "schedule cron", MAX_SCHEDULE_CRON_BYTES);
+    validateBoundedText(timezone, "schedule timezone", MAX_SCHEDULE_TIMEZONE_BYTES);
     if (expression.trim().split(/\s+/).length !== 5) {
         throw new Error("schedule cron must contain exactly five fields");
     }
@@ -270,8 +382,9 @@ function validateId(id: string): void {
 }
 
 function validateAddress(address: string): void {
-    if (address.trim().length === 0) {
-        throw new Error("schedule address cannot be empty");
+    validateBoundedText(address, "schedule address", MAX_SCHEDULE_ADDRESS_BYTES);
+    if (address !== address.trim()) {
+        throw new Error("schedule address cannot have surrounding whitespace");
     }
 }
 
@@ -310,6 +423,18 @@ function scheduleResult(schedule: ScheduleDefinition): Record<string, unknown> {
     };
 }
 
+function scheduleSummary(schedule: ScheduleDefinition): Record<string, unknown> {
+    return {
+        schedule_id: schedule.id,
+        cron: schedule.cron,
+        timezone: schedule.timezone,
+        address: schedule.address,
+        next_run_at: schedule.nextRunAt,
+        enabled: schedule.enabled,
+        misfire_policy: "coalesce",
+    };
+}
+
 function runResult(run: {
     readonly scheduledFor: string;
     readonly status: string;
@@ -320,4 +445,21 @@ function runResult(run: {
         status: run.status,
         inbox_message_id: run.inboxSeq,
     };
+}
+
+function validateBoundedText(value: string, label: string, maxBytes: number): void {
+    if (value.trim().length === 0) throw new Error(`${label} cannot be empty`);
+    if (Buffer.byteLength(value, "utf8") > maxBytes) {
+        throw new Error(`${label} must encode to at most ${maxBytes} bytes`);
+    }
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function isCanonicalTimestamp(value: string): boolean {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp)
+        && new Date(timestamp).toISOString() === value;
 }
