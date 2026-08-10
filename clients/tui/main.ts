@@ -105,6 +105,7 @@ import {
 import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
 import {
     configuredTuiClientExtensions,
+    createTuiClientExtensionHostController,
     startTuiClientExtensionHost,
 } from "./client-extension-host.ts";
 import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
@@ -903,7 +904,12 @@ export async function startTui(
         renderStatus,
         requestRender: () => renderer.requestRender(),
     });
-    clientExtensionRegistry = await startTuiClientExtensionHost({
+    function startConfiguredClientExtensionHost(
+        signal: AbortSignal,
+    ): Promise<
+        ClientExtensionRegistry
+    > {
+        return startTuiClientExtensionHost({
         extensions: configuredClientExtensions,
         currentModelSettings: () => state.modelSettings,
         updateModelSettings: requestExtensionModelSettingsUpdate,
@@ -1009,7 +1015,16 @@ export async function startTui(
                 `${failure.extensionId ?? failure.path}: ${failure.message}`,
             );
         },
-    });
+        signal,
+        });
+    }
+    const clientExtensionHost = createTuiClientExtensionHostController(
+        startConfiguredClientExtensionHost,
+        (registry) => {
+            clientExtensionRegistry = registry;
+        },
+    );
+    await clientExtensionHost.reload();
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
         if (
@@ -1925,7 +1940,7 @@ export async function startTui(
         pendingExtensionSettings.clear();
         const attachedSidebar = hostedSidebar.release();
         void Promise.all([
-            Promise.resolve(clientExtensionRegistry?.close()),
+            clientExtensionHost.close(),
             attachedSidebar?.detach(),
         ])
             .catch(() => undefined)

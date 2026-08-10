@@ -281,6 +281,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly disposeTimeoutMs?: number;
     /** How long one status line render may take before it counts as a strike. */
     readonly statusLineBudgetMs?: number;
+    readonly signal?: AbortSignal;
     readonly onFailure?: (failure: ClientExtensionRegistryFailure) => void;
 }
 
@@ -474,6 +475,7 @@ export async function startClientExtensionRegistry(
                 agents: options.agents,
                 experimentalTui: options.experimentalTui,
                 activationTimeoutMs,
+                signal: options.signal,
             });
             validateOwnership(
                 extension,
@@ -518,6 +520,9 @@ export async function startClientExtensionRegistry(
                 ...(extensionId === undefined ? {} : { extensionId }),
                 message,
             });
+            if (options.signal?.aborted) {
+                break;
+            }
         }
     }
 
@@ -804,6 +809,7 @@ interface ActivateClientExtensionOptions {
     readonly agents: ClientExtensionAgentsAdapter | undefined;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter | undefined;
     readonly activationTimeoutMs: number;
+    readonly signal?: AbortSignal;
 }
 
 async function activateClientExtension(
@@ -1382,6 +1388,7 @@ async function activateClientExtension(
                     `Client extension ${options.id} activation timed out after ${options.activationTimeoutMs}ms`,
                 abortMessage:
                     `Client extension ${options.id} activation was cancelled`,
+                signal: options.signal,
                 onExecutionStart(execution) {
                     activationCompletion = execution;
                 },
