@@ -375,6 +375,8 @@ export interface BranchRegisteredAgentOptions {
     readonly ephemeral?: boolean;
     /** Override the approval mode copied from the source session. */
     readonly approvalMode?: ApprovalMode;
+    /** Model-visible messages appended only to the new branch before it starts. */
+    readonly initialMessages?: readonly UserMessage[];
     readonly signal?: AbortSignal;
     /** Keep the branch out of public lookup until `commitBranch` publishes it. */
     readonly deferPublication?: boolean;
@@ -1100,6 +1102,10 @@ export class AgentRegistry {
             createdPath = created.store.path;
             options.signal?.throwIfAborted();
             await created.store.appendApprovalMode(approvalMode);
+            for (const message of options.initialMessages ?? []) {
+                options.signal?.throwIfAborted();
+                await created.store.appendMessage(message);
+            }
             options.signal?.throwIfAborted();
             this.requireOpen();
             return {

@@ -655,7 +655,8 @@ function receiveConnection(
             clearTimeout(deadline);
             finished = true;
             const hasOptions = request.approval_mode !== undefined
-                || request.lifetime === "ephemeral";
+                || request.lifetime === "ephemeral"
+                || (request.initial_messages?.length ?? 0) > 0;
             const requiresCommit = request.lifetime === "ephemeral";
             if (
                 hasOptions
@@ -681,6 +682,9 @@ function receiveConnection(
                 ...(request.lifetime === "ephemeral"
                     ? { ephemeral: true }
                     : {}),
+                ...(request.initial_messages === undefined
+                    ? {}
+                    : { initialMessages: request.initial_messages }),
                 signal: branchAbort.signal,
                 ...(requiresCommit ? { deferPublication: true } : {}),
             }).then(

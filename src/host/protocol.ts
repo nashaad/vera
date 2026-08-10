@@ -17,7 +17,7 @@ import { parseHostCapabilities } from "./capabilities.ts";
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 31;
+export const HOST_PROTOCOL_VERSION = 32;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -74,6 +74,11 @@ export interface BranchAgentRequest {
     readonly entry_id?: string;
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
+    readonly initial_messages?: readonly {
+        readonly role: "user";
+        readonly content: readonly { readonly type: "text"; readonly text: string }[];
+        readonly internal?: boolean;
+    }[];
 }
 
 export interface CommitAgentBranchRequest {
@@ -431,6 +436,7 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && (value.lifetime === undefined
             || value.lifetime === "ephemeral"
             || value.lifetime === "durable")
+        && isBranchInitialMessages(value.initial_messages)
     ) {
         if (value.position === "at") {
             return {
@@ -443,6 +449,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 ...(value.lifetime === undefined
                     ? {}
                     : { lifetime: value.lifetime }),
+                ...(value.initial_messages === undefined
+                    ? {}
+                    : { initial_messages: value.initial_messages }),
             };
         }
         return {
@@ -456,6 +465,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.lifetime === undefined
                 ? {}
                 : { lifetime: value.lifetime }),
+            ...(value.initial_messages === undefined
+                ? {}
+                : { initial_messages: value.initial_messages }),
         };
     }
     if (
@@ -536,6 +548,32 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         };
     }
     return undefined;
+}
+
+function isBranchInitialMessages(
+    value: unknown,
+): value is BranchAgentRequest["initial_messages"] {
+    return value === undefined || (
+        Array.isArray(value)
+        && value.length <= 8
+        && value.every((message) => {
+            if (typeof message !== "object" || message === null) return false;
+            const candidate = message as Record<string, unknown>;
+            return candidate.role === "user"
+                && (candidate.internal === undefined
+                    || typeof candidate.internal === "boolean")
+                && Array.isArray(candidate.content)
+                && candidate.content.length === 1
+                && candidate.content.every((content) =>
+                    typeof content === "object"
+                    && content !== null
+                    && (content as Record<string, unknown>).type === "text"
+                    && typeof (content as Record<string, unknown>).text === "string"
+                    && ((content as Record<string, unknown>).text as string).length > 0
+                    && ((content as Record<string, unknown>).text as string).length <= 16_000
+                );
+        })
+    );
 }
 
 export function parseAttachedClientMessage(

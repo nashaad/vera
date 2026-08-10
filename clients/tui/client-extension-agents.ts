@@ -10,6 +10,7 @@ import {
     type TuiAgentClient,
 } from "./agent-client.ts";
 import { HOST_CAPABILITY_AGENT_BRANCH_OPTIONS } from "../../src/host/capabilities.ts";
+import type { UserMessage } from "../../src/model/types.ts";
 
 export interface TuiClientExtensionAgentsOptions {
     primary(): TuiAgentClient;
@@ -24,6 +25,7 @@ export interface TuiClientExtensionAgentsOptions {
         sourceAgentId: string,
         approvalMode: string | undefined,
         attachmentLifetime: "ephemeral" | "durable" | undefined,
+        initialMessages: readonly UserMessage[],
         signal: AbortSignal,
     ) => Promise<TuiAgentClient>;
     attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
@@ -98,6 +100,13 @@ export function createTuiClientExtensionAgentsAdapter(
                             source.agentId,
                             request.approvalMode,
                             request.attachmentLifetime,
+                            (request.initialMessages ?? []).map((message) => ({
+                                role: "user" as const,
+                                content: [{ type: "text" as const, text: message.text }],
+                                ...(message.hidden === true
+                                    ? { internal: true }
+                                    : {}),
+                            })),
                             signal,
                         )
             ));

@@ -440,6 +440,7 @@ export interface TuiDependencies {
         agentId: string,
         approvalMode?: string,
         lifetime?: "ephemeral" | "durable",
+        initialMessages?: readonly UserMessage[],
         signal?: AbortSignal,
     ) => Promise<TuiAgentClient>;
     readonly attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
@@ -622,6 +623,7 @@ export async function startConfiguredTui(
                 sourceAgentId,
                 approvalMode,
                 lifetime = "durable",
+                initialMessages = [],
                 signal,
             ) => {
                 try {
@@ -630,7 +632,7 @@ export async function startConfiguredTui(
                         sourceAgentId,
                         "at",
                         undefined,
-                        { approvalMode, lifetime, signal },
+                        { approvalMode, lifetime, initialMessages, signal },
                     );
                     return attach(ready.id);
                 } catch (error) {

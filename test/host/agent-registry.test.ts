@@ -598,11 +598,23 @@ test("the resident registry creates forked and cloned agents", async () => {
             sessionPath: join(root, "clone.jsonl"),
             eventLogPath: join(root, "clone-events.jsonl"),
             approvalMode: "readonly",
+            initialMessages: [{
+                role: "user",
+                content: [{ type: "text", text: "reference boundary" }],
+                internal: true,
+            }],
         });
         expect(clone?.agent.id).toBe("clone");
         expect(clone?.prompt).toBeUndefined();
         expect((await SessionStore.open(join(root, "clone.jsonl"))).messages())
-            .toEqual(sourceStore.messages());
+            .toEqual([
+                ...sourceStore.messages(),
+                {
+                    role: "user",
+                    content: [{ type: "text", text: "reference boundary" }],
+                    internal: true,
+                },
+            ]);
         expect(registry.approvalModeOf("clone")).toBe("readonly");
 
         const inheritedApproval = await registry.branch({

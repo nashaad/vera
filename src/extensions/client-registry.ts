@@ -1930,6 +1930,7 @@ function validateAgentCreateRequest(
         request?.attachmentLifetime,
     );
     const sourceAgentId = request?.source?.agentId?.trim();
+    const initialMessages = validateAgentInitialMessages(request?.initialMessages);
     if (
         request?.source !== undefined
         && (request.source.type !== "branch"
@@ -1937,6 +1938,9 @@ function validateAgentCreateRequest(
             || sourceAgentId.length === 0)
     ) {
         throw new Error("Client extension agent source must name a branch agent");
+    }
+    if (initialMessages.length > 0 && sourceAgentId === undefined) {
+        throw new Error("Client extension initial messages require a branch source");
     }
     return {
         pane: validateAgentPane(request?.pane),
@@ -1952,7 +1956,35 @@ function validateAgentCreateRequest(
         ...(sourceAgentId === undefined
             ? {}
             : { source: { type: "branch" as const, agentId: sourceAgentId } }),
+        ...(initialMessages.length === 0 ? {} : { initialMessages }),
     };
+}
+
+function validateAgentInitialMessages(
+    messages: VeraClientAgentCreateRequest["initialMessages"],
+): NonNullable<VeraClientAgentCreateRequest["initialMessages"]> {
+    if (messages === undefined) return [];
+    if (!Array.isArray(messages) || messages.length > 8) {
+        throw new Error("Client extension initial messages must contain at most 8 items");
+    }
+    return messages.map((message) => {
+        const text = message?.text?.trim();
+        if (
+            message?.role !== "user"
+            || text === undefined
+            || text.length === 0
+            || text.length > 16_000
+            || (message.hidden !== undefined
+                && typeof message.hidden !== "boolean")
+        ) {
+            throw new Error("Client extension initial message is invalid");
+        }
+        return {
+            role: "user" as const,
+            text,
+            ...(message.hidden === undefined ? {} : { hidden: message.hidden }),
+        };
+    });
 }
 
 function validateAgentOpenRequest(

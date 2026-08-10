@@ -116,6 +116,11 @@ test("bare btw creates and opens a readonly hosted sidekick", async () => {
             attachmentLifetime: "ephemeral",
             statusLabel: "btw",
             source: { type: "branch", agentId: "main" },
+            initialMessages: [{
+                role: "user",
+                text: expect.stringContaining("reference context only"),
+                hidden: true,
+            }],
         },
     }]);
     expect(harness.mentions()).toEqual(["sidekick", "all", "vera"]);
