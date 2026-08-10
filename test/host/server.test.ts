@@ -444,6 +444,7 @@ afterEach(() => {
                     children: [],
                     has_parent: false,
                 },
+                capabilities: [],
             });
             expect(await connection.receive()).toEqual({
                 type: "history",

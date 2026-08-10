@@ -15,6 +15,7 @@ import {
     NO_BACKGROUND_AGENTS,
     type BackgroundAgentsSnapshot,
 } from "./background-agents.ts";
+import { parseHostCapabilities } from "./capabilities.ts";
 
 const DEFAULT_MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -23,11 +24,14 @@ export interface AttachAgentOptions {
     readonly socketPath: string;
     readonly agentId: string;
     readonly maxPendingUpdates?: number;
+    readonly requestedCapabilities?: readonly string[];
 }
 
 export interface AttachedAgentClient {
     readonly agentId: string;
     readonly workspace: string;
+    readonly capabilities: readonly string[];
+    supportsHostCapability(capability: string): boolean;
     /**
      * Background work as the host last reported it, correct from the attach
      * onwards. Read it to draw, and subscribe to be told when it changes.
@@ -81,11 +85,20 @@ export async function attachAgent(
         options.maxPendingUpdates ?? DEFAULT_MAX_PENDING_UPDATES,
         "maximum pending agent updates",
     );
+    const requestedCapabilities = parseHostCapabilities(
+        options.requestedCapabilities ?? [],
+    );
+    if (requestedCapabilities === undefined) {
+        throw new Error("Requested host capabilities are invalid");
+    }
     const connection = await connectHost({ socketPath: options.socketPath });
     try {
         await connection.send({
             type: "attach",
             agent_id: options.agentId,
+            ...(requestedCapabilities.length === 0
+                ? {}
+                : { requested_capabilities: requestedCapabilities }),
         });
         const response = await connection.receive();
         if (isAttachFailure(response, options.agentId)) {
@@ -97,8 +110,17 @@ export async function attachAgent(
         const backgroundAgents = isAttached(response, options.agentId)
             ? parseBackgroundAgents(response.background_agents)
             : undefined;
+        const capabilities = isAttached(response, options.agentId)
+            ? response.capabilities === undefined
+                ? requestedCapabilities.length === 0 ? [] : undefined
+                : parseHostCapabilities(response.capabilities)
+            : undefined;
         if (!isAttached(response, options.agentId)
-            || backgroundAgents === undefined) {
+            || backgroundAgents === undefined
+            || capabilities === undefined
+            || capabilities.some((capability) =>
+                !requestedCapabilities.includes(capability)
+            )) {
             throw new AgentAttachError(
                 `Host returned an invalid attach response for ${options.agentId}`,
             );
@@ -108,6 +130,7 @@ export async function attachAgent(
             response.agent_id,
             response.workspace,
             backgroundAgents,
+            capabilities,
             maxPendingUpdates,
         );
     } catch (error) {
@@ -121,6 +144,7 @@ function createAttachedClient(
     agentId: string,
     workspace: string,
     initialBackgroundAgents: BackgroundAgentsSnapshot,
+    negotiatedCapabilities: readonly string[],
     maxPendingUpdates: number,
 ): AttachedAgentClient {
     const updates = new AsyncQueue<AgentUpdate>();
@@ -156,6 +180,10 @@ function createAttachedClient(
     return {
         agentId,
         workspace,
+        capabilities: [...negotiatedCapabilities],
+        supportsHostCapability(capability): boolean {
+            return negotiatedCapabilities.includes(capability);
+        },
         get backgroundAgents(): BackgroundAgentsSnapshot {
             return backgroundAgents;
         },
@@ -446,6 +474,7 @@ function isAttached(
     readonly agent_id: string;
     readonly workspace: string;
     readonly background_agents: unknown;
+    readonly capabilities?: unknown;
 } {
     const response = asRecord(value);
     return response?.type === "attached"

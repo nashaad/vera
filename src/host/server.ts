@@ -42,6 +42,10 @@ import {
 import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
 import { UserFacingError, userFacingMessage } from "../user-facing-error.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
+import {
+    negotiateHostCapabilities,
+    parseHostCapabilities,
+} from "./capabilities.ts";
 
 const MAX_REQUEST_BYTES = 64 * 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -55,6 +59,7 @@ export interface StartHostServerOptions {
     /** Absolute path of the entrypoint this host was started from. */
     readonly entrypoint?: string;
     readonly startupClaimPath?: string;
+    readonly capabilities?: readonly string[];
     readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
     readonly listAgents?: () => readonly RegisteredAgentSummary[];
     readonly runScheduleOperation?: (
@@ -106,6 +111,10 @@ export async function startHostServer(
     options: StartHostServerOptions = {},
 ): Promise<HostServer> {
     const socketPath = options.socketPath ?? defaultHostSocketPath();
+    const capabilities = parseHostCapabilities(options.capabilities ?? []);
+    if (capabilities === undefined) {
+        throw new Error("Host capabilities are invalid");
+    }
     const identity: HostIdentity = {
         pid: options.pid ?? process.pid,
         started_at: options.startedAt ?? currentProcessStartedAt(),
@@ -183,6 +192,7 @@ export async function startHostServer(
         receiveConnection(
             socket,
             identity,
+            capabilities,
             options.findAgent ?? (() => undefined),
             options.listAgents ?? (() => []),
             options.runScheduleOperation ?? (() => Promise.reject(
@@ -255,6 +265,7 @@ export async function startHostServer(
 function receiveConnection(
     socket: Socket,
     identity: HostIdentity,
+    capabilities: readonly string[],
     findAgent: (agentId: string) => ResidentAgent | undefined,
     listAgents: () => readonly RegisteredAgentSummary[],
     runScheduleOperation: (
@@ -798,6 +809,10 @@ function receiveConnection(
             agent_id: attachedId,
             workspace: agent.workspace,
             background_agents: sentBackgroundAgents,
+            capabilities: negotiateHostCapabilities(
+                request.requested_capabilities ?? [],
+                capabilities,
+            ),
         }).then(
             () => forwardAgentUpdates(attached),
             () => socket.destroy(),

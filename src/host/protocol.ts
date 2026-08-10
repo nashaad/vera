@@ -12,11 +12,12 @@ import type {
 } from "../extensions/commands.ts";
 import { isApprovalMode } from "../sdk/permissions.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
+import { parseHostCapabilities } from "./capabilities.ts";
 
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
 // clients on one behavioral contract.
-export const HOST_PROTOCOL_VERSION = 29;
+export const HOST_PROTOCOL_VERSION = 30;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -128,6 +129,7 @@ export interface HostIdentityResponse {
 export interface AttachRequest {
     readonly type: "attach";
     readonly agent_id: string;
+    readonly requested_capabilities?: readonly string[];
 }
 
 export interface DetachRequest {
@@ -187,6 +189,7 @@ export interface AttachedResponse {
      * count to draw before anything changes rather than after the first change.
      */
     readonly background_agents: BackgroundAgentsSnapshot;
+    readonly capabilities: readonly string[];
 }
 
 /**
@@ -478,8 +481,19 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         value?.type === "attach"
         && typeof value.agent_id === "string"
         && value.agent_id.length > 0
+        && (value.requested_capabilities === undefined
+            || parseHostCapabilities(value.requested_capabilities) !== undefined)
     ) {
-        return { type: "attach", agent_id: value.agent_id };
+        const requestedCapabilities = value.requested_capabilities === undefined
+            ? undefined
+            : parseHostCapabilities(value.requested_capabilities);
+        return {
+            type: "attach",
+            agent_id: value.agent_id,
+            ...(requestedCapabilities === undefined
+                ? {}
+                : { requested_capabilities: requestedCapabilities }),
+        };
     }
     return undefined;
 }
