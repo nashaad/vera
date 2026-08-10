@@ -392,6 +392,8 @@ export interface TuiSettingsPickerView {
     tip?: string;
     /** What clicking a tab chip does, in the same terms as the ⇥ key. */
     onTab?: (tab: TuiModelPickerTab) => void;
+    /** Opens provider connection without changing which model tab is active. */
+    onConfigure?: () => void;
     update(state: TuiAnySettingsPickerState): void;
 }
 
@@ -1552,6 +1554,7 @@ export function createTuiSettingsPickerView(
                 view.pointer,
                 view.tip,
                 view.onTab,
+                view.onConfigure,
             );
         },
     };
@@ -1857,6 +1860,7 @@ function renderListPickerRows(
     pointer?: DialogRowPointer,
     tip?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
+    onConfigure?: () => void,
 ): void {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     // No search field on the help page: there is nothing on it to filter, and
@@ -2097,6 +2101,7 @@ function modelTabStripNode(
     counts: Readonly<Partial<Record<TuiModelPickerTab, number>>>,
     note?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
+    onConfigure?: () => void,
 ): BoxRenderable {
     const strip = new BoxRenderable(renderer, {
         width: "100%",
@@ -2145,6 +2150,19 @@ function modelTabStripNode(
             height: 1,
         }));
     });
+    const configure = new TextRenderable(renderer, {
+        content: new StyledText([fg(TUI_ACCENT)(" Configure ")]),
+        flexShrink: 0,
+        height: 1,
+    });
+    if (onConfigure !== undefined) {
+        configure.onMouseDown = (event: MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onConfigure();
+        };
+    }
+    chips.add(configure);
     strip.add(chips);
     strip.add(new TextRenderable(renderer, {
         content: new StyledText([
