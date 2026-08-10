@@ -206,7 +206,15 @@ function contextUsage(
     estimated: boolean,
 ): string {
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
-    return `ctx ${estimated ? "~" : ""}${percent}%`;
+    return `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${formatTokenCount(capacity)} (${percent}%)`;
+}
+
+function formatTokenCount(tokens: number): string {
+    if (tokens < 1_000) return String(tokens);
+    const divisor = tokens < 1_000_000 ? 1_000 : 1_000_000;
+    const suffix = divisor === 1_000 ? "k" : "m";
+    const compact = Math.round(tokens / divisor * 10) / 10;
+    return `${compact}${suffix}`;
 }
 
 function renderPermissions(mode: string): string {

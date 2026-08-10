@@ -16,7 +16,7 @@ test("TUI status line shows host-reported model and reasoning", () => {
         capacity: 258_000,
         estimated: false,
     }, "/workspace")).toBe(
-        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx 25%",
+        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx 64.5k/258k (25%)",
     );
 });
 
@@ -57,7 +57,7 @@ test("TUI status marks a character-counted measurement as approximate", () => {
         capacity: 258_000,
         estimated: true,
     }, "/workspace")).toBe(
-        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx ~25%",
+        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx ~64.5k/258k (25%)",
     );
 });
 
@@ -166,7 +166,7 @@ test("TUI renders extension segments in its own words", () => {
         { kind: "free_note", text: "deploy queued" },
     ])).toBe(
         "2 async subagents running · gpt-5.6-sol · reasoning high · /workspace"
-            + " · auto · ctx ~25% · deploy queued",
+            + " · auto · ctx ~64.5k/258k (25%) · deploy queued",
     );
 });
 
