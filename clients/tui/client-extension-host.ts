@@ -22,6 +22,11 @@ import {
     loadTuiExtensionPreference,
     saveTuiExtensionPreference,
 } from "./theme-preference.ts";
+import {
+    registerExtensionTuiCommands,
+    type TuiCommandRegistry,
+} from "./commands.ts";
+import { tuiChordOwner } from "./keymap.ts";
 
 export interface StartTuiClientExtensionHostOptions {
     readonly extensions: readonly VeraExtensionConfig[];
@@ -43,7 +48,7 @@ export interface StartTuiClientExtensionHostOptions {
         block: VeraClientTranscriptBlock,
     ) => void;
     readonly postNotice: (text: string) => void;
-    readonly reservedCommandNames: readonly string[];
+    readonly commandRegistry: TuiCommandRegistry;
     readonly onFailure: (failure: ClientExtensionRegistryFailure) => void;
 }
 
@@ -61,7 +66,7 @@ export function configuredTuiClientExtensions(
 export async function startTuiClientExtensionHost(
     options: StartTuiClientExtensionHostOptions,
 ): Promise<ClientExtensionRegistry> {
-    return startClientExtensionRegistry({
+    const registry = await startClientExtensionRegistry({
         extensions: options.extensions,
         preferences: {
             async get(namespace, key) {
@@ -102,8 +107,52 @@ export async function startTuiClientExtensionHost(
                 options.postNotice(text);
             },
         },
-        reservedCommandNames: options.reservedCommandNames,
+        reservedCommandNames:
+            options.commandRegistry.registeredCommands().map(({ name }) => name),
         reservedKeybindingKeys: [],
         onFailure: options.onFailure,
     });
+    let disposeCommands: (() => void) | undefined;
+    try {
+        for (const binding of registry.keybindings()) {
+            for (const key of binding.keys) {
+                const owner = tuiChordOwner(key);
+                if (owner !== undefined && owner.extensionId !== binding.id) {
+                    options.postNotice(
+                        `${binding.id} cannot use ${key}: Vera already uses it to ${owner.description.toLowerCase()}`,
+                    );
+                }
+            }
+        }
+        disposeCommands = registerExtensionTuiCommands(
+            options.commandRegistry,
+            registry.commands(),
+            "client",
+        );
+    } catch (error) {
+        try {
+            await registry.close();
+        } catch (cleanupError) {
+            throw new Error(
+                `${errorMessage(error)}; cleanup failed: ${errorMessage(cleanupError)}`,
+            );
+        }
+        throw error;
+    }
+
+    let closing: Promise<void> | undefined;
+    return {
+        ...registry,
+        close(): Promise<void> {
+            closing ??= (async () => {
+                disposeCommands?.();
+                await registry.close();
+            })();
+            return closing;
+        },
+    };
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }

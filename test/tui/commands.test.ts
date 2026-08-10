@@ -426,6 +426,57 @@ test("an extension command collision registers none of the batch", () => {
     expect(registry.dispatch("/hello")).toBeUndefined();
 });
 
+test("an extension palette collision registers none of the batch", () => {
+    const registry = new TuiCommandRegistry();
+    registry.registerPaletteAction({
+        name: "extension:test.extension:second",
+        label: "Occupied",
+        description: "",
+        group: "Extensions",
+        action: { type: "open_rewind" },
+    });
+
+    expect(() => registerExtensionTuiCommands(registry, [{
+        name: "first",
+        description: "First command",
+        usage: "/first",
+        source: "test.extension",
+    }, {
+        name: "second",
+        description: "Second command",
+        usage: "/second",
+        source: "test.extension",
+    }])).toThrow(
+        "Duplicate TUI palette action: extension:test.extension:second",
+    );
+    expect(registry.hasCommand("first")).toBe(false);
+    expect(registry.hasCommand("second")).toBe(false);
+    expect(registry.registeredPaletteActions()).toHaveLength(1);
+});
+
+test("an old extension disposer cannot remove a replacement command", () => {
+    const registry = new TuiCommandRegistry();
+    const dispose = registerExtensionTuiCommands(registry, [{
+        name: "hello",
+        description: "Old hello",
+        usage: "/hello",
+        source: "old.extension",
+    }]);
+    registry.unregisterCommand("hello");
+    registerExtensionTuiCommands(registry, [{
+        name: "hello",
+        description: "New hello",
+        usage: "/hello",
+        source: "new.extension",
+    }]);
+
+    dispose();
+
+    expect(registry.dispatch("/hello")).toMatchObject({
+        source: "new.extension",
+    });
+});
+
 test("extension prefixes cannot disable built-in abbreviations", () => {
     const registry = createBuiltinTuiCommandRegistry();
     registerExtensionTuiCommands(registry, [{

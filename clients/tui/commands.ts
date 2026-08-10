@@ -400,10 +400,10 @@ export class TuiCommandRegistry {
         if (this.commands.has(command.name)) {
             throw new Error(`Duplicate TUI command: /${command.name}`);
         }
-        this.commands.set(command.name, command);
         if (command.palette !== undefined) {
             this.registerPaletteAction(command.palette);
         }
+        this.commands.set(command.name, command);
     }
 
     registerPaletteAction(action: TuiPaletteActionDefinition): void {
@@ -411,6 +411,20 @@ export class TuiCommandRegistry {
             throw new Error(`Duplicate TUI palette action: ${action.name}`);
         }
         this.paletteActions.set(action.name, action);
+    }
+
+    unregisterCommand(
+        name: string,
+        expected?: TuiCommandDefinition,
+    ): void {
+        const command = this.commands.get(name);
+        if (command === undefined || (expected !== undefined && command !== expected)) {
+            return;
+        }
+        this.commands.delete(name);
+        if (command.palette !== undefined) {
+            this.paletteActions.delete(command.palette.name);
+        }
     }
 
     registeredCommands(
@@ -550,7 +564,7 @@ export function registerExtensionTuiCommands(
         ExtensionCommandDescriptor | ClientExtensionCommandDescriptor
     )[],
     origin: RunExtensionTuiCommandAction["origin"] = "host",
-): void {
+): () => void {
     const names = new Set<string>();
     for (const command of commands) {
         if (registry.hasCommand(command.name) || names.has(command.name)) {
@@ -558,7 +572,7 @@ export function registerExtensionTuiCommands(
         }
         names.add(command.name);
     }
-    for (const command of commands) {
+    const definitions = commands.map((command): TuiCommandDefinition => {
         const palette = "palette" in command ? command.palette : undefined;
         const isAvailable = "isAvailable" in command
             ? command.isAvailable
@@ -570,7 +584,7 @@ export function registerExtensionTuiCommands(
             source: command.source,
             origin,
         });
-        registry.registerCommand({
+        return {
             name: command.name,
             description: command.description,
             usage: command.usage,
@@ -596,8 +610,28 @@ export function registerExtensionTuiCommands(
                     ? {}
                     : { isAvailable }),
             },
-        });
+        };
+    });
+    const registered: TuiCommandDefinition[] = [];
+    try {
+        for (const definition of definitions) {
+            registry.registerCommand(definition);
+            registered.push(definition);
+        }
+    } catch (error) {
+        for (const definition of registered) {
+            registry.unregisterCommand(definition.name, definition);
+        }
+        throw error;
     }
+    let disposed = false;
+    return () => {
+        if (disposed) return;
+        disposed = true;
+        for (const definition of definitions) {
+            registry.unregisterCommand(definition.name, definition);
+        }
+    };
 }
 
 export function extensionCommandResultText(
