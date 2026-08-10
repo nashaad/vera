@@ -2250,8 +2250,15 @@ function modelTabStripNode(
             height: 1,
         }));
     });
+    // Not a fourth view: it opens the provider pane rather than switching what
+    // the list shows, so ⇥ does not stop on it and it carries its own key. A
+    // chip that sits among the tabs and answers to nothing on the keyboard is
+    // one the keyboard cannot reach at all.
     const configure = new TextRenderable(renderer, {
-        content: new StyledText([fg(TUI_ACCENT)(" Configure ")]),
+        content: new StyledText([
+            fg(TUI_ACCENT)("Providers "),
+            fg(TUI_MUTED)(tuiKeyHint("open_providers").split(" ")[0] ?? ""),
+        ]),
         flexShrink: 0,
         height: 1,
     });
@@ -2374,6 +2381,8 @@ export function pickerFooter(
             selected?.section === undefined
                 ? { text: "⇧←→ fold all", drop: 5 }
                 : { text: "←→ ⇧←→ fold", drop: 1 },
+            // Sheds early, because the strip's own chip carries this chord and
+            // is on screen whatever the footer had room for.
             { text: tuiKeyHint("open_providers"), drop: 6 },
             { text: "⇥ tabs", drop: 3 },
             { text: "esc close", drop: 0 },

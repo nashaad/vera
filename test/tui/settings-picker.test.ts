@@ -1347,9 +1347,12 @@ test("the Help tab explains the pane in the pane", async () => {
     expect(frame).not.toMatch(/Help \d/);
 });
 
-test("the model tab strip advertises provider configuration", async () => {
+test("the model tab strip offers the providers pane and its key", async () => {
     const frame = await pickerFrame(modelPickerWithPool());
-    expect(frame).toContain("Configure");
+    // The chip is not a fourth view, so ⇥ never lands on it. It carries the
+    // chord that opens it instead: a chip that sits among the tabs and answers
+    // to nothing on the keyboard is one the keyboard cannot reach at all.
+    expect(frame).toContain("Providers ^e");
 });
 
 test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
