@@ -5,6 +5,7 @@ import {
     configuredTuiClientExtensions,
     type TuiClientExtensionHostController,
 } from "./client-extension-host.ts";
+import type { TuiClientExtensionReloadSnapshot } from "./diagnostics.ts";
 
 export interface TuiClientExtensionReloadConfiguration {
     readonly disabledBuiltinExtensions: readonly string[];
@@ -23,6 +24,11 @@ export interface ReloadTuiClientExtensionsOptions {
         extensions: readonly VeraExtensionConfig[],
         failures: string[],
     ) => Promise<ClientExtensionRegistry>;
+}
+
+export interface ClientExtensionReloadFailureOutcome {
+    readonly snapshot: TuiClientExtensionReloadSnapshot;
+    readonly notice: string;
 }
 
 /** Details from a client-extension generation that activated incompletely. */
@@ -51,6 +57,56 @@ export function boundedExtensionReloadFailure(message: string): string {
     return compact.length <= 240
         ? compact
         : `${compact.slice(0, 239).trimEnd()}…`;
+}
+
+export function clientExtensionReloadStarted(): TuiClientExtensionReloadSnapshot {
+    return {
+        status: "reloading",
+        loadedExtensionIds: [],
+        failures: [],
+    };
+}
+
+export function clientExtensionReloadSucceeded(
+    loadedExtensionIds: readonly string[],
+): TuiClientExtensionReloadSnapshot {
+    return {
+        status: "success",
+        loadedExtensionIds,
+        failures: [],
+    };
+}
+
+export function clientExtensionReloadFailed(
+    error: unknown,
+    fallbackLoadedExtensionIds: readonly string[],
+): ClientExtensionReloadFailureOutcome {
+    const partialReload =
+        error instanceof ClientExtensionReloadPartialFailure;
+    const loadedExtensionIds = partialReload
+        ? error.loadedExtensionIds
+        : fallbackLoadedExtensionIds;
+    const failures = partialReload
+        ? error.failures
+        : [boundedExtensionReloadFailure(
+            error instanceof Error ? error.message : String(error),
+        )];
+    const message = boundedExtensionReloadFailure(
+        error instanceof Error ? error.message : String(error),
+    );
+    const kind = partialReload ? error.kind : undefined;
+    return {
+        snapshot: {
+            status: partialReload && kind === "some"
+                ? "partial"
+                : "failed",
+            loadedExtensionIds,
+            failures,
+        },
+        notice: partialReload
+            ? `Client extensions reloaded with failures: ${kind}: ${message}`
+            : `Client extensions could not reload: ${message}`,
+    };
 }
 
 /** Reload one client generation while keeping the TUI's displayed config truthful. */

@@ -2,6 +2,9 @@ import { expect, test } from "bun:test";
 
 import {
     boundedExtensionReloadFailure,
+    clientExtensionReloadFailed,
+    clientExtensionReloadStarted,
+    clientExtensionReloadSucceeded,
     ClientExtensionReloadPartialFailure,
     reloadTuiClientExtensions,
 } from "../../clients/tui/client-extension-reload.ts";
@@ -33,6 +36,42 @@ test("client extension reload failure messages are compact and bounded", () => {
     const bounded = boundedExtensionReloadFailure("x".repeat(300));
     expect(Array.from(bounded)).toHaveLength(240);
     expect(bounded.endsWith("…")).toBe(true);
+});
+
+test("client extension reload outcomes keep status and notices together", () => {
+    expect(clientExtensionReloadStarted()).toEqual({
+        status: "reloading",
+        loadedExtensionIds: [],
+        failures: [],
+    });
+    expect(clientExtensionReloadSucceeded(["test.sidebar"])).toEqual({
+        status: "success",
+        loadedExtensionIds: ["test.sidebar"],
+        failures: [],
+    });
+
+    const partial = clientExtensionReloadFailed(
+        new ClientExtensionReloadPartialFailure(
+            "some",
+            "some failed: missing",
+            ["test.sidebar"],
+            ["missing activation failed"],
+        ),
+        [],
+    );
+    expect(partial.snapshot.status).toBe("partial");
+    expect(partial.notice).toContain("some: some failed: missing");
+
+    const failed = clientExtensionReloadFailed(
+        new Error("network\nfailed"),
+        ["old.extension"],
+    );
+    expect(failed.snapshot).toEqual({
+        status: "failed",
+        loadedExtensionIds: ["old.extension"],
+        failures: ["network failed"],
+    });
+    expect(failed.notice).toBe("Client extensions could not reload: network failed");
 });
 
 test("client extension reload applies refreshed config before activation", async () => {

@@ -109,8 +109,9 @@ import {
     startTuiClientExtensionHost,
 } from "./client-extension-host.ts";
 import {
-    boundedExtensionReloadFailure,
-    ClientExtensionReloadPartialFailure,
+    clientExtensionReloadFailed,
+    clientExtensionReloadStarted,
+    clientExtensionReloadSucceeded,
     reloadTuiClientExtensions,
 } from "./client-extension-reload.ts";
 import { TuiHostedPanePersistence } from "./hosted-pane-persistence.ts";
@@ -3049,11 +3050,7 @@ export async function startTui(
                 return;
             }
             clientExtensionReloadPending = true;
-            clientExtensionReload = {
-                status: "reloading",
-                loadedExtensionIds: [],
-                failures: [],
-            };
+            clientExtensionReload = clientExtensionReloadStarted();
             if (diagnosticsDialog !== undefined) {
                 diagnosticsDialog = {
                     text: renderTuiDiagnostics({
@@ -3085,11 +3082,8 @@ export async function startTui(
                 },
             }).then((loadedExtensionIds) => {
                 if (shuttingDown) return;
-                clientExtensionReload = {
-                    status: "success",
-                    loadedExtensionIds,
-                    failures: [],
-                };
+                clientExtensionReload =
+                    clientExtensionReloadSucceeded(loadedExtensionIds);
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
                         text: renderTuiDiagnostics({
@@ -3104,26 +3098,11 @@ export async function startTui(
                 focusActiveSurface();
             }).catch((error) => {
                 if (shuttingDown) return;
-                const partialReload =
-                    error instanceof ClientExtensionReloadPartialFailure;
-                const loadedExtensionIds = partialReload
-                    ? error.loadedExtensionIds
-                    : clientExtensionHost.current()?.loadedExtensionIds() ?? [];
-                const failures = partialReload
-                    ? error.failures
-                    : [boundedExtensionReloadFailure(
-                        error instanceof Error ? error.message : String(error),
-                    )];
-                clientExtensionReload = {
-                    status: partialReload && error.kind === "some"
-                        ? "partial"
-                        : "failed",
-                    loadedExtensionIds,
-                    failures,
-                };
-                const message = boundedExtensionReloadFailure(
-                    error instanceof Error ? error.message : String(error),
+                const outcome = clientExtensionReloadFailed(
+                    error,
+                    clientExtensionHost.current()?.loadedExtensionIds() ?? [],
                 );
+                clientExtensionReload = outcome.snapshot;
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
                         text: renderTuiDiagnostics({
@@ -3135,11 +3114,7 @@ export async function startTui(
                 }
                 state = appendTuiNotice(
                     state,
-                    partialReload
-                        ? `Client extensions reloaded with failures: ${
-                            error.kind
-                        }: ${message}`
-                        : `Client extensions could not reload: ${message}`,
+                    outcome.notice,
                 );
                 renderState();
                 focusActiveSurface();
