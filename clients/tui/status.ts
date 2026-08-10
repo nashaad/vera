@@ -206,7 +206,9 @@ function contextUsage(
     estimated: boolean,
 ): string {
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
-    return `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${formatTokenCount(capacity)} (${percent}%)`;
+    const filled = Math.min(8, Math.round(percent / 100 * 8));
+    const meter = `${"█".repeat(filled)}${"░".repeat(8 - filled)}`;
+    return `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${formatTokenCount(capacity)} [${meter}] ${percent}%`;
 }
 
 function formatTokenCount(tokens: number): string {
