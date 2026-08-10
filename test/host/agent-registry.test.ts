@@ -178,11 +178,12 @@ test("agent_roster reports the workspace's other live sessions", async () => {
             workspace: here,
             sessionPath: callerSession,
         });
-        await registry.create({
+        const peerAgent = await registry.create({
             id: "peer",
             workspace: here,
             sessionPath: join(root, "peer.jsonl"),
         });
+        const peerAttachment = peerAgent.attach();
         await registry.create({
             id: "stranger",
             workspace: elsewhere,
@@ -198,7 +199,7 @@ test("agent_roster reports the workspace's other live sessions", async () => {
             participant_id: "peer",
             name: peer?.name,
             status: "idle",
-            live: false,
+            live: true,
         });
         expect(Object.keys(roster.participants[0]).sort()).toEqual([
             "live",
@@ -206,6 +207,7 @@ test("agent_roster reports the workspace's other live sessions", async () => {
             "participant_id",
             "status",
         ]);
+        peerAttachment.detach();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -224,6 +226,33 @@ test("agent_roster reports an empty workspace as empty", async () => {
             sessionPath: callerSession,
         });
         await runPrompt(caller.attach(), "who else is here");
+
+        expect(JSON.parse(await toolResultText(callerSession) ?? "{}"))
+            .toEqual({ participants: [] });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("compact agent_roster omits inactive resident sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-roster-inactive-"));
+    const registry = createRegistry(() => agentRosterScript());
+    const callerSession = join(root, "caller.jsonl");
+
+    try {
+        const caller = await registry.create({
+            id: "caller",
+            workspace: root,
+            sessionPath: callerSession,
+        });
+        await registry.create({
+            id: "inactive-peer",
+            workspace: root,
+            sessionPath: join(root, "inactive-peer.jsonl"),
+        });
+
+        await runPrompt(caller.attach(), "who is live here");
 
         expect(JSON.parse(await toolResultText(callerSession) ?? "{}"))
             .toEqual({ participants: [] });

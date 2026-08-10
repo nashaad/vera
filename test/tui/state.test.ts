@@ -416,8 +416,31 @@ test("TUI shows an inbox count without exposing message metadata", () => {
     });
 
     expect(state.entries).toEqual([{
-        kind: "notification",
+        kind: "inbox",
         text: "3 unread inbox entries",
+    }]);
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
+        "╭─ Agent inbox\n╰─ 3 unread inbox entries",
+    );
+});
+
+test("TUI replaces an old inbox count with the current count", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "notice",
+        key: "inbox",
+        count: 1,
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "notice",
+        key: "inbox",
+        count: 2,
+        seq: 2,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "inbox",
+        text: "2 unread inbox entries",
     }]);
 });
 

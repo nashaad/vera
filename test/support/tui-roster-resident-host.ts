@@ -87,7 +87,11 @@ const host = await startResidentHost({
 });
 
 await host.registry.create({ id: "roster-caller", workspace: process.cwd() });
-await host.registry.create({ id: "roster-peer", workspace: process.cwd() });
+const peer = await host.registry.create({
+    id: "roster-peer",
+    workspace: process.cwd(),
+});
+const peerAttachment = peer.attach();
 await host.registry.create({ id: "roster-stranger", workspace: elsewhere });
 
 const manifest = Object.fromEntries(
@@ -103,6 +107,7 @@ await writeFile(readyPath, "ready\n", "utf8");
 try {
     await waitForShutdownSignal();
 } finally {
+    peerAttachment.detach();
     await host.close();
 }
 
