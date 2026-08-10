@@ -125,8 +125,20 @@ export function dialogSearchNode(
     renderer: RenderContext,
     query: string,
     placeholder = "Search",
+    // A view that holds nothing to filter still draws the field, so moving on
+    // and off it does not shift the rest of the card. It parks no caret: a
+    // blinking cursor is what says a field takes typing.
+    live = true,
 ): TextRenderable {
     const typed = query.length > 0;
+    if (!live) {
+        return new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_MUTED)(placeholder)]),
+            width: "100%",
+            height: 2,
+            marginTop: 1,
+        });
+    }
     renderer.setCursorStyle({
         style: "block",
         blinking: true,

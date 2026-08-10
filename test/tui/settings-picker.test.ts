@@ -611,7 +611,8 @@ test("model picker filters its choices as the user types", async () => {
     // rather than repeating the provider on each row.
     const frame = await pickerFrame(second.state ?? state);
     expect(frame).toContain("gl");
-    expect(frame).toMatch(/openrouter\s+GLM-5\.2/);
+    expect(frame).toMatch(/▼ openrouter/);
+    expect(frame).toMatch(/GLM-5\.2/);
 });
 
 test("model picker distinguishes the same model id across providers", async () => {
@@ -1332,10 +1333,14 @@ test("the Help tab explains the pane in the pane", async () => {
     // A page, not a list: nothing to filter, nothing to select, and the footer
     // says only what the page can do.
     expect(help.options).toHaveLength(0);
-    // The tab strip sits directly under the title: no search row in between.
-    const lines = frame.split("\n").map((line) => line.trim());
+    // The search field stays in place even though this page holds nothing to
+    // filter: dropping it would lift the tabs and the page under them as the
+    // user tabs onto Help and drop them again on the way off.
+    const lines = frame.split("\n").map((line) => line.trim())
+        .filter((line) => line.length > 0);
     const title = lines.findIndex((line) => line.startsWith("Select model"));
-    expect(lines[title + 1]).toStartWith("Pool 2");
+    expect(lines[title + 1]).toBe("Search");
+    expect(lines[title + 2]).toStartWith("Pool 2");
     expect(frame).toContain("⇥ tabs · esc close");
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);
@@ -1496,7 +1501,7 @@ test("no model appears twice, because pool membership is a mark on its own row",
     expect(glm?.pooledRank).toBe(1);
 });
 
-test("an unverified pool row says so and offers the verify key", async () => {
+test("an unprobed pool row keeps its row clean and offers the verify key", async () => {
     const state = modelPickerWithPool([{
         provider: "openrouter",
         model: "z-ai/glm-5.2",
@@ -1508,10 +1513,11 @@ test("an unverified pool row says so and offers the verify key", async () => {
     const frame = await pickerFrame(state);
 
     expect(state.tab).toBe("pool");
-    // The row runs like any other. The column carries the absence of
-    // evidence, and the footer offers the probe as a deliberate act. The
-    // provider is in the detail pane beside the list, not on the row.
-    expect(frame).toContain("unverified");
+    // The row runs like any other and says nothing about the probe it has not
+    // had: the column beside the list carries that, and the footer offers the
+    // probe as a deliberate act. The provider is in that column too.
+    expect(frame).toMatch(/GLM-5\.2\s+│/);
+    expect(frame).toContain("not probed yet");
     expect(frame).toContain("verify");
     const row = state.options[state.selectedIndex];
     expect(row?.unverified).toBe(true);
