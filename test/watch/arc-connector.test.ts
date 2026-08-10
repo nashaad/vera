@@ -20,8 +20,10 @@ import { join } from "node:path";
 import { mintAgentName } from "../../src/host/agent-name.ts";
 import { runBash } from "../../src/tools/bash.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
-import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
-import type { PendingDelivery } from "../../src/store/session-store.ts";
+import {
+    InboxDeliveryCoordinator,
+    type InboxNotice,
+} from "../../src/host/inbox-delivery.ts";
 
 function sseResponse(frames: readonly string[], status = 200): Response {
     const stream = new ReadableStream<Uint8Array>({
@@ -222,29 +224,18 @@ describe("self-echo through the arc connector", () => {
      * `ARC_SESSION` as `session`; the host attaches a session's consumer with
      * (arc node id, agent id) as the self-echo pair. This drives the real
      * connector over both halves of the acceptance: the session's own post is
-     * suppressed, anything else still wakes it.
+     * suppressed, while anything else contributes to its unread notice.
      */
-    test("a session's own arc posts do not wake it; another session's do", async () => {
+    test("a session's own arc posts do not count as unread; another session's do", async () => {
         const inbox = Inbox.open(":memory:");
         const consumers = new ConsumerRegistry(inbox, "vera-host");
         const coordinator = new InboxDeliveryCoordinator(consumers);
-        const recorded: PendingDelivery[] = [];
-        let wakes = 0;
+        const notices: InboxNotice[] = [];
         const session = coordinator.attach({
             label: "agent-1",
             actor: "node-a",
             session: "agent-1",
-            target: {
-                recordDelivery: (delivery) => {
-                    recorded.push(delivery);
-                    return Promise.resolve(true);
-                },
-                pendingDeliveryIds: () => [],
-            },
-            triggerTurn: () => {
-                wakes += 1;
-            },
-            minWakeIntervalMs: 0,
+            notify: (notice) => notices.push(notice),
         });
         const admission = new WatchAdmission({
             inbox,
@@ -299,13 +290,9 @@ describe("self-echo through the arc connector", () => {
         await connector.run(ctx);
         await coordinator.pumpAll();
 
-        expect(wakes).toBe(1);
-        expect(recorded).toHaveLength(1);
-        expect(recorded[0]!.content).toContain("a sibling reply");
-        expect(recorded[0]!.content).not.toContain("my own post");
-        // Suppressed is not lost: the offset moved past the session's own
-        // entry, so it never comes back as a later wake either.
-        expect(session.consumer.lag()).toBe(0);
+        expect(notices).toEqual([{ unreadCount: 1 }]);
+        expect(Object.keys(notices[0]!)).toEqual(["unreadCount"]);
+        expect(session.consumer.offset()).toBe(0);
 
         session.release();
         coordinator.close();
@@ -334,23 +321,12 @@ describe("self-echo through the arc connector", () => {
         );
         rmSync(workspace, { recursive: true, force: true });
         expect(echoed.output).toBe(`${name}:UAT-tester`);
-        const recorded: PendingDelivery[] = [];
-        let wakes = 0;
+        const notices: InboxNotice[] = [];
         const session = coordinator.attach({
             label: "agent-1",
             actor: "node-a",
             session: name,
-            target: {
-                recordDelivery: (delivery) => {
-                    recorded.push(delivery);
-                    return Promise.resolve(true);
-                },
-                pendingDeliveryIds: () => [],
-            },
-            triggerTurn: () => {
-                wakes += 1;
-            },
-            minWakeIntervalMs: 0,
+            notify: (notice) => notices.push(notice),
         });
         const admission = new WatchAdmission({
             inbox,
@@ -405,10 +381,8 @@ describe("self-echo through the arc connector", () => {
         await connector.run(ctx);
         await coordinator.pumpAll();
 
-        expect(wakes).toBe(1);
-        expect(recorded).toHaveLength(1);
-        expect(recorded[0]!.content).toContain("a sibling reply");
-        expect(recorded[0]!.content).not.toContain("my own post");
+        expect(notices).toEqual([{ unreadCount: 1 }]);
+        expect(session.consumer.offset()).toBe(0);
 
         session.release();
         coordinator.close();

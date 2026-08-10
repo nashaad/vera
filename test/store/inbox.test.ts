@@ -87,6 +87,94 @@ test("offsets never move backwards", () => {
     inbox.close();
 });
 
+test("acknowledgement advances and appends its receipt atomically and idempotently", () => {
+    const inbox = Inbox.open(":memory:");
+    const consumer = { nodeId: "node-a", label: "right" };
+    inbox.registerConsumer(consumer);
+    const message = inbox.append({
+        source: "vera",
+        kind: "peer.message",
+        actor: "left",
+        session: "left",
+        address: "right",
+        payload: "{}",
+    });
+    const receipt = {
+        source: "vera",
+        kind: "peer.read",
+        actor: "right",
+        session: "right",
+        address: "left",
+        payload: JSON.stringify({ message_id: message.seq, complete: true }),
+    };
+
+    expect(inbox.acknowledge(consumer, message.seq, receipt)).toMatchObject({
+        offset: message.seq,
+        receipt: { kind: "peer.read", seq: message.seq + 1 },
+    });
+    expect(inbox.acknowledge(consumer, message.seq, receipt)).toEqual({
+        offset: message.seq,
+    });
+    expect(inbox.readAfter(0, { limit: 10 }).filter(
+        (entry) => entry.kind === "peer.read"
+    )).toHaveLength(1);
+    inbox.close();
+});
+
+test("duplicate acknowledgement from another connection creates no second receipt", () => {
+    const path = join(temporaryDirectory(), "shared-inbox.db");
+    const first = Inbox.open(path);
+    const second = Inbox.open(path);
+    const consumer = { nodeId: "node-a", label: "right" };
+    first.registerConsumer(consumer);
+    const message = first.append({
+        source: "vera",
+        kind: "peer.message",
+        actor: "left",
+        session: "left",
+        address: "right",
+        payload: "{}",
+    });
+    const receipt = {
+        source: "vera",
+        kind: "peer.read",
+        actor: "right",
+        session: "right",
+        address: "left",
+        payload: JSON.stringify({ message_id: message.seq, complete: true }),
+    };
+
+    expect(first.acknowledge(consumer, message.seq, receipt).receipt).toBeDefined();
+    expect(second.acknowledge(consumer, message.seq, receipt)).toEqual({
+        offset: message.seq,
+    });
+    expect(second.readAfter(0, { limit: 10 }).filter(
+        (entry) => entry.kind === "peer.read"
+    )).toHaveLength(1);
+    first.close();
+    second.close();
+});
+
+test("a failed receipt append rolls its offset update back", () => {
+    const inbox = Inbox.open(":memory:");
+    const consumer = { nodeId: "node-a", label: "right" };
+    inbox.registerConsumer(consumer);
+    const message = inbox.append({
+        source: "vera",
+        kind: "peer.message",
+        payload: "{}",
+    });
+
+    expect(() => inbox.acknowledge(consumer, message.seq, {
+        source: "vera",
+        kind: "peer.read",
+        payload: undefined as unknown as string,
+    })).toThrow();
+    expect(inbox.offsetOf(consumer)).toBe(0);
+    expect(inbox.tail()).toBe(1);
+    inbox.close();
+});
+
 test("offsets are durable per node and label across restarts", () => {
     const path = join(temporaryDirectory(), "inbox", "inbox.db");
     const first = Inbox.open(path);

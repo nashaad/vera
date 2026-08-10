@@ -163,6 +163,15 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "notice") {
+        return typeof update.key === "string"
+                && update.key.length > 0
+                && typeof update.count === "number"
+                && Number.isSafeInteger(update.count)
+                && update.count >= 0
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "ui_request_closed") {
         return typeof update.requestId === "string" ? value as AgentUpdate : undefined;
     }

@@ -80,7 +80,12 @@ import {
 } from "../model/catalog-view.ts";
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
+    AgentInboxEffect,
+    AgentSendEffect,
+    AppliedToolEffectOutput,
+    ApplyCommittedToolEffect,
     ApplyToolEffect,
+    CommitEffect,
     MessageSubagentEffect,
     NotifyParentEffect,
     RegisteredTool,
@@ -91,6 +96,7 @@ import {
     defaultSessionPath,
     SessionStore,
 } from "../store/session-store.ts";
+import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 import { createSessionBranch } from "../store/session-branch.ts";
 import type { UserMessage } from "../model/types.ts";
 import type { ConsultMessage } from "../engine/protocol.ts";
@@ -118,6 +124,15 @@ import {
     trashSessionArtifacts,
     type SessionArtifacts,
 } from "./session-trash.ts";
+import { SOURCE_GAP_KIND } from "../watch/source.ts";
+import {
+    PEER_MESSAGE_KIND,
+    PEER_READ_KIND,
+    VERA_INBOX_SOURCE,
+    parsePeerMessage,
+    parsePeerRead,
+    type PeerMessagePayload,
+} from "./local-participation.ts";
 
 export type RegisteredAgentStatus =
     | "idle"
@@ -505,6 +520,205 @@ function readInstructionRoot(workspace: string): InstructionRoot {
         // git is not required to run a session.
     }
     return { path: workspace, source: "workspace" };
+}
+
+function sameWorkspace(
+    left: RegisteredAgentEntry,
+    right: RegisteredAgentEntry,
+): boolean {
+    return workspaceKey(left.agent.workspace) === workspaceKey(right.agent.workspace);
+}
+
+function entryStatus(entry: RegisteredAgentEntry): RegisteredAgentStatus {
+    return entry.failure !== undefined
+        ? "failed"
+        : entry.agent.closed
+            ? "closed"
+            : entry.completed && entry.agent.status === "idle"
+                ? "completed"
+                : entry.agent.status;
+}
+
+function entryIsLive(entry: RegisteredAgentEntry): boolean {
+    return !entry.agent.closed
+        && !entry.agent.failed
+        && entry.failure === undefined
+        && (
+            entry.agent.attached
+            || entry.agent.status === "working"
+            || entry.agent.status === "waiting"
+        );
+}
+
+function entryUpdatedAt(entry: RegisteredAgentEntry): string {
+    return entry.store.agentFailure()?.timestamp
+        ?? entry.store.activeEntries().at(-1)?.timestamp
+        ?? entry.store.header.timestamp;
+}
+
+interface GitRosterFacts {
+    readonly repository: string | null;
+    readonly git_common_directory: string | null;
+    readonly worktree: string;
+    readonly branch: string | null;
+    readonly head: string | null;
+    readonly dirty: boolean;
+    readonly changed_files: readonly string[];
+    readonly changed_file_count: number;
+    readonly changed_files_truncated: boolean;
+}
+
+const MAX_ROSTER_CHANGED_FILES = 200;
+
+function gitRosterFacts(workspace: string): GitRosterFacts {
+    const worktree = gitOutput(workspace, ["rev-parse", "--show-toplevel"]);
+    const common = gitOutput(workspace, ["rev-parse", "--git-common-dir"]);
+    if (worktree === undefined || common === undefined) {
+        return {
+            repository: null,
+            git_common_directory: null,
+            worktree: workspace,
+            branch: null,
+            head: null,
+            dirty: false,
+            changed_files: [],
+            changed_file_count: 0,
+            changed_files_truncated: false,
+        };
+    }
+    const commonDirectory = resolve(workspace, common);
+    const status = gitOutput(workspace, [
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    ], false) ?? "";
+    const tracked = nulList(gitOutput(workspace, [
+        "diff",
+        "--name-only",
+        "-z",
+        "HEAD",
+    ], false));
+    const untracked = nulList(gitOutput(workspace, [
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+    ], false));
+    const fallback = status.split("\n")
+        .filter((line) => line.length >= 4)
+        .map((line) => line.slice(3));
+    const changed = [...new Set(
+        tracked.length + untracked.length > 0 ? [...tracked, ...untracked] : fallback,
+    )].sort();
+    return {
+        repository: dirname(commonDirectory),
+        git_common_directory: commonDirectory,
+        worktree,
+        branch: gitOutput(workspace, ["branch", "--show-current"]) || null,
+        head: gitOutput(workspace, ["rev-parse", "HEAD"]) ?? null,
+        dirty: status.length > 0,
+        changed_files: changed.slice(0, MAX_ROSTER_CHANGED_FILES),
+        changed_file_count: changed.length,
+        changed_files_truncated: changed.length > MAX_ROSTER_CHANGED_FILES,
+    };
+}
+
+function gitOutput(
+    workspace: string,
+    args: readonly string[],
+    trim: boolean = true,
+): string | undefined {
+    try {
+        const result = spawnSync("git", args, {
+            cwd: workspace,
+            encoding: "utf8",
+            maxBuffer: 4 * 1024 * 1024,
+            timeout: 2_000,
+        });
+        if (result.status !== 0) return undefined;
+        return trim ? result.stdout.trim() : result.stdout;
+    } catch {
+        return undefined;
+    }
+}
+
+function nulList(value: string | undefined): string[] {
+    return value === undefined
+        ? []
+        : value.split("\0").filter((item) => item.length > 0);
+}
+
+function toolError(output: string): ToolOutput {
+    return { kind: "output", output, isError: true };
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function peerReadReceipt(
+    readerId: string,
+    senderId: string,
+    messageId: number,
+): InboxEntryInput {
+    return {
+        source: VERA_INBOX_SOURCE,
+        kind: PEER_READ_KIND,
+        actor: readerId,
+        session: readerId,
+        address: senderId,
+        payload: JSON.stringify({ message_id: messageId, complete: true }),
+    };
+}
+
+function acknowledgeAfterCommit(
+    seq: number,
+    receiptTo?: string,
+): CommitEffect {
+    return {
+        key: "inbox.acknowledge",
+        data: {
+            seq,
+            ...(receiptTo === undefined ? {} : { receipt_to: receiptTo }),
+        },
+    };
+}
+
+function genericInboxResult(entry: InboxEntry): Record<string, unknown> {
+    const payload = boundedUtf8(entry.payload, 24 * 1024);
+    return {
+        message_id: entry.seq,
+        source: entry.source,
+        kind: entry.kind,
+        actor: entry.actor,
+        session: entry.session,
+        address: entry.address,
+        payload: payload.text,
+        payload_truncated: payload.truncated,
+        complete: true,
+    };
+}
+
+function boundedUtf8(
+    value: string,
+    maxBytes: number,
+): { readonly text: string; readonly truncated: boolean } {
+    if (encodedStringBytes(value) <= maxBytes) {
+        return { text: value, truncated: false };
+    }
+    let text = "";
+    let bytes = 0;
+    for (const character of value) {
+        const next = encodedStringBytes(character);
+        if (bytes + next > maxBytes) break;
+        text += character;
+        bytes += next;
+    }
+    return { text, truncated: true };
+}
+
+function encodedStringBytes(value: string): number {
+    return Buffer.byteLength(JSON.stringify(value), "utf8") - 2;
 }
 
 function substitutionNote(update: ModelSubstitutionUpdate): string {
@@ -1250,35 +1464,180 @@ export class AgentRegistry {
         // Keyed rather than path-compared, so a session started under a
         // symlinked or differently-spelled path lands in the same workspace.
         const here = workspaceKey(caller.agent.workspace);
-        const rows = this.list().filter((agent) =>
-            agent.id !== callerId
-            && workspaceKey(agent.workspace) === here
-            && agent.status !== "closed"
-            && agent.status !== "failed"
-            && agent.status !== "completed"
-        );
-        if (rows.length === 0) {
-            return Promise.resolve({
-                kind: "output",
-                output: "No other agents in this workspace.",
-                isError: false,
+        const rows = [...this.agents.entries()]
+            .filter(([id, entry]) =>
+                id !== callerId
+                && workspaceKey(entry.agent.workspace) === here
+                && entryStatus(entry) !== "closed"
+                && entryStatus(entry) !== "failed"
+                && entryStatus(entry) !== "completed"
+            )
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([id, entry]) => {
+                const unread = entry.inbox?.consumer.unreadStatus({
+                    limit: 99,
+                    addresses: [id],
+                    excludeKinds: [SOURCE_GAP_KIND],
+                }) ?? { count: 0, oldestAgeMs: null };
+                return {
+                    participant_id: id,
+                    name: entry.arcName,
+                    workspace: entry.agent.workspace,
+                    workspace_key: workspaceKey(entry.agent.workspace),
+                    ...gitRosterFacts(entry.agent.workspace),
+                    kind: entry.kind,
+                    status: entryStatus(entry),
+                    live: entryIsLive(entry),
+                    last_activity: entryUpdatedAt(entry),
+                    notice: entry.inbox !== undefined && entry.agent.attached
+                        ? "ui"
+                        : "none",
+                    unread_count: unread.count,
+                    oldest_unread_age_ms: unread.oldestAgeMs,
+                    session_path: entry.store.path,
+                };
             });
-        }
-        const lines = rows.map((agent) => [
-            `name=${agent.name ?? "(unnamed)"}`,
-            `last_activity=${agent.updated_at ?? "(unknown)"}`,
-            `session_id=${agent.id}`,
-            `session_path=${agent.session_path}`,
-        ].join("  "));
         return Promise.resolve({
             kind: "output",
-            output: [
-                `${rows.length} other agent${rows.length === 1 ? "" : "s"} `
-                    + "in this workspace:",
-                ...lines,
-            ].join("\n"),
+            output: JSON.stringify({ participants: rows }),
             isError: false,
         });
+    }
+
+    private async applyAgentSendEffect(
+        callerId: string,
+        effect: AgentSendEffect,
+    ): Promise<ToolOutput> {
+        const caller = this.agents.get(callerId);
+        const recipient = this.agents.get(effect.to);
+        const inbox = this.options.inboxDelivery;
+        if (caller === undefined || caller.inbox === undefined || inbox === undefined) {
+            return toolError("Native inbox participation is unavailable in this session.");
+        }
+        if (effect.to === callerId) {
+            return toolError("agent_send cannot send a message to its own session.");
+        }
+        if (
+            recipient === undefined
+            || recipient.kind !== "interactive"
+            || recipient.inbox === undefined
+            || recipient.agent.closed
+            || recipient.agent.failed
+        ) {
+            return toolError(`No native Vera participant ${effect.to}.`);
+        }
+        if (!sameWorkspace(caller, recipient)) {
+            return toolError("agent_send recipients must be in the same workspace.");
+        }
+        if (effect.replyTo !== undefined) {
+            const replied = inbox.entry(effect.replyTo);
+            const message = replied === undefined ? undefined : parsePeerMessage(replied);
+            const readThrough = caller.inbox.consumer.offset();
+            if (
+                message === undefined
+                || message.from !== effect.to
+                || message.to !== callerId
+                || readThrough < effect.replyTo
+            ) {
+                return toolError(
+                    "agent_send reply_to must identify a message already read from the recipient.",
+                );
+            }
+        }
+        const payload: PeerMessagePayload = {
+            version: 1,
+            from: callerId,
+            to: effect.to,
+            text: effect.text,
+            ...(effect.replyTo === undefined ? {} : { reply_to: effect.replyTo }),
+        };
+        const recipientLive = entryIsLive(recipient);
+        const notice = recipient.agent.attached ? "ui" as const : "none" as const;
+        const stored = await inbox.append({
+            source: VERA_INBOX_SOURCE,
+            kind: PEER_MESSAGE_KIND,
+            actor: callerId,
+            session: callerId,
+            address: effect.to,
+            payload: JSON.stringify(payload),
+        });
+        return {
+            kind: "output",
+            output: JSON.stringify({
+                message_id: stored.seq,
+                stored: true,
+                recipient_live: recipientLive,
+                notice,
+            }),
+            isError: false,
+        };
+    }
+
+    private async applyAgentInboxEffect(
+        callerId: string,
+        effect: AgentInboxEffect,
+    ): Promise<AppliedToolEffectOutput> {
+        const caller = this.agents.get(callerId);
+        const coordinator = this.options.inboxDelivery;
+        if (caller === undefined || caller.inbox === undefined || coordinator === undefined) {
+            return toolError("Native inbox participation is unavailable in this session.");
+        }
+        const entry = caller.inbox.consumer.read({
+            limit: 1,
+            addresses: [callerId],
+        })[0];
+        if (entry === undefined) {
+            return {
+                kind: "output",
+                output: JSON.stringify({ unread: false }),
+                isError: false,
+            };
+        }
+        if (effect.messageId !== undefined && effect.messageId !== entry.seq) {
+            return toolError(
+                `Message ${effect.messageId} is not next; read message ${entry.seq} first.`,
+            );
+        }
+        const message = parsePeerMessage(entry);
+        if (message === undefined) {
+            const read = parsePeerRead(entry);
+            const output = read === undefined
+                ? genericInboxResult(entry)
+                : {
+                    message_id: entry.seq,
+                    kind: PEER_READ_KIND,
+                    from: entry.actor,
+                    to: entry.address,
+                    read_message_id: read.message_id,
+                    complete: true,
+                };
+            return {
+                kind: "output",
+                output: JSON.stringify(output),
+                isError: false,
+                afterCommit: acknowledgeAfterCommit(entry.seq),
+            };
+        }
+
+        const envelope = {
+            message_id: entry.seq,
+            kind: PEER_MESSAGE_KIND,
+            from: message.from,
+            to: message.to,
+            text: message.text,
+            ...(message.reply_to === undefined
+                ? {}
+                : { reply_to: message.reply_to }),
+        };
+        return {
+            kind: "output",
+            output: JSON.stringify({ ...envelope, complete: true }),
+            isError: false,
+            afterCommit: acknowledgeAfterCommit(
+                entry.seq,
+                message.from,
+            ),
+        };
     }
 
     async poolRemove(
@@ -1734,7 +2093,42 @@ export class AgentRegistry {
             if (effect.type === "agent_roster") {
                 return this.applyAgentRosterEffect(agent.id);
             }
+            if (effect.type === "agent_send") {
+                return this.applyAgentSendEffect(agent.id, effect);
+            }
+            if (effect.type === "agent_inbox") {
+                return this.applyAgentInboxEffect(agent.id, effect);
+            }
             return applySubagentEffect(effect, signal, context);
+        };
+        const applyCommittedToolEffect: ApplyCommittedToolEffect = async (
+            effect,
+        ) => {
+            if (effect.key !== "inbox.acknowledge") {
+                throw new Error(`Unknown committed tool effect: ${effect.key}`);
+            }
+            const seq = effect.data.seq;
+            const receiptTo = effect.data.receipt_to;
+            if (!Number.isSafeInteger(seq) || (seq as number) <= 0) {
+                throw new Error("Invalid inbox acknowledgement sequence");
+            }
+            if (receiptTo !== undefined && (
+                typeof receiptTo !== "string" || receiptTo.length === 0
+            )) {
+                throw new Error("Invalid inbox read-receipt recipient");
+            }
+            if (entry.inbox === undefined) {
+                throw new Error("inbox consumer closed before acknowledgement");
+            }
+            const acknowledged = entry.inbox.consumer.acknowledge(
+                seq as number,
+                receiptTo === undefined
+                    ? undefined
+                    : peerReadReceipt(agent.id, receiptTo as string, seq as number),
+            );
+            if (acknowledged.receipt !== undefined) {
+                await this.options.inboxDelivery?.pumpAll();
+            }
         };
         entry.run = runHeadlessLoop(
             agent.engine,
@@ -1774,6 +2168,7 @@ export class AgentRegistry {
                     : { permissionModes: this.options.permissionModes }),
                 ...(compaction === undefined ? {} : { compaction }),
                 applyToolEffect,
+                applyCommittedToolEffect,
                 enabledToolEffects: kind === "interactive"
                     ? [
                         "spawn_subagent",
@@ -1781,6 +2176,9 @@ export class AgentRegistry {
                         "message_subagent",
                         "pool_add",
                         "agent_roster",
+                        ...(this.options.inboxDelivery === undefined
+                            ? []
+                            : ["agent_send" as const, "agent_inbox" as const]),
                     ]
                     : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
@@ -1891,15 +2289,13 @@ export class AgentRegistry {
                 // the ARC_SESSION the shell carries, which is this name, so
                 // the self-echo pair must hold the same value.
                 session: entry.arcName,
-                target: {
-                    recordDelivery: (delivery) =>
-                        recordDeliveryAndNotify(store, events, delivery),
-                    pendingDeliveryIds: () =>
-                        store.pendingDeliveries().map((delivery) => delivery.id),
-                },
-                triggerTurn: () => {
+                notify: (notice) => {
                     if (!agent.closed && !agent.failed) {
-                        agent.triggerDeliveryTurn();
+                        events.emit({
+                            type: "notice",
+                            key: "inbox",
+                            count: notice.unreadCount,
+                        });
                     }
                 },
             });

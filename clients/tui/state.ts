@@ -378,6 +378,17 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 : `Async subagent ${update.sourceAgentId}:\n${update.content}`,
         });
     }
+    if (update.type === "notice" && update.key === "inbox") {
+        return appendEntry(state, {
+            kind: "notification",
+            text: `${update.count} unread inbox entr${
+                update.count === 1 ? "y" : "ies"
+            }`,
+        });
+    }
+    if (update.type === "notice") {
+        return state;
+    }
     if (update.type === "history") {
         const canonicalEntries = applyToolDetailPreference(
             toTuiTranscriptEntries(update.entries),

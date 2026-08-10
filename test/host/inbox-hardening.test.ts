@@ -1,21 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Database } from "bun:sqlite";
-
+import { ConsumerRegistry } from "../../src/host/consumers.ts";
+import {
+    InboxDeliveryCoordinator,
+    type InboxNotice,
+} from "../../src/host/inbox-delivery.ts";
 import {
     Inbox,
     INBOX_SCHEMA_VERSION,
     type InboxEntryInput,
 } from "../../src/store/inbox.ts";
-import { ConsumerRegistry } from "../../src/host/consumers.ts";
-import {
-    InboxDeliveryCoordinator,
-    type InboxPumpFailure,
-} from "../../src/host/inbox-delivery.ts";
-import type { PendingDelivery } from "../../src/store/session-store.ts";
 
 const directories: string[] = [];
 
@@ -40,49 +38,23 @@ function entry(overrides: Partial<InboxEntryInput> = {}): InboxEntryInput {
     };
 }
 
-class RecordingTarget {
-    readonly recorded: PendingDelivery[] = [];
-    pending: string[] = [];
-    failNext = false;
-
-    recordDelivery(delivery: PendingDelivery): Promise<boolean> {
-        if (this.failNext) {
-            this.failNext = false;
-            return Promise.reject(new Error("same id, different content"));
-        }
-        this.recorded.push(delivery);
-        return Promise.resolve(true);
-    }
-
-    pendingDeliveryIds(): readonly string[] {
-        return this.pending;
-    }
-}
-
-function bench(options: { onPumpError?: (failure: InboxPumpFailure) => void } = {}) {
+function bench() {
     const inbox = Inbox.open(":memory:");
     const consumers = new ConsumerRegistry(inbox, "node-a");
     const coordinator = new InboxDeliveryCoordinator(consumers, {
-        now: () => 1_000,
-        setTimer: () => 0,
-        clearTimer: () => {},
-        ...(options.onPumpError === undefined
-            ? {}
-            : { onPumpError: options.onPumpError }),
+        now: () => Date.parse("2026-08-09T12:00:10.000Z"),
     });
     return { inbox, consumers, coordinator };
 }
 
-describe("inbox delivery hardening", () => {
-    test("a session never receives an entry addressed to another consumer", async () => {
+describe("inbox notice hardening", () => {
+    test("address filtering reveals only the matching unread count", async () => {
         const { inbox, coordinator } = bench();
-        const target = new RecordingTarget();
+        const notices: InboxNotice[] = [];
         const session = coordinator.attach({
             label: "worker",
             session: "session-1",
-            target,
-            triggerTurn: () => {},
-            minWakeIntervalMs: 0,
+            notify: (notice) => notices.push(notice),
         });
         inbox.appendAll([
             entry({ address: "someone-else" }),
@@ -92,24 +64,18 @@ describe("inbox delivery hardening", () => {
 
         await session.pump();
 
-        expect(target.recorded).toHaveLength(1);
-        const content = target.recorded[0]!.content;
-        expect(content).toContain("2 new inbox entries");
+        expect(notices).toEqual([{ unreadCount: 2 }]);
+        expect(session.consumer.offset()).toBe(0);
         inbox.close();
     });
 
-    test("gap records advance the offset without a delivery or a wake", async () => {
+    test("gap-only unread entries emit no notice and do not advance", async () => {
         const { inbox, coordinator } = bench();
-        const target = new RecordingTarget();
-        let wakes = 0;
+        const notices: InboxNotice[] = [];
         const session = coordinator.attach({
             label: "worker",
             session: "session-1",
-            target,
-            triggerTurn: () => {
-                wakes += 1;
-            },
-            minWakeIntervalMs: 0,
+            notify: (notice) => notices.push(notice),
         });
         inbox.appendAll([
             entry({ kind: "source.gap", address: "worker" }),
@@ -118,21 +84,18 @@ describe("inbox delivery hardening", () => {
 
         await session.pump();
 
-        expect(target.recorded).toHaveLength(0);
-        expect(wakes).toBe(0);
-        expect(session.consumer.offset()).toBe(2);
+        expect(notices).toHaveLength(0);
+        expect(session.consumer.offset()).toBe(0);
         inbox.close();
     });
 
-    test("a mixed batch delivers real entries and consumes trailing gaps", async () => {
+    test("mixed unread entries count only non-gap entries", async () => {
         const { inbox, coordinator } = bench();
-        const target = new RecordingTarget();
+        const notices: InboxNotice[] = [];
         const session = coordinator.attach({
             label: "worker",
             session: "session-1",
-            target,
-            triggerTurn: () => {},
-            minWakeIntervalMs: 0,
+            notify: (notice) => notices.push(notice),
         });
         inbox.appendAll([
             entry({ kind: "source.gap" }),
@@ -142,98 +105,55 @@ describe("inbox delivery hardening", () => {
 
         await session.pump();
 
-        expect(target.recorded).toHaveLength(1);
-        expect(target.recorded[0]!.content).toContain("1 new inbox entr");
-        expect(session.consumer.offset()).toBe(3);
+        expect(notices).toEqual([{ unreadCount: 1 }]);
+        expect(session.consumer.offset()).toBe(0);
         inbox.close();
     });
 
-    test("an entry with a null actor is delivered to the session it names", async () => {
+    test("self-echo suppression requires the complete actor/session pair", async () => {
         const { inbox, coordinator } = bench();
-        const target = new RecordingTarget();
+        const notices: InboxNotice[] = [];
         const session = coordinator.attach({
             label: "worker",
             actor: "worker-actor",
             session: "session-1",
-            target,
-            triggerTurn: () => {},
-            minWakeIntervalMs: 0,
+            notify: (notice) => notices.push(notice),
         });
-        inbox.appendAll([entry({ actor: null, session: "session-1" })]);
+        inbox.appendAll([
+            entry({ actor: null, session: "session-1" }),
+            entry({ actor: "worker-actor", session: "session-1" }),
+        ]);
 
         await session.pump();
 
-        expect(target.recorded).toHaveLength(1);
-        inbox.close();
-    });
-
-    test("the consumer's own entries are still suppressed on the full pair", async () => {
-        const { inbox, coordinator } = bench();
-        const target = new RecordingTarget();
-        const session = coordinator.attach({
-            label: "worker",
-            actor: "worker-actor",
-            session: "session-1",
-            target,
-            triggerTurn: () => {},
-            minWakeIntervalMs: 0,
-        });
-        inbox.appendAll([entry({ actor: "worker-actor", session: "session-1" })]);
-
-        await session.pump();
-
-        expect(target.recorded).toHaveLength(0);
-        inbox.close();
-    });
-
-    test("a stale delivery id cannot advance the offset past the log tail", async () => {
-        const { inbox, coordinator } = bench();
-        const target = new RecordingTarget();
-        target.pending = ["inbox:0-9000"];
-        const session = coordinator.attach({
-            label: "worker",
-            session: "session-1",
-            target,
-            triggerTurn: () => {},
-            minWakeIntervalMs: 0,
-        });
-
+        expect(notices).toEqual([{ unreadCount: 1 }]);
         expect(session.consumer.offset()).toBe(0);
-        inbox.appendAll([entry(), entry()]);
-        await session.pump();
-
-        expect(target.recorded).toHaveLength(1);
         inbox.close();
     });
 
-    test("a failed recordDelivery is surfaced and leaves the offset behind", async () => {
-        const failures: InboxPumpFailure[] = [];
-        const { inbox, coordinator } = bench({
-            onPumpError: (failure) => failures.push(failure),
+    test("filtered unread status exposes count and oldest age without payloads", () => {
+        const { inbox, consumers } = bench();
+        const handle = consumers.hello({ label: "worker" });
+        inbox.appendAll([
+            entry({ ts: "2026-08-09T12:00:02.000Z", address: "worker" }),
+            entry({ ts: "2026-08-09T12:00:04.000Z", address: "other" }),
+            entry({ ts: "2026-08-09T12:00:06.000Z", kind: "source.gap" }),
+        ]);
+
+        expect(handle.unreadStatus({
+            limit: 99,
+            addresses: ["worker"],
+            excludeKinds: ["source.gap"],
+        }, Date.parse("2026-08-09T12:00:10.000Z"))).toEqual({
+            count: 1,
+            oldestAgeMs: 8_000,
         });
-        const target = new RecordingTarget();
-        const session = coordinator.attach({
-            label: "worker",
-            session: "session-1",
-            target,
-            triggerTurn: () => {},
-            minWakeIntervalMs: 0,
-        });
-        inbox.appendAll([entry()]);
-        target.failNext = true;
-
-        await session.pump();
-
-        expect(failures).toHaveLength(1);
-        expect(session.consumer.offset()).toBe(0);
-
-        await session.pump();
-
-        expect(target.recorded).toHaveLength(1);
-        expect(session.consumer.offset()).toBe(1);
+        expect(handle.offset()).toBe(0);
         inbox.close();
     });
+});
 
+describe("inbox storage hardening", () => {
     test("hello reclaims a dormant label without resetting its offset", () => {
         const inbox = Inbox.open(":memory:");
         const consumers = new ConsumerRegistry(inbox, "node-a");
@@ -269,7 +189,6 @@ describe("inbox delivery hardening", () => {
         const raw = new Database(path);
         expect(raw.query("PRAGMA user_version").get())
             .toEqual({ user_version: INBOX_SCHEMA_VERSION });
-        // Rewind to the state a file stamped by the first step alone is in.
         raw.exec("DROP TABLE watch_cursors");
         raw.exec("PRAGMA user_version = 1");
         raw.close();
@@ -286,19 +205,12 @@ describe("inbox delivery hardening", () => {
         after.close();
     });
 
-    test("a corrupt inbox file is quarantined and replaced", () => {
+    test("a corrupt inbox fails closed without replacing native messages", () => {
         const directory = scratch();
         const path = join(directory, "inbox.db");
         writeFileSync(path, "this is not a database");
 
-        const inbox = Inbox.open(path);
-
-        expect(inbox.tail()).toBe(0);
-        inbox.append(entry());
-        expect(inbox.tail()).toBe(1);
-        expect(
-            readdirSync(directory).some((name) => name.includes(".bad-")),
-        ).toBe(true);
-        inbox.close();
+        expect(() => Inbox.open(path)).toThrow();
+        expect(readFileSync(path, "utf8")).toBe("this is not a database");
     });
 });

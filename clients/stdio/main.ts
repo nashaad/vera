@@ -122,6 +122,12 @@ try {
                 stdout.write(renderStdioTaskNotification(update));
             }
 
+            if (update.type === "notice" && update.key === "inbox") {
+                stdout.write(`\n[${update.count} unread inbox entr${
+                    update.count === 1 ? "y" : "ies"
+                }]\n`);
+            }
+
             if (update.type === "tool_review") {
                 stdout.write(
                     update.decision === "unavailable"

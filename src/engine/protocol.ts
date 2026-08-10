@@ -494,6 +494,13 @@ export interface TaskNotificationUpdate {
     readonly seq: number;
 }
 
+export interface NoticeUpdate {
+    readonly type: "notice";
+    readonly key: string;
+    readonly count: number;
+    readonly seq: number;
+}
+
 export interface ToolApprovalUiRequestUpdate {
     readonly type: "ui_request";
     readonly requestId: string;
@@ -720,6 +727,7 @@ export type AgentUpdate =
     | CompactionUpdate
     | StatusUpdate
     | TaskNotificationUpdate
+    | NoticeUpdate
     | UiRequestUpdate
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
@@ -1139,6 +1147,16 @@ export function createProtocolEncoder(
                 sourceAgentId: event.sourceAgentId,
                 content: event.content,
                 ...(event.kind === undefined ? {} : { kind: event.kind }),
+                seq,
+            });
+            return;
+        }
+        if (event.type === "notice") {
+            seq += 1;
+            sender.send({
+                type: "notice",
+                key: event.key,
+                count: event.count,
                 seq,
             });
             return;

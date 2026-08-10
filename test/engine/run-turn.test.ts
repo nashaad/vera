@@ -753,7 +753,16 @@ test("a length stop preserves streamed text and continues with a larger cap", as
         },
     ]);
     expect(state.messages).toEqual([
-        ...requests[1]!.messages as readonly ModelMessage[],
+        {
+            role: "user",
+            content: [{ type: "text", text: "write a long answer" }],
+        },
+        partialResponse,
+        {
+            role: "user",
+            content: [{ type: "text", text: LENGTH_CONTINUATION_PROMPT }],
+            internal: true,
+        },
         finalResponse,
     ]);
     expect(observed).toContainEqual({
@@ -1408,6 +1417,151 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
         },
         toolCallResponse,
     ]);
+});
+
+test("an effect acknowledges only after its unchanged result is durable", async () => {
+    const response = toolResponse("call-roster", "agent_roster", {});
+    const final = assistantText("done");
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const order: string[] = [];
+    const state: RunTurnState = {
+        messages: [],
+        store: {
+            async appendMessage(message): Promise<void> {
+                if (message.role === "tool_result") order.push("persisted");
+            },
+        },
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        enabledToolEffects: ["agent_roster"],
+        applyToolEffect: async () => ({
+            kind: "output",
+            output: "roster",
+            isError: false,
+            afterCommit: { key: "test.acknowledge", data: {} },
+        }),
+        applyCommittedToolEffect: async () => {
+            order.push("acknowledged");
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "list peers" });
+    const turn = runTurn(new FauxAdapter([response, final]), "test", state);
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(order).toEqual(["persisted", "acknowledged"]);
+});
+
+test("failed persistence and post-hook mutation both suppress acknowledgement", async () => {
+    const response = toolResponse("call-roster", "agent_roster", {});
+    const run = async (options: {
+        failCommit: boolean;
+        mutate: boolean;
+    }): Promise<number> => {
+        const channel = createInProcessChannel();
+        const events = createTestEvents(channel.engine);
+        const hooks = new ToolHooks();
+        if (options.mutate) {
+            hooks.registerPostToolUse(() => ({
+                power: "mutate",
+                patch: {
+                    content: [{ type: "text", text: "redacted" }],
+                    isError: false,
+                },
+            }));
+        }
+        let acknowledgements = 0;
+        const state: RunTurnState = {
+            messages: [],
+            store: {
+                async appendMessage(message): Promise<void> {
+                    if (options.failCommit && message.role === "tool_result") {
+                        throw new Error("disk full");
+                    }
+                },
+            },
+            toolRuntime: new ToolRuntime(process.cwd()),
+            inbound: new InboundCommandRouter(channel.engine, events),
+            events,
+            hooks,
+            approvalMode: "auto",
+            enabledToolEffects: ["agent_roster"],
+            applyToolEffect: async () => ({
+                kind: "output",
+                output: "roster",
+                isError: false,
+                afterCommit: { key: "test.acknowledge", data: {} },
+            }),
+            applyCommittedToolEffect: async () => {
+                acknowledgements += 1;
+            },
+        };
+        channel.client.send({ type: "prompt", content: "list peers" });
+        const turn = runTurn(
+            new FauxAdapter(options.mutate
+                ? [response, assistantText("done")]
+                : [response]),
+            "test",
+            state,
+        );
+        if (options.failCommit) {
+            await expect(turn).rejects.toThrow("disk full");
+        } else {
+            await receiveThroughTurnFinished(channel);
+            await turn;
+        }
+        return acknowledgements;
+    };
+
+    expect(await run({ failCommit: true, mutate: false })).toBe(0);
+    expect(await run({ failCommit: false, mutate: true })).toBe(0);
+});
+
+test("a bounded effect result suppresses acknowledgement", async () => {
+    const response = toolResponse("call-roster", "agent_roster", {});
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let acknowledgements = 0;
+    const state: RunTurnState = {
+        messages: [],
+        store: { appendMessage: async () => undefined },
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        enabledToolEffects: ["agent_roster"],
+        applyToolEffect: async () => ({
+            kind: "output",
+            output: "x".repeat(65 * 1024),
+            isError: false,
+            afterCommit: { key: "test.acknowledge", data: {} },
+        }),
+        applyCommittedToolEffect: async () => {
+            acknowledgements += 1;
+        },
+    };
+
+    channel.client.send({ type: "prompt", content: "list peers" });
+    const turn = runTurn(
+        new FauxAdapter([response, assistantText("done")]),
+        "test",
+        state,
+    );
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(acknowledgements).toBe(0);
+    const result = state.messages.find((message) => message.role === "tool_result");
+    expect(result?.role).toBe("tool_result");
+    if (result?.role === "tool_result") {
+        expect(result.content[0]?.text).toContain("bytes omitted");
+    }
 });
 
 test("an edit presentation is published only after its result is durable", async () => {
@@ -2728,6 +2882,30 @@ function createTestEvents(sender: AgentUpdateSender): EngineEventBus {
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(sender));
     return events;
+}
+
+function toolResponse(
+    id: string,
+    name: string,
+    input: Readonly<Record<string, unknown>>,
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "tool_call", id, name, input }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+}
+
+function assistantText(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
 }
 
 async function expectUserPrompt(

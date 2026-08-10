@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import type {
     ModelSettingsUpdate,
@@ -190,15 +191,15 @@ test("agent_roster reports the workspace's other live sessions", async () => {
 
         await runPrompt(caller.attach(), "who else is here");
 
-        const roster = await toolResultText(callerSession) ?? "";
+        const roster = JSON.parse(await toolResultText(callerSession) ?? "{}");
         const peer = registry.list().find((agent) => agent.id === "peer");
-        expect(roster).toContain("1 other agent in this workspace:");
-        expect(roster).toContain(`name=${peer?.name}`);
-        expect(roster).toContain(`last_activity=${peer?.updated_at}`);
-        expect(roster).toContain("session_id=peer");
-        expect(roster).toContain(`session_path=${join(root, "peer.jsonl")}`);
-        expect(roster).not.toContain("session_id=caller");
-        expect(roster).not.toContain("session_id=stranger");
+        expect(roster.participants).toHaveLength(1);
+        expect(roster.participants[0]).toMatchObject({
+            participant_id: "peer",
+            name: peer?.name,
+            last_activity: peer?.updated_at,
+            session_path: join(root, "peer.jsonl"),
+        });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -218,8 +219,65 @@ test("agent_roster reports an empty workspace as empty", async () => {
         });
         await runPrompt(caller.attach(), "who else is here");
 
-        expect(await toolResultText(callerSession))
-            .toBe("No other agents in this workspace.");
+        expect(JSON.parse(await toolResultText(callerSession) ?? "{}"))
+            .toEqual({ participants: [] });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("agent_roster derives repository and dirty-file facts at inspection time", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-roster-git-"));
+    const registry = createRegistry(() => agentRosterScript());
+    const callerSession = join(root, "caller.jsonl");
+    const git = (...args: string[]): string => {
+        const result = spawnSync("git", ["-C", root, ...args], {
+            encoding: "utf8",
+        });
+        if (result.status !== 0) throw new Error(result.stderr);
+        return result.stdout.trim();
+    };
+
+    try {
+        git("init");
+        git("config", "user.name", "Nash");
+        git("config", "user.email", "nash@example.test");
+        await writeFile(join(root, "tracked.txt"), "first\n", "utf8");
+        await writeFile(join(root, ".gitignore"), "*.jsonl\n", "utf8");
+        git("add", "tracked.txt", ".gitignore");
+        git("commit", "-m", "initial");
+        const head = git("rev-parse", "HEAD");
+        const branch = git("branch", "--show-current");
+        await writeFile(join(root, "tracked.txt"), "changed\n", "utf8");
+        await writeFile(join(root, "untracked.txt"), "new\n", "utf8");
+
+        const caller = await registry.create({
+            id: "caller",
+            workspace: root,
+            sessionPath: callerSession,
+        });
+        await registry.create({
+            id: "peer",
+            workspace: root,
+            sessionPath: join(root, "peer.jsonl"),
+        });
+        await runPrompt(caller.attach(), "inspect the roster");
+
+        const roster = JSON.parse(await toolResultText(callerSession) ?? "{}");
+        expect(roster.participants[0]).toMatchObject({
+            participant_id: "peer",
+            repository: await realpath(root),
+            worktree: await realpath(root),
+            branch,
+            head,
+            dirty: true,
+            changed_files: ["tracked.txt", "untracked.txt"],
+            changed_file_count: 2,
+            changed_files_truncated: false,
+        });
+        expect(roster.participants[0].git_common_directory)
+            .toBe(await realpath(join(root, ".git")));
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -2842,14 +2900,13 @@ test("naming a pool entry reports the refreshed snapshot, and a refusal reports 
     }
 });
 
-test("an inbox entry landing mid-turn waits for the turn boundary", async () => {
+test("an inbox entry landing mid-turn emits a notice without starting a turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-inbox-boundary-"));
     await writeFile(join(root, "marker.txt"), "workspace marker");
     const eventLogPath = join(root, "events.jsonl");
     const inbox = Inbox.open(":memory:");
     const coordinator = new InboxDeliveryCoordinator(
         new ConsumerRegistry(inbox, "node-a"),
-        { maxEntriesPerWake: 10 },
     );
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter(readMarkerScript()),
@@ -2874,19 +2931,32 @@ test("an inbox entry landing mid-turn waits for the turn boundary", async () => 
             payload: JSON.stringify({ issue: "nash-93" }),
         });
         await coordinator.pumpAll();
-        await receiveTurnFinished(attachment);
-        await receiveTurnFinished(attachment);
+        const updates = [];
+        while (true) {
+            const update = await attachment.receive();
+            updates.push(update);
+            if (update.type === "turn_finished") break;
+        }
 
-        const types = (await readFile(eventLogPath, "utf8"))
+        const events = (await readFile(eventLogPath, "utf8"))
             .trim()
             .split("\n")
-            .map((line) => (JSON.parse(line) as { type: string }).type)
+            .map((line) => JSON.parse(line) as { type: string });
+        const types = events
+            .map((event) => event.type)
             .filter((type) => type !== "model_stream");
-        const firstBoundary = types.indexOf("turn_finished");
-        const deliveryTurn = types.indexOf("delivery_turn_started");
-        expect(firstBoundary).toBeGreaterThan(-1);
-        expect(deliveryTurn).toBeGreaterThan(firstBoundary);
-        expect(types.lastIndexOf("turn_finished")).toBeGreaterThan(deliveryTurn);
+        expect(updates).toContainEqual(expect.objectContaining({
+            type: "notice",
+            key: "inbox",
+            count: 1,
+        }));
+        expect(types).toContain("notice");
+        expect(types.filter((type) => type === "turn_finished")).toHaveLength(1);
+        expect(types).not.toContain("delivery_turn_started");
+        expect(inbox.offsetOf({
+            nodeId: "node-a",
+            label: "boundary-agent",
+        })).toBe(0);
     } finally {
         await registry.close();
         inbox.close();

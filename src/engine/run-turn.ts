@@ -57,7 +57,9 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import { newStashingToolRuntime } from "./preimage.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
+    ApplyCommittedToolEffect,
     ApplyToolEffect,
+    CommitEffect,
     RegisteredTool,
     ToolExecutionResult,
     ToolEffect,
@@ -184,6 +186,7 @@ export interface RunTurnState {
     readonly hooks: ToolHooks;
     readonly approvalMode: ApprovalMode;
     readonly applyToolEffect?: ApplyToolEffect;
+    readonly applyCommittedToolEffect?: ApplyCommittedToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
     readonly extensionTools?: readonly RegisteredTool[];
@@ -253,6 +256,7 @@ export interface RunHeadlessLoopOptions {
      */
     readonly compaction?: SessionCompactionOptions;
     readonly applyToolEffect?: ApplyToolEffect;
+    readonly applyCommittedToolEffect?: ApplyCommittedToolEffect;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];
     readonly enableUserInteraction?: boolean;
     readonly extensionTools?: readonly RegisteredTool[];
@@ -705,6 +709,9 @@ export async function runHeadlessLoop(
         hooks: options.hooks ?? new ToolHooks(),
         approvalMode: localApprovalMode,
         applyToolEffect,
+        ...(options.applyCommittedToolEffect === undefined
+            ? {}
+            : { applyCommittedToolEffect: options.applyCommittedToolEffect }),
         enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
         enableUserInteraction: options.enableUserInteraction ?? true,
         extensionTools: options.extensionTools ?? [],
@@ -1450,6 +1457,7 @@ const REVIEW_TIMEOUT_INSTRUCTIONS =
 
 interface CompletedToolCall {
     readonly result: ToolResultMessage;
+    readonly afterCommit?: CommitEffect;
     /** Set when the turn must stop after this result is committed. */
     readonly interrupt?: string;
 }
@@ -1693,8 +1701,8 @@ async function executePreparedTool(
         signal,
         state.extensionTools,
     );
-    const output = execution.kind === "interaction"
-        ? await resolveToolInteraction(state, execution.interaction, signal)
+    const applied = execution.kind === "interaction"
+        ? { output: await resolveToolInteraction(state, execution.interaction, signal) }
         : await applyToolExecution(
             execution,
             state.applyToolEffect,
@@ -1713,12 +1721,12 @@ async function executePreparedTool(
     // Emitted from here rather than from either spawn path, so both the
     // in-process subagent and the host registry report a substitution the
     // same way.
-    for (const substitution of output.substitutions ?? []) {
+    for (const substitution of applied.output.substitutions ?? []) {
         state.events.emit({ type: "model_substituted", substitution });
     }
     const bound = await boundToolResult(
         toolCall,
-        output,
+        applied.output,
         state.toolResultSpill,
     );
     const durationMs = performance.now() - startedAt;
@@ -1729,6 +1737,7 @@ async function executePreparedTool(
         bound.result,
         durationMs,
         bound.truncation,
+        bound.truncation === undefined ? applied.afterCommit : undefined,
     );
 }
 
@@ -1780,6 +1789,7 @@ async function finishExecutedTool(
     result: ToolResultMessage,
     durationMs: number,
     truncation?: ToolResultTruncation,
+    afterCommit?: CommitEffect,
 ): Promise<CompletedToolCall> {
     const truncated = truncation === undefined ? {} : { truncation };
     try {
@@ -1813,7 +1823,14 @@ async function finishExecutedTool(
             durationMs,
             ...truncated,
         });
-        return { result: finalResult };
+        return {
+            result: finalResult,
+            ...(
+                afterCommit === undefined || !sameToolResult(result, finalResult)
+                    ? {}
+                    : { afterCommit }
+            ),
+        };
     } catch (postHookError) {
         state.events.emit({
             type: "tool_hook_failed",
@@ -1828,7 +1845,10 @@ async function finishExecutedTool(
             durationMs,
             ...truncated,
         });
-        return { result };
+        return {
+            result,
+            ...(afterCommit === undefined ? {} : { afterCommit }),
+        };
     }
 }
 
@@ -1900,6 +1920,12 @@ async function finishToolCalls(
     );
     for (const toolCall of completed) {
         await commitMessage(state, toolCall.result);
+        if (toolCall.afterCommit !== undefined) {
+            if (state.applyCommittedToolEffect === undefined) {
+                throw new Error("No owner can apply the committed tool effect");
+            }
+            await state.applyCommittedToolEffect(toolCall.afterCommit);
+        }
         if (toolCall.result.presentation !== undefined) {
             state.events.emit({
                 type: "tool_presentation_ready",
@@ -1930,26 +1956,35 @@ async function applyToolExecution(
     applyEffect: ApplyToolEffect | undefined,
     signal: AbortSignal,
     context: ToolEffectContext,
-): Promise<ToolOutput> {
+): Promise<{
+    readonly output: ToolOutput;
+    readonly afterCommit?: CommitEffect;
+}> {
     if (execution.kind === "output") {
-        return execution;
+        return { output: execution };
     }
     if (applyEffect === undefined) {
-        return {
+        return { output: {
             kind: "output",
             output: "Tool effects are not enabled in this agent",
             isError: true,
-        };
+        } };
     }
     try {
         signal.throwIfAborted();
-        return await applyEffect(execution.effect, signal, context);
-    } catch (error) {
+        const applied = await applyEffect(execution.effect, signal, context);
         return {
+            output: applied,
+            ...(applied.afterCommit === undefined
+                ? {}
+                : { afterCommit: applied.afterCommit }),
+        };
+    } catch (error) {
+        return { output: {
             kind: "output",
             output: error instanceof Error ? error.message : String(error),
             isError: true,
-        };
+        } };
     }
 }
 

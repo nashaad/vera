@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync, renameSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -63,6 +63,18 @@ export interface InboxReadOptions {
         readonly actor: string | null;
         readonly session: string | null;
     };
+    /** Entry kinds omitted from bookkeeping such as unread notices. */
+    readonly excludeKinds?: readonly string[];
+}
+
+export interface InboxUnreadStats {
+    readonly count: number;
+    readonly oldestTs: string | null;
+}
+
+export interface InboxAcknowledgement {
+    readonly offset: number;
+    readonly receipt?: InboxEntry;
 }
 
 interface EntryRow {
@@ -87,40 +99,15 @@ export class Inbox {
         migrate(this.database);
     }
 
-    /**
-     * `path` may be `:memory:`. Parent directories are created.
-     *
-     * A file that cannot be opened or migrated is renamed aside and a fresh
-     * empty inbox takes its place. The inbox is a replayable log, not a record
-     * of truth, so losing it costs redelivery rather than data, and a corrupt
-     * one must never keep the host from starting.
-     */
+    /** `path` may be `:memory:`. Parent directories are created. */
     static open(path: string): Inbox {
         if (path !== ":memory:") {
             mkdirSync(dirname(path), { recursive: true });
         }
-        try {
-            return new Inbox(new Database(path, { create: true }));
-        } catch (error) {
-            if (path === ":memory:") {
-                throw error;
-            }
-            const quarantined = `${path}.bad-${Date.now()}`;
-            // The sidecars go with it: a leftover WAL would be replayed into
-            // the replacement file and carry the corruption forward.
-            for (const suffix of ["", "-wal", "-shm"]) {
-                try {
-                    renameSync(`${path}${suffix}`, `${quarantined}${suffix}`);
-                } catch {
-                    // Nothing to move aside for this suffix.
-                }
-            }
-            console.error(
-                `Vera quarantined an unreadable inbox at ${path} as ${quarantined}: `
-                + (error instanceof Error ? error.message : String(error)),
-            );
-            return new Inbox(new Database(path, { create: true }));
-        }
+        // Native peer messages have no upstream source to replay. Opening is
+        // therefore fail-closed: silently replacing a damaged database would
+        // turn a recoverable startup failure into permanent message loss.
+        return new Inbox(new Database(path, { create: true }));
     }
 
     close(): void {
@@ -160,6 +147,16 @@ export class Inbox {
             batch.map((entry) => this.append(entry)),
         );
         return run(entries);
+    }
+
+    /** One entry by its stable local message id. */
+    entry(seq: number): InboxEntry | undefined {
+        return this.database
+            .query<EntryRow, [number]>(
+                `SELECT seq, source, kind, actor, session, address, payload, ts
+                 FROM entries WHERE seq = ?`,
+            )
+            .get(seq) ?? undefined;
     }
 
     /** The seq of the newest entry, or 0 when the log is empty. */
@@ -226,21 +223,7 @@ export class Inbox {
 
     /** The same query without a consumer, for callers that hold a seq already. */
     readAfter(after: number, options: InboxReadOptions): InboxEntry[] {
-        const clauses = ["seq > ?"];
-        const parameters: (string | number | null)[] = [after];
-        if (options.addresses !== undefined) {
-            const placeholders = options.addresses.map(() => "?").join(", ");
-            clauses.push(
-                options.addresses.length === 0
-                    ? "address IS NULL"
-                    : `(address IS NULL OR address IN (${placeholders}))`,
-            );
-            parameters.push(...options.addresses);
-        }
-        if (options.excludeOrigin !== undefined) {
-            clauses.push("NOT (actor IS ? AND session IS ?)");
-            parameters.push(options.excludeOrigin.actor, options.excludeOrigin.session);
-        }
+        const { clauses, parameters } = readPredicate(after, options);
         parameters.push(Math.max(0, options.limit));
         return this.database
             .query<EntryRow, (string | number | null)[]>(
@@ -251,6 +234,28 @@ export class Inbox {
                  LIMIT ?`,
             )
             .all(...parameters);
+    }
+
+    /** Counts unread entries without returning their foreign payloads. */
+    unreadStats(consumer: ConsumerId, options: InboxReadOptions): InboxUnreadStats {
+        const after = this.offsetOf(consumer);
+        if (after === null) {
+            throw new Error(
+                `unknown inbox consumer ${consumer.nodeId}/${consumer.label}`,
+            );
+        }
+        const { clauses, parameters } = readPredicate(after, options);
+        const row = this.database
+            .query<{ count: number; oldest_ts: string | null }, (string | number | null)[]>(
+                `SELECT COUNT(*) AS count, MIN(ts) AS oldest_ts
+                 FROM entries
+                 WHERE ${clauses.join(" AND ")}`,
+            )
+            .get(...parameters);
+        return {
+            count: row?.count ?? 0,
+            oldestTs: row?.oldest_ts ?? null,
+        };
     }
 
     /**
@@ -312,6 +317,83 @@ export class Inbox {
             .run(seq, new Date().toISOString(), consumer.nodeId, consumer.label);
         return this.offsetOf(consumer) ?? seq;
     }
+
+    /**
+     * Advances after a durable tool result and optionally records its complete
+     * retrieval receipt in the same transaction. Replayed callbacks are a
+     * no-op, which makes receipt creation exactly-once per offset crossing.
+     */
+    acknowledge(
+        consumer: ConsumerId,
+        throughSeq: number,
+        receipt?: InboxEntryInput,
+    ): InboxAcknowledgement {
+        if (!Number.isSafeInteger(throughSeq) || throughSeq <= 0) {
+            throw new Error("inbox acknowledgement seq must be positive");
+        }
+        const run = this.database.transaction((): InboxAcknowledgement => {
+            const before = this.offsetOf(consumer);
+            if (before === null) {
+                throw new Error(
+                    `unknown inbox consumer ${consumer.nodeId}/${consumer.label}`,
+                );
+            }
+            if (before >= throughSeq) return { offset: before };
+            if (this.entry(throughSeq) === undefined) {
+                throw new Error(`unknown inbox entry ${throughSeq}`);
+            }
+            this.database
+                .query<null, [number, string, string, string]>(
+                    `UPDATE consumer_offsets
+                     SET seq = ?, updated_at = ?
+                     WHERE node_id = ? AND label = ?`,
+                )
+                .run(
+                    throughSeq,
+                    new Date().toISOString(),
+                    consumer.nodeId,
+                    consumer.label,
+                );
+            const storedReceipt = receipt === undefined
+                ? undefined
+                : this.append(receipt);
+            return {
+                offset: throughSeq,
+                ...(storedReceipt === undefined
+                    ? {}
+                    : { receipt: storedReceipt }),
+            };
+        });
+        return run();
+    }
+}
+
+function readPredicate(
+    after: number,
+    options: InboxReadOptions,
+): { clauses: string[]; parameters: (string | number | null)[] } {
+    const clauses = ["seq > ?"];
+    const parameters: (string | number | null)[] = [after];
+    if (options.addresses !== undefined) {
+        const placeholders = options.addresses.map(() => "?").join(", ");
+        clauses.push(
+            options.addresses.length === 0
+                ? "address IS NULL"
+                : `(address IS NULL OR address IN (${placeholders}))`,
+        );
+        parameters.push(...options.addresses);
+    }
+    if (options.excludeOrigin !== undefined) {
+        clauses.push("NOT (actor IS ? AND session IS ?)");
+        parameters.push(options.excludeOrigin.actor, options.excludeOrigin.session);
+    }
+    if (options.excludeKinds !== undefined && options.excludeKinds.length > 0) {
+        clauses.push(
+            `kind NOT IN (${options.excludeKinds.map(() => "?").join(", ")})`,
+        );
+        parameters.push(...options.excludeKinds);
+    }
+    return { clauses, parameters };
 }
 
 export function defaultInboxPath(): string {
