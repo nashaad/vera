@@ -1649,6 +1649,9 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
 
             pane = await waitForPane(socket, session, "queued · redirect now");
+            expect(pane.split("\n").find((line) =>
+                line.includes("queued · redirect now")
+            )).toMatch(/^  queued · redirect now/);
             sendKey(socket, session, "Escape");
 
             pane = await waitForPane(socket, session, "STEER WORKED");
