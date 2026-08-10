@@ -83,6 +83,32 @@ test("cancelling creation closes the unadopted client", async () => {
     expect(adopted).toBe(false);
 });
 
+test("extension agents branch only from a visible hosted agent", async () => {
+    const branched: unknown[] = [];
+    const adapter = createTuiClientExtensionAgentsAdapter({
+        primary: () => agent("main"),
+        sidebar: () => undefined,
+        sidebarMention: () => undefined,
+        branchAgent: async (...options) => {
+            branched.push(options.slice(0, 3));
+            return agent("branch");
+        },
+        async adoptAgent() {},
+    });
+    const signal = new AbortController().signal;
+    await expect(adapter.create("extension", {
+        pane: "sidebar",
+        source: { type: "branch", agentId: "main" },
+        approvalMode: "readonly",
+        attachmentLifetime: "ephemeral",
+    }, signal)).resolves.toEqual({ agentId: "branch" });
+    expect(branched).toEqual([["main", "readonly", "ephemeral"]]);
+    await expect(adapter.create("extension", {
+        pane: "sidebar",
+        source: { type: "branch", agentId: "hidden" },
+    }, signal)).rejects.toThrow("only a visible agent");
+});
+
 test("extension agent messages attach sidebar images before sending", async () => {
     const sent: ClientCommand[] = [];
     const sideClient = agent("side");

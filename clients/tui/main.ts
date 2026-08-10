@@ -75,6 +75,7 @@ import type {
     TuiTimelinePickerTransition,
 } from "./timeline-picker.ts";
 import {
+    AgentBranchCommitError,
     branchAgentThroughHost,
     createAgentThroughHost,
     resumeAgentThroughHost,
@@ -435,6 +436,12 @@ export interface TuiDependencies {
         approvalMode?: string,
         lifetime?: "ephemeral" | "durable",
     ) => Promise<TuiAgentClient>;
+    readonly branchAgent?: (
+        agentId: string,
+        approvalMode?: string,
+        lifetime?: "ephemeral" | "durable",
+        signal?: AbortSignal,
+    ) => Promise<TuiAgentClient>;
     readonly attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
     readonly cloneSession?: (agentId: string) => Promise<TuiAgentClient>;
     readonly forkSession?: (
@@ -611,6 +618,33 @@ export async function startConfiguredTui(
                     approvalMode,
                     lifetime,
                 )).id),
+            branchAgent: async (
+                sourceAgentId,
+                approvalMode,
+                lifetime = "durable",
+                signal,
+            ) => {
+                if (!client.supportsHostCapability?.(
+                    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+                )) {
+                    throw new Error("Resident host does not support branching with options");
+                }
+                try {
+                    const ready = await branchAgentThroughHost(
+                        host.socket_path,
+                        sourceAgentId,
+                        "at",
+                        undefined,
+                        { approvalMode, lifetime, signal },
+                    );
+                    return attach(ready.id);
+                } catch (error) {
+                    if (error instanceof AgentBranchCommitError) {
+                        return attach(error.agentId);
+                    }
+                    throw error;
+                }
+            },
             attachAgent: attach,
             cloneSession: async (currentAgentId) =>
                 attach(
@@ -1016,6 +1050,7 @@ export async function startTui(
             sidebar: () => sidebarAgentPane,
             sidebarMention: () => sidebarAgentMention,
             createAgent: dependencies.createAgent,
+            branchAgent: dependencies.branchAgent,
             attachAgent: dependencies.attachAgent,
             adoptAgent: (
                 extensionId,

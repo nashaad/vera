@@ -19,6 +19,12 @@ export interface TuiClientExtensionAgentsOptions {
         approvalMode?: string,
         attachmentLifetime?: "ephemeral" | "durable",
     ) => Promise<TuiAgentClient>;
+    branchAgent?: (
+        sourceAgentId: string,
+        approvalMode: string | undefined,
+        attachmentLifetime: "ephemeral" | "durable" | undefined,
+        signal: AbortSignal,
+    ) => Promise<TuiAgentClient>;
     attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
     /** Assumes ownership of client immediately, including on rejection. */
     adoptAgent(
@@ -58,14 +64,33 @@ export function createTuiClientExtensionAgentsAdapter(
         },
         async create(extensionId, request, signal) {
             signal.throwIfAborted();
-            if (options.createAgent === undefined) {
-                throw new Error("This client cannot create agents");
-            }
             const primary = options.primary();
-            const next = requireIdentifiedTuiAgentClient(await options.createAgent(
-                request.workspace ?? primary.workspace ?? process.cwd(),
-                request.approvalMode,
-                request.attachmentLifetime,
+            const source = request.source;
+            if (
+                source !== undefined
+                && !this.visible(extensionId).some((agent) =>
+                    agent.agentId === source.agentId
+                )
+            ) {
+                throw new Error("Extensions can branch only a visible agent");
+            }
+            const next = requireIdentifiedTuiAgentClient(await (
+                source === undefined
+                    ? options.createAgent === undefined
+                        ? Promise.reject(new Error("This client cannot create agents"))
+                        : options.createAgent(
+                            request.workspace ?? primary.workspace ?? process.cwd(),
+                            request.approvalMode,
+                            request.attachmentLifetime,
+                        )
+                    : options.branchAgent === undefined
+                        ? Promise.reject(new Error("This client cannot branch agents"))
+                        : options.branchAgent(
+                            source.agentId,
+                            request.approvalMode,
+                            request.attachmentLifetime,
+                            signal,
+                        )
             ));
             if (signal.aborted) {
                 next.close();

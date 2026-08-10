@@ -1929,6 +1929,15 @@ function validateAgentCreateRequest(
     const attachmentLifetime = validateAgentAttachmentLifetime(
         request?.attachmentLifetime,
     );
+    const sourceAgentId = request?.source?.agentId?.trim();
+    if (
+        request?.source !== undefined
+        && (request.source.type !== "branch"
+            || sourceAgentId === undefined
+            || sourceAgentId.length === 0)
+    ) {
+        throw new Error("Client extension agent source must name a branch agent");
+    }
     return {
         pane: validateAgentPane(request?.pane),
         ...(attachmentLifetime === undefined ? {} : { attachmentLifetime }),
@@ -1940,6 +1949,9 @@ function validateAgentCreateRequest(
         ...(approvalMode === undefined || approvalMode.length === 0
             ? {}
             : { approvalMode }),
+        ...(sourceAgentId === undefined
+            ? {}
+            : { source: { type: "branch" as const, agentId: sourceAgentId } }),
     };
 }
 

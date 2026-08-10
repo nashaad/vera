@@ -82,11 +82,15 @@ export async function branchAgentThroughHost(
     options: {
         readonly approvalMode?: string;
         readonly lifetime?: "ephemeral" | "durable";
+        readonly signal?: AbortSignal;
     } = {},
 ): Promise<BranchedAgent> {
     const connection = await connectHost({ socketPath });
+    const abort = (): void => connection.close();
+    options.signal?.addEventListener("abort", abort, { once: true });
     const requiresCommit = options.lifetime === "ephemeral";
     try {
+        options.signal?.throwIfAborted();
         await connection.send({
             type: "branch_agent",
             source_agent_id: sourceAgentId,
@@ -147,7 +151,13 @@ export async function branchAgentThroughHost(
                 ? {}
                 : { prompt: structuredClone(response.prompt) }),
         };
+    } catch (error) {
+        if (options.signal?.aborted) {
+            throw options.signal.reason;
+        }
+        throw error;
     } finally {
+        options.signal?.removeEventListener("abort", abort);
         connection.close();
     }
 }
