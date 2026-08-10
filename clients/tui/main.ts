@@ -3486,7 +3486,7 @@ export async function startTui(
                     targetAgentId,
                     false,
                     new Date(),
-                    false,
+                    true,
                     sharedSessionGroups,
                 );
                 focusActiveSurface();
@@ -5904,7 +5904,7 @@ export async function startTui(
                 client.agentId,
                 false,
                 new Date(),
-                false,
+                true,
                 sharedSessionGroups,
             );
             renderState();

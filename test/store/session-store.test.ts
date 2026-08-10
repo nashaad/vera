@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import {
     SESSION_FORMAT_VERSION,
+    readSessionIndexMetadata,
     SessionStore,
 } from "../../src/store/session-store.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
@@ -103,6 +104,24 @@ test("session store creates a header and reloads one message chain", async () =>
     const reopened = await SessionStore.open(path);
     expect(reopened.header.id).toBe("session-1");
     expect(reopened.messages()).toEqual([user, assistant, toolResult]);
+});
+
+test("session index metadata finds a title without loading the store", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "sessions", "indexed.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "indexed",
+        cwd: directory,
+    });
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "  Find   this conversation  " }],
+    });
+
+    expect(await readSessionIndexMetadata(path)).toMatchObject({
+        header: { id: "indexed", cwd: directory },
+        title: "Find this conversation",
+    });
 });
 
 test("session origins persist an immutable branch parent edge", async () => {
