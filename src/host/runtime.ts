@@ -24,6 +24,7 @@ import type {
 import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
 import { createReviewLogger } from "../engine/review-log.ts";
+import { HOST_CAPABILITY_AGENT_BRANCH_OPTIONS } from "./capabilities.ts";
 
 const hostLog = createHostLogger();
 const reviewLog = createReviewLogger();
@@ -400,6 +401,7 @@ export async function startResidentHost(
                 }),
             });
         server = await startHostServer({
+            capabilities: [HOST_CAPABILITY_AGENT_BRANCH_OPTIONS],
             ...(options.socketPath === undefined
                 ? {}
                 : { socketPath: options.socketPath }),
@@ -422,6 +424,10 @@ export async function startResidentHost(
             createAgent: (createOptions) => registry.create(createOptions),
             resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
             branchAgent: (options) => registry.branch(options),
+            discardBranch: async (agentId) => {
+                await registry.trashSession(agentId);
+            },
+            commitBranch: (agentId) => registry.commitBranch(agentId),
             trashSession: (targetId) => registry.trashSession(targetId),
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),

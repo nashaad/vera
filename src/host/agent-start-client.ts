@@ -25,6 +25,19 @@ export class AgentStartError extends Error {
     }
 }
 
+export class AgentBranchError extends Error {
+    constructor(
+        readonly reason: "unsupported_options" | "source_unavailable" | "failed",
+    ) {
+        super(reason === "unsupported_options"
+            ? "Resident host does not support branch options"
+            : reason === "source_unavailable"
+                ? "Source agent is unavailable for branching"
+                : "Resident agent branch failed");
+        this.name = "AgentBranchError";
+    }
+}
+
 export function createAgentThroughHost(
     socketPath: string,
     workspace: string,
@@ -56,18 +69,35 @@ export async function branchAgentThroughHost(
     sourceAgentId: string,
     position: "before" | "at",
     entryId?: string,
+    options: {
+        readonly approvalMode?: string;
+        readonly lifetime?: "ephemeral" | "durable";
+    } = {},
 ): Promise<BranchedAgent> {
     const connection = await connectHost({ socketPath });
+    const hasOptions = options.approvalMode !== undefined
+        || options.lifetime === "ephemeral";
     try {
         await connection.send({
             type: "branch_agent",
             source_agent_id: sourceAgentId,
             position,
             ...(entryId === undefined ? {} : { entry_id: entryId }),
+            ...(options.approvalMode === undefined
+                ? {}
+                : { approval_mode: options.approvalMode }),
+            ...(options.lifetime === "ephemeral"
+                ? { lifetime: "ephemeral" as const }
+                : {}),
         });
         const response = asRecord(await connection.receive());
         if (response?.type === "agent_branch_failed") {
-            throw new Error("Resident agent branch failed");
+            const reason = response.reason === "unsupported_options"
+                    || response.reason === "source_unavailable"
+                    || response.reason === "failed"
+                ? response.reason
+                : "failed";
+            throw new AgentBranchError(reason);
         }
         if (
             response?.type !== "agent_branched"
@@ -76,8 +106,24 @@ export async function branchAgentThroughHost(
             || typeof response.workspace !== "string"
             || response.workspace.length === 0
             || !isOptionalUserPrompt(response.prompt)
+            || (response.requires_commit !== undefined
+                && response.requires_commit !== true)
+            || (hasOptions && response.requires_commit !== true)
         ) {
             throw new Error("Host returned an invalid agent branch response");
+        }
+        if (response.requires_commit === true) {
+            await connection.send({
+                type: "commit_agent_branch",
+                agent_id: response.agent_id,
+            });
+            const committed = asRecord(await connection.receive());
+            if (
+                committed?.type !== "agent_branch_committed"
+                || committed.agent_id !== response.agent_id
+            ) {
+                throw new Error("Host did not commit the agent branch");
+            }
         }
         return {
             id: response.agent_id,

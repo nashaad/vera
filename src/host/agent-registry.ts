@@ -371,6 +371,13 @@ export interface BranchRegisteredAgentOptions {
     readonly id?: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
+    /** Keep the branch only for the lifetime of the resident host. */
+    readonly ephemeral?: boolean;
+    /** Override the approval mode copied from the source session. */
+    readonly approvalMode?: ApprovalMode;
+    readonly signal?: AbortSignal;
+    /** Keep the branch out of public lookup until `commitBranch` publishes it. */
+    readonly deferPublication?: boolean;
 }
 
 export interface BranchedRegisteredAgent {
@@ -763,6 +770,7 @@ interface RegisteredAgentEntry {
     readonly store: SessionStore;
     readonly kind: RegisteredAgentKind;
     readonly ephemeral: boolean;
+    pendingPublication: boolean;
     /**
      * The identity name this session posts and is addressed under, minted at
      * registration and stable for the entry's lifetime. Changing it
@@ -1051,6 +1059,13 @@ export class AgentRegistry {
     async branch(
         options: BranchRegisteredAgentOptions,
     ): Promise<BranchedRegisteredAgent | undefined> {
+        if (options.ephemeral === true && options.sessionPath !== undefined) {
+            throw new Error("An ephemeral branch cannot use a session path");
+        }
+        options.signal?.throwIfAborted();
+        const ephemeralDirectory = options.ephemeral === true
+            ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
+            : undefined;
         const source = this.agents.get(options.sourceId);
         if (
             source === undefined
@@ -1058,14 +1073,21 @@ export class AgentRegistry {
             || source.agent.failed
             || source.agent.status !== "idle"
         ) {
+            if (ephemeralDirectory !== undefined) {
+                await rm(ephemeralDirectory, { recursive: true, force: true });
+            }
             return undefined;
         }
         const id = options.id ?? randomUUID();
-        this.reserveId(id);
+        let createdPath: string | undefined;
         try {
+            this.reserveId(id);
             const created = await createSessionBranch({
                 source: source.store,
                 destinationPath: options.sessionPath
+                    ?? (ephemeralDirectory === undefined
+                        ? undefined
+                        : join(ephemeralDirectory, `${id}.jsonl`))
                     ?? this.options.sessionPathForId?.(id)
                     ?? defaultSessionPath(id),
                 sessionId: id,
@@ -1074,17 +1096,42 @@ export class AgentRegistry {
                     ? {}
                     : { entryId: options.entryId }),
             });
+            createdPath = created.store.path;
+            options.signal?.throwIfAborted();
+            await created.store.appendApprovalMode(
+                options.approvalMode ?? source.approvalMode,
+            );
+            options.signal?.throwIfAborted();
             this.requireOpen();
             return {
                 agent: this.start(
                     created.store,
                     "interactive",
                     options.eventLogPath,
+                    undefined,
+                    undefined,
+                    options.ephemeral === true,
+                    options.deferPublication === true,
                 ),
                 ...(created.prompt === undefined
                     ? {}
                     : { prompt: created.prompt }),
             };
+        } catch (error) {
+            try {
+                if (ephemeralDirectory !== undefined) {
+                    await rm(ephemeralDirectory, { recursive: true, force: true });
+                } else if (createdPath !== undefined) {
+                    await rm(createdPath, { force: true });
+                    await rm(`${createdPath}.attachments`, {
+                        recursive: true,
+                        force: true,
+                    });
+                }
+            } catch {
+                // Preserve the branch failure; cleanup was best effort.
+            }
+            throw error;
         } finally {
             this.startingIds.delete(id);
         }
@@ -1135,8 +1182,21 @@ export class AgentRegistry {
     }
 
     find(id: string): ResidentAgent | undefined {
-        const agent = this.agents.get(id)?.agent;
+        const entry = this.agents.get(id);
+        const agent = entry?.pendingPublication === true
+            ? undefined
+            : entry?.agent;
         return agent?.closed === false ? agent : undefined;
+    }
+
+    commitBranch(id: string): boolean {
+        const entry = this.agents.get(id);
+        if (entry === undefined || !entry.pendingPublication) {
+            return false;
+        }
+        entry.pendingPublication = false;
+        this.notifyRosterChanged();
+        return true;
     }
 
     /** The identity name a live session posts under, `undefined` when gone. */
@@ -1829,7 +1889,7 @@ export class AgentRegistry {
         };
 
         return [...this.agents.values()]
-            .filter((entry) => !entry.ephemeral)
+            .filter((entry) => !entry.ephemeral && !entry.pendingPublication)
             .map((entry) => {
                 const activeEntries = entry.store.activeEntries();
                 const firstUserEntry = activeEntries.find(
@@ -1934,6 +1994,7 @@ export class AgentRegistry {
         parentId?: string,
         clientPromptRefusal?: string,
         ephemeral = false,
+        pendingPublication = false,
     ): ResidentAgent {
         const storedFailure = store.agentFailure();
         const captureFailedRequest = (
@@ -1972,6 +2033,7 @@ export class AgentRegistry {
             store,
             kind,
             ephemeral,
+            pendingPublication,
             arcName: mintAgentName((key) => this.arcNameKeyTaken(key)),
             events,
             eventLogPath,

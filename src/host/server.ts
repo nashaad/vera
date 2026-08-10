@@ -43,6 +43,7 @@ import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
 import { UserFacingError, userFacingMessage } from "../user-facing-error.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
 import {
+    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
     negotiateHostCapabilities,
     parseHostCapabilities,
 } from "./capabilities.ts";
@@ -80,6 +81,8 @@ export interface StartHostServerOptions {
     readonly branchAgent?: (
         options: BranchRegisteredAgentOptions,
     ) => Promise<BranchedRegisteredAgent | undefined>;
+    readonly discardBranch?: (agentId: string) => Promise<void>;
+    readonly commitBranch?: (agentId: string) => boolean;
     readonly trashSession?: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
@@ -205,6 +208,8 @@ export async function startHostServer(
                 new Error("Agent resume is unavailable"),
             )),
             options.branchAgent ?? (() => Promise.resolve(undefined)),
+            options.discardBranch ?? (() => Promise.resolve()),
+            options.commitBranch ?? (() => false),
             options.trashSession ?? (() => Promise.resolve("not_found")),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
@@ -278,6 +283,8 @@ function receiveConnection(
     branchAgent: (
         options: BranchRegisteredAgentOptions,
     ) => Promise<BranchedRegisteredAgent | undefined>,
+    discardBranch: (agentId: string) => Promise<void>,
+    commitBranch: (agentId: string) => boolean,
     trashSession: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
@@ -302,7 +309,7 @@ function receiveConnection(
     onRosterChanged: (listener: () => void) => () => void,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
-    const deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
+    let deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
     let attachment: AgentAttachment | undefined;
     let buffered = Buffer.alloc(0);
     let finished = false;
@@ -313,6 +320,7 @@ function receiveConnection(
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
     const extensionRequests = new Set<AbortController>();
     const extensionRequestIds = new Set<string>();
+    let pendingBranchId: string | undefined;
 
     const send = (
         message: object,
@@ -341,6 +349,9 @@ function receiveConnection(
         extensionRequestIds.clear();
         attachmentClosed?.();
         attachmentClosed = undefined;
+        if (pendingBranchId !== undefined) {
+            discardPendingBranch();
+        }
     });
     socket.once("error", () => socket.destroy());
     socket.on("data", (chunk: Buffer) => {
@@ -643,25 +654,78 @@ function receiveConnection(
         if (request?.type === "branch_agent") {
             clearTimeout(deadline);
             finished = true;
+            const hasOptions = request.approval_mode !== undefined
+                || request.lifetime === "ephemeral";
+            if (
+                hasOptions
+                && !capabilities.includes(HOST_CAPABILITY_AGENT_BRANCH_OPTIONS)
+            ) {
+                void send({
+                    type: "agent_branch_failed",
+                    reason: "unsupported_options",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            const branchAbort = new AbortController();
+            socket.once("close", () => branchAbort.abort());
             void branchAgent({
                 sourceId: request.source_agent_id,
                 position: request.position,
                 ...(request.entry_id === undefined
                     ? {}
                     : { entryId: request.entry_id }),
+                ...(request.approval_mode === undefined
+                    ? {}
+                    : { approvalMode: request.approval_mode }),
+                ...(request.lifetime === "ephemeral"
+                    ? { ephemeral: true }
+                    : {}),
+                signal: branchAbort.signal,
+                ...(hasOptions ? { deferPublication: true } : {}),
             }).then(
                 (result) => result === undefined
-                    ? send({ type: "agent_branch_failed" })
-                    : send({
-                        type: "agent_branched",
-                        agent_id: result.agent.id,
-                        workspace: result.agent.workspace,
-                        ...(result.prompt === undefined
-                            ? {}
-                            : { prompt: result.prompt }),
-                    }),
-                () => send({ type: "agent_branch_failed" }),
-            ).then(() => socket.end(), () => socket.destroy());
+                    ? send({
+                        type: "agent_branch_failed",
+                        reason: "source_unavailable",
+                    })
+                    : hasOptions
+                        ? beginBranchCommit(result)
+                        : send({
+                            type: "agent_branched",
+                            agent_id: result.agent.id,
+                            workspace: result.agent.workspace,
+                            ...(result.prompt === undefined
+                                ? {}
+                                : { prompt: result.prompt }),
+                        }),
+                () => send({ type: "agent_branch_failed", reason: "failed" }),
+            ).then(() => {
+                if (!hasOptions || pendingBranchId === undefined) {
+                    socket.end();
+                }
+            }, () => {
+                discardPendingBranch();
+                socket.destroy();
+            });
+            return;
+        }
+        if (request?.type === "commit_agent_branch") {
+            if (request.agent_id !== pendingBranchId) {
+                socket.destroy();
+                return;
+            }
+            const committedId = pendingBranchId;
+            if (!commitBranch(committedId)) {
+                socket.destroy();
+                return;
+            }
+            clearTimeout(deadline);
+            pendingBranchId = undefined;
+            finished = true;
+            void send({
+                type: "agent_branch_committed",
+                agent_id: committedId,
+            }).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "trash_session") {
@@ -817,6 +881,31 @@ function receiveConnection(
             () => forwardAgentUpdates(attached),
             () => socket.destroy(),
         );
+    }
+
+    function beginBranchCommit(
+        result: BranchedRegisteredAgent,
+    ): Promise<void> {
+        pendingBranchId = result.agent.id;
+        return send({
+            type: "agent_branched",
+            agent_id: result.agent.id,
+            workspace: result.agent.workspace,
+            requires_commit: true,
+            ...(result.prompt === undefined ? {} : { prompt: result.prompt }),
+        }).then(() => {
+            finished = false;
+            deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
+            receiveLines();
+        });
+    }
+
+    function discardPendingBranch(): void {
+        const id = pendingBranchId;
+        pendingBranchId = undefined;
+        if (id !== undefined) {
+            void discardBranch(id);
+        }
     }
 
     function readBackgroundAgents(

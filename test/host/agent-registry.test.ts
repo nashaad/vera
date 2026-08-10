@@ -597,11 +597,67 @@ test("the resident registry creates forked and cloned agents", async () => {
             id: "clone",
             sessionPath: join(root, "clone.jsonl"),
             eventLogPath: join(root, "clone-events.jsonl"),
+            approvalMode: "readonly",
         });
         expect(clone?.agent.id).toBe("clone");
         expect(clone?.prompt).toBeUndefined();
         expect((await SessionStore.open(join(root, "clone.jsonl"))).messages())
             .toEqual(sourceStore.messages());
+        expect(registry.approvalModeOf("clone")).toBe("readonly");
+
+        const inheritedApproval = await registry.branch({
+            sourceId: "clone",
+            position: "at",
+            id: "inherited-approval",
+            sessionPath: join(root, "inherited-approval.jsonl"),
+        });
+        expect(inheritedApproval?.agent.id).toBe("inherited-approval");
+        expect(registry.approvalModeOf("inherited-approval")).toBe("readonly");
+
+        const pending = await registry.branch({
+            sourceId: "source",
+            position: "at",
+            id: "pending-publication",
+            sessionPath: join(root, "pending-publication.jsonl"),
+            deferPublication: true,
+        });
+        expect(pending?.agent.id).toBe("pending-publication");
+        expect(registry.find("pending-publication")).toBeUndefined();
+        expect(registry.list().some((agent) =>
+            agent.id === "pending-publication"
+        )).toBe(false);
+        expect(registry.commitBranch("pending-publication")).toBe(true);
+        expect(registry.find("pending-publication")?.id)
+            .toBe("pending-publication");
+
+        const ephemeral = await registry.branch({
+            sourceId: "source",
+            position: "at",
+            id: "ephemeral-clone",
+            ephemeral: true,
+            approvalMode: "full_access",
+        });
+        expect(ephemeral?.agent.id).toBe("ephemeral-clone");
+        expect(registry.approvalModeOf("ephemeral-clone")).toBe("full_access");
+        expect(registry.list().some((agent) =>
+            agent.id === "ephemeral-clone"
+        )).toBe(false);
+
+        const cancelled = new AbortController();
+        cancelled.abort();
+        await expect(registry.branch({
+            sourceId: "source",
+            position: "at",
+            id: "cancelled-clone",
+            signal: cancelled.signal,
+        })).rejects.toMatchObject({ name: "AbortError" });
+        expect(registry.find("cancelled-clone")).toBeUndefined();
+        await expect(registry.branch({
+            sourceId: "source",
+            position: "at",
+            ephemeral: true,
+            sessionPath: join(root, "must-not-be-deleted.jsonl"),
+        })).rejects.toThrow("cannot use a session path");
         expect(await registry.branch({
             sourceId: "missing",
             position: "at",
