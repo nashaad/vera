@@ -105,12 +105,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+/", "ctrl+_"],
         scope: "global",
         description: "Cycle split and single-agent layouts",
+        extensionId: "cycle-agent-layout",
     },
     {
         id: "switch_agent_pane",
         keys: ["ctrl+g"],
         scope: "global",
         description: "Switch focus between visible agents",
+        extensionId: "switch-agent-pane",
     },
     {
         id: "toggle_tool_details",

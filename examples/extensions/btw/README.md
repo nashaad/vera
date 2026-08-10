@@ -35,8 +35,9 @@ files. Use the focused session's permission controls if you deliberately want
 to promote it.
 
 This extension supplies the `/btw` and `/pair` policies: permission defaults,
-attachment lifetime, sidebar placement, and mentions. Vera owns agent creation,
-attachment, message routing, permissions, persistence, and rendering.
+attachment lifetime, sidebar placement, addressing, mode and layout status, and
+the pane layout and focus keys. Vera owns agent creation, attachment, validated
+message delivery, permissions, persistence, and the generic TUI pane surface.
 
 ## Install
 
@@ -55,3 +56,5 @@ Add it to your Vera config:
 - `client.commands.register` for `/btw [message]`
 - `client.agents` to create, attach, and message the hosted sidekick
 - `client.ui.mentions` for the visible-agent composer names
+- `client.experimental_tui` for mode status and pane-surface control
+- `client.keybindings.register` for `Ctrl+G` and `Ctrl+/`

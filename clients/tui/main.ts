@@ -1094,7 +1094,51 @@ export async function startTui(
                 await client.send({ type: "prompt", content: request.text });
             },
         },
-        experimentalTui: experimentalTuiHost.adapter,
+        experimentalTui: {
+            ...experimentalTuiHost.adapter,
+            agentSurface: {
+                current(extensionId) {
+                    if (
+                        sidebarOwner !== extensionId
+                        || sidebarAgentPane === undefined
+                    ) {
+                        return undefined;
+                    }
+                    const layout = sidebar.layout();
+                    return {
+                        layout: layout === "sidebar"
+                            ? "secondary"
+                            : layout === "main" ? "primary" : "split",
+                        focused: sidebar.isFocused()
+                            ? "secondary"
+                            : "primary",
+                    };
+                },
+                cycleLayout(extensionId) {
+                    if (
+                        sidebarOwner !== extensionId
+                        || sidebarAgentPane === undefined
+                    ) return false;
+                    sidebar.cycleLayout();
+                    composer.focus();
+                    renderState();
+                    renderStatus();
+                    renderer.requestRender();
+                    return true;
+                },
+                toggleFocus(extensionId) {
+                    if (
+                        sidebarOwner !== extensionId
+                        || sidebarAgentPane === undefined
+                        || sidebar.layout() !== "split"
+                    ) return false;
+                    sidebar.setFocused(!sidebar.isFocused());
+                    composer.focus();
+                    renderState();
+                    return true;
+                },
+            },
+        },
         thread: {
             read(_extensionId) {
                 return state.entries
@@ -2792,35 +2836,6 @@ export async function startTui(
                 key.stopPropagation();
                 return;
             }
-        }
-
-        if (
-            tuiBindingId("global", key) === "cycle_agent_layout"
-            && sidebar.isOpen()
-            && !anyOverlayOpen()
-        ) {
-            key.preventDefault();
-            key.stopPropagation();
-            sidebar.cycleLayout();
-            composer.focus();
-            renderState();
-            renderStatus();
-            renderer.requestRender();
-            return;
-        }
-
-        if (
-            tuiBindingId("global", key) === "switch_agent_pane"
-            && sidebarAgentPane !== undefined
-            && sidebar.layout() === "split"
-            && !anyOverlayOpen()
-        ) {
-            key.preventDefault();
-            key.stopPropagation();
-            sidebar.setFocused(!sidebar.isFocused());
-            composer.focus();
-            renderState();
-            return;
         }
 
         if (
@@ -7223,7 +7238,11 @@ export async function startTui(
         // rest of the conversation's state is said. The sidebar is a whole
         // column that arrived without being asked for, so the key that takes
         // it away is only offered while it is there.
-        const extensionState = [
+        const extensionOwnsAgentState = sidebarOwner !== undefined
+            && clientExtensionRegistry?.experimentalHostedAgentAddressing(
+                sidebarOwner,
+            ) !== undefined;
+        const extensionState = extensionOwnsAgentState ? [] : [
             ...(sidebarAgentPane === undefined
                 ? []
                 : [

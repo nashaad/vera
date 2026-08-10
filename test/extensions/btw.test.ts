@@ -13,6 +13,10 @@ async function start(visible: readonly {
     const calls: unknown[] = [];
     let mentions: readonly string[] = [];
     let created = 0;
+    const mounted: any[] = [];
+    const rawMounted: any[] = [];
+    let layoutCycles = 0;
+    let focusToggles = 0;
     const registry = await startClientExtensionRegistry({
         extensions: [{ path: EXTENSION, enabled: true, config: null }],
         preferences: {
@@ -40,6 +44,35 @@ async function start(visible: readonly {
                 mentions = [...names];
             },
         },
+        experimentalTui: {
+            mount(_extensionId, spec) {
+                mounted.push(spec);
+                return async () => {};
+            },
+            mountRenderable(_extensionId, spec) {
+                rawMounted.push(spec);
+                return async () => {};
+            },
+            events: {
+                on() { return async () => {}; },
+            },
+            agentSurface: {
+                current() {
+                    return {
+                        layout: "split" as const,
+                        focused: "primary" as const,
+                    };
+                },
+                cycleLayout() {
+                    layoutCycles += 1;
+                    return true;
+                },
+                toggleFocus() {
+                    focusToggles += 1;
+                    return true;
+                },
+            },
+        },
         agents: {
             visible() {
                 return visible;
@@ -61,6 +94,10 @@ async function start(visible: readonly {
         registry,
         calls,
         mentions: () => mentions,
+        mounted,
+        rawMounted,
+        layoutCycles: () => layoutCycles,
+        focusToggles: () => focusToggles,
     };
 }
 
@@ -100,6 +137,26 @@ test("pair creates a durable tool-capable peer", async () => {
             statusLabel: "pair",
         },
     }]);
+    expect(harness.registry.experimentalHostedAgentAddressing("vera.btw"))
+        .toEqual({ primary: "vera", secondary: "peer", broadcast: "all" });
+    await harness.registry.close();
+});
+
+test("btw owns its mode footer and pane controls", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+
+    expect(harness.rawMounted.map((spec) => spec.id)).toContain("agent-mode");
+    await harness.registry.invokeKeybinding(
+        "cycle-agent-layout",
+        "/workspace",
+    );
+    await harness.registry.invokeKeybinding(
+        "switch-agent-pane",
+        "/workspace",
+    );
+    expect(harness.layoutCycles()).toBe(1);
+    expect(harness.focusToggles()).toBe(1);
     await harness.registry.close();
 });
 
