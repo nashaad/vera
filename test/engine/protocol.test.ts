@@ -11,6 +11,7 @@ import {
     emptyUsage,
     type ModelMessage,
 } from "../../src/model/types.ts";
+import { measureMessages } from "../../src/engine/context-measurement.ts";
 
 const messages: ModelMessage[] = [
     {
@@ -49,7 +50,11 @@ const messages: ModelMessage[] = [
         role: "assistant",
         content: [{ type: "text", text: "It says contents." }],
         source: { provider: "faux", api: "test", model: "test" },
-        usage: { ...emptyUsage(), inputTokens: 64_500 },
+        usage: {
+            ...emptyUsage(),
+            inputTokens: 64_500,
+            outputTokens: 120,
+        },
         stopReason: "stop",
     },
 ];
@@ -239,13 +244,13 @@ test("protocol checkpoints keep the current update sequence", () => {
         {
             type: "history",
             entries: projectTranscript(messages),
-            context: { tokens: 64_500, estimated: false },
+            context: { tokens: 64_624, estimated: true },
             seq: 1,
         },
     ]);
 });
 
-test("turn completion reports the provider's own context count", () => {
+test("turn completion adds the reply to the provider's request count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
         send(update): void {
@@ -262,17 +267,105 @@ test("turn completion reports the provider's own context count", () => {
         message,
     });
 
-    // The count lands before the turn ends, so the authoritative number is
-    // what the status line is left holding rather than the estimate the
-    // request was measured at.
     expect(updates).toEqual([
         {
             type: "context",
-            measurement: { tokens: 64_500, estimated: false },
+            measurement: { tokens: 64_624, estimated: true },
             seq: 1,
         },
         { type: "turn_finished", seq: 2 },
     ]);
+});
+
+test("turn completion cannot lower the current context estimate", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const message = messages.at(-1);
+    if (message?.role !== "assistant") {
+        throw new Error("Expected the fixture to end with an assistant message");
+    }
+
+    protocol({
+        type: "context_measured",
+        model: "test",
+        measurement: { tokens: 70_000, capacity: 100_000, estimated: true },
+    });
+    protocol({ type: "turn_finished", message });
+    protocol.checkpoint(messages);
+    protocol.checkpoint(messages);
+
+    expect(updates).toEqual([
+        {
+            type: "context",
+            measurement: {
+                tokens: 70_000,
+                capacity: 100_000,
+                estimated: true,
+            },
+            seq: 1,
+        },
+        {
+            type: "context",
+            measurement: {
+                tokens: 70_000,
+                capacity: 100_000,
+                estimated: true,
+            },
+            seq: 2,
+        },
+        { type: "turn_finished", seq: 3 },
+        {
+            type: "history",
+            entries: projectTranscript(messages),
+            context: {
+                tokens: 70_000,
+                capacity: 100_000,
+                estimated: true,
+            },
+            seq: 3,
+        },
+        {
+            type: "history",
+            entries: projectTranscript(messages),
+            context: {
+                tokens: 64_624,
+                capacity: 100_000,
+                estimated: true,
+            },
+            seq: 3,
+        },
+    ]);
+});
+
+test("a restored checkpoint counts messages after the last provider usage", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const tail: ModelMessage[] = [{
+        role: "assistant",
+        content: [{ type: "text", text: "Synthetic terminal detail." }],
+        source: { provider: "vera", api: "engine", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: "provider connection closed",
+    }];
+
+    protocol.checkpoint([...messages, ...tail]);
+
+    expect(updates[0]).toMatchObject({
+        type: "history",
+        context: {
+            tokens: 64_624 + measureMessages(tail),
+            estimated: true,
+        },
+    });
 });
 
 test("task notifications share the ordered agent update sequence", () => {
