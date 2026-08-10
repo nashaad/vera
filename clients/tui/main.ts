@@ -359,6 +359,7 @@ const STOPPING_HINT = "stopping…";
 // carries the waiting phase and the global interrupt.
 const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
 const COPY_NOTICE_DURATION_MS = 1_500;
+const MODE_TOAST_DURATION_MS = 2_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
 const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
@@ -395,6 +396,10 @@ function truncateFooterLine(text: string, width: number): string {
     return characters.length <= limit
         ? text
         : `${characters.slice(0, limit - 1).join("").trimEnd()}…`;
+}
+
+function displayModeLabel(label: string): string {
+    return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`;
 }
 
 export interface TuiDependencies {
@@ -1448,6 +1453,30 @@ export async function startTui(
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
 
+    const modeToastText = new TextRenderable(renderer, {
+        id: "mode-toast-text",
+        content: "",
+        fg: theme.text,
+        bg: theme.panel,
+        width: "100%",
+        height: 1,
+    });
+    const modeToast = new BoxRenderable(renderer, {
+        id: "mode-toast",
+        position: "absolute",
+        // The app's one reserved top row spans both panes, so this message is
+        // shared chrome rather than appearing to belong to either agent.
+        top: 0,
+        right: 1,
+        width: 1,
+        height: 1,
+        backgroundColor: theme.panel,
+        zIndex: 4,
+        visible: false,
+    });
+    modeToast.add(modeToastText);
+    let modeToastVersion = 0;
+
     const composerBox = createTuiComposerPanel(renderer, composer);
 
     const bodyFocus = new TuiBodyFocusController();
@@ -1553,6 +1582,7 @@ export async function startTui(
             throw new Error(`${sidebarOwner} is using the sidebar`);
         }
         const previous = sidebarAgentPane;
+        const previousModeLabel = sidebarModeLabel;
         sidebarAgentPane = undefined;
         await previous?.detach();
         sidebarOwner = extensionId;
@@ -1589,6 +1619,15 @@ export async function startTui(
         attached.start();
         requestAgentSettings(next);
         renderState();
+        if (
+            previousModeLabel !== undefined
+            && statusLabel !== undefined
+            && previousModeLabel !== statusLabel
+        ) {
+            showModeToast(
+                `Switched from ${displayModeLabel(previousModeLabel)} to ${displayModeLabel(statusLabel)} mode`,
+            );
+        }
     }
 
     function focusedAgentClient(): TuiAgentClient {
@@ -1889,6 +1928,7 @@ export async function startTui(
     app.add(sidebar.body);
     app.add(jumpToBottom);
     app.add(sidebarJump);
+    app.add(modeToast);
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
@@ -6641,6 +6681,9 @@ export async function startTui(
         sidebarJumpText.bg = theme.accent;
         sidebarJump.backgroundColor = theme.accent;
         paneStatusText.fg = theme.muted;
+        modeToastText.fg = theme.text;
+        modeToastText.bg = theme.panel;
+        modeToast.backgroundColor = theme.panel;
         commandSuggestionsText.fg = theme.text;
         commandSuggestionsBox.backgroundColor = theme.background;
         composerBox.backgroundColor = theme.panel;
@@ -6851,6 +6894,19 @@ export async function startTui(
             statusNotice = undefined;
             renderStatus();
         }, COPY_NOTICE_DURATION_MS);
+    }
+
+    function showModeToast(message: string): void {
+        const content = ` ${message} `;
+        modeToastVersion += 1;
+        const version = modeToastVersion;
+        modeToastText.content = content;
+        modeToast.width = content.length;
+        modeToast.visible = true;
+        setTimeout(() => {
+            if (modeToastVersion !== version) return;
+            modeToast.visible = false;
+        }, MODE_TOAST_DURATION_MS);
     }
 
     /**
