@@ -6,6 +6,8 @@
   "capabilities": [
     "client.commands.register",
     "client.agents",
-    "client.ui.mentions"
+    "client.ui.mentions",
+    "client.experimental_tui",
+    "client.keybindings.register"
   ]
 }
