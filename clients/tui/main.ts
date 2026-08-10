@@ -6789,7 +6789,7 @@ export async function startTui(
         // transient lines sit above it in normal flow, so the overlay clears
         // whichever of them are currently visible instead of painting over
         // quote/address context.
-        commandSuggestionsBox.bottom = 8
+        commandSuggestionsBox.bottom = 9
             + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0);
