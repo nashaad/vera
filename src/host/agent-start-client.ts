@@ -38,6 +38,16 @@ export class AgentBranchError extends Error {
     }
 }
 
+export class AgentBranchCommitError extends Error {
+    constructor(
+        readonly agentId: string,
+        options?: ErrorOptions,
+    ) {
+        super("Host did not confirm the agent branch commit", options);
+        this.name = "AgentBranchCommitError";
+    }
+}
+
 export function createAgentThroughHost(
     socketPath: string,
     workspace: string,
@@ -75,8 +85,7 @@ export async function branchAgentThroughHost(
     } = {},
 ): Promise<BranchedAgent> {
     const connection = await connectHost({ socketPath });
-    const hasOptions = options.approvalMode !== undefined
-        || options.lifetime === "ephemeral";
+    const requiresCommit = options.lifetime === "ephemeral";
     try {
         await connection.send({
             type: "branch_agent",
@@ -108,21 +117,27 @@ export async function branchAgentThroughHost(
             || !isOptionalUserPrompt(response.prompt)
             || (response.requires_commit !== undefined
                 && response.requires_commit !== true)
-            || (hasOptions && response.requires_commit !== true)
+            || (requiresCommit && response.requires_commit !== true)
         ) {
             throw new Error("Host returned an invalid agent branch response");
         }
         if (response.requires_commit === true) {
-            await connection.send({
-                type: "commit_agent_branch",
-                agent_id: response.agent_id,
-            });
-            const committed = asRecord(await connection.receive());
-            if (
-                committed?.type !== "agent_branch_committed"
-                || committed.agent_id !== response.agent_id
-            ) {
-                throw new Error("Host did not commit the agent branch");
+            try {
+                await connection.send({
+                    type: "commit_agent_branch",
+                    agent_id: response.agent_id,
+                });
+                const committed = asRecord(await connection.receive());
+                if (
+                    committed?.type !== "agent_branch_committed"
+                    || committed.agent_id !== response.agent_id
+                ) {
+                    throw new Error("Invalid branch commit response");
+                }
+            } catch (error) {
+                throw new AgentBranchCommitError(response.agent_id, {
+                    cause: error,
+                });
             }
         }
         return {

@@ -656,6 +656,7 @@ function receiveConnection(
             finished = true;
             const hasOptions = request.approval_mode !== undefined
                 || request.lifetime === "ephemeral";
+            const requiresCommit = request.lifetime === "ephemeral";
             if (
                 hasOptions
                 && !capabilities.includes(HOST_CAPABILITY_AGENT_BRANCH_OPTIONS)
@@ -681,14 +682,14 @@ function receiveConnection(
                     ? { ephemeral: true }
                     : {}),
                 signal: branchAbort.signal,
-                ...(hasOptions ? { deferPublication: true } : {}),
+                ...(requiresCommit ? { deferPublication: true } : {}),
             }).then(
                 (result) => result === undefined
                     ? send({
                         type: "agent_branch_failed",
                         reason: "source_unavailable",
                     })
-                    : hasOptions
+                    : requiresCommit
                         ? beginBranchCommit(result)
                         : send({
                             type: "agent_branched",
@@ -700,7 +701,7 @@ function receiveConnection(
                         }),
                 () => send({ type: "agent_branch_failed", reason: "failed" }),
             ).then(() => {
-                if (!hasOptions || pendingBranchId === undefined) {
+                if (!requiresCommit || pendingBranchId === undefined) {
                     socket.end();
                 }
             }, () => {
