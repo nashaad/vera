@@ -120,6 +120,7 @@ test("bare btw creates and opens a readonly hosted sidekick", async () => {
                 role: "user",
                 text: expect.stringContaining("reference context only"),
                 hidden: true,
+                compactionBarrier: true,
             }],
         },
     }]);

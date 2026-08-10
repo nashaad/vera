@@ -126,6 +126,7 @@ export interface VeraClientAgentCreateRequest {
         readonly role: "user";
         readonly text: string;
         readonly hidden?: boolean;
+        readonly compactionBarrier?: boolean;
     }[];
 }
 

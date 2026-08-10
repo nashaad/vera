@@ -1749,6 +1749,13 @@ function validateCompaction(
             `Compaction boundary ${boundaryMessageId} is not an active message`,
         );
     }
+    const barrierIndex = active.findIndex((entry) =>
+        entry.message.role === "user"
+        && entry.message.compactionBarrier === true
+    );
+    if (barrierIndex !== -1 && boundaryIndex >= barrierIndex) {
+        throw new Error("Compaction cannot cross a model-context barrier");
+    }
     if (request.projection.length === 0) {
         throw new Error("Compaction projection cannot be empty");
     }
@@ -1818,6 +1825,13 @@ function compactionApplies(
         (candidate) => candidate.id === entry.boundaryMessageId,
     );
     if (boundaryIndex === -1) {
+        return false;
+    }
+    const barrierIndex = active.findIndex((candidate) =>
+        candidate.message.role === "user"
+        && candidate.message.compactionBarrier === true
+    );
+    if (barrierIndex !== -1 && boundaryIndex >= barrierIndex) {
         return false;
     }
     const successor = active[boundaryIndex + 1];
@@ -1988,6 +2002,8 @@ function isModelMessage(value: unknown): value is ModelMessage {
     if (message.role === "user") {
         return (message.internal === undefined
             || typeof message.internal === "boolean")
+            && (message.compactionBarrier === undefined
+                || typeof message.compactionBarrier === "boolean")
             && message.content.every((content) =>
                 isTextContent(content) || isImageAttachmentContent(content)
             );

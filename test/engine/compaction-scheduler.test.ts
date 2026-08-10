@@ -126,6 +126,42 @@ test("the last two user turns survive verbatim", async () => {
     expect(text(users[2])).toBe("turn 6");
 });
 
+test("compaction never crosses a marked context barrier", async () => {
+    const store = await session(6);
+    const barrier: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "reference-only boundary" }],
+        internal: true,
+        compactionBarrier: true,
+    };
+    await store.appendMessage(barrier);
+    let summarized: readonly ModelMessage[] = [];
+
+    const first = await compactSession(
+        options(store, (request) => {
+            summarized = request.messages;
+            return { projection: [summary()] };
+        }),
+        measurement(8_000),
+        new AbortController().signal,
+    );
+
+    expect(first.outcome).toBe("compacted");
+    expect(summarized).not.toContainEqual(barrier);
+    expect(store.modelContext()).toContainEqual(barrier);
+    await appendTurn(store, 7);
+    await appendTurn(store, 8);
+    expect(store.modelContext().map(text)).toContain("turn 8");
+
+    const second = await compactSession(
+        options(store, () => ({ projection: [summary("second")] })),
+        measurement(8_000),
+        new AbortController().signal,
+    );
+    expect(second.outcome).toBe("no_boundary");
+    expect(store.modelContext()).toContainEqual(barrier);
+});
+
 test("a session with nothing behind the kept turns has no boundary to use", async () => {
     const store = await session(2);
     const result = await compactSession(

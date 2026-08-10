@@ -391,10 +391,21 @@ function planBoundary(
     active: readonly SessionMessageEntry[],
     previousBoundary: number,
 ): BoundaryPlan | undefined {
-    const userStarts = active.flatMap((entry, index) =>
-        entry.message.role === "user" && index > previousBoundary ? [index] : []
+    const barrierIndex = active.findIndex((entry, index) =>
+        index > previousBoundary
+        && entry.message.role === "user"
+        && entry.message.compactionBarrier === true
     );
-    const suffixStart = userStarts[userStarts.length - RETAINED_USER_TURNS];
+    const userStarts = active.flatMap((entry, index) =>
+        entry.message.role === "user"
+            && index > previousBoundary
+            && (barrierIndex === -1 || index < barrierIndex)
+            ? [index]
+            : []
+    );
+    const suffixStart = barrierIndex === -1
+        ? userStarts[userStarts.length - RETAINED_USER_TURNS]
+        : barrierIndex;
     if (suffixStart === undefined || suffixStart === 0) {
         return undefined;
     }

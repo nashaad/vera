@@ -25,6 +25,7 @@ import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
 import { createReviewLogger } from "../engine/review-log.ts";
 import {
+    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
 } from "./capabilities.ts";
@@ -407,6 +408,7 @@ export async function startResidentHost(
             capabilities: [
                 HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
                 HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+                HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
             ],
             ...(options.socketPath === undefined
                 ? {}

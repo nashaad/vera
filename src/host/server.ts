@@ -43,6 +43,7 @@ import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
 import { UserFacingError, userFacingMessage } from "../user-facing-error.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
 import {
+    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
     negotiateHostCapabilities,
@@ -673,6 +674,20 @@ function receiveConnection(
                 (request.initial_messages?.length ?? 0) > 0
                 && !capabilities.includes(
                     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+                )
+            ) {
+                void send({
+                    type: "agent_branch_failed",
+                    reason: "unsupported_options",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            if (
+                request.initial_messages?.some((message) =>
+                    message.compactionBarrier === true
+                ) === true
+                && !capabilities.includes(
+                    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
                 )
             ) {
                 void send({

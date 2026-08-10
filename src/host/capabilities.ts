@@ -4,6 +4,8 @@ const HOST_CAPABILITY_NAME = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\.v[1-9][0-9]*$/
 export const HOST_CAPABILITY_AGENT_BRANCH_OPTIONS = "agent.branch-options.v1";
 export const HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES =
     "agent.branch-initial-messages.v1";
+export const HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS =
+    "agent.branch-compaction-barriers.v1";
 
 export function parseHostCapabilities(
     value: unknown,
