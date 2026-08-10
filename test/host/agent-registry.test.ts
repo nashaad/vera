@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
     mkdir,
     mkdtemp,
+    readdir,
     readFile,
     realpath,
     rename,
@@ -625,6 +626,24 @@ test("the resident registry creates forked and cloned agents", async () => {
         });
         expect(inheritedApproval?.agent.id).toBe("inherited-approval");
         expect(registry.approvalModeOf("inherited-approval")).toBe("readonly");
+
+        const collisionPath = join(root, "collision.jsonl");
+        await writeFile(collisionPath, "existing session\n", "utf8");
+        await expect(registry.branch({
+            sourceId: "source",
+            position: "at",
+            id: "collision",
+            sessionPath: collisionPath,
+            initialMessages: [{
+                role: "user",
+                content: [{ type: "text", text: "must not publish" }],
+                internal: true,
+            }],
+        })).rejects.toMatchObject({ code: "EEXIST" });
+        expect(await readFile(collisionPath, "utf8")).toBe("existing session\n");
+        expect(registry.find("collision")).toBeUndefined();
+        expect((await readdir(root)).some((name) => name.endsWith(".branch")))
+            .toBe(false);
 
         const pending = await registry.branch({
             sourceId: "source",

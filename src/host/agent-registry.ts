@@ -1,9 +1,18 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+    link,
+    mkdir,
+    mkdtemp,
+    readdir,
+    realpath,
+    rm,
+    rmdir,
+    unlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { EngineEventBus } from "../engine/events.ts";
 import type { InstructionRoot } from "../engine/memory.ts";
@@ -1082,24 +1091,32 @@ export class AgentRegistry {
         }
         const id = options.id ?? randomUUID();
         let createdPath: string | undefined;
+        let stagingPath: string | undefined;
+        let publishedAttachments: PublishedBranchAttachments | undefined;
         const approvalMode = options.approvalMode ?? source.approvalMode;
         try {
             this.reserveId(id);
+            const destinationPath = options.sessionPath
+                ?? (ephemeralDirectory === undefined
+                    ? undefined
+                    : join(ephemeralDirectory, `${id}.jsonl`))
+                ?? this.options.sessionPathForId?.(id)
+                ?? defaultSessionPath(id);
+            stagingPath = options.ephemeral === true
+                ? destinationPath
+                : join(
+                    dirname(destinationPath),
+                    `.${basename(destinationPath)}.${randomUUID()}.branch`,
+                );
             const created = await createSessionBranch({
                 source: source.store,
-                destinationPath: options.sessionPath
-                    ?? (ephemeralDirectory === undefined
-                        ? undefined
-                        : join(ephemeralDirectory, `${id}.jsonl`))
-                    ?? this.options.sessionPathForId?.(id)
-                    ?? defaultSessionPath(id),
+                destinationPath: stagingPath,
                 sessionId: id,
                 position: options.position,
                 ...(options.entryId === undefined
                     ? {}
                     : { entryId: options.entryId }),
             });
-            createdPath = created.store.path;
             options.signal?.throwIfAborted();
             await created.store.appendApprovalMode(approvalMode);
             for (const message of options.initialMessages ?? []) {
@@ -1107,10 +1124,26 @@ export class AgentRegistry {
                 await created.store.appendMessage(message);
             }
             options.signal?.throwIfAborted();
+            let store = created.store;
+            if (options.ephemeral !== true) {
+                publishedAttachments = await publishBranchAttachments(
+                    stagingPath,
+                    destinationPath,
+                    options.signal,
+                );
+                options.signal?.throwIfAborted();
+                await link(stagingPath, destinationPath);
+                createdPath = destinationPath;
+                await rm(stagingPath, { force: true });
+                stagingPath = undefined;
+                store = await SessionStore.open(destinationPath);
+            } else {
+                createdPath = stagingPath;
+            }
             this.requireOpen();
             return {
                 agent: this.start(
-                    created.store,
+                    store,
                     "interactive",
                     options.eventLogPath,
                     undefined,
@@ -1123,18 +1156,25 @@ export class AgentRegistry {
                     : { prompt: created.prompt }),
             };
         } catch (error) {
-            try {
-                if (ephemeralDirectory !== undefined) {
-                    await rm(ephemeralDirectory, { recursive: true, force: true });
-                } else if (createdPath !== undefined) {
-                    await rm(createdPath, { force: true });
-                    await rm(`${createdPath}.attachments`, {
-                        recursive: true,
-                        force: true,
-                    });
-                }
-            } catch {
-                // Preserve the branch failure; cleanup was best effort.
+            if (ephemeralDirectory !== undefined) {
+                await rm(ephemeralDirectory, { recursive: true, force: true })
+                    .catch(() => {});
+            } else if (createdPath !== undefined) {
+                await rm(createdPath, { force: true }).catch(() => {});
+                await rm(`${createdPath}.attachments`, {
+                    recursive: true,
+                    force: true,
+                }).catch(() => {});
+            }
+            if (stagingPath !== undefined) {
+                await rm(stagingPath, { force: true }).catch(() => {});
+                await rm(`${stagingPath}.attachments`, {
+                    recursive: true,
+                    force: true,
+                }).catch(() => {});
+            }
+            if (publishedAttachments !== undefined) {
+                await removePublishedBranchAttachments(publishedAttachments);
             }
             throw error;
         } finally {
@@ -2793,6 +2833,53 @@ export class AgentRegistry {
             throw new Error("Agent registry is closed");
         }
     }
+}
+
+interface PublishedBranchAttachments {
+    readonly path: string;
+    readonly names: readonly string[];
+}
+
+async function publishBranchAttachments(
+    stagingSessionPath: string,
+    destinationSessionPath: string,
+    signal?: AbortSignal,
+): Promise<PublishedBranchAttachments | undefined> {
+    const source = `${stagingSessionPath}.attachments`;
+    let names: string[];
+    try {
+        names = await readdir(source);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+    }
+    const destination = `${destinationSessionPath}.attachments`;
+    await mkdir(destination, { mode: 0o700 });
+    const published: string[] = [];
+    try {
+        for (const name of names) {
+            signal?.throwIfAborted();
+            await link(join(source, name), join(destination, name));
+            published.push(name);
+        }
+    } catch (error) {
+        await removePublishedBranchAttachments({
+            path: destination,
+            names: published,
+        });
+        throw error;
+    }
+    await rm(source, { recursive: true, force: true }).catch(() => {});
+    return { path: destination, names: published };
+}
+
+async function removePublishedBranchAttachments(
+    publication: PublishedBranchAttachments,
+): Promise<void> {
+    for (const name of publication.names) {
+        await unlink(join(publication.path, name)).catch(() => {});
+    }
+    await rmdir(publication.path).catch(() => {});
 }
 
 /**
