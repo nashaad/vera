@@ -1080,6 +1080,7 @@ export class AgentRegistry {
         }
         const id = options.id ?? randomUUID();
         let createdPath: string | undefined;
+        const approvalMode = options.approvalMode ?? source.approvalMode;
         try {
             this.reserveId(id);
             const created = await createSessionBranch({
@@ -1098,9 +1099,7 @@ export class AgentRegistry {
             });
             createdPath = created.store.path;
             options.signal?.throwIfAborted();
-            await created.store.appendApprovalMode(
-                options.approvalMode ?? source.approvalMode,
-            );
+            await created.store.appendApprovalMode(approvalMode);
             options.signal?.throwIfAborted();
             this.requireOpen();
             return {
