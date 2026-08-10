@@ -1639,12 +1639,13 @@ export function tuiPickerViewportRows(
 /**
  * Whether the facts about the highlighted row are drawn beside the list.
  *
- * Both model collections carry it. A row then holds only what tells it apart
- * from its neighbours, and everything else about it is one cursor move away
- * rather than packed into a trailing column.
+ * The pool only. It is a short list the user built, so there is room beside it
+ * and a reason to look: what a pooled model can do is why it is in the pool.
+ * All models is hundreds of rows long and is read by scanning names, which a
+ * half-width column turns into a list of clipped prefixes.
  */
 function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
-    return state.kind === "model" && (state.tab ?? "all") !== "help";
+    return state.kind === "model" && (state.tab ?? "all") === "pool";
 }
 
 /** The narrowest the detail column is worth drawing at. */
@@ -2239,25 +2240,9 @@ const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
 /** What the detail column says about the collection under the cursor. */
 function modelPaneNote(state: TuiAnySettingsPickerState): string {
     const tab = state.kind === "model" ? state.tab ?? "all" : "all";
-    return topPickNote(state) ?? MODEL_TAB_DESCRIPTIONS[tab];
+    return MODEL_TAB_DESCRIPTIONS[tab];
 }
 
-/**
- * What the Top picks section is, said while the cursor is in it. It replaces
- * the line that explains the tab rather than adding one of its own.
- */
-function topPickNote(state: TuiAnySettingsPickerState): string | undefined {
-    if (state.kind !== "model" || (state.tab ?? "all") !== "all") {
-        return undefined;
-    }
-    const option = state.options[state.selectedIndex];
-    if (option === undefined) {
-        return undefined;
-    }
-    return option.inTopPicks === true || option.section === TUI_TOP_PICKS_SECTION
-        ? "Vera's own picks: the models it is built and tested against."
-        : undefined;
-}
 
 function modelTabStripNode(
     renderer: RenderContext,

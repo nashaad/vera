@@ -1158,14 +1158,16 @@ test("the pane opens on Pool even when the running model is not in it", () => {
     expect(state.tab).toBe("pool");
 });
 
-test("with an empty pool the pane opens on explained All models", async () => {
+test("with an empty pool the pane opens on All models, full width", async () => {
     // An empty tab answers no question, so the pane falls back to the list that
     // can always answer "which model do I switch to".
     const state = modelPickerWithPool([]);
     expect(state.tab).toBe("all");
-    expect(await pickerFrame(state)).toContain(
-        "Everything your providers offer.",
-    );
+    // Hundreds of rows, read by scanning names: the whole card goes to the
+    // names rather than half of it to facts about one of them.
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("All models");
+    expect(frame).not.toContain("\u2502");
 });
 
 test("All models keeps a moderate modal height on a tall terminal", async () => {
@@ -1293,22 +1295,6 @@ test("a top pick says so on its own row, except under the heading that says it",
         ).state!,
     );
     expect(opened).toMatch(/Kimi K3\s+top pick/);
-});
-
-test("the tab's line says what Top picks are while the cursor is in them", async () => {
-    const state = allTabWithRecommendations();
-
-    // The heading itself, and then the row under it: both are inside the
-    // section the note explains.
-    expect(await pickerFrame({ ...state, selectedIndex: 0 }))
-        .toContain("Vera's own picks");
-    expect(await pickerFrame({ ...state, selectedIndex: 1 }))
-        .toContain("Vera's own picks");
-    // Outside it the line goes back to explaining the tab, and it is the same
-    // line either way: a note that appeared would push the list down.
-    const away = await pickerFrame({ ...state, selectedIndex: 2 });
-    expect(away).not.toContain("Vera's own picks");
-    expect(away).toContain("Everything your providers offer");
 });
 
 test("a tab is switched by clicking its chip, cursor and all", () => {
