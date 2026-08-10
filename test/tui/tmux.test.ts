@@ -1657,7 +1657,11 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).not.toContain("FIRST-END");
             // The estimate stands while the request is in flight, so the
             // provider's own count only replaces it once the turn ends.
-            pane = await waitForPane(socket, session, "auto · ctx 25%");
+            pane = await waitForPane(
+                socket,
+                session,
+                "auto · ctx 64.5k/258k (25%)",
+            );
 
             // The second turn reasons, so its summary carries a fold that
             // ctrl+o opens over a row already drawn.
