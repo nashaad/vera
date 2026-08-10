@@ -222,9 +222,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexGrow: 1,
         flexDirection: "column",
         paddingLeft: 1,
-        // Starts on the transcript's first line, not the frame's, and keeps a
-        // line at the foot so the last block does not sit on the edge.
-        paddingTop: 1,
+        // The app supplies the shared top inset. Keep only a line at the foot
+        // so the last block does not sit on the edge.
+        paddingTop: 0,
         paddingBottom: 1,
     });
     const header = new TextRenderable(renderer, {
