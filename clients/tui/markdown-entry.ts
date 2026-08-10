@@ -9,10 +9,10 @@ import type { TuiTranscriptEntry } from "./state.ts";
 export function tuiMarkdownEntryContent(
     entry: TuiTranscriptEntry,
     separated = false,
-    width = 80,
+    _width = 80,
 ): string {
     return separated
-        ? `${"─".repeat(Math.max(1, width))}\n\n${entry.text}`
+        ? `---\n\n${entry.text}`
         : entry.text;
 }
 

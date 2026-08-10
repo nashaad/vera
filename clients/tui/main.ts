@@ -1185,7 +1185,7 @@ export async function startTui(
         contentOptions: {
             flexDirection: "column",
             gap: 0,
-            paddingTop: 1,
+            paddingTop: 0,
             paddingBottom: 1,
             paddingLeft: 2,
             paddingRight: 2,
