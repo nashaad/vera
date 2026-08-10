@@ -10,16 +10,64 @@ import {
     loadTuiQuickslots,
     loadTuiRecentSessionId,
     loadTuiSharedSessionGroups,
+    loadTuiPersistedAgentPane,
     loadTuiExtensionPreference,
     loadTuiThemePreference,
     saveTuiActivityAnimationPreference,
     saveTuiQuickslots,
     saveTuiRecentSessionId,
     saveTuiSharedSessionGroups,
+    saveTuiPersistedAgentPane,
     saveTuiExtensionPreference,
     deleteTuiExtensionPreference,
     saveTuiThemePreference,
 } from "../../clients/tui/theme-preference.ts";
+
+test("a durable agent pane persists with its owner and mention", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-pane-"));
+    const path = join(directory, "tui.json");
+
+    saveTuiThemePreference("nightowl", path);
+    saveTuiPersistedAgentPane("main-agent", {
+        mainAgentId: "main-agent",
+        sidebarAgentId: "peer-agent",
+        owner: "vera.btw",
+        mention: "peer",
+    }, path);
+
+    expect(loadTuiPersistedAgentPane("main-agent", path)).toEqual({
+        mainAgentId: "main-agent",
+        sidebarAgentId: "peer-agent",
+        owner: "vera.btw",
+        mention: "peer",
+    });
+    expect(loadTuiThemePreference(path)).toBe("nightowl");
+
+    saveTuiPersistedAgentPane("other-main", {
+        mainAgentId: "other-main",
+        sidebarAgentId: "other-peer",
+        owner: "vera.btw",
+    }, path);
+    saveTuiPersistedAgentPane("main-agent", undefined, path);
+    expect(loadTuiPersistedAgentPane("main-agent", path)).toBeUndefined();
+    expect(loadTuiPersistedAgentPane("other-main", path)?.sidebarAgentId)
+        .toBe("other-peer");
+    expect(loadTuiThemePreference(path)).toBe("nightowl");
+});
+
+test("invalid durable pane records are ignored", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-pane-"));
+    const path = join(directory, "tui.json");
+    writeFileSync(path, JSON.stringify({
+        persisted_agent_panes: [{
+            main_agent_id: "same",
+            sidebar_agent_id: "same",
+            owner: "vera.btw",
+        }],
+    }));
+
+    expect(loadTuiPersistedAgentPane("same", path)).toBeUndefined();
+});
 
 test("shared session groups persist as disjoint symmetric pairs", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-tui-shared-"));

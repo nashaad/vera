@@ -100,6 +100,12 @@ export interface VeraClientAgentRef {
     readonly agentId: string;
 }
 
+export interface VeraClientVisibleAgent {
+    readonly agentId: string;
+    readonly pane: VeraClientAgentPane;
+    readonly mention?: string;
+}
+
 export interface VeraClientAgentCreateRequest {
     readonly pane: VeraClientAgentPane;
     readonly attachmentLifetime?: VeraClientAgentAttachmentLifetime;
@@ -122,6 +128,7 @@ export interface VeraClientAgentMessageRequest {
 
 /** Hosted-agent operations; the client owns attachment and presentation. */
 export interface VeraClientExtensionAgents {
+    visible(): readonly VeraClientVisibleAgent[];
     create(
         request: VeraClientAgentCreateRequest,
         signal?: AbortSignal,

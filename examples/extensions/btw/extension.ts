@@ -19,7 +19,10 @@ export function activateClient(vera: any): void {
         workspace: string,
         signal: AbortSignal,
     ): Promise<string> {
-        let agentId = agents[mention];
+        let agentId = agents[mention]
+            ?? vera.agents.visible().find((agent: { mention?: string }) =>
+                agent.mention === mention
+            )?.agentId;
         if (agentId === undefined) {
             const created = await vera.agents.create({
                 pane: "sidebar",

@@ -2848,6 +2848,108 @@ test.skip(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "a durable pair pane returns after the TUI reconnects",
+    async () => {
+        const socket = `vera-pair-persist-${process.pid}-${randomUUID()}`;
+        const session = "pair-persist";
+        const home = mkdtempSync(join(tmpdir(), "vera-pair-persist-"));
+        const readyPath = join(home, "host-ready");
+        const preferencePath = join(home, ".vera", "tui.json");
+        let pane = "";
+        mkdirSync(join(home, ".vera"), { recursive: true });
+        writeFileSync(join(home, ".vera", "config.json"), JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            extensions: [{
+                path: join(process.cwd(), "examples/extensions/btw"),
+                enabled: true,
+            }],
+        }));
+        const hostProcess = Bun.spawn([
+            process.execPath,
+            "run",
+            "test/support/tui-pair-persistence-resident-host.ts",
+        ], {
+            cwd: process.cwd(),
+            env: {
+                ...process.env,
+                HOME: home,
+                VERA_TEST_READY_PATH: readyPath,
+            },
+            stdout: "ignore",
+            stderr: "pipe",
+        });
+
+        const attach = (): void => {
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "100",
+                "-y",
+                "30",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    shellQuote(process.execPath)
+                } run clients/cli/main.ts attach pair-main`,
+            ]);
+        };
+
+        try {
+            await waitForFile(readyPath, hostProcess);
+            attach();
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/pair first pass");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "PAIR ANSWERED");
+            expect(pane).toContain("peer · ask · idle");
+
+            const persisted = JSON.parse(readFileSync(preferencePath, "utf8"));
+            const savedPane = persisted.persisted_agent_panes?.find(
+                (candidate: any) => candidate.main_agent_id === "pair-main",
+            );
+            const peerId = savedPane?.sidebar_agent_id;
+            expect(peerId).toBeString();
+            expect(savedPane).toMatchObject({
+                main_agent_id: "pair-main",
+                owner: "vera.btw",
+                mention: "peer",
+            });
+
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+            attach();
+            pane = await waitForVisiblePane(socket, session, "peer · ask · idle");
+
+            sendText(socket, session, "/pair second pass");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "PAIR ANSWERED");
+            const restored = JSON.parse(readFileSync(preferencePath, "utf8"));
+            const restoredPane = restored.persisted_agent_panes?.find(
+                (candidate: any) => candidate.main_agent_id === "pair-main",
+            );
+            expect(restoredPane?.sidebar_agent_id).toBe(peerId);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            if (hostProcess.exitCode === null) hostProcess.kill("SIGTERM");
+            await hostProcess.exited;
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "tab picks the highlighted command without running it",
     async () => {
         const socket = `vera-command-tab-${process.pid}-${randomUUID()}`;

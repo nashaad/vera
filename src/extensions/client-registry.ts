@@ -33,6 +33,7 @@ import type {
     VeraClientAgentOpenRequest,
     VeraClientAgentMessageRequest,
     VeraClientAgentRef,
+    VeraClientVisibleAgent,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
 import {
@@ -207,6 +208,7 @@ export interface ClientExtensionThreadAdapter {
 }
 
 export interface ClientExtensionAgentsAdapter {
+    visible(extensionId: string): readonly VeraClientVisibleAgent[];
     create(
         extensionId: string,
         request: VeraClientAgentCreateRequest,
@@ -993,6 +995,10 @@ async function activateClientExtension(
             }),
         }),
         agents: Object.freeze({
+            visible(): readonly VeraClientVisibleAgent[] {
+                return requireAgents().visible(options.id)
+                    .map((agent) => structuredClone(agent));
+            },
             create(
                 request: VeraClientAgentCreateRequest,
                 signal?: AbortSignal,

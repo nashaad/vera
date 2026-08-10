@@ -324,8 +324,10 @@ import {
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
     loadTuiSharedSessionGroups,
+    loadTuiPersistedAgentPane,
     saveTuiSidebarWidth,
     saveTuiSharedSessionGroups,
+    saveTuiPersistedAgentPane,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
     loadTuiExtensionPreference,
@@ -943,6 +945,7 @@ export async function startTui(
                 const attached = sidebarAgentPane;
                 sidebarAgentPane = undefined;
                 sidebarAgentMention = undefined;
+                forgetPersistedAgentPane();
                 void attached?.detach().catch(() => attached.close());
                 sidebarOwner = undefined;
                 clearSidebarEntryNodes();
@@ -966,6 +969,22 @@ export async function startTui(
             },
         },
         agents: {
+            visible(_extensionId) {
+                return [
+                    ...(client.agentId === undefined
+                        ? []
+                        : [{ agentId: client.agentId, pane: "main" as const }]),
+                    ...(sidebarAgentPane === undefined
+                        ? []
+                        : [{
+                            agentId: sidebarAgentPane.agentId,
+                            pane: "sidebar" as const,
+                            ...(sidebarAgentMention === undefined
+                                ? {}
+                                : { mention: sidebarAgentMention }),
+                        }]),
+                ];
+            },
             async create(extensionId, request, signal) {
                 if (signal.aborted) throw signal.reason;
                 if (dependencies.createAgent === undefined) {
@@ -1634,6 +1653,9 @@ export async function startTui(
             );
             try {
                 saveTuiSharedSessionGroups(sharedSessionGroups);
+                if (client.agentId !== undefined) {
+                    saveTuiPersistedAgentPane(client.agentId, undefined);
+                }
             } catch {
                 // A failed UI preference write must not prevent an attachment.
             }
@@ -1647,8 +1669,25 @@ export async function startTui(
         ];
         try {
             saveTuiSharedSessionGroups(sharedSessionGroups);
+            saveTuiPersistedAgentPane(mainId, {
+                mainAgentId: mainId,
+                sidebarAgentId: sidebarId,
+                owner: sidebarOwner ?? "vera.tui.agent-attachments",
+                ...(sidebarAgentMention === undefined
+                    ? {}
+                    : { mention: sidebarAgentMention }),
+            });
         } catch {
             // A failed UI preference write must not prevent an attachment.
+        }
+    }
+
+    function forgetPersistedAgentPane(mainAgentId = client.agentId): void {
+        if (mainAgentId === undefined) return;
+        try {
+            saveTuiPersistedAgentPane(mainAgentId, undefined);
+        } catch {
+            // A failed preference cleanup cannot block closing a pane.
         }
     }
 
@@ -2867,6 +2906,49 @@ export async function startTui(
     void receiveAgentUpdates();
     void loadExtensionCommands();
     requestSessionSettings();
+    void restorePersistedAgentPane();
+
+    async function restorePersistedAgentPane(): Promise<void> {
+        const mainAgentId = client.agentId;
+        const saved = mainAgentId === undefined
+            ? undefined
+            : loadTuiPersistedAgentPane(mainAgentId);
+        if (
+            mainAgentId === undefined
+            || saved === undefined
+            || saved.mainAgentId !== mainAgentId
+            || dependencies.attachAgent === undefined
+        ) {
+            return;
+        }
+        try {
+            const next = requireIdentifiedClient(
+                await dependencies.attachAgent(saved.sidebarAgentId),
+            );
+            if (shuttingDown || client.agentId !== mainAgentId) {
+                await next.detach().catch(() => next.close());
+                return;
+            }
+            await openExtensionAgent(
+                saved.owner,
+                next,
+                "sidebar",
+                false,
+                saved.mention,
+                "durable",
+            );
+        } catch (error) {
+            forgetPersistedAgentPane();
+            if (shuttingDown || client.agentId !== mainAgentId) return;
+            state = appendTuiNotice(
+                state,
+                `Could not restore paired pane: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        }
+    }
 
     /**
      * `interceptedText` carries the text an extension asked to send instead of
@@ -6048,6 +6130,7 @@ export async function startTui(
             sidebar.clear();
             sidebar.setHeader(undefined);
             sidebar.close();
+            forgetPersistedAgentPane(previous.agentId);
             extensionMentions = [];
             extensionAddressee = undefined;
         }

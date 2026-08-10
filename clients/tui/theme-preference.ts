@@ -25,12 +25,27 @@ interface TuiClientPreferences {
     readonly animation_width?: number;
     readonly sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
+    readonly persisted_agent_panes?: readonly DiskPersistedAgentPane[];
     // Spelled as it was when quickslots were called presets. Respelling the key
     // would leave every already-saved slot unreadable.
     readonly model_presets?: DiskQuickslots;
     readonly extensions?: Readonly<
         Record<string, Readonly<Record<string, JsonValue>>>
     >;
+}
+
+interface DiskPersistedAgentPane {
+    readonly main_agent_id: string;
+    readonly sidebar_agent_id: string;
+    readonly owner: string;
+    readonly mention?: string;
+}
+
+export interface TuiPersistedAgentPane {
+    readonly mainAgentId: string;
+    readonly sidebarAgentId: string;
+    readonly owner: string;
+    readonly mention?: string;
 }
 
 export function tuiThemePreferencePath(): string {
@@ -126,6 +141,51 @@ export function saveTuiSharedSessionGroups(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         shared_session_groups: groups,
+    }, path);
+}
+
+export function loadTuiPersistedAgentPane(
+    mainAgentId: string,
+    path = tuiThemePreferencePath(),
+): TuiPersistedAgentPane | undefined {
+    const saved = loadTuiClientPreferences(path).persisted_agent_panes
+        ?.find((pane) => pane.main_agent_id === mainAgentId);
+    return saved === undefined
+        ? undefined
+        : {
+            mainAgentId: saved.main_agent_id,
+            sidebarAgentId: saved.sidebar_agent_id,
+            owner: saved.owner,
+            ...(saved.mention === undefined ? {} : { mention: saved.mention }),
+        };
+}
+
+export function saveTuiPersistedAgentPane(
+    mainAgentId: string,
+    pane: TuiPersistedAgentPane | undefined,
+    path = tuiThemePreferencePath(),
+): void {
+    const preferences = loadTuiClientPreferences(path);
+    const panes = (preferences.persisted_agent_panes ?? [])
+        .filter((saved) => saved.main_agent_id !== mainAgentId);
+    const { persisted_agent_panes: _previous, ...withoutPanes } = preferences;
+    saveTuiClientPreferences({
+        ...withoutPanes,
+        ...(pane === undefined && panes.length === 0
+            ? {}
+            : {
+                persisted_agent_panes: [
+                    ...panes,
+                    ...(pane === undefined ? [] : [{
+                        main_agent_id: pane.mainAgentId,
+                        sidebar_agent_id: pane.sidebarAgentId,
+                        owner: pane.owner,
+                        ...(pane.mention === undefined
+                            ? {}
+                            : { mention: pane.mention }),
+                    }]),
+                ],
+            }),
     }, path);
 }
 
@@ -236,6 +296,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             const sharedSessionGroups = parseSharedSessionGroups(
                 Reflect.get(value, "shared_session_groups"),
             );
+            const persistedAgentPanes = parsePersistedAgentPanes(
+                Reflect.get(value, "persisted_agent_panes"),
+            );
             return {
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
@@ -263,12 +326,50 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(sharedSessionGroups.length === 0
                     ? {}
                     : { shared_session_groups: sharedSessionGroups }),
+                ...(persistedAgentPanes.length === 0
+                    ? {}
+                    : { persisted_agent_panes: persistedAgentPanes }),
             };
         }
     } catch {
         // Missing or malformed client preferences must not prevent startup.
     }
     return { theme: "default", animation: "conveyor" };
+}
+
+function parsePersistedAgentPanes(value: unknown): readonly DiskPersistedAgentPane[] {
+    if (!Array.isArray(value)) return [];
+    const usedMainIds = new Set<string>();
+    return value.flatMap((candidate) => {
+        const pane = parsePersistedAgentPane(candidate);
+        if (pane === undefined || usedMainIds.has(pane.main_agent_id)) return [];
+        usedMainIds.add(pane.main_agent_id);
+        return [pane];
+    });
+}
+
+function parsePersistedAgentPane(value: unknown): DiskPersistedAgentPane | undefined {
+    if (typeof value !== "object" || value === null) return undefined;
+    const mainAgentId = Reflect.get(value, "main_agent_id");
+    const sidebarAgentId = Reflect.get(value, "sidebar_agent_id");
+    const owner = Reflect.get(value, "owner");
+    const mention = Reflect.get(value, "mention");
+    if (
+        typeof mainAgentId !== "string" || mainAgentId.length === 0
+        || typeof sidebarAgentId !== "string" || sidebarAgentId.length === 0
+        || mainAgentId === sidebarAgentId
+        || typeof owner !== "string" || owner.length === 0
+        || (mention !== undefined
+            && (typeof mention !== "string" || mention.length === 0))
+    ) {
+        return undefined;
+    }
+    return {
+        main_agent_id: mainAgentId,
+        sidebar_agent_id: sidebarAgentId,
+        owner,
+        ...(mention === undefined ? {} : { mention }),
+    };
 }
 
 function parseSharedSessionGroups(

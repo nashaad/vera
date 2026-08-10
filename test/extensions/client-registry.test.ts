@@ -852,6 +852,10 @@ test("an extension can create, open, and message hosted agents through the clien
     `);
     const calls: unknown[] = [];
     const agents: ClientExtensionAgentsAdapter = {
+        visible(extensionId) {
+            calls.push({ operation: "visible", extensionId });
+            return [{ agentId: "agent-1", pane: "main" }];
+        },
         async create(extensionId, request) {
             calls.push({ operation: "create", extensionId, request });
             return { agentId: "agent-2" };
