@@ -867,6 +867,7 @@ export async function startTui(
     let sidebarAttachmentLifetime: "ephemeral" | "durable" = "durable";
     let sidebarInitialApprovalMode: string | undefined;
     let sidebarAgentMention: string | undefined;
+    let sidebarModeLabel: string | undefined;
     let clientSurfaceReady = false;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
@@ -948,6 +949,7 @@ export async function startTui(
                 const attached = sidebarAgentPane;
                 sidebarAgentPane = undefined;
                 sidebarAgentMention = undefined;
+                sidebarModeLabel = undefined;
                 forgetPersistedAgentPane();
                 void attached?.detach().catch(() => attached.close());
                 sidebarOwner = undefined;
@@ -1006,6 +1008,7 @@ export async function startTui(
                     request.mention,
                     request.attachmentLifetime,
                     request.approvalMode,
+                    request.statusLabel,
                 );
                 return { agentId: next.agentId };
             },
@@ -1024,6 +1027,8 @@ export async function startTui(
                     false,
                     request.mention,
                     request.attachmentLifetime,
+                    undefined,
+                    request.statusLabel,
                 );
             },
             async message(_extensionId, request, signal) {
@@ -1523,6 +1528,7 @@ export async function startTui(
         mention?: string,
         attachmentLifetime: "ephemeral" | "durable" = "durable",
         initialApprovalMode?: string,
+        statusLabel?: string,
     ): Promise<void> {
         if (pane === "main") {
             switchToClient(next, undefined, { preserveSidebar: true });
@@ -1564,6 +1570,7 @@ export async function startTui(
         sidebarInitialApprovalMode = initialApprovalMode
             ?? sidebarInitialApprovalMode;
         sidebarAgentMention = mention ?? attached.agentId;
+        sidebarModeLabel = statusLabel;
         rememberOpenPaneGroup();
         clearSidebarEntryNodes();
         sidebar.clear();
@@ -1699,6 +1706,9 @@ export async function startTui(
                 ...(sidebarAgentMention === undefined
                     ? {}
                     : { mention: sidebarAgentMention }),
+                ...(sidebarModeLabel === undefined
+                    ? {}
+                    : { statusLabel: sidebarModeLabel }),
             });
         } catch {
             // A failed UI preference write must not prevent an attachment.
@@ -2017,6 +2027,7 @@ export async function startTui(
         const attachedSidebar = sidebarAgentPane;
         sidebarAgentPane = undefined;
         sidebarAgentMention = undefined;
+        sidebarModeLabel = undefined;
         void Promise.all([
             Promise.resolve(clientExtensionRegistry?.close()),
             attachedSidebar?.detach(),
@@ -2661,13 +2672,14 @@ export async function startTui(
         }
 
         if (
-            tuiBindingId("global", key) === "toggle_sidebar"
+            tuiBindingId("global", key) === "cycle_agent_layout"
             && sidebar.isOpen()
             && !anyOverlayOpen()
         ) {
             key.preventDefault();
             key.stopPropagation();
-            sidebar.toggleHidden();
+            sidebar.cycleLayout();
+            composer.focus();
             renderState();
             return;
         }
@@ -2675,7 +2687,7 @@ export async function startTui(
         if (
             tuiBindingId("global", key) === "switch_agent_pane"
             && sidebarAgentPane !== undefined
-            && sidebar.isShown()
+            && sidebar.layout() === "split"
             && !anyOverlayOpen()
         ) {
             key.preventDefault();
@@ -2959,6 +2971,8 @@ export async function startTui(
                 false,
                 saved.mention,
                 "durable",
+                undefined,
+                saved.statusLabel,
             );
         } catch (error) {
             forgetPersistedAgentPane();
@@ -6232,6 +6246,7 @@ export async function startTui(
             const previousSidebarAgent = sidebarAgentPane;
             sidebarAgentPane = undefined;
             sidebarAgentMention = undefined;
+            sidebarModeLabel = undefined;
             void previousSidebarAgent?.detach().catch(() =>
                 previousSidebarAgent.close()
             );
@@ -7003,10 +7018,18 @@ export async function startTui(
         // column that arrived without being asked for, so the key that takes
         // it away is only offered while it is there.
         const extensionState = [
-            ...(sidebar.isOpen()
-                ? [sidebar.isShown() ? "ctrl+b hide" : "ctrl+b sidebar"]
-                : []),
-            ...(sidebarAgentPane !== undefined && sidebar.isShown()
+            ...(sidebarAgentPane === undefined
+                ? []
+                : [
+                    `${sidebarModeLabel ?? sidebarAgentMention ?? "agent"} mode`,
+                    sidebar.layout() === "split"
+                        ? "split"
+                        : sidebar.layout() === "sidebar"
+                        ? `${sidebarModeLabel ?? sidebarAgentMention ?? "agent"} only`
+                        : "vera only",
+                    "ctrl+/ layout",
+                ]),
+            ...(sidebarAgentPane !== undefined && sidebar.layout() === "split"
                 ? [sidebar.isFocused()
                     ? "ctrl+g main"
                     : `ctrl+g ${sidebarAgentMention ?? sidebarAgentPane.agentId}`]

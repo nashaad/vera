@@ -268,19 +268,26 @@ test("a terminal too narrow to split puts the sidebar away until it is wide agai
     }
 });
 
-test("hiding the sidebar leaves it open, and a resize does not bring it back", async () => {
+test("cycles between split, sidebar-only, main-only, and split", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
-        sidebar.toggleHidden();
+        expect(sidebar.layout()).toBe("split");
+        sidebar.cycleLayout();
         await setup.flush();
         expect(sidebar.isOpen()).toBe(true);
-        expect(sidebar.isShown()).toBe(false);
+        expect(sidebar.layout()).toBe("sidebar");
+        expect(sidebar.isShown()).toBe(true);
+        expect(sidebar.isFocused()).toBe(true);
 
-        sidebar.refit();
-        expect(sidebar.isShown()).toBe(false);
-
-        sidebar.toggleHidden();
+        sidebar.cycleLayout();
         await setup.flush();
+        expect(sidebar.layout()).toBe("main");
+        expect(sidebar.isShown()).toBe(false);
+        expect(sidebar.isFocused()).toBe(false);
+
+        sidebar.cycleLayout();
+        await setup.flush();
+        expect(sidebar.layout()).toBe("split");
         expect(sidebar.isShown()).toBe(true);
     } finally {
         setup.renderer.destroy();

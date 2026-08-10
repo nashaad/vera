@@ -119,3 +119,11 @@ test("the model picker chord is bound only in its shifted form", () => {
     expect(tuiBindingId("global", { name: "m", ctrl: true })).toBeUndefined();
     expect(tuiBindingId("composer", { name: "m", ctrl: true })).toBeUndefined();
 });
+
+test("ctrl slash cycles the attached-agent layout", () => {
+    expect(tuiBindingId("global", { name: "/", ctrl: true }))
+        .toBe("cycle_agent_layout");
+    // Terminals commonly encode Ctrl+/ as the same control byte as Ctrl+_.
+    expect(tuiBindingId("global", { name: "_", ctrl: true }))
+        .toBe("cycle_agent_layout");
+});

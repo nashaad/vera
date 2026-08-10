@@ -33,6 +33,7 @@ test("a durable agent pane persists with its owner and mention", () => {
         sidebarAgentId: "peer-agent",
         owner: "vera.btw",
         mention: "peer",
+        statusLabel: "pair",
     }, path);
 
     expect(loadTuiPersistedAgentPane("main-agent", path)).toEqual({
@@ -40,6 +41,7 @@ test("a durable agent pane persists with its owner and mention", () => {
         sidebarAgentId: "peer-agent",
         owner: "vera.btw",
         mention: "peer",
+        statusLabel: "pair",
     });
     expect(loadTuiThemePreference(path)).toBe("nightowl");
 

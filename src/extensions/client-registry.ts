@@ -1697,6 +1697,7 @@ function validateAgentCreateRequest(
     const workspace = request?.workspace?.trim();
     const approvalMode = request?.approvalMode?.trim();
     const mention = validateOptionalAgentMention(request?.mention);
+    const statusLabel = validateOptionalAgentStatusLabel(request?.statusLabel);
     const attachmentLifetime = validateAgentAttachmentLifetime(
         request?.attachmentLifetime,
     );
@@ -1704,6 +1705,7 @@ function validateAgentCreateRequest(
         pane: validateAgentPane(request?.pane),
         ...(attachmentLifetime === undefined ? {} : { attachmentLifetime }),
         ...(mention === undefined ? {} : { mention }),
+        ...(statusLabel === undefined ? {} : { statusLabel }),
         ...(workspace === undefined || workspace.length === 0
             ? {}
             : { workspace }),
@@ -1721,6 +1723,7 @@ function validateAgentOpenRequest(
         throw new Error("Client extension must name an agent to open");
     }
     const mention = validateOptionalAgentMention(request.mention);
+    const statusLabel = validateOptionalAgentStatusLabel(request.statusLabel);
     const attachmentLifetime = validateAgentAttachmentLifetime(
         request.attachmentLifetime,
     );
@@ -1729,7 +1732,17 @@ function validateAgentOpenRequest(
         pane: validateAgentPane(request.pane),
         ...(attachmentLifetime === undefined ? {} : { attachmentLifetime }),
         ...(mention === undefined ? {} : { mention }),
+        ...(statusLabel === undefined ? {} : { statusLabel }),
     };
+}
+
+function validateOptionalAgentStatusLabel(value: unknown): string | undefined {
+    if (value === undefined) return undefined;
+    const label = typeof value === "string" ? value.trim() : "";
+    if (label.length === 0 || label.length > 24 || /[\r\n]/.test(label)) {
+        throw new Error("Client extension agent status label must be 1-24 characters");
+    }
+    return label;
 }
 
 function validateOptionalAgentMention(value: unknown): string | undefined {
