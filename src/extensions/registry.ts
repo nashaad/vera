@@ -50,6 +50,7 @@ const DEFAULT_ACTIVATION_TIMEOUT_MS = 5_000;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000;
 const MAX_EXTENSION_PRESENTATION_BYTES = 64 * 1024;
+const MAX_EXTENSION_HOOK_BYTES = 64 * 1024;
 const MAX_EXTENSION_DIFF_LINES = 400;
 const PRE_TOOL_HOOK_CAPABILITY = "hooks.pre_tool_use";
 const POST_TOOL_HOOK_CAPABILITY = "hooks.post_tool_use";
@@ -910,13 +911,17 @@ function isPreToolUseResult(value: unknown): value is PreToolUseHookResult {
     if (!isPlainObject(value) || typeof value.power !== "string") return false;
     if (value.power === "observe") return true;
     if (value.power === "mutate") {
-        return isPlainObject(value.input);
+        return isPlainObject(value.input)
+            && boundedHookData(value.input);
     }
     if (value.power === "block") {
-        return typeof value.reason === "string" && value.reason.length > 0;
+        return typeof value.reason === "string"
+            && value.reason.length > 0
+            && boundedHookData(value.reason);
     }
     return value.power === "replace"
-        && isToolResultValue(value.result);
+        && isToolResultValue(value.result)
+        && boundedHookData(value.result);
 }
 
 function isPostToolUseResult(value: unknown): value is PostToolUseHookResult {
@@ -925,7 +930,17 @@ function isPostToolUseResult(value: unknown): value is PostToolUseHookResult {
     if (value.power !== "mutate" || !isPlainObject(value.patch)) return false;
     const patch = value.patch;
     return (patch.content === undefined || isHookTextContentArray(patch.content))
+        && (patch.content === undefined || boundedHookData(patch.content))
         && (patch.isError === undefined || typeof patch.isError === "boolean");
+}
+
+function boundedHookData(value: unknown): boolean {
+    try {
+        return Buffer.byteLength(JSON.stringify(value), "utf8")
+            <= MAX_EXTENSION_HOOK_BYTES;
+    } catch {
+        return false;
+    }
 }
 
 function isToolResultValue(value: unknown): boolean {

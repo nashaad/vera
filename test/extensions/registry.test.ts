@@ -300,6 +300,49 @@ test("a throwing or malformed extension hook does not break the engine hook chai
     await registry.close();
 });
 
+test("extension hook mutations are bounded before entering the engine chain", async () => {
+    const extension = createExtension("oversized-hooks.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreToolUse(() => ({
+                power: "mutate", input: { value: "x".repeat(70 * 1024) },
+            }));
+            vera.hooks.registerPostToolUse(() => ({
+                power: "mutate", patch: { content: [{
+                    type: "text", text: "x".repeat(70 * 1024),
+                }] },
+            }));
+        }
+    `, ["hooks.pre_tool_use", "hooks.post_tool_use"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preToolUseHooks()) hooks.registerPreToolUse(hook);
+    for (const hook of registry.postToolUseHooks()) hooks.registerPostToolUse(hook);
+    const pre = await hooks.runPreToolUse({
+        type: "pre_tool_use",
+        sessionId: "session-1",
+        workspace: "/work",
+        toolCall: { id: "call-1", name: "read", input: { path: "file" } },
+    }, { timeoutMs: 100 });
+    expect(pre.result).toEqual({ power: "observe" });
+    const post = await hooks.runPostToolUse({
+        type: "post_tool_use",
+        sessionId: "session-1",
+        workspace: "/work",
+        toolCall: pre.toolCall,
+        result: {
+            toolCallId: "call-1",
+            toolName: "read",
+            content: [{ type: "text", text: "ok" }],
+            isError: false,
+        },
+        durationMs: 1,
+    }, { timeoutMs: 100 });
+    expect(post.content).toEqual([{ type: "text", text: "ok" }]);
+    await registry.close();
+});
+
 test("the command hook adapter exchanges bounded JSON over an argv-only process", async () => {
     const workspace = createDirectory();
     const script = join(workspace, "hook.mjs");
