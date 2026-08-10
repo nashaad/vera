@@ -4,14 +4,25 @@ import { agentRosterTool } from "../../src/tools/agent-roster.ts";
 import { toolDefinitionsForCapabilities } from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
-test("agent_roster takes no input and returns a roster effect", async () => {
+test("agent_roster defaults to a compact roster effect", async () => {
     expect(await agentRosterTool.execute(
         {},
         new ToolRuntime("/workspace"),
         new AbortController().signal,
     )).toEqual({
         kind: "effect",
-        effect: { type: "agent_roster" },
+        effect: { type: "agent_roster", details: false },
+    });
+});
+
+test("agent_roster carries an explicit diagnostic detail request", async () => {
+    expect(await agentRosterTool.execute(
+        { details: true },
+        new ToolRuntime("/workspace"),
+        new AbortController().signal,
+    )).toEqual({
+        kind: "effect",
+        effect: { type: "agent_roster", details: true },
     });
 });
 

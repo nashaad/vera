@@ -197,9 +197,15 @@ test("agent_roster reports the workspace's other live sessions", async () => {
         expect(roster.participants[0]).toMatchObject({
             participant_id: "peer",
             name: peer?.name,
-            last_activity: peer?.updated_at,
-            session_path: join(root, "peer.jsonl"),
+            status: "idle",
+            live: false,
         });
+        expect(Object.keys(roster.participants[0]).sort()).toEqual([
+            "live",
+            "name",
+            "participant_id",
+            "status",
+        ]);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -227,9 +233,9 @@ test("agent_roster reports an empty workspace as empty", async () => {
     }
 });
 
-test("agent_roster derives repository and dirty-file facts at inspection time", async () => {
+test("detailed agent_roster derives repository and dirty-file facts at inspection time", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-roster-git-"));
-    const registry = createRegistry(() => agentRosterScript());
+    const registry = createRegistry(() => agentRosterScript(true));
     const callerSession = join(root, "caller.jsonl");
     const git = (...args: string[]): string => {
         const result = spawnSync("git", ["-C", root, ...args], {
@@ -2361,7 +2367,7 @@ function readMarkerScript(): AssistantMessage[] {
     ];
 }
 
-function agentRosterScript(): AssistantMessage[] {
+function agentRosterScript(details = false): AssistantMessage[] {
     return [
         {
             role: "assistant",
@@ -2369,7 +2375,7 @@ function agentRosterScript(): AssistantMessage[] {
                 type: "tool_call",
                 id: "read-roster",
                 name: "agent_roster",
-                input: {},
+                input: details ? { details: true } : {},
             }],
             source: { provider: "faux", api: "scripted", model: "test" },
             usage: emptyUsage(),
