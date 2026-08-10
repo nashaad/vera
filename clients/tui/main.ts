@@ -155,6 +155,8 @@ import {
     COMPOSER_PLACEHOLDER,
     createTuiComposer,
     createTuiComposerPanel,
+    COMPOSER_DEFAULT_TIP,
+    TUI_COMPOSER_PANEL_ROWS,
 } from "./composer.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { TuiBodyFocusController } from "./body-focus.ts";
@@ -371,6 +373,8 @@ const SHIMMER_FRAME_INTERVAL_MS = 40;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 const POINTER_HOVER_DELAY_MS = 25;
+/** Rows the composer, the status band and a little transcript need. */
+const SUGGESTIONS_RESERVED_ROWS = 12;
 
 function assistantFollowsWork(
     entries: readonly TuiTranscriptEntry[],
@@ -1342,9 +1346,7 @@ export async function startTui(
         id: "status-band",
         position: "absolute",
         left: 0,
-        // A row of floor under the band, so the last line of status is not
-        // sitting on the terminal's edge.
-        bottom: 1,
+        bottom: 0,
         width: "100%",
         height: "auto",
         flexDirection: "column",
@@ -1377,16 +1379,6 @@ export async function startTui(
     let composerTip: string | undefined;
     let workingLastRender = false;
     let pickerTipKind: string | undefined;
-
-    const composerTipText = new TextRenderable(renderer, {
-        id: "composer-tip",
-        content: "",
-        fg: TUI_MUTED,
-        width: "100%",
-        height: 1,
-        paddingLeft: 2,
-        visible: false,
-    });
 
     // Text taken from one pane and waiting to ride along with the next
     // message. One at a time: a second selection replaces it, which is what a
@@ -1485,6 +1477,26 @@ export async function startTui(
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
 
+    /**
+     * How many rows the status band takes under the composer. The suggestion
+     * strip floats outside the layout flow and has to clear that band, so the
+     * margin is kept here rather than read back off the box.
+     */
+    let composerMarginRows = 2;
+
+    function setComposerMargin(rows: number): void {
+        composerMarginRows = rows;
+        composerBox.marginBottom = rows;
+        positionCommandSuggestions();
+    }
+
+    function positionCommandSuggestions(): void {
+        commandSuggestionsBox.bottom = TUI_COMPOSER_PANEL_ROWS
+            + composerMarginRows
+            + (quoteText.visible ? 1 : 0)
+            + (heldAddressText.visible ? 1 : 0);
+    }
+
     const modeToastText = new TextRenderable(renderer, {
         id: "mode-toast-text",
         content: "",
@@ -1513,7 +1525,8 @@ export async function startTui(
     modeToast.add(modeToastText);
     let modeToastVersion = 0;
 
-    const composerBox = createTuiComposerPanel(renderer, composer);
+    const { panel: composerBox, tip: composerTipText } =
+        createTuiComposerPanel(renderer, composer);
 
     const bodyFocus = new TuiBodyFocusController();
     // Everything the sidebar sits beside: the conversation and what hangs off
@@ -2001,13 +2014,19 @@ export async function startTui(
         settingsPicker = { ...settingsPicker, selectedIndex: index };
     });
     settingsPickerView.onTab = (tab) => {
-        if (settingsPicker === undefined || settingsPicker.kind !== "model") {
+        // The strip is on screen on the connect pane too, and a chip on it
+        // leaves that pane for the collection it names.
+        const pane = settingsPicker?.kind === "provider"
+            ? settingsPicker.parent
+            : settingsPicker;
+        if (pane === undefined || pane.kind !== "model") {
             return;
         }
-        settingsPicker = switchedModelTab(settingsPicker, tab);
+        settingsPicker = switchedModelTab(pane, tab);
         renderState();
     };
     settingsPickerView.onConfigure = () => {
+        if (settingsPicker?.kind === "provider") return;
         if (settingsPicker?.kind !== "model") return;
         openProviderPicker(settingsPicker);
     };
@@ -2084,7 +2103,6 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
-    app.add(composerTipText);
     // Pinned beside the composer, not written into the transcript: a mode the
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
@@ -5077,17 +5095,15 @@ export async function startTui(
             composerTip = takeTip(false);
         }
         workingLastRender = state.working;
+        // The footer is part of the composer's own frame, so it always says
+        // something: the turn's tip when there is one, and the way to the
+        // commands when there is not.
         composerTipText.content = composerTip === undefined
-            ? new StyledText([])
-            // Text nodes lay their content out from column zero, so the
-            // indent the transcript rows share is written in rather than set
-            // as padding.
+            ? new StyledText([fg(TUI_MUTED)(COMPOSER_DEFAULT_TIP)])
             : new StyledText([
-                fg(TUI_ACCENT)("  Tip "),
+                fg(TUI_ACCENT)("Tip "),
                 fg(TUI_MUTED)(composerTip),
             ]);
-        composerTipText.visible = composerTip !== undefined
-            && !anyOverlayOpen();
         renderHeldAddress();
         composer.placeholder = extensionAddressee === undefined
             ? sidebar.isFocused() && sidebarAgentMention !== undefined
@@ -6145,8 +6161,15 @@ export async function startTui(
         if ("openProviders" in transition && transition.openProviders === true) {
             // The model pane stays underneath: connecting a provider is a
             // detour on the way to picking a model, not a change of subject.
+            // The pane it returns to is the one the transition left behind, not
+            // the one the key arrived on: ⇥ onto Providers wraps the list back
+            // to its first tab, and Escape has to land on that.
             openProviderPicker(
-                previousPicker?.kind === "extension" ? undefined : previousPicker,
+                settingsPicker?.kind === "model"
+                    ? settingsPicker
+                    : previousPicker?.kind === "extension"
+                    ? undefined
+                    : previousPicker,
             );
             return;
         }
@@ -6852,18 +6875,14 @@ export async function startTui(
         };
     }
 
-    /** Rows the composer, the status band and a little transcript need. */
-    const SUGGESTIONS_RESERVED_ROWS = 12;
-
     function renderCommandSuggestions(): void {
-        // The composer is five rows plus its two-row status margin. These
-        // transient lines sit above it in normal flow, so the overlay clears
-        // whichever of them are currently visible instead of painting over
-        // quote/address context.
-        commandSuggestionsBox.bottom = 9
-            + (composerTipText.visible ? 1 : 0)
-            + (quoteText.visible ? 1 : 0)
-            + (heldAddressText.visible ? 1 : 0);
+        // Measured off the composer's own margin, which the status card below
+        // it grows and shrinks: a fixed offset here lands inside the composer
+        // as soon as that card is taller than the single line it replaced.
+        // These transient lines sit above the composer in normal flow, so the
+        // overlay clears whichever of them are currently visible instead of
+        // painting over quote/address context.
+        positionCommandSuggestions();
         if (composer.plainText.length === 0) {
             commandSuggestionIndex = 0;
         }
@@ -7040,7 +7059,7 @@ export async function startTui(
     function renderPendingQuote(): void {
         const quote = pendingQuote;
         quoteText.visible = quote !== undefined && !anyOverlayOpen();
-        composerBox.marginBottom = quoteText.visible ? 3 : 2;
+        setComposerMargin(quoteText.visible ? 3 : 2);
         if (quote === undefined) {
             quoteText.content = "";
             return;
@@ -7314,9 +7333,14 @@ export async function startTui(
         const cardRows = detailsHeight + (detailsHeight - 1)
             + (agentSection.length === 0 ? 0 : 1 + agentSection.length);
         backgroundStatusText.height = cardRows;
-        composerBox.marginBottom = 1 + cardRows + 2
-            + (paneStatusText.visible ? 1 : 0)
-            + (statusText.visible ? 1 : 0);
+        // The band's own rows, which the composer sits straight on top of with
+        // no gutter of its own: the card, its border lines, and whichever
+        // status lines are showing above it.
+        setComposerMargin(
+            cardRows + 1
+                + (paneStatusText.visible ? 1 : 0)
+                + (statusText.visible ? 1 : 0),
+        );
         statusText.content = statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined

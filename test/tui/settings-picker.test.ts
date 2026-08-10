@@ -1824,6 +1824,42 @@ test("escape from the connect pane returns to the model pane it was opened over"
         .toBe(model);
 });
 
+test("the connect pane opened from the model pane draws in the same card", async () => {
+    const providers = withTuiPickerParent(
+        startTuiProviderPicker(PROVIDER_ROWS),
+        modelPickerWithPool(),
+    );
+
+    const frame = await pickerFrame(providers);
+
+    // Same title, same tab strip: one card that changes what it lists, so the
+    // strip the user tabbed along is still there to tab back on.
+    expect(frame).toContain("Select model");
+    expect(frame).not.toContain("Connect a provider");
+    expect(frame).toMatch(/Pool 2\s+All models \d+\s+Help\s+Providers \^e/);
+    expect(frame).toContain("⇥ tabs");
+    expect(frame).toContain("OpenRouter");
+});
+
+test("⇥ walks from the last tab onto the connect pane and back off it", () => {
+    const help = switchedModelTab(modelPickerWithPool(), "help");
+
+    const onto = handleTuiSettingsPickerKey(help, { name: "tab" });
+    expect(onto.openProviders).toBe(true);
+    // The list under the pane wraps, so leaving it does not drop the user back
+    // on the stop that opened it.
+    expect(onto.state?.kind).toBe("model");
+    expect((onto.state as TuiSettingsPickerState).tab).toBe("pool");
+
+    const providers = withTuiPickerParent(
+        startTuiProviderPicker(PROVIDER_ROWS),
+        onto.state as TuiSettingsPickerState,
+    );
+    const off = handleTuiSettingsPickerKey(providers, { name: "tab" });
+    expect(off.handled).toBe(true);
+    expect(off.state).toBe(onto.state);
+});
+
 test("the wheel moves the cursor, so enter still means the row on screen", () => {
     // The pane windows itself around selectedIndex. A wheel that slid the
     // window on its own would leave the highlight off screen, pointing at
