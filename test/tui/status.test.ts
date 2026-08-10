@@ -20,6 +20,15 @@ test("TUI status line shows host-reported model and reasoning", () => {
     );
 });
 
+test("pane status can own permissions without repeating them in details", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "qwen3:1.7b",
+        reasoningEffort: "low",
+    }, "ask", undefined, "/workspace", 0, undefined, false)).toBe(
+        "qwen3:1.7b · reasoning low · /workspace",
+    );
+});
+
 test("TUI status stands the coerced level beside the one asked for", () => {
     expect(renderTuiStatusDetailsLine({
         model: "z-ai/glm-5.2",

@@ -112,6 +112,7 @@ export function renderTuiStatusDetailsLine(
     workspace: string,
     runningBackgroundAgents = 0,
     substitution: TuiEffortSubstitution | undefined = undefined,
+    includePermissions = true,
 ): string {
     const providerLabel = settings?.provider === undefined
         ? undefined
@@ -150,7 +151,8 @@ export function renderTuiStatusDetailsLine(
         : `${runningBackgroundAgents} async subagent${
             runningBackgroundAgents === 1 ? "" : "s"
         } running · `;
-    return `${background}${model} · reasoning ${thinking} · ${compactWorkspace(workspace)} · ${permissions}${usage}`;
+    return `${background}${model} · reasoning ${thinking} · ${compactWorkspace(workspace)}`
+        + `${includePermissions ? ` · ${permissions}` : ""}${usage}`;
 }
 
 /**
