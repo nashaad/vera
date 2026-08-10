@@ -409,6 +409,15 @@ test("connection limits must be positive integers", () => {
     })).toThrow(/maximum pending values/);
 });
 
+test("an already-cancelled host connection does not start", () => {
+    const controller = new AbortController();
+    controller.abort(new Error("cancelled"));
+    expect(() => connectHost({
+        socketPath: "/unused",
+        signal: controller.signal,
+    })).toThrow("cancelled");
+});
+
 skipIfNoNetwork(
     "queues values received before receive() is called",
     async () => {
