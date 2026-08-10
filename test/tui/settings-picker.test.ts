@@ -1342,6 +1342,11 @@ test("the Help tab explains the pane in the pane", async () => {
     expect(frame).not.toMatch(/Help \d/);
 });
 
+test("the model tab strip advertises provider configuration", async () => {
+    const frame = await pickerFrame(modelPickerWithPool());
+    expect(frame).toContain("Configure");
+});
+
 test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
     const state = allTabWithRecommendations();
     const onHeading = { ...state, selectedIndex: 2 };

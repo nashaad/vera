@@ -1983,6 +1983,10 @@ export async function startTui(
         settingsPicker = switchedModelTab(settingsPicker, tab);
         renderState();
     };
+    settingsPickerView.onConfigure = () => {
+        if (settingsPicker?.kind !== "model") return;
+        openProviderPicker(settingsPicker);
+    };
     preferencesListView.pointer = rowPointer((index) => {
         if (preferencesList === undefined) return;
         preferencesList = { ...preferencesList, selectedIndex: index };
@@ -7207,6 +7211,7 @@ export async function startTui(
         const detailsLine = extensionState.length === 0
             ? statusDetailsLine
             : `${statusDetailsLine} · ${extensionState.join(" · ")}`;
+        const detailsHeight = detailsLine.split("\n").length;
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
@@ -7255,8 +7260,8 @@ export async function startTui(
                 ),
             ]);
         backgroundStatusText.height = agentSection.length === 0
-            ? 1
-            : 2 + agentSection.length;
+            ? detailsHeight
+            : detailsHeight + 1 + agentSection.length;
         composerBox.marginBottom = 1 + backgroundStatusText.height
             + (paneStatusText.visible ? 1 : 0)
             + (statusText.visible ? 1 : 0);
