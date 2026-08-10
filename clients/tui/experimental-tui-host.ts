@@ -16,6 +16,7 @@ import {
 import {
     createTuiExperimentalRawView,
     disposeTuiExperimentalRawView,
+    refreshTuiExperimentalRawView,
     type TuiExperimentalRawView,
 } from "./experimental-tui-raw-view.ts";
 import { tuiChord, type TuiChordKey } from "./keymap.ts";
@@ -379,15 +380,7 @@ export function createTuiExperimentalHost(
             renderView(view);
         }
         for (const view of rawViews.values()) {
-            try {
-                view.container.visible = view.spec.visible?.() ?? true;
-            } catch (error) {
-                options.onFailure(
-                    view.extensionId,
-                    error instanceof Error ? error.message : String(error),
-                );
-                view.container.visible = false;
-            }
+            refreshTuiExperimentalRawView(view, options.onFailure);
         }
         refreshTuiExperimentalSlotVisibility({
             transcriptTop,

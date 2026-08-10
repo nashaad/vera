@@ -252,6 +252,46 @@ test("experimental TUI host mounts and disposes extension-owned renderables", as
     }
 });
 
+test("experimental TUI host isolates raw visibility failures", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const failures: string[] = [];
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure(extensionId, message) {
+            failures.push(`${extensionId}:${message}`);
+        },
+        onRenderRequested() {},
+    });
+    try {
+        host.adapter.mountRenderable("broken", {
+            id: "raw-view",
+            slot: "footer",
+            visible: () => {
+                throw new Error("raw visibility failed");
+            },
+            create(context) {
+                return new TextRenderable(context.renderer, {
+                    id: "raw-view-text",
+                    content: "raw",
+                    height: 1,
+                });
+            },
+        });
+        host.render();
+        expect(host.footer.visible).toBe(false);
+        expect(failures).toEqual(["broken:raw visibility failed"]);
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});
+
 test("experimental TUI host attributes async listener failures", async () => {
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,

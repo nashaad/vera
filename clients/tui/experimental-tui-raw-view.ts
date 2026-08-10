@@ -65,3 +65,18 @@ export function disposeTuiExperimentalRawView(
     removeFromSlot(view.container.id);
     view.container.destroy();
 }
+
+export function refreshTuiExperimentalRawView(
+    view: TuiExperimentalRawView,
+    onFailure: (extensionId: string, message: string) => void,
+): void {
+    try {
+        view.container.visible = view.spec.visible?.() ?? true;
+    } catch (error) {
+        onFailure(
+            view.extensionId,
+            error instanceof Error ? error.message : String(error),
+        );
+        view.container.visible = false;
+    }
+}
