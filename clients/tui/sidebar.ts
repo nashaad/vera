@@ -315,6 +315,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         mainColumn.visible = current !== "sidebar";
         sidebarColumn.visible = current !== "main";
         sidebarColumn.width = current === "sidebar" ? "100%" : width;
+        panel.paddingLeft = current === "sidebar" ? 2 : 1;
         divider.visible = current === "split";
         paintFocusRails();
         options.onLayoutChanged?.();
