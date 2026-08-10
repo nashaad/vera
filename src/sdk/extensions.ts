@@ -7,6 +7,7 @@ import type {
 import type { ModelReasoningEffort } from "../model/types.ts";
 import type { ToolPresentation } from "../model/types.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
+import type { VeraClientExperimentalTui } from "./experimental-tui.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
@@ -90,6 +91,8 @@ export interface VeraClientExtensionApi {
     readonly consult: VeraClientExtensionConsult;
     readonly agents: VeraClientExtensionAgents;
     readonly tips: VeraClientExtensionTips;
+    /** Experimental, TUI-only component host. Not a portable SDK surface. */
+    readonly experimentalTui: VeraClientExperimentalTui;
     onDispose(dispose: VeraExtensionDisposer): void;
 }
 

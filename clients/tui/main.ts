@@ -107,6 +107,7 @@ import {
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
+import { createTuiExperimentalHost } from "./experimental-tui-host.ts";
 import {
     routeTuiAgentMessage,
     type TuiHostedAgentAddressing,
@@ -713,6 +714,29 @@ export async function startTui(
     for (const notice of dependencies.startupNotices ?? []) {
         state = appendTuiNotice(state, notice);
     }
+    let shuttingDown = false;
+    let clientSurfaceReady = false;
+    const experimentalTuiHost = createTuiExperimentalHost({
+        renderer,
+        theme,
+        workspace: () => client.workspace ?? process.cwd(),
+        transcript: () => state.entries.flatMap((entry) =>
+            (entry.kind === "user" || entry.kind === "assistant")
+                && entry.text.length > 0
+                ? [{ role: entry.kind, text: entry.text }]
+                : []
+        ),
+        onFailure: (extensionId, message) => {
+            if (shuttingDown) return;
+            state = appendTuiNotice(
+                state,
+                `${extensionId}: experimental TUI view failed: ${message}`,
+            );
+        },
+        onRenderRequested: () => {
+            if (clientSurfaceReady) renderState();
+        },
+    });
     let connectionFailed = false;
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
@@ -720,7 +744,6 @@ export async function startTui(
     // status line reports the effective values once a change lands.
     const requestedModelChanges = new Map<string, string>();
     const requestedPermissionChanges = new Map<string, string>();
-    let shuttingDown = false;
     let abortRequested = false;
 
     function applyTerminalTitle(): void {
@@ -876,7 +899,6 @@ export async function startTui(
     let sidebarInitialApprovalMode: string | undefined;
     let sidebarAgentMention: string | undefined;
     let sidebarModeLabel: string | undefined;
-    let clientSurfaceReady = false;
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -1072,6 +1094,7 @@ export async function startTui(
                 await client.send({ type: "prompt", content: request.text });
             },
         },
+        experimentalTui: experimentalTuiHost.adapter,
         thread: {
             read(_extensionId) {
                 return state.entries
@@ -1959,7 +1982,9 @@ export async function startTui(
             }
         }
     }
+    upper.add(experimentalTuiHost.transcriptTop);
     upper.add(transcript);
+    upper.add(experimentalTuiHost.transcriptBottom);
     app.add(sidebar.body);
     app.add(jumpToBottom);
     app.add(sidebarJump);
@@ -1974,6 +1999,7 @@ export async function startTui(
         visible: false,
     });
     app.add(overlayScrim);
+    app.add(experimentalTuiHost.overlay);
     upper.add(queuedPromptText);
     app.add(commandSuggestionsBox);
     app.add(approvalView.box);
@@ -2080,6 +2106,8 @@ export async function startTui(
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
     app.add(composerTipText);
+    app.add(experimentalTuiHost.footer);
+    app.add(experimentalTuiHost.composerAdornment);
     // Pinned beside the composer, not written into the transcript: a mode the
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
@@ -2114,6 +2142,7 @@ export async function startTui(
             attachedSidebar?.detach(),
         ])
             .catch(() => undefined)
+            .then(() => experimentalTuiHost.close())
             .then(() => client.detach().catch(() => client.close()))
             .then(() => {
                 finished.resolve(
@@ -2286,6 +2315,19 @@ export async function startTui(
                 abortFocusedAgent();
                 renderStatus();
             }
+            return;
+        }
+
+        if (experimentalTuiHost.hasModal()) {
+            key.preventDefault();
+            key.stopPropagation();
+            experimentalTuiHost.handleKey(key);
+            return;
+        }
+        if (experimentalTuiHost.hasFocus()
+            && experimentalTuiHost.handleKey(key)) {
+            key.preventDefault();
+            key.stopPropagation();
             return;
         }
 
@@ -4772,6 +4814,9 @@ export async function startTui(
      * to", which is what the unfocused-state keys ask.
      */
     function activeOverlayFocus(): (() => void) | undefined {
+        if (experimentalTuiHost.hasModal()) {
+            return () => experimentalTuiHost.focus();
+        }
         const uiRequest = focusedUiRequest();
         if (
             uiRequest !== undefined
@@ -5054,6 +5099,7 @@ export async function startTui(
             return;
         }
         const uiRequest = focusedUiRequest();
+        experimentalTuiHost.render();
 
         placeholder.visible = state.entries.length === 0;
         // The transcript tip appears in the gap after a turn, which is the one
@@ -5172,7 +5218,8 @@ export async function startTui(
             || admissionDialogView.box.visible
             || sessionTrashConfirmView.box.visible
             || namePromptView.box.visible
-            || secretPromptView.box.visible;
+            || secretPromptView.box.visible
+            || experimentalTuiHost.hasModal();
         overlayScrim.visible = overlayVisible;
         // OpenTUI's translucent fill darkens cell backgrounds but leaves the
         // glyphs beneath it untouched. Fade the background renderables too so
@@ -5380,7 +5427,8 @@ export async function startTui(
      * when, so they ask the same question here.
      */
     function anyOverlayOpen(): boolean {
-        return focusedUiRequest() !== undefined
+        return experimentalTuiHost.hasModal()
+            || focusedUiRequest() !== undefined
             || timelinePicker !== undefined
             || secretPrompt !== undefined
             || namePrompt !== undefined
@@ -6347,6 +6395,7 @@ export async function startTui(
             extensionAddressee = undefined;
         }
         rememberOpenPaneGroup();
+        experimentalTuiHost.conversationChanged();
         clientExtensionRegistry?.conversationChanged();
 
         state = createTuiState();
@@ -6700,6 +6749,7 @@ export async function startTui(
         }
         theme = resolvedTheme;
         applyTuiTheme(theme);
+        experimentalTuiHost.setTheme(theme);
         clearTranscriptNodes();
         markdownStyle.destroy();
         markdownStyle = createMarkdownStyle(theme);
@@ -7289,6 +7339,7 @@ export async function startTui(
     }
 
     function observeActivity(update: AgentUpdate): void {
+        emitExperimentalAgentEvent(update);
         if (update.type === "status" && update.state === "working") {
             workingSince ??= Date.now();
             phaseSince ??= workingSince;
@@ -7360,6 +7411,72 @@ export async function startTui(
                 ? SYMMETRIC_WAVE_FRAME_INTERVAL_MS
                 : DEFAULT_ACTIVITY_FRAME_INTERVAL_MS);
         return Math.floor(Date.now() / interval);
+    }
+
+    function emitExperimentalAgentEvent(update: AgentUpdate): void {
+        switch (update.type) {
+            case "user_prompt":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    text: update.content,
+                });
+                return;
+            case "assistant_delta":
+            case "assistant_thinking":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    text: update.text,
+                });
+                return;
+            case "tool_started":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    tool: update.tool,
+                });
+                return;
+            case "tool_finished":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    tool: update.tool,
+                    ...(update.output === undefined
+                        ? {}
+                        : { output: update.output.slice(0, 4_000) }),
+                    ...(update.isError === undefined
+                        ? {}
+                        : { isError: update.isError }),
+                });
+                return;
+            case "tool_presentation":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    tool: update.tool,
+                });
+                return;
+            case "turn_finished":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    ...(update.error === undefined
+                        ? {}
+                        : { text: update.error }),
+                });
+                return;
+            case "status":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    state: update.state === "working"
+                        ? "working"
+                        : update.state === "waiting" ? "waiting" : "idle",
+                });
+                return;
+            case "agent_failed":
+                experimentalTuiHost.agentEvent({
+                    type: update.type,
+                    text: update.detail.slice(0, 4_000),
+                });
+                return;
+            default:
+                return;
+        }
     }
 
 }

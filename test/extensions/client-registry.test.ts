@@ -29,6 +29,7 @@ import {
     type ClientExtensionPreferencesAdapter,
     type ClientExtensionRegistryFailure,
     type ClientExtensionAgentsAdapter,
+    type ClientExtensionExperimentalTuiAdapter,
 } from "../../src/extensions/client-registry.ts";
 import type { StatusLineSnapshot } from "../../src/extensions/status-line.ts";
 
@@ -964,6 +965,69 @@ test("experimental hosted-agent addressing rejects collisions and ambiguity", as
         await registry.close();
     }
     expect(failures).toHaveLength(invalid.length);
+});
+
+test("experimental TUI views and event subscriptions clean up with the extension", async () => {
+    const extension = createExtension("client.tui", [
+        "client.experimental_tui",
+    ], `
+        export function activateClient(vera) {
+            vera.experimentalTui.events.on("conversation_changed", () => {});
+            vera.experimentalTui.events.on("transcript_changed", () => {});
+            vera.experimentalTui.mount({
+                id: "panel",
+                slot: "footer",
+                focusable: true,
+                render: ({ theme }) => ({
+                    kind: "stack",
+                    direction: "column",
+                    children: [
+                        { kind: "text", text: "hello", tone: "accent" },
+                        { kind: "button", label: "Open", action: "open" },
+                    ],
+                }),
+                keybindings: [{ keys: ["ctrl+shift+o"], action: "open" }],
+            });
+        }
+    `);
+    const mounted: { extensionId: string; id: string }[] = [];
+    const disposed: string[] = [];
+    const subscriptions: string[] = [];
+    const experimentalTui: ClientExtensionExperimentalTuiAdapter = {
+        mount(extensionId, spec) {
+            mounted.push({ extensionId, id: spec.id });
+            return async () => {
+                disposed.push(`${extensionId}:${spec.id}`);
+            };
+        },
+        events: {
+            on(...args: any[]) {
+                subscriptions.push(String(args[0]));
+                return async () => {
+                    subscriptions.push(`disposed:${String(args[0])}`);
+                };
+            },
+        },
+    };
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        experimentalTui,
+    });
+
+    expect(mounted).toEqual([{ extensionId: "client.tui", id: "panel" }]);
+    expect(subscriptions).toEqual([
+        "conversation_changed",
+        "transcript_changed",
+    ]);
+    await registry.close();
+    expect(disposed).toEqual(["client.tui:panel"]);
+    expect(subscriptions).toEqual([
+        "conversation_changed",
+        "transcript_changed",
+        "disposed:transcript_changed",
+        "disposed:conversation_changed",
+    ]);
 });
 
 function createHarness(): {
