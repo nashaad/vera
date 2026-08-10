@@ -988,6 +988,11 @@ test("experimental TUI views and event subscriptions clean up with the extension
                 }),
                 keybindings: [{ keys: ["ctrl+shift+o"], action: "open" }],
             });
+            vera.experimentalTui.mountRenderable({
+                id: "raw-panel",
+                slot: "footer",
+                create() { return {}; },
+            });
         }
     `);
     const mounted: { extensionId: string; id: string }[] = [];
@@ -1000,13 +1005,24 @@ test("experimental TUI views and event subscriptions clean up with the extension
                 disposed.push(`${extensionId}:${spec.id}`);
             };
         },
+        mountRenderable(extensionId, spec) {
+            mounted.push({ extensionId, id: spec.id });
+            return async () => {
+                disposed.push(`${extensionId}:${spec.id}`);
+            };
+        },
         events: {
-            on(...args: any[]) {
+            on(_extensionId: string, ...args: any[]) {
                 subscriptions.push(String(args[0]));
                 return async () => {
                     subscriptions.push(`disposed:${String(args[0])}`);
                 };
             },
+        },
+        agentSurface: {
+            current() { return undefined; },
+            cycleLayout() { return false; },
+            toggleFocus() { return false; },
         },
     };
     const registry = await startClientExtensionRegistry({
@@ -1015,13 +1031,19 @@ test("experimental TUI views and event subscriptions clean up with the extension
         experimentalTui,
     });
 
-    expect(mounted).toEqual([{ extensionId: "client.tui", id: "panel" }]);
+    expect(mounted).toEqual([
+        { extensionId: "client.tui", id: "panel" },
+        { extensionId: "client.tui", id: "raw-panel" },
+    ]);
     expect(subscriptions).toEqual([
         "conversation_changed",
         "transcript_changed",
     ]);
     await registry.close();
-    expect(disposed).toEqual(["client.tui:panel"]);
+    expect(disposed).toEqual([
+        "client.tui:raw-panel",
+        "client.tui:panel",
+    ]);
     expect(subscriptions).toEqual([
         "conversation_changed",
         "transcript_changed",

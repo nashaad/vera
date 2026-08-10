@@ -145,6 +145,7 @@ export interface VeraClientExperimentalHostedAgentAddressing {
 /** Hosted-agent operations; the client owns attachment and presentation. */
 export interface VeraClientExtensionAgents {
     visible(): readonly VeraClientVisibleAgent[];
+    /** Sets the aliases for the extension's currently visible agent surface. */
     declareExperimentalAddressing(
         addressing: VeraClientExperimentalHostedAgentAddressing,
     ): void;

@@ -15,12 +15,12 @@ import type {
 import type {
     VeraExperimentalTuiContext,
     VeraExperimentalTuiAgentEvent,
-    VeraExperimentalTuiEvents,
     VeraExperimentalTuiKey,
     VeraExperimentalTuiNode,
     VeraExperimentalTuiTone,
     VeraExperimentalTuiTheme,
     VeraExperimentalTuiViewSpec,
+    VeraExperimentalTuiRawViewSpec,
 } from "../../src/sdk/experimental-tui.ts";
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
 
@@ -63,12 +63,22 @@ interface MountedView {
     focused: boolean;
 }
 
+interface MountedRawView {
+    readonly extensionId: string;
+    readonly spec: VeraExperimentalTuiRawViewSpec;
+    readonly root: Renderable;
+    readonly container: BoxRenderable;
+}
+
+interface ExperimentalTuiListener {
+    readonly extensionId: string;
+    readonly listener: (...args: any[]) => void | Promise<void>;
+}
+
 interface EventListeners {
-    readonly conversation_changed: Set<() => void>;
-    readonly transcript_changed: Set<(
-        transcript: VeraExperimentalTuiContext["transcript"],
-    ) => void>;
-    readonly agent_event: Set<(event: VeraExperimentalTuiAgentEvent) => void>;
+    readonly conversation_changed: Set<ExperimentalTuiListener>;
+    readonly transcript_changed: Set<ExperimentalTuiListener>;
+    readonly agent_event: Set<ExperimentalTuiListener>;
 }
 
 export function createTuiExperimentalHost(
@@ -79,6 +89,7 @@ export function createTuiExperimentalHost(
     let focusedView: MountedView | undefined;
     let closed = false;
     const views = new Map<string, MountedView>();
+    const rawViews = new Map<string, MountedRawView>();
     const listeners: EventListeners = {
         conversation_changed: new Set(),
         transcript_changed: new Set(),
@@ -102,19 +113,20 @@ export function createTuiExperimentalHost(
         visible: false,
     });
 
-    const events: VeraExperimentalTuiEvents = {
-        on(event, listener): VeraExtensionDisposer {
+    const events: ClientExtensionExperimentalTuiAdapter["events"] = {
+        on(extensionId, event, listener): VeraExtensionDisposer {
             if (closed) throw new Error("Experimental TUI host is closed");
             if (typeof listener !== "function") {
                 throw new Error("Experimental TUI event listener must be a function");
             }
-            const set = listeners[event] as Set<(...args: never[]) => void>;
-            set.add(listener as (...args: never[]) => void);
+            const set = listeners[event];
+            const registered = { extensionId, listener };
+            set.add(registered);
             let active = true;
             return async () => {
                 if (!active) return;
                 active = false;
-                set.delete(listener as (...args: never[]) => void);
+                set.delete(registered);
             };
         },
     };
@@ -139,7 +151,57 @@ export function createTuiExperimentalHost(
                 options.onRenderRequested();
             };
         },
+        mountRenderable(extensionId, spec): VeraExtensionDisposer {
+            if (closed) throw new Error("Experimental TUI host is closed");
+            const key = `${extensionId}:${spec.id}`;
+            if (rawViews.has(key) || views.has(key)) {
+                throw new Error(`Duplicate experimental TUI view: ${spec.id}`);
+            }
+            const root = spec.create({
+                renderer: options.renderer,
+                workspace: options.workspace(),
+                theme: experimentalTheme(theme),
+                transcript: options.transcript(),
+                requestRender: options.onRenderRequested,
+            });
+            if (
+                typeof root !== "object"
+                || root === null
+                || typeof root.destroy !== "function"
+            ) {
+                throw new Error("Raw experimental TUI view must return a Renderable");
+            }
+            const container = new BoxRenderable(options.renderer, {
+                id: `experimental-tui-raw-${extensionId}-${spec.id}`,
+                width: "100%",
+                flexDirection: "column",
+            });
+            container.add(root);
+            const view: MountedRawView = {
+                extensionId,
+                spec,
+                root,
+                container,
+            };
+            rawViews.set(key, view);
+            slotFor(spec.slot).add(container);
+            options.onRenderRequested();
+            let active = true;
+            return async () => {
+                if (!active) return;
+                active = false;
+                slotFor(spec.slot).remove(container.id);
+                container.destroy();
+                rawViews.delete(key);
+                options.onRenderRequested();
+            };
+        },
         events,
+        agentSurface: {
+            current: () => undefined,
+            cycleLayout: () => false,
+            toggleFocus: () => false,
+        },
     };
 
     function createSlot(id: string): BoxRenderable {
@@ -347,7 +409,9 @@ export function createTuiExperimentalHost(
 
     function activeView(): MountedView | undefined {
         const modal = [...views.values()].find((view) =>
-            view.spec.slot === "overlay" && visible(view)
+            view.spec.slot === "overlay"
+            && view.spec.modal === true
+            && visible(view)
         );
         return modal ?? focusedView;
     }
@@ -376,32 +440,39 @@ export function createTuiExperimentalHost(
         const signature = JSON.stringify(transcript);
         if (signature === JSON.stringify(lastTranscript)) return;
         lastTranscript = transcript;
-        for (const listener of listeners.transcript_changed) {
-            try {
-                listener(transcript);
-            } catch (error) {
-                options.onFailure("experimental-tui-listener", String(error));
-            }
+        for (const registered of listeners.transcript_changed) {
+            fireListener(registered, transcript);
         }
     }
 
     function fireConversationChanged(): void {
-        for (const listener of listeners.conversation_changed) {
-            try {
-                listener();
-            } catch (error) {
-                options.onFailure("experimental-tui-listener", String(error));
-            }
+        for (const registered of listeners.conversation_changed) {
+            fireListener(registered);
         }
     }
 
     function fireAgentEvent(event: VeraExperimentalTuiAgentEvent): void {
-        for (const listener of listeners.agent_event) {
-            try {
-                listener(event);
-            } catch (error) {
-                options.onFailure("experimental-tui-listener", String(error));
-            }
+        for (const registered of listeners.agent_event) {
+            fireListener(registered, event);
+        }
+    }
+
+    function fireListener(
+        registered: ExperimentalTuiListener,
+        ...args: any[]
+    ): void {
+        try {
+            void Promise.resolve(registered.listener(...args)).catch((error) => {
+                options.onFailure(
+                    registered.extensionId,
+                    error instanceof Error ? error.message : String(error),
+                );
+            });
+        } catch (error) {
+            options.onFailure(
+                registered.extensionId,
+                error instanceof Error ? error.message : String(error),
+            );
         }
     }
 
@@ -410,6 +481,17 @@ export function createTuiExperimentalHost(
         fireTranscriptChanged(options.transcript());
         for (const view of views.values()) {
             renderView(view);
+        }
+        for (const view of rawViews.values()) {
+            try {
+                view.container.visible = view.spec.visible?.() ?? true;
+            } catch (error) {
+                options.onFailure(
+                    view.extensionId,
+                    error instanceof Error ? error.message : String(error),
+                );
+                view.container.visible = false;
+            }
         }
         transcriptTop.visible = transcriptTop.getChildren().length > 0;
         transcriptBottom.visible = transcriptBottom.getChildren().length > 0;
@@ -435,14 +517,66 @@ export function createTuiExperimentalHost(
         conversationChanged: fireConversationChanged,
         agentEvent: fireAgentEvent,
         hasModal: () => [...views.values()].some((view) =>
-            view.spec.slot === "overlay" && visible(view)
+            view.spec.slot === "overlay"
+            && view.spec.modal === true
+            && visible(view)
+        ) || [...rawViews.values()].some((view) =>
+            view.spec.slot === "overlay"
+            && view.spec.modal === true
+            && view.container.visible
         ),
         hasFocus: () => focusedView !== undefined,
         focus(): void {
+            const rawModal = [...rawViews.values()].find((view) =>
+                view.spec.slot === "overlay"
+                && view.spec.modal === true
+                && view.container.visible
+            );
+            if (rawModal !== undefined) {
+                rawModal.root.focus();
+                return;
+            }
             const view = activeView() ?? firstFocusableView();
             if (view !== undefined) focusView(view);
         },
         handleKey(key): boolean {
+            const rawModal = [...rawViews.values()].find((view) =>
+                view.spec.slot === "overlay"
+                && view.spec.modal === true
+                && view.container.visible
+            );
+            if (rawModal !== undefined) {
+                if (rawModal.spec.onKey === undefined) return true;
+                const event: VeraExperimentalTuiKey = {
+                    chord: tuiChord(key) ?? key.name,
+                    name: key.name,
+                    ctrl: key.ctrl === true,
+                    shift: key.shift === true,
+                    meta: key.meta === true,
+                };
+                try {
+                    const handled = rawModal.spec.onKey(event);
+                    if (handled instanceof Promise) {
+                        void handled
+                            .then(() => options.onRenderRequested())
+                            .catch((error) => options.onFailure(
+                                rawModal.extensionId,
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                            ));
+                        return true;
+                    }
+                    options.onRenderRequested();
+                    return handled !== false;
+                } catch (error) {
+                    options.onFailure(
+                        rawModal.extensionId,
+                        error instanceof Error ? error.message : String(error),
+                    );
+                    return true;
+                }
+            }
             const view = activeView();
             if (view === undefined) return false;
             if (!visible(view)) return false;
@@ -465,13 +599,19 @@ export function createTuiExperimentalHost(
                     meta: key.meta === true,
                 };
                 try {
-                    void Promise.resolve(view.spec.onKey(event, contextFor(view)))
-                        .then(() => options.onRenderRequested())
-                        .catch((error) => reportFailure(view, error));
+                    const handled = view.spec.onKey(event, contextFor(view));
+                    if (handled instanceof Promise) {
+                        void handled
+                            .then(() => options.onRenderRequested())
+                            .catch((error) => reportFailure(view, error));
+                        return true;
+                    }
+                    options.onRenderRequested();
+                    return handled !== false;
                 } catch (error) {
                     reportFailure(view, error);
+                    return false;
                 }
-                return true;
             }
             return view.spec.slot === "overlay" && view.spec.modal === true;
         },
@@ -480,6 +620,11 @@ export function createTuiExperimentalHost(
             closed = true;
             for (const view of [...views.values()]) removeView(view);
             views.clear();
+            for (const view of rawViews.values()) {
+                slotFor(view.spec.slot).remove(view.container.id);
+                view.container.destroy();
+            }
+            rawViews.clear();
             for (const set of Object.values(listeners)) set.clear();
             for (const slot of [
                 transcriptTop,

@@ -37,11 +37,17 @@ async function start(savedPanel: any = undefined) {
                 mounted.push({ extensionId, id: spec.id, spec });
                 return async () => {};
             },
+            mountRenderable() { return async () => {}; },
             events: {
-                on(event: string) {
+                on(_extensionId: string, event: string) {
                     events.push(event);
                     return async () => {};
                 },
+            },
+            agentSurface: {
+                current() { return undefined; },
+                cycleLayout() { return false; },
+                toggleFocus() { return false; },
             },
         },
         agents: {

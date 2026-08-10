@@ -1,4 +1,5 @@
 import type { VeraExtensionDisposer } from "./extensions.ts";
+import type { CliRenderer, Renderable } from "@opentui/core";
 
 /** Slots supported by the experimental TUI host. They are client-local. */
 export type VeraExperimentalTuiSlot =
@@ -117,28 +118,76 @@ export interface VeraExperimentalTuiViewSpec {
     ) => void | Promise<void>;
 }
 
+/**
+ * Trusted, TUI-only access for extensions that need real OpenTUI components.
+ * None of these objects cross Vera's runtime/client protocol boundary.
+ */
+export interface VeraExperimentalTuiRawContext {
+    readonly renderer: CliRenderer;
+    readonly workspace: string;
+    readonly theme: VeraExperimentalTuiTheme;
+    readonly transcript: VeraExperimentalTuiContext["transcript"];
+    requestRender(): void;
+}
+
+export interface VeraExperimentalTuiRawViewSpec {
+    readonly id: string;
+    readonly slot: VeraExperimentalTuiSlot;
+    readonly modal?: boolean;
+    readonly visible?: () => boolean;
+    create(context: VeraExperimentalTuiRawContext): Renderable;
+    onKey?: (
+        key: VeraExperimentalTuiKey,
+    ) => boolean | void | Promise<boolean | void>;
+}
+
 export interface VeraExperimentalTuiEvents {
     on(
         event: "conversation_changed",
-        listener: () => void,
+        listener: () => void | Promise<void>,
     ): VeraExtensionDisposer;
     on(
         event: "transcript_changed",
         listener: (
             transcript: VeraExperimentalTuiContext["transcript"],
-        ) => void,
+        ) => void | Promise<void>,
     ): VeraExtensionDisposer;
     on(
         event: "agent_event",
-        listener: (event: VeraExperimentalTuiAgentEvent) => void,
+        listener: (
+            event: VeraExperimentalTuiAgentEvent,
+        ) => void | Promise<void>,
     ): VeraExtensionDisposer;
 }
 
+export type VeraExperimentalTuiAgentLayout =
+    | "split"
+    | "secondary"
+    | "primary";
+
+export type VeraExperimentalTuiAgentFocus = "primary" | "secondary";
+
+export interface VeraExperimentalTuiAgentSurfaceSnapshot {
+    readonly layout: VeraExperimentalTuiAgentLayout;
+    readonly focused: VeraExperimentalTuiAgentFocus;
+}
+
+/** Controls only the hosted-agent surface owned by this extension. */
+export interface VeraExperimentalTuiAgentSurface {
+    current(): VeraExperimentalTuiAgentSurfaceSnapshot | undefined;
+    cycleLayout(): boolean;
+    toggleFocus(): boolean;
+}
+
 /**
- * Deliberately experimental and TUI-only. It is a narrow in-process host,
- * not a portable client contract and not a runtime or renderable escape hatch.
+ * Deliberately experimental and TUI-only. The semantic mounts are bounded;
+ * mountRenderable is the trusted in-process escape hatch for client UI.
  */
 export interface VeraClientExperimentalTui {
     mount(spec: VeraExperimentalTuiViewSpec): VeraExtensionDisposer;
+    mountRenderable(
+        spec: VeraExperimentalTuiRawViewSpec,
+    ): VeraExtensionDisposer;
     readonly events: VeraExperimentalTuiEvents;
+    readonly agentSurface: VeraExperimentalTuiAgentSurface;
 }
