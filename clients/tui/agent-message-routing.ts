@@ -14,6 +14,48 @@ export interface TuiHostedAgentAddressing {
     readonly broadcast?: string;
 }
 
+export interface TuiHostedAgentAddressingOptions {
+    readonly declared?: TuiHostedAgentAddressing;
+    readonly hasSidebar: boolean;
+    readonly sidebarMention?: string;
+    readonly sidebarAgentId?: string;
+    readonly extensionMentions?: readonly string[];
+}
+
+/** Names offered by the composer for the currently visible agent surface. */
+export function visibleTuiAgentMentions(
+    options: TuiHostedAgentAddressingOptions,
+): readonly string[] {
+    if (!options.hasSidebar || options.sidebarMention === undefined) {
+        return options.extensionMentions ?? [];
+    }
+    if (options.declared !== undefined) {
+        return [
+            options.declared.primary,
+            options.declared.secondary,
+            ...(options.declared.broadcast === undefined
+                ? []
+                : [options.declared.broadcast]),
+        ];
+    }
+    return (options.extensionMentions?.length ?? 0) > 0
+        ? options.extensionMentions!
+        : [options.sidebarMention, "all", "vera"];
+}
+
+/** Effective aliases used to route messages over the visible agent surface. */
+export function resolveTuiHostedAgentAddressing(
+    options: TuiHostedAgentAddressingOptions,
+): TuiHostedAgentAddressing {
+    return options.declared ?? {
+        primary: "vera",
+        secondary: options.sidebarMention
+            ?? options.sidebarAgentId
+            ?? "agent",
+        broadcast: "all",
+    };
+}
+
 export type TuiAgentMessageRoute =
     | {
         readonly kind: "message";

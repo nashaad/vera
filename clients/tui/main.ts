@@ -115,8 +115,10 @@ import {
 } from "./agent-client.ts";
 export type { TuiAgentClient } from "./agent-client.ts";
 import {
+    resolveTuiHostedAgentAddressing,
     routeTuiAgentMessage,
     type TuiHostedAgentAddressing,
+    visibleTuiAgentMentions,
 } from "./agent-message-routing.ts";
 import { renderTuiDiagnostics } from "./diagnostics.ts";
 import {
@@ -1596,36 +1598,25 @@ export async function startTui(
     }
 
     function visibleMentions(): readonly string[] {
-        if (hostedSidebar.pane === undefined || hostedSidebar.mention === undefined) {
-            return extensionMentions;
-        }
         const declared = clientExtensionRegistry
             ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
-        if (declared !== undefined) {
-            return [
-                declared.primary,
-                declared.secondary,
-                ...(declared.broadcast === undefined
-                    ? []
-                    : [declared.broadcast]),
-            ];
-        }
-        return extensionMentions.length > 0
-            ? extensionMentions
-            : [hostedSidebar.mention, "all", "vera"];
+        return visibleTuiAgentMentions({
+            declared,
+            hasSidebar: hostedSidebar.pane !== undefined,
+            sidebarMention: hostedSidebar.mention,
+            extensionMentions,
+        });
     }
 
     function hostedAgentAddressing(): TuiHostedAgentAddressing {
         const declared = clientExtensionRegistry
             ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
-        if (declared !== undefined) return declared;
-        return {
-            primary: "vera",
-            secondary: hostedSidebar.mention
-                ?? hostedSidebar.pane?.agentId
-                ?? "agent",
-            broadcast: "all",
-        };
+        return resolveTuiHostedAgentAddressing({
+            declared,
+            hasSidebar: hostedSidebar.pane !== undefined,
+            sidebarMention: hostedSidebar.mention,
+            sidebarAgentId: hostedSidebar.pane?.agentId,
+        });
     }
 
     function sidebarTranscriptWidth(): number {
