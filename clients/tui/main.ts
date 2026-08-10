@@ -183,10 +183,13 @@ import {
 } from "./quote.ts";
 import {
     renderTuiIdleHint,
-    renderTuiStatusDetailsLine,
+    renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
     tuiStatusSnapshot,
+    statusToneColor,
+    type TuiStatusChunk,
 } from "./status.ts";
+import { watchWorkspaceBranch } from "./workspace-branch.ts";
 import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerScroll,
@@ -1306,8 +1309,28 @@ export async function startTui(
         content: "",
         fg: TUI_MUTED,
         width: "100%",
-        height: 1,
+        height: 2,
     });
+    // The details sit in a panel of their own rather than loose under the
+    // composer: the composer is where the session is typed into, and this is
+    // what the session currently is. One border says the two are separate
+    // things without a heading having to say it.
+    const statusCard = new BoxRenderable(renderer, {
+        id: "status-card",
+        border: true,
+        borderStyle: "rounded",
+        borderColor: TUI_ELEMENT,
+        width: "100%",
+        height: "auto",
+        paddingLeft: 1,
+        paddingRight: 1,
+        flexDirection: "column",
+    });
+    statusCard.add(backgroundStatusText);
+    const workspaceBranch = watchWorkspaceBranch(
+        process.cwd(),
+        () => renderer.requestRender(),
+    );
     // A text node paints only the cells its glyphs fill, so the status rows
     // would show the transcript through every gap in the line, and through the
     // spaces inside it. The band that backs them is this box rather than a
@@ -1330,11 +1353,12 @@ export async function startTui(
         // indent lands just inside the composer's edge, so the status reads as
         // sitting under the composer rather than starting a new column.
         paddingLeft: 2,
+        paddingRight: 2,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
     statusBand.add(paneStatusText);
     statusBand.add(statusText);
-    statusBand.add(backgroundStatusText);
+    statusBand.add(statusCard);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -6731,6 +6755,7 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
+        statusCard.borderColor = theme.element;
         app.backgroundColor = theme.background;
         quoteText.fg = theme.muted;
         heldAddressText.fg = theme.muted;
@@ -7169,23 +7194,28 @@ export async function startTui(
                         : "waiting",
             ),
         );
-        const statusDetailsLine = extensionSegments === undefined
-            ? renderTuiStatusDetailsLine(
-                statusState.modelSettings,
-                statusState.approvalMode,
-                statusState.context,
-                process.cwd(),
-                0,
-                statusState.effortSubstitution,
-                sidebarAgentPane === undefined,
-            )
-            : renderTuiStatusSegments(
-                sidebarAgentPane === undefined
-                    ? extensionSegments
-                    : extensionSegments.filter((segment) =>
-                        segment.kind !== "permissions"
+        const statusDetailsRows: TuiStatusChunk[][] =
+            extensionSegments === undefined
+                ? renderTuiStatusDetailsRows(
+                    statusState.modelSettings,
+                    statusState.approvalMode,
+                    statusState.context,
+                    process.cwd(),
+                    0,
+                    statusState.effortSubstitution,
+                    sidebarAgentPane === undefined,
+                    workspaceBranch.current(),
+                )
+                : [[{
+                    tone: "muted",
+                    text: renderTuiStatusSegments(
+                        sidebarAgentPane === undefined
+                            ? extensionSegments
+                            : extensionSegments.filter((segment) =>
+                                segment.kind !== "permissions"
+                            ),
                     ),
-            );
+                }]];
         // What an extension has made true of this conversation, said where the
         // rest of the conversation's state is said. The sidebar is a whole
         // column that arrived without being asked for, so the key that takes
@@ -7208,10 +7238,20 @@ export async function startTui(
                     : `ctrl+g ${sidebarAgentMention ?? sidebarAgentPane.agentId}`]
                 : []),
         ];
-        const detailsLine = extensionState.length === 0
-            ? statusDetailsLine
-            : `${statusDetailsLine} · ${extensionState.join(" · ")}`;
-        const detailsHeight = detailsLine.split("\n").length;
+        // Extension state joins the place row: it says something about how the
+        // session is arranged, and that row is the one a narrow terminal can
+        // most afford to clip.
+        const detailsRows = extensionState.length === 0
+            ? statusDetailsRows
+            : statusDetailsRows.map((row, index) =>
+                index === statusDetailsRows.length - 1
+                    ? [...row, {
+                        tone: "muted" as const,
+                        text: ` · ${extensionState.join(" · ")}`,
+                    }]
+                    : row
+            );
+        const detailsHeight = detailsRows.length;
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
@@ -7245,24 +7285,36 @@ export async function startTui(
                 },
                 activityAnimationWidth,
             );
-        backgroundStatusText.content = agentSection.length === 0
-            ? detailsLine
-            : new StyledText([
-                fg(TUI_MUTED)(`${detailsLine}\n`),
-                fg(TUI_ELEMENT)(
-                    `${"·".repeat(Math.max(1, renderer.width - 4))}\n`,
-                ),
+        // The card's own inner width, past the band's indent, its border and
+        // its padding: the rules drawn inside it have to stop where it does.
+        const cardWidth = Math.max(1, renderer.width - 8);
+        const rule = (glyph: string) =>
+            fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
+        const detailChunks = detailsRows.flatMap((row, index) => [
+            ...row.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
+            ...(index === detailsRows.length - 1
+                ? []
+                : [fg(TUI_MUTED)("\n"), rule("─")]),
+        ]);
+        backgroundStatusText.content = new StyledText([
+            ...detailChunks,
+            ...(agentSection.length === 0 ? [] : [
+                fg(TUI_MUTED)("\n"),
+                rule("·"),
                 ...animatedAgentHeader.chunks,
                 fg(TUI_MUTED)(
                     agentSection.length === 1
                         ? ""
                         : `\n${agentSection.slice(1).join("\n")}`,
                 ),
-            ]);
-        backgroundStatusText.height = agentSection.length === 0
-            ? detailsHeight
-            : detailsHeight + 1 + agentSection.length;
-        composerBox.marginBottom = 1 + backgroundStatusText.height
+            ]),
+        ]);
+        // A rule between every pair of detail rows, and one more above the
+        // agent section when there is one.
+        const cardRows = detailsHeight + (detailsHeight - 1)
+            + (agentSection.length === 0 ? 0 : 1 + agentSection.length);
+        backgroundStatusText.height = cardRows;
+        composerBox.marginBottom = 1 + cardRows + 2
             + (paneStatusText.visible ? 1 : 0)
             + (statusText.visible ? 1 : 0);
         statusText.content = statusState.working

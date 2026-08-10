@@ -2093,7 +2093,7 @@ function startTuiSession(
     home: string,
     childPath: string,
     width = 100,
-    height = 30,
+    height = 34,
     env: Readonly<Record<string, string>> = {},
 ): void {
     const exported = Object.entries(env)
@@ -2511,7 +2511,7 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-child.ts",
                 100,
-                14,
+                18,
             );
             await waitForPane(socket, session, "Start a conversation");
             expect(pane).not.toContain("Jump to bottom");
