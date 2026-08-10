@@ -44,6 +44,7 @@ export interface TuiExperimentalHost {
     readonly footer: BoxRenderable;
     readonly composerAdornment: BoxRenderable;
     readonly overlay: BoxRenderable;
+    bottomInsetRows(): number;
     render(): void;
     setTheme(theme: TuiTheme): void;
     conversationChanged(): void;
@@ -493,12 +494,42 @@ export function createTuiExperimentalHost(
                 view.container.visible = false;
             }
         }
-        transcriptTop.visible = transcriptTop.getChildren().length > 0;
-        transcriptBottom.visible = transcriptBottom.getChildren().length > 0;
-        footer.visible = footer.getChildren().length > 0;
-        composerAdornment.visible = composerAdornment.getChildren().length > 0;
+        transcriptTop.visible = hasVisibleChildren(transcriptTop);
+        transcriptBottom.visible = hasVisibleChildren(transcriptBottom);
+        footer.visible = hasVisibleChildren(footer);
+        composerAdornment.visible = hasVisibleChildren(composerAdornment);
         overlay.visible = [...views.values()].some((view) =>
             view.spec.slot === "overlay" && view.root !== undefined && visible(view)
+        );
+    }
+
+    function hasVisibleChildren(renderable: Renderable): boolean {
+        return renderable.getChildren().some((child) => child.visible);
+    }
+
+    function renderableRows(renderable: Renderable): number {
+        if (!renderable.visible) return 0;
+        if (renderable.height > 0) return renderable.height;
+        const childRows = renderable.getChildren()
+            .filter((child) => child.visible)
+            .map(renderableRows);
+        if (childRows.length === 0) return 1;
+        return renderable.primaryAxis === "column"
+            ? childRows.reduce((total, rows) => total + rows, 0)
+            : Math.max(...childRows);
+    }
+
+    function visibleSlotRows(slot: BoxRenderable): number {
+        if (!slot.visible) return 0;
+        // Layout supplies the exact slot height after the first frame. Before
+        // that, walk its visible column so multiline extension UI reserves its
+        // rows immediately instead of briefly overlapping native overlays.
+        return Math.max(
+            slot.height,
+            slot.getChildren().reduce(
+                (total, child) => total + renderableRows(child),
+                0,
+            ),
         );
     }
 
@@ -509,6 +540,8 @@ export function createTuiExperimentalHost(
         footer,
         composerAdornment,
         overlay,
+        bottomInsetRows: () =>
+            visibleSlotRows(footer) + visibleSlotRows(composerAdornment),
         render,
         setTheme(nextTheme): void {
             theme = nextTheme;

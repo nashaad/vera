@@ -6845,11 +6845,12 @@ export async function startTui(
     const SUGGESTIONS_RESERVED_ROWS = 12;
 
     function renderCommandSuggestions(): void {
+        const extensionBottomRows = experimentalTuiHost.bottomInsetRows();
         // The composer is five rows plus its two-row status margin. These
-        // transient lines sit above it in normal flow, so the overlay clears
-        // whichever of them are currently visible instead of painting over
-        // quote/address context.
-        commandSuggestionsBox.bottom = 8
+        // transient and extension-owned lines sit above it in normal flow, so
+        // the overlay clears whichever are currently visible instead of
+        // painting over quote/address context.
+        commandSuggestionsBox.bottom = 8 + extensionBottomRows
             + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0);
@@ -6866,14 +6867,23 @@ export async function startTui(
                 commandSuggestionIndex,
                 Math.max(0, argumentSuggestions.length - 1),
             );
-            commandSuggestionsText.content = renderTuiArgumentSuggestions(
-                argumentSuggestions,
-                commandSuggestionIndex,
-            );
-            commandSuggestionsBox.height = Math.max(
-                1,
+            const window = tuiSuggestionWindow(
                 argumentSuggestions.length,
+                commandSuggestionIndex,
+                Math.max(
+                    3,
+                    renderer.height - SUGGESTIONS_RESERVED_ROWS
+                        - extensionBottomRows,
+                ),
             );
+            commandSuggestionsText.content = renderTuiArgumentSuggestions(
+                argumentSuggestions.slice(
+                    window.start,
+                    window.start + window.rows,
+                ),
+                commandSuggestionIndex - window.start,
+            );
+            commandSuggestionsBox.height = Math.max(1, window.rows);
             commandSuggestionsBox.visible = argumentSuggestions.length > 0
                 && overlaysClearOfSuggestions();
             return;
@@ -6897,7 +6907,11 @@ export async function startTui(
         const window = tuiSuggestionWindow(
             suggestions.length,
             selected,
-            Math.max(3, renderer.height - SUGGESTIONS_RESERVED_ROWS),
+            Math.max(
+                3,
+                renderer.height - SUGGESTIONS_RESERVED_ROWS
+                    - extensionBottomRows,
+            ),
         );
         commandSuggestionsText.content = renderTuiCommandSuggestions(
             suggestions.slice(window.start, window.start + window.rows),
