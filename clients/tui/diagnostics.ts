@@ -22,6 +22,13 @@ export interface TuiDiagnosticsSnapshot {
         readonly path: string;
         readonly enabled: boolean;
     }[];
+    readonly clientExtensionReload?: TuiClientExtensionReloadSnapshot;
+}
+
+export interface TuiClientExtensionReloadSnapshot {
+    readonly status: "never" | "reloading" | "success" | "partial" | "failed";
+    readonly loadedExtensionIds: readonly string[];
+    readonly failures: readonly string[];
 }
 
 export function renderTuiDiagnostics(
@@ -38,6 +45,7 @@ export function renderTuiDiagnostics(
         "",
         "Extensions",
         ...extensionLines(snapshot),
+        ...clientExtensionReloadLines(snapshot),
         "",
         "Runtime",
         `  turn         ${state.working ? snapshot.activity : "idle"}`,
@@ -110,6 +118,45 @@ export function renderTuiDiagnostics(
     lines.push(...stashLines(snapshot));
     return lines.join("\n");
 }
+
+function clientExtensionReloadLines(
+    snapshot: TuiDiagnosticsSnapshot,
+): string[] {
+    const reload = snapshot.clientExtensionReload;
+    if (reload === undefined || reload.status === "never") {
+        return ["  reload       never"];
+    }
+    if (reload.status === "reloading") {
+        return ["  reload       reloading"];
+    }
+    const loaded = reload.loadedExtensionIds.length;
+    const label = reload.status === "success"
+        ? `success (${loaded} loaded)`
+        : reload.status === "partial"
+        ? `partial (${loaded} loaded)`
+        : "failed";
+    const lines = [`  reload       ${label}`];
+    if (loaded > 0) {
+        lines.push(
+            `  active       ${reload.loadedExtensionIds
+                .slice(0, MAX_ACTIVE_EXTENSION_IDS).join(", ")}`,
+        );
+        if (loaded > MAX_ACTIVE_EXTENSION_IDS) {
+            lines.push(
+                `  active       + ${loaded - MAX_ACTIVE_EXTENSION_IDS} more`,
+            );
+        }
+    }
+    for (const failure of reload.failures.slice(0, 3)) {
+        lines.push(`  reload error ${failure}`);
+    }
+    if (reload.failures.length > 3) {
+        lines.push(`  reload error + ${reload.failures.length - 3} more`);
+    }
+    return lines;
+}
+
+const MAX_ACTIVE_EXTENSION_IDS = 20;
 
 function hostLabel(snapshot: TuiDiagnosticsSnapshot): string {
     const pid = snapshot.build?.hostPid;
