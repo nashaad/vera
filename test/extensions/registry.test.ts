@@ -300,6 +300,44 @@ test("a throwing or malformed extension hook does not break the engine hook chai
     await registry.close();
 });
 
+test("the command hook adapter exchanges bounded JSON over an argv-only process", async () => {
+    const workspace = createDirectory();
+    const script = join(workspace, "hook.mjs");
+    writeFileSync(script, `
+        let input = "";
+        process.stdin.on("data", (chunk) => input += chunk);
+        process.stdin.on("end", () => {
+            const payload = JSON.parse(input);
+            process.stdout.write(JSON.stringify({
+                power: payload.toolCall.name === "read" ? "block" : "observe",
+                ...(payload.toolCall.name === "read" ? { reason: "argv fixture" } : {}),
+            }));
+        });
+    `);
+    const extension = createExtension("command-hooks.extension", `
+        export function activate(vera) {
+            vera.hooks.registerCommand({
+                phase: "pre_tool_use",
+                argv: [${JSON.stringify(process.execPath)}, ${JSON.stringify(script)}],
+            });
+        }
+    `, ["hooks.command"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preToolUseHooks()) hooks.registerPreToolUse(hook);
+    await expect(hooks.runPreToolUse({
+        type: "pre_tool_use",
+        sessionId: "session-1",
+        workspace,
+        toolCall: { id: "read-1", name: "read", input: { path: "x" } },
+    }, { timeoutMs: 500 })).resolves.toMatchObject({
+        result: { power: "block", reason: "argv fixture" },
+    });
+    await registry.close();
+});
+
 test("registry rejects extension tools that collide with built-ins", async () => {
     const extension = createExtension("collision.extension", `
         export function activate(vera) {
