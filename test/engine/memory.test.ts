@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -138,12 +138,14 @@ test("an index past the warn threshold still loads", async () => {
     expect(snapshot.warnings).toEqual([
         "the project memory index is 4097 bytes; it is refused past 8192 "
             + "bytes, so move detail into topic files",
+        "project memory index line 1 is invalid and was omitted",
     ]);
 });
 
 test("a workspace that is not a repository says so beside its memory", async () => {
     const dirs = await tempDirectories();
     const root = await tempDir();
+    await mkdir(dirs.project, { recursive: true });
     await writeIndex(dirs.project, "- [One](one.md): a hook\n");
 
     const snapshot = await loadMemory({ path: root, source: "workspace" }, dirs);
@@ -166,6 +168,7 @@ test("a workspace that is not a repository stays silent with no memory", async (
 
 test("an instruction root that no longer exists is reported", async () => {
     const dirs = await tempDirectories();
+    await mkdir(dirs.project, { recursive: true });
     const root = join(await tempDir(), "deleted-checkout");
     await writeIndex(dirs.project, "- [One](one.md): a hook\n");
 
@@ -176,4 +179,115 @@ test("an instruction root that no longer exists is reported", async () => {
         `the instruction root ${root} does not exist, `
             + "so no project memory was loaded",
     ]);
+});
+
+test("discovery parses topics and loads an exact hook match", async () => {
+    const dirs = await tempDirectories();
+    await mkdir(dirs.project, { recursive: true });
+    const root = await tempDir();
+    await writeFile(join(dirs.project, "tests.md"), "Run bun test.");
+    await writeIndex(
+        dirs.project,
+        "- [Tests](tests.md): how to run tests\n",
+    );
+
+    const snapshot = await loadMemory(
+        gitRoot(root),
+        dirs,
+        { query: "Please tell me how to run tests" },
+    );
+
+    expect(snapshot.files[0]?.topics).toEqual([{
+        scope: "project",
+        file: "tests.md",
+        path: join(dirs.project, "tests.md"),
+        title: "Tests",
+        hook: "how to run tests",
+        availability: "available",
+        bytes: 13,
+    }]);
+    expect(snapshot.recommendations.map((topic) => topic.file)).toEqual([
+        "tests.md",
+    ]);
+    expect(snapshot.loadedTopics.map((topic) => topic.content)).toEqual([
+        "Run bun test.",
+    ]);
+    expect(memoryMetadata(snapshot).loadedTopics?.[0]?.file).toBe("tests.md");
+});
+
+test("hook matching has an explicit no-match result", async () => {
+    const dirs = await tempDirectories();
+    await mkdir(dirs.project, { recursive: true });
+    await writeFile(join(dirs.project, "style.md"), "Use prose.");
+    await writeIndex(dirs.project, "- [Style](style.md): prose style\n");
+
+    const snapshot = await loadMemory(
+        gitRoot(await tempDir()),
+        dirs,
+        { query: "what is the deployment hostname" },
+    );
+
+    expect(snapshot.recommendations).toEqual([]);
+    expect(snapshot.loadedTopics).toEqual([]);
+    expect(snapshot.warnings).toEqual([]);
+});
+
+test("multiple matches are path ordered and stop at the topic bound", async () => {
+    const dirs = await tempDirectories();
+    await mkdir(dirs.project, { recursive: true });
+    const lines: string[] = [];
+    for (let index = 9; index >= 0; index--) {
+        const file = `topic-${index}.md`;
+        await writeFile(join(dirs.project, file), `body ${index}`);
+        lines.push(`- [Topic ${index}](${file}): alpha topic`);
+    }
+    await writeIndex(dirs.project, lines.join("\n"));
+
+    const snapshot = await loadMemory(
+        gitRoot(await tempDir()),
+        dirs,
+        { query: "alpha topic" },
+    );
+
+    expect(snapshot.recommendations.map((topic) => topic.file)).toEqual(
+        Array.from({ length: 10 }, (_, index) => `topic-${index}.md`),
+    );
+    expect(snapshot.loadedTopics.map((topic) => topic.file)).toEqual(
+        Array.from({ length: 8 }, (_, index) => `topic-${index}.md`),
+    );
+    expect(snapshot.warnings).toContain(
+        "memory topic bound reached at 8; 2 matching topic(s) were not read",
+    );
+});
+
+test("invalid, missing, stale, unreadable, invalid-UTF8, and oversized topics are explicit", async () => {
+    const dirs = await tempDirectories();
+    const root = await tempDir();
+    await mkdir(dirs.project, { recursive: true });
+    await mkdir(join(dirs.project, "unreadable.md"));
+    await writeFile(join(dirs.project, "stale.md"), "old");
+    await writeFile(join(dirs.project, "bad.md"), Buffer.from([0xff, 0xfe]));
+    await writeFile(join(dirs.project, "large.md"), "x".repeat(32 * 1024 + 1));
+    await writeIndex(dirs.project, [
+        "- [Missing](missing.md): memory topic",
+        "- [Escape](../escape.md): memory topic",
+        "- [Unreadable](unreadable.md): memory topic",
+        "- [Stale](stale.md): memory topic",
+        "- [Bad](bad.md): memory topic",
+        "- [Large](large.md): memory topic",
+    ].join("\n"));
+    const future = new Date(Date.now() + 60_000);
+    await utimes(join(dirs.project, "stale.md"), future, future);
+
+    const snapshot = await loadMemory(gitRoot(root), dirs, { query: "memory topic" });
+    const byFile = new Map(snapshot.files[0]?.topics.map((topic) => [topic.file, topic]));
+    expect(byFile.get("missing.md")?.availability).toBe("missing");
+    expect(byFile.get("../escape.md")?.availability).toBe("invalid");
+    expect(byFile.get("unreadable.md")?.availability).toBe("unreadable");
+    expect(byFile.get("stale.md")?.availability).toBe("stale");
+    expect(byFile.get("large.md")?.availability).toBe("oversized");
+    expect(snapshot.loadedTopics).toEqual([]);
+    expect(snapshot.warnings.some((warning) => warning.includes("invalid-UTF8"))).toBe(false);
+    expect(snapshot.warnings.some((warning) => warning.includes("bad.md") && warning.includes("invalid"))).toBe(true);
+    expect(snapshot.warnings.some((warning) => warning.includes("missing.md") && warning.includes("missing"))).toBe(true);
 });
