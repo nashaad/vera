@@ -5,6 +5,7 @@ import {
     configuredTuiClientExtensions,
     startTuiClientExtensionHost,
 } from "../../clients/tui/client-extension-host.ts";
+import { TuiCommandRegistry } from "../../clients/tui/commands.ts";
 
 const DISABLED_BUILTINS = [
     "vera.model-presets",
@@ -13,6 +14,8 @@ const DISABLED_BUILTINS = [
 
 test("the TUI extension host binds a configured extension to client surfaces", async () => {
     const sidebar: string[] = [];
+    const notices: string[] = [];
+    const commandRegistry = new TuiCommandRegistry();
     const extension = {
         path: join(
             import.meta.dir,
@@ -23,7 +26,14 @@ test("the TUI extension host binds a configured extension to client surfaces", a
     };
     const extensions = configuredTuiClientExtensions(
         DISABLED_BUILTINS,
-        [extension],
+        [extension, {
+            path: join(
+                import.meta.dir,
+                "../support/fixtures/conflicting-keybinding-extension",
+            ),
+            enabled: true,
+            config: {},
+        }],
     );
     const registry = await startTuiClientExtensionHost({
         extensions,
@@ -69,8 +79,8 @@ test("the TUI extension host binds a configured extension to client surfaces", a
         },
         readThread: () => [],
         appendTranscript: () => {},
-        postNotice: () => {},
-        reservedCommandNames: [],
+        postNotice: (text) => notices.push(text),
+        commandRegistry,
         onFailure: (failure) => {
             throw new Error(failure.message);
         },
@@ -84,5 +94,13 @@ test("the TUI extension host binds a configured extension to client surfaces", a
         "append:test.sidebar:beside the transcript",
         "close:test.sidebar",
     ]);
+    expect(commandRegistry.hasCommand("pane")).toBe(true);
+    expect(commandRegistry.registeredPaletteActions()).toHaveLength(2);
+    expect(notices).toEqual([
+        "open-help cannot use ctrl+p: Vera already uses it to open the command palette",
+    ]);
     await registry.close();
+    expect(commandRegistry.hasCommand("pane")).toBe(false);
+    expect(commandRegistry.hasCommand("unpane")).toBe(false);
+    expect(commandRegistry.registeredPaletteActions()).toEqual([]);
 });

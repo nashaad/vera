@@ -242,7 +242,6 @@ import {
 import {
     tuiBindingId,
     tuiChord,
-    tuiChordOwner,
     tuiKeyHint,
 } from "./keymap.ts";
 import {
@@ -1003,8 +1002,7 @@ export async function startTui(
             state = appendTuiNotice(state, text);
             renderState();
         },
-        reservedCommandNames:
-            commandRegistry.registeredCommands().map(({ name }) => name),
+        commandRegistry,
         onFailure(failure) {
             state = appendTuiNotice(
                 state,
@@ -1012,26 +1010,6 @@ export async function startTui(
             );
         },
     });
-    // An extension chord that a built-in already owns never fires: the global
-    // handler and every overlay read the keymap before the registry is
-    // consulted. Losing that race silently is the thing the keymap exists to
-    // stop, so it is said out loud where the user can see it.
-    for (const binding of clientExtensionRegistry.keybindings()) {
-        for (const key of binding.keys) {
-            const owner = tuiChordOwner(key);
-            if (owner !== undefined && owner.extensionId !== binding.id) {
-                state = appendTuiNotice(
-                    state,
-                    `${binding.id} cannot use ${key}: Vera already uses it to ${owner.description.toLowerCase()}`,
-                );
-            }
-        }
-    }
-    registerExtensionTuiCommands(
-        commandRegistry,
-        clientExtensionRegistry.commands(),
-        "client",
-    );
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
         if (
