@@ -1292,6 +1292,74 @@ test("a resumed agent restores its own provider, not the current global default"
     }
 });
 
+test("a resumed session with a stale provider fails on its first turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-stale-provider-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const id = `stale-provider-${process.pid}-${Date.now()}`;
+    const firstRegistry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("unused")]),
+        provider: "openrouter",
+        model: "first-default",
+        approvalMode: "auto",
+    });
+    try {
+        const original = await firstRegistry.create({
+            id,
+            workspace: root,
+            sessionPath,
+        });
+        const attachment = original.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "update_model_settings",
+            requestId: "persist-stale-provider",
+            patch: { provider: "ollama", model: "chosen-model" },
+        });
+        expect(await receiveModelSettings(attachment)).toMatchObject({
+            settings: { provider: "ollama", model: "chosen-model" },
+            pending: false,
+        });
+    } finally {
+        await firstRegistry.close();
+    }
+
+    const attemptedProviders: string[] = [];
+    const resumedRegistry = new AgentRegistry({
+        createAdapter: (provider) => {
+            attemptedProviders.push(provider);
+            if (provider === "ollama") {
+                throw new Error("provider credentials are no longer configured");
+            }
+            return new FauxAdapter([textResponse("should not run")]);
+        },
+        provider: "openrouter",
+        model: "new-global-default",
+        approvalMode: "auto",
+    });
+    try {
+        const resumed = await resumedRegistry.resume({ sessionPath });
+        const attachment = resumed.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "continue" });
+        const updates: AgentUpdate[] = [];
+        while (true) {
+            const update = await attachment.receive();
+            updates.push(update);
+            if (update.type === "turn_finished") break;
+        }
+        const finished = updates.at(-1);
+        expect(finished?.type).toBe("turn_finished");
+        expect(finished).toMatchObject({
+            outcome: "error",
+            error: "provider credentials are no longer configured",
+        });
+        expect(attemptedProviders).toEqual(["ollama", "ollama"]);
+    } finally {
+        await resumedRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a resumed agent restores its durable permissions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-permissions-resume-"));
     const sessionPath = join(root, "agent.jsonl");
