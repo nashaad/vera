@@ -1474,6 +1474,7 @@ export class AgentRegistry {
                 && entryStatus(entry) !== "closed"
                 && entryStatus(entry) !== "failed"
                 && entryStatus(entry) !== "completed"
+                && (details || entryIsLive(entry))
             )
             .sort(([left], [right]) => left.localeCompare(right))
             .map(([id, entry]) => {

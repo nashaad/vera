@@ -2210,6 +2210,39 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "agent inbox notice emphasizes and replaces the current unread count",
+    async () => {
+        const socket = `vera-inbox-notice-${process.pid}-${randomUUID()}`;
+        const session = "inbox-notice";
+        const home = mkdtempSync(join(tmpdir(), "vera-inbox-notice-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-inbox-notice-child.ts",
+            );
+            pane = await waitForVisiblePane(socket, session, "Agent inbox");
+            expect(pane).toContain("╭─ Agent inbox");
+            expect(pane).toContain("╰─ 2 unread inbox entries");
+            expect(pane).not.toContain("1 unread inbox entry");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "agent_roster names the workspace's other session and not itself",
     async () => {
         const socket = `vera-roster-${process.pid}-${randomUUID()}`;
@@ -2273,8 +2306,10 @@ test.skipIf(!tmuxAvailable)(
             const flat = pane.replaceAll(/[\s█]+/g, "");
             expect(flat).toContain('"participant_id":"roster-peer"');
             expect(flat).toContain(`"name":"${peer.name}"`);
-            expect(flat).toContain(`"last_activity":"${peer.updated_at}"`);
-            expect(flat).toContain(`"session_path":"${peer.session_path}"`);
+            expect(flat).toContain('"status":"idle"');
+            expect(flat).toContain('"live":true');
+            expect(flat).not.toContain('"session_path"');
+            expect(flat).not.toContain('"last_activity"');
             expect(flat).not.toContain('"participant_id":"roster-caller"');
             expect(flat).not.toContain(`"name":"${caller.name}"`);
             expect(flat).not.toContain('"participant_id":"roster-stranger"');

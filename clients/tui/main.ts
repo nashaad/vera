@@ -1703,7 +1703,8 @@ export async function startTui(
                 } else if (
                     (entry.kind === "thought"
                         || entry.kind === "thinking"
-                        || entry.kind === "notice")
+                        || entry.kind === "notice"
+                        || entry.kind === "inbox")
                     && existing instanceof TextRenderable
                 ) {
                     existing.content = renderTuiEntry(entry);
@@ -5003,7 +5004,8 @@ export async function startTui(
                 if (
                     (entry.kind === "thought"
                         || entry.kind === "thinking"
-                        || entry.kind === "notice")
+                        || entry.kind === "notice"
+                        || entry.kind === "inbox")
                     && existing instanceof TextRenderable
                 ) {
                     // A thought row's height changes when its fold opens, a

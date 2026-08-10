@@ -38,6 +38,7 @@ export type TuiTranscriptEntryKind =
     | "thought"
     | "review"
     | "notice"
+    | "inbox"
     | "notification"
     | "extension_label"
     | "substitution"
@@ -379,8 +380,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         });
     }
     if (update.type === "notice" && update.key === "inbox") {
-        return appendEntry(state, {
-            kind: "notification",
+        return appendEntry({
+            ...state,
+            entries: state.entries.filter((entry) => entry.kind !== "inbox"),
+        }, {
+            kind: "inbox",
             text: `${update.count} unread inbox entr${
                 update.count === 1 ? "y" : "ies"
             }`,
@@ -1011,6 +1015,13 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([
             bold(fg(TUI_NOTICE)(`${SUBSTITUTION_MARKER} `)),
             fg(TUI_NOTICE)(entry.text),
+        ]);
+    }
+    if (entry.kind === "inbox") {
+        return new StyledText([
+            bold(fg(TUI_ACCENT)("╭─ Agent inbox\n")),
+            fg(TUI_NOTICE)("╰─ "),
+            bold(fg(TUI_NOTICE)(entry.text)),
         ]);
     }
     if (entry.kind === "extension_label") {
