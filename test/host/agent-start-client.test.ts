@@ -89,7 +89,15 @@ import { connectHost } from "../../src/host/connection.ts";
                 "created",
                 "at",
                 undefined,
-                { approvalMode: "readonly", lifetime: "ephemeral" },
+                {
+                    approvalMode: "readonly",
+                    lifetime: "ephemeral",
+                    initialMessages: [{
+                        role: "user",
+                        content: [{ type: "text", text: "boundary" }],
+                        internal: true,
+                    }],
+                },
             )).toEqual({
                 id: "branched",
                 workspace: "/work/created",
@@ -99,6 +107,11 @@ import { connectHost } from "../../src/host/connection.ts";
                 position: "at",
                 approvalMode: "readonly",
                 ephemeral: true,
+                initialMessages: [{
+                    role: "user",
+                    content: [{ type: "text", text: "boundary" }],
+                    internal: true,
+                }],
             });
         } finally {
             created.close();

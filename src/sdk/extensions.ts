@@ -121,6 +121,12 @@ export interface VeraClientAgentCreateRequest {
         readonly type: "branch";
         readonly agentId: string;
     };
+    /** Model context appended after a branch and before its first turn. */
+    readonly initialMessages?: readonly {
+        readonly role: "user";
+        readonly text: string;
+        readonly hidden?: boolean;
+    }[];
 }
 
 export interface VeraClientAgentOpenRequest {

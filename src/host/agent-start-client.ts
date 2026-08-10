@@ -82,6 +82,7 @@ export async function branchAgentThroughHost(
     options: {
         readonly approvalMode?: string;
         readonly lifetime?: "ephemeral" | "durable";
+        readonly initialMessages?: readonly UserMessage[];
         readonly signal?: AbortSignal;
     } = {},
 ): Promise<BranchedAgent> {
@@ -105,6 +106,10 @@ export async function branchAgentThroughHost(
             ...(options.lifetime === "ephemeral"
                 ? { lifetime: "ephemeral" as const }
                 : {}),
+            ...(options.initialMessages === undefined
+                || options.initialMessages.length === 0
+                ? {}
+                : { initial_messages: options.initialMessages }),
         });
         const response = asRecord(await connection.receive());
         if (response?.type === "agent_branch_failed") {

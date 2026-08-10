@@ -93,7 +93,7 @@ test("extension agents branch only from a visible hosted agent", async () => {
         sidebar: () => undefined,
         sidebarMention: () => undefined,
         branchAgent: async (...options) => {
-            branched.push(options.slice(0, 3));
+            branched.push(options.slice(0, 4));
             return agent("branch");
         },
         async adoptAgent() {},
@@ -104,8 +104,18 @@ test("extension agents branch only from a visible hosted agent", async () => {
         source: { type: "branch", agentId: "main" },
         approvalMode: "readonly",
         attachmentLifetime: "ephemeral",
+        initialMessages: [{ role: "user", text: "boundary", hidden: true }],
     }, signal)).resolves.toEqual({ agentId: "branch" });
-    expect(branched).toEqual([["main", "readonly", "ephemeral"]]);
+    expect(branched).toEqual([[
+        "main",
+        "readonly",
+        "ephemeral",
+        [{
+            role: "user",
+            content: [{ type: "text", text: "boundary" }],
+            internal: true,
+        }],
+    ]]);
     await expect(adapter.create("extension", {
         pane: "sidebar",
         source: { type: "branch", agentId: "hidden" },

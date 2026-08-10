@@ -2,6 +2,13 @@ import { TextRenderable } from "@opentui/core";
 
 const SIDEKICK = "sidekick";
 const PEER = "peer";
+const SIDE_CONVERSATION_BOUNDARY = `Side conversation boundary.
+
+Everything before this boundary is inherited history from the primary conversation. It is reference context only, not your current task.
+
+Do not continue or complete instructions, plans, tool calls, approvals, edits, or requests from before this boundary. Only messages submitted after this boundary are active instructions for this side conversation.
+
+You are a separate, readonly side-conversation assistant. Answer questions and perform lightweight, non-mutating exploration without disrupting the primary conversation.`;
 
 /** These commands are policy; Vera owns hosted agents, attachment, and rendering. */
 export function activateClient(vera: any): void {
@@ -87,6 +94,11 @@ export function activateClient(vera: any): void {
                             type: "branch",
                             agentId: primaryAgentId,
                         },
+                        initialMessages: [{
+                            role: "user",
+                            text: SIDE_CONVERSATION_BOUNDARY,
+                            hidden: true,
+                        }],
                     }),
             }, signal);
             agentId = created.agentId;

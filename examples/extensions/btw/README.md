@@ -34,6 +34,11 @@ permissions, so it can inspect the workspace but cannot run bash or mutate
 files. Use the focused session's permission controls if you deliberately want
 to promote it.
 
+A new sidekick inherits the primary conversation as reference context, then
+starts behind a hidden boundary that makes only later sidekick messages active
+instructions. `/pair` remains a fresh conversation rather than inheriting the
+primary transcript.
+
 This extension supplies the `/btw` and `/pair` policies: permission defaults,
 attachment lifetime, sidebar placement, addressing, mode and layout status, and
 the pane layout and focus keys. Vera owns agent creation, attachment, validated
