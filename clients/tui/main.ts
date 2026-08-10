@@ -16,11 +16,7 @@ import {
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 import { sourceVersion } from "../../src/build-info.ts";
-import {
-    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
-    HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
-    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
-} from "../../src/host/capabilities.ts";
+import { HOST_CAPABILITIES } from "../../src/host/capabilities.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -579,11 +575,7 @@ export async function startConfiguredTui(
     const client = await attachAgent({
         socketPath: host.socket_path,
         agentId,
-        requestedCapabilities: [
-            HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
-            HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
-            HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
-        ],
+        requestedCapabilities: HOST_CAPABILITIES,
     });
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);
@@ -600,11 +592,7 @@ export async function startConfiguredTui(
         attachAgent({
             socketPath: host.socket_path,
             agentId: id,
-            requestedCapabilities: [
-                HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
-                HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
-                HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
-            ],
+            requestedCapabilities: HOST_CAPABILITIES,
         });
     try {
         const listAgents = () => listAgentsThroughHost(host.socket_path);

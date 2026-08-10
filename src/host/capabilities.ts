@@ -7,6 +7,12 @@ export const HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES =
 export const HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS =
     "agent.branch-compaction-barriers.v1";
 
+export const HOST_CAPABILITIES = [
+    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+    HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
+] as const;
+
 export function parseHostCapabilities(
     value: unknown,
 ): readonly string[] | undefined {
