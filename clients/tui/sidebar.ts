@@ -294,9 +294,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         const current = effectiveLayout();
         if (current !== "split") {
             mainFocusRail.content = "";
-            sidebarFocusRail.content = current === "sidebar"
-                ? "▁".repeat(renderer.terminalWidth)
-                : "";
+            sidebarFocusRail.content = "";
             return;
         }
         const mainWidth = Math.max(
