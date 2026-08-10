@@ -1660,7 +1660,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForPane(
                 socket,
                 session,
-                "auto · ctx 64.5k/258k (25%)",
+                "auto · ctx 64.5k/258k [██░░░░░░] 25%",
             );
 
             // The second turn reasons, so its summary carries a fold that
