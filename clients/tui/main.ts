@@ -106,7 +106,7 @@ import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
 import {
     configuredTuiClientExtensions,
     createTuiClientExtensionHostController,
-    startTuiClientExtensionHost,
+    createTuiClientExtensionHostStarter,
 } from "./client-extension-host.ts";
 import {
     clientExtensionReloadFailed,
@@ -933,127 +933,116 @@ export async function startTui(
         renderStatus,
         requestRender: () => renderer.requestRender(),
     });
-    async function startConfiguredClientExtensionHost(
-        signal: AbortSignal,
-        extensions: readonly VeraExtensionConfig[] = configuredClientExtensions,
-        failureSink?: string[],
-    ): Promise<
-        ClientExtensionRegistry
-    > {
-        let activeFailureSink = failureSink;
-        const registry = await startTuiClientExtensionHost({
-        extensions,
-        currentModelSettings: () => state.modelSettings,
-        updateModelSettings: requestExtensionModelSettingsUpdate,
-        subscribeModelSettings(listener) {
-            extensionSettingsListeners.add(listener);
-            return () => {
-                extensionSettingsListeners.delete(listener);
-            };
-        },
-        requestPicker: (_extensionId, request, signal) =>
-            requestExtensionPicker(request, signal),
-        requestConsult: (_extensionId, request, signal) =>
-            requestExtensionConsult(request, signal),
-        openSidebar(extensionId) {
-            hostedSidebar.claim(extensionId);
-            sidebar.setHeader(undefined);
-            sidebar.open();
-            renderState();
-        },
-        appendSidebar(extensionId, block) {
-            requireSidebarOwner(extensionId);
-            sidebar.append(block.label, block.text, block.speaker);
-            renderSidebarJump();
-        },
-        clearSidebar(extensionId) {
-            requireSidebarOwner(extensionId);
-            sidebar.clear();
-        },
-        closeSidebar(extensionId) {
-            requireSidebarOwner(extensionId);
-            const attached = hostedSidebar.release(extensionId);
-            forgetPersistedAgentPane();
-            void attached?.detach().catch(() => attached.close());
-            clearSidebarEntryNodes();
-            sidebar.setHeader(undefined);
-            sidebar.close();
-            renderState();
-        },
-        setMentions(_extensionId, names) {
-            extensionMentions = names;
-            if (clientSurfaceReady) {
-                renderCommandSuggestions();
-            }
-        },
-        setAddressing(_extensionId, name) {
-            extensionAddressee = name;
-            renderState();
-        },
-        agents: createTuiClientExtensionAgentsAdapter({
-            primary: () => client,
-            sidebar: () => hostedSidebar.pane,
-            sidebarMention: () => hostedSidebar.mention,
-            createAgent: dependencies.createAgent,
-            branchAgent: dependencies.branchAgent,
-            attachAgent: dependencies.attachAgent,
-            adoptAgent: (
-                extensionId,
-                next,
-                pane,
-                mention,
-                attachmentLifetime,
-                initialApprovalMode,
-                statusLabel,
-                signal,
-            ) => openExtensionAgent(
-                extensionId,
-                next,
-                pane,
-                false,
-                mention,
-                attachmentLifetime,
-                initialApprovalMode,
-                statusLabel,
-                signal,
-            ),
-        }),
-        experimentalTui: {
-            ...experimentalTuiHost.adapter,
-            agentSurface: hostedAgentSurface,
-        },
-        readThread() {
-            return state.entries
-                .filter((entry) =>
-                    (entry.kind === "user" || entry.kind === "assistant")
-                    && entry.text.length > 0)
-                .map((entry) => ({
-                    role: entry.kind as "user" | "assistant",
-                    text: entry.text,
-                }));
-        },
-        appendTranscript(block) {
-            state = appendTuiExtensionBlock(state, block.label, block.text);
-            renderState();
-        },
-        postNotice(text) {
-            state = appendTuiNotice(state, text);
-            renderState();
-        },
-        commandRegistry,
-        onFailure(failure) {
-            const summary = `${failure.extensionId ?? failure.path}: ${failure.message}`;
-            if (activeFailureSink !== undefined) {
-                activeFailureSink.push(summary);
-            } else {
-                state = appendTuiNotice(state, summary);
-            }
-        },
-        signal,
+    const startConfiguredClientExtensionHost =
+        createTuiClientExtensionHostStarter({
+            extensions: () => configuredClientExtensions,
+            currentModelSettings: () => state.modelSettings,
+            updateModelSettings: requestExtensionModelSettingsUpdate,
+            subscribeModelSettings(listener) {
+                extensionSettingsListeners.add(listener);
+                return () => {
+                    extensionSettingsListeners.delete(listener);
+                };
+            },
+            requestPicker: (request, signal) =>
+                requestExtensionPicker(request, signal),
+            requestConsult: (request, signal) =>
+                requestExtensionConsult(request, signal),
+            openSidebar(extensionId) {
+                hostedSidebar.claim(extensionId);
+                sidebar.setHeader(undefined);
+                sidebar.open();
+                renderState();
+            },
+            appendSidebar(extensionId, block) {
+                requireSidebarOwner(extensionId);
+                sidebar.append(block.label, block.text, block.speaker);
+                renderSidebarJump();
+            },
+            clearSidebar(extensionId) {
+                requireSidebarOwner(extensionId);
+                sidebar.clear();
+            },
+            closeSidebar(extensionId) {
+                requireSidebarOwner(extensionId);
+                const attached = hostedSidebar.release(extensionId);
+                forgetPersistedAgentPane();
+                void attached?.detach().catch(() => attached.close());
+                clearSidebarEntryNodes();
+                sidebar.setHeader(undefined);
+                sidebar.close();
+                renderState();
+            },
+            setMentions(names) {
+                extensionMentions = names;
+                if (clientSurfaceReady) {
+                    renderCommandSuggestions();
+                }
+            },
+            setAddressing(name) {
+                extensionAddressee = name;
+                renderState();
+            },
+            agents: createTuiClientExtensionAgentsAdapter({
+                primary: () => client,
+                sidebar: () => hostedSidebar.pane,
+                sidebarMention: () => hostedSidebar.mention,
+                createAgent: dependencies.createAgent,
+                branchAgent: dependencies.branchAgent,
+                attachAgent: dependencies.attachAgent,
+                adoptAgent: (
+                    extensionId,
+                    next,
+                    pane,
+                    mention,
+                    attachmentLifetime,
+                    initialApprovalMode,
+                    statusLabel,
+                    signal,
+                ) => openExtensionAgent(
+                    extensionId,
+                    next,
+                    pane,
+                    false,
+                    mention,
+                    attachmentLifetime,
+                    initialApprovalMode,
+                    statusLabel,
+                    signal,
+                ),
+            }),
+            experimentalTui: {
+                ...experimentalTuiHost.adapter,
+                agentSurface: hostedAgentSurface,
+            },
+            readThread() {
+                return state.entries
+                    .filter((entry) =>
+                        (entry.kind === "user" || entry.kind === "assistant")
+                        && entry.text.length > 0)
+                    .map((entry) => ({
+                        role: entry.kind as "user" | "assistant",
+                        text: entry.text,
+                    }));
+            },
+            appendTranscript(block) {
+                state = appendTuiExtensionBlock(state, block.label, block.text);
+                renderState();
+            },
+            postNotice(text) {
+                state = appendTuiNotice(state, text);
+                renderState();
+            },
+            commandRegistry,
+            onFailure(failure, failureSink) {
+                const summary = `${failure.extensionId ?? failure.path}: ${failure.message}`;
+                if (failureSink !== undefined) {
+                    failureSink.push(summary);
+                } else {
+                    state = appendTuiNotice(state, summary);
+                }
+            },
         });
-        activeFailureSink = undefined;
-        return registry;
-    }
     const clientExtensionHost = createTuiClientExtensionHostController(
         startConfiguredClientExtensionHost,
         (registry) => {

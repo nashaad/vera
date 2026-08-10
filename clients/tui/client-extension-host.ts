@@ -16,7 +16,14 @@ import {
     type ClientExtensionThreadAdapter,
     type ClientExtensionTranscriptAdapter,
 } from "../../src/extensions/client-registry.ts";
-import type { VeraClientTranscriptBlock } from "../../src/sdk/extensions.ts";
+import type {
+    VeraClientConsultRequest,
+    VeraClientConsultResult,
+    VeraClientPickerRequest,
+    VeraClientPickerResult,
+    VeraClientThreadTurn,
+    VeraClientTranscriptBlock,
+} from "../../src/sdk/extensions.ts";
 import {
     deleteTuiExtensionPreference,
     loadTuiExtensionPreference,
@@ -53,12 +60,85 @@ export interface StartTuiClientExtensionHostOptions {
     readonly onFailure: (failure: ClientExtensionRegistryFailure) => void;
 }
 
+export interface TuiClientExtensionHostBindings {
+    readonly extensions: () => readonly VeraExtensionConfig[];
+    readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
+    readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
+    readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
+    readonly requestPicker: (
+        request: VeraClientPickerRequest,
+        signal: AbortSignal,
+    ) => Promise<VeraClientPickerResult>;
+    readonly requestConsult: (
+        request: VeraClientConsultRequest,
+        signal: AbortSignal,
+    ) => Promise<VeraClientConsultResult>;
+    readonly openSidebar: ClientExtensionSidebarAdapter["open"];
+    readonly appendSidebar: ClientExtensionSidebarAdapter["append"];
+    readonly clearSidebar: ClientExtensionSidebarAdapter["clear"];
+    readonly closeSidebar: ClientExtensionSidebarAdapter["close"];
+    readonly setMentions: (names: readonly string[]) => void;
+    readonly setAddressing: (name: string | undefined) => void;
+    readonly agents: ClientExtensionAgentsAdapter;
+    readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
+    readonly readThread: () => readonly VeraClientThreadTurn[];
+    readonly appendTranscript: (block: VeraClientTranscriptBlock) => void;
+    readonly postNotice: (text: string) => void;
+    readonly commandRegistry: TuiCommandRegistry;
+    readonly onFailure: (
+        failure: ClientExtensionRegistryFailure,
+        failureSink?: string[],
+    ) => void;
+}
+
 export interface TuiClientExtensionHostController {
     current(): ClientExtensionRegistry | undefined;
     reload(
         start?: (signal: AbortSignal) => Promise<ClientExtensionRegistry>,
     ): Promise<ClientExtensionRegistry | undefined>;
     close(): Promise<void>;
+}
+
+export function createTuiClientExtensionHostStarter(
+    options: TuiClientExtensionHostBindings,
+): (
+    signal: AbortSignal,
+    extensions?: readonly VeraExtensionConfig[],
+    failureSink?: string[],
+) => Promise<ClientExtensionRegistry> {
+    return async function startConfiguredClientExtensionHost(
+        signal,
+        extensions = options.extensions(),
+        failureSink,
+    ): Promise<ClientExtensionRegistry> {
+        let activeFailureSink = failureSink;
+        const registry = await startTuiClientExtensionHost({
+            extensions,
+            currentModelSettings: options.currentModelSettings,
+            updateModelSettings: options.updateModelSettings,
+            subscribeModelSettings: options.subscribeModelSettings,
+            requestPicker: (_extensionId, request, requestSignal) =>
+                options.requestPicker(request, requestSignal),
+            requestConsult: (_extensionId, request, requestSignal) =>
+                options.requestConsult(request, requestSignal),
+            openSidebar: options.openSidebar,
+            appendSidebar: options.appendSidebar,
+            clearSidebar: options.clearSidebar,
+            closeSidebar: options.closeSidebar,
+            setMentions: (_extensionId, names) => options.setMentions(names),
+            setAddressing: (_extensionId, name) => options.setAddressing(name),
+            agents: options.agents,
+            experimentalTui: options.experimentalTui,
+            readThread: (_extensionId) => options.readThread(),
+            appendTranscript: options.appendTranscript,
+            postNotice: options.postNotice,
+            commandRegistry: options.commandRegistry,
+            onFailure: (failure) => options.onFailure(failure, activeFailureSink),
+            signal,
+        });
+        activeFailureSink = undefined;
+        return registry;
+    };
 }
 
 /**
