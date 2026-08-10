@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createCliRenderer } from "@opentui/core";
+import { createCliRenderer, TextRenderable } from "@opentui/core";
 
 import { createTuiExperimentalHost } from "../../clients/tui/experimental-tui-host.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
@@ -118,6 +118,133 @@ test("experimental TUI host isolates malformed render trees", async () => {
         expect(() => host.render()).not.toThrow();
         expect(host.footer.getChildren()).toHaveLength(0);
         expect(failures[0]).toContain("broken:");
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});
+
+test("experimental TUI host respects key passthrough and non-modal overlays", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure() {},
+        onRenderRequested() {},
+    });
+    try {
+        host.adapter.mount("fixture", {
+            id: "panel",
+            slot: "transcript-bottom",
+            focusable: true,
+            render: () => ({ kind: "text", text: "panel" }),
+            onKey: () => false,
+        });
+        host.adapter.mount("fixture", {
+            id: "notice",
+            slot: "overlay",
+            modal: false,
+            render: () => ({ kind: "text", text: "notice" }),
+        });
+
+        host.render();
+        host.focus();
+        expect(host.hasModal()).toBe(false);
+        expect(host.handleKey({
+            name: "x",
+            ctrl: false,
+            shift: false,
+            meta: false,
+        })).toBe(false);
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});
+
+test("experimental TUI host mounts and disposes extension-owned renderables", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    let requested = 0;
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure() {},
+        onRenderRequested() { requested += 1; },
+    });
+    try {
+        const dispose = host.adapter.mountRenderable("fixture", {
+            id: "raw-footer",
+            slot: "footer",
+            create(context) {
+                expect(context.renderer).toBe(renderer);
+                return new TextRenderable(context.renderer, {
+                    id: "raw-footer-text",
+                    content: "extension-owned",
+                    height: 1,
+                });
+            },
+        });
+        const disposeSecond = host.adapter.mountRenderable("other", {
+            id: "raw-footer",
+            slot: "footer",
+            create(context) {
+                return new TextRenderable(context.renderer, {
+                    id: "raw-footer-text",
+                    content: "same local renderable id",
+                    height: 1,
+                });
+            },
+        });
+
+        host.render();
+        expect(host.footer.getChildren()).toHaveLength(2);
+        expect(requested).toBeGreaterThan(0);
+        await dispose();
+        expect(host.footer.getChildren()).toHaveLength(1);
+        await disposeSecond();
+        expect(host.footer.getChildren()).toHaveLength(0);
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});
+
+test("experimental TUI host attributes async listener failures", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const failures: string[] = [];
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure(extensionId, message) {
+            failures.push(`${extensionId}:${message}`);
+        },
+        onRenderRequested() {},
+    });
+    try {
+        host.adapter.events.on("broken-extension", "agent_event", async () => {
+            throw new Error("listener failed");
+        });
+        host.agentEvent({ type: "turn_finished" });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(failures).toEqual([
+            "broken-extension:listener failed",
+        ]);
     } finally {
         await host.close();
         renderer.destroy();

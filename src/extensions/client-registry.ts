@@ -39,8 +39,9 @@ import type {
 } from "../sdk/extensions.ts";
 import type {
     VeraClientExperimentalTui,
-    VeraExperimentalTuiEvents,
     VeraExperimentalTuiViewSpec,
+    VeraExperimentalTuiAgentSurfaceSnapshot,
+    VeraExperimentalTuiRawViewSpec,
 } from "../sdk/experimental-tui.ts";
 import {
     EXTENSION_COMMAND_RESULT_VERSION,
@@ -239,7 +240,24 @@ export interface ClientExtensionExperimentalTuiAdapter {
         extensionId: string,
         spec: VeraExperimentalTuiViewSpec,
     ): VeraExtensionDisposer;
-    events: VeraExperimentalTuiEvents;
+    mountRenderable(
+        extensionId: string,
+        spec: VeraExperimentalTuiRawViewSpec,
+    ): VeraExtensionDisposer;
+    events: {
+        on(
+            extensionId: string,
+            event: "conversation_changed" | "transcript_changed" | "agent_event",
+            listener: (...args: any[]) => void | Promise<void>,
+        ): VeraExtensionDisposer;
+    };
+    agentSurface: {
+        current(
+            extensionId: string,
+        ): VeraExperimentalTuiAgentSurfaceSnapshot | undefined;
+        cycleLayout(extensionId: string): boolean;
+        toggleFocus(extensionId: string): boolean;
+    };
 }
 
 export interface StartClientExtensionRegistryOptions {
@@ -359,9 +377,8 @@ interface LoadedClientExtension {
     readonly tips: readonly RegisteredTip[];
     readonly statusLine: VeraClientStatusLineRenderer | undefined;
     readonly messageInterceptor: VeraClientMessageInterceptor | undefined;
-    readonly hostedAgentAddressing:
-        | VeraClientExperimentalHostedAgentAddressing
-        | undefined;
+    readonly hostedAgentAddressing: () =>
+        VeraClientExperimentalHostedAgentAddressing | undefined;
     readonly conversationListeners: readonly (() => void)[];
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveInvocation>;
@@ -717,9 +734,10 @@ export async function startClientExtensionRegistry(
                 candidate.id === extensionId
                 && !candidate.disposing
             );
-            return extension?.hostedAgentAddressing === undefined
+            const addressing = extension?.hostedAgentAddressing();
+            return addressing === undefined
                 ? undefined
-                : structuredClone(extension.hostedAgentAddressing);
+                : structuredClone(addressing);
         },
         close(): Promise<void> {
             closing ??= close();
@@ -1079,13 +1097,8 @@ async function activateClientExtension(
             declareExperimentalAddressing(
                 addressing: VeraClientExperimentalHostedAgentAddressing,
             ): void {
-                requireRegistrationPhase(phase, "hosted-agent addressing");
+                requireAvailable();
                 requireAgents();
-                if (hostedAgentAddressing !== undefined) {
-                    throw new Error(
-                        `Extension ${options.id} registered hosted-agent addressing more than once`,
-                    );
-                }
                 hostedAgentAddressing = validateExperimentalHostedAgentAddressing(
                     addressing,
                 );
@@ -1150,6 +1163,30 @@ async function activateClientExtension(
                 disposers.push(dispose);
                 return dispose;
             },
+            mountRenderable(
+                spec: VeraExperimentalTuiRawViewSpec,
+            ): VeraExtensionDisposer {
+                validateExperimentalTuiRawViewSpec(spec);
+                if (experimentalTuiViewIds.has(spec.id)) {
+                    throw new Error(
+                        `Duplicate experimental TUI view: ${spec.id}`,
+                    );
+                }
+                const mounted = requireExperimentalTui().mountRenderable(
+                    options.id,
+                    spec,
+                );
+                experimentalTuiViewIds.add(spec.id);
+                let active = true;
+                const dispose = async (): Promise<void> => {
+                    if (!active) return;
+                    active = false;
+                    experimentalTuiViewIds.delete(spec.id);
+                    await mounted();
+                };
+                disposers.push(dispose);
+                return dispose;
+            },
             events: Object.freeze({
                 on(...args: unknown[]): VeraExtensionDisposer {
                     const [event, listener] = args;
@@ -1165,6 +1202,7 @@ async function activateClientExtension(
                         throw new Error("Experimental TUI event listener must be a function");
                     }
                     const subscribed = options.experimentalTui!.events.on(
+                        options.id,
                         event as never,
                         listener as never,
                     );
@@ -1176,6 +1214,21 @@ async function activateClientExtension(
                     };
                     disposers.push(dispose);
                     return dispose;
+                },
+            }),
+            agentSurface: Object.freeze({
+                current(): VeraExperimentalTuiAgentSurfaceSnapshot | undefined {
+                    return requireExperimentalTui().agentSurface.current(options.id);
+                },
+                cycleLayout(): boolean {
+                    return requireExperimentalTui().agentSurface.cycleLayout(
+                        options.id,
+                    );
+                },
+                toggleFocus(): boolean {
+                    return requireExperimentalTui().agentSurface.toggleFocus(
+                        options.id,
+                    );
                 },
             }),
         }) as VeraClientExperimentalTui,
@@ -1355,7 +1408,7 @@ async function activateClientExtension(
         tips,
         statusLine,
         messageInterceptor,
-        hostedAgentAddressing,
+        hostedAgentAddressing: () => hostedAgentAddressing,
         disposers,
         conversationListeners,
         activeInvocations: new Set(),
@@ -1626,6 +1679,27 @@ function validateExperimentalTuiViewSpec(
                 )))
     ) {
         throw new Error("Invalid experimental TUI view registration");
+    }
+}
+
+function validateExperimentalTuiRawViewSpec(
+    spec: VeraExperimentalTuiRawViewSpec,
+): void {
+    if (
+        typeof spec !== "object"
+        || spec === null
+        || !isRegistrationId(spec.id)
+        || spec.slot !== "transcript-top"
+        && spec.slot !== "transcript-bottom"
+        && spec.slot !== "footer"
+        && spec.slot !== "composer-adornment"
+        && spec.slot !== "overlay"
+        || (spec.modal !== undefined && typeof spec.modal !== "boolean")
+        || (spec.visible !== undefined && typeof spec.visible !== "function")
+        || (spec.onKey !== undefined && typeof spec.onKey !== "function")
+        || typeof spec.create !== "function"
+    ) {
+        throw new Error("Invalid experimental raw TUI view registration");
     }
 }
 
