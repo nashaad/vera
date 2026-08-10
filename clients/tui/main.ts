@@ -107,6 +107,7 @@ import {
     createTuiClientExtensionAgentsAdapter,
 } from "./client-extension-agents.ts";
 import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
+import { TuiHostedSidebarAgent } from "./hosted-sidebar-agent.ts";
 import {
     requireIdentifiedTuiAgentClient,
     type IdentifiedTuiAgentClient,
@@ -855,13 +856,23 @@ export async function startTui(
         readonly resolve: (result: VeraClientConsultResult) => void;
         readonly reject: (reason: Error) => void;
     }>();
-    /** Which extension holds the sidebar, absent while nobody does. */
-    let sidebarOwner: string | undefined;
-    let sidebarAgentPane: TuiAgentPane<IdentifiedTuiAgentClient> | undefined;
-    let sidebarAttachmentLifetime: "ephemeral" | "durable" = "durable";
-    let sidebarInitialApprovalMode: string | undefined;
-    let sidebarAgentMention: string | undefined;
-    let sidebarModeLabel: string | undefined;
+    const hostedSidebar = new TuiHostedSidebarAgent({
+        onUpdate(update, current) {
+            handleSidebarAgentUpdate(update, current);
+            renderSidebarAgent(current);
+            if (
+                update.type === "ui_request"
+                || update.type === "ui_request_closed"
+            ) {
+                focusActiveSurface();
+            }
+        },
+        onFailure(error, current) {
+            if (current !== hostedSidebar.pane) return;
+            sidebar.append("agent", `Connection failed: ${error.message}`);
+            renderState();
+        },
+    });
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -886,8 +897,8 @@ export async function startTui(
         ...(dependencies.clientExtensions ?? []),
     ];
     const hostedAgentSurface = createTuiHostedAgentSurface({
-        owner: () => sidebarOwner,
-        hasAgent: () => sidebarAgentPane !== undefined,
+        owner: () => hostedSidebar.owner,
+        hasAgent: () => hostedSidebar.pane !== undefined,
         layout: () => sidebar.layout(),
         isFocused: () => sidebar.isFocused(),
         cycleSidebarLayout: () => sidebar.cycleLayout(),
@@ -931,11 +942,11 @@ export async function startTui(
         sidebar: {
             open(extensionId) {
                 if (
-                    sidebarOwner !== undefined && sidebarOwner !== extensionId
+                    hostedSidebar.owner !== undefined && hostedSidebar.owner !== extensionId
                 ) {
-                    throw new Error(`${sidebarOwner} is using the sidebar`);
+                    throw new Error(`${hostedSidebar.owner} is using the sidebar`);
                 }
-                sidebarOwner = extensionId;
+                hostedSidebar.claim(extensionId);
                 sidebar.setHeader(undefined);
                 sidebar.open();
                 renderState();
@@ -951,13 +962,9 @@ export async function startTui(
             },
             close(extensionId) {
                 requireSidebarOwner(extensionId);
-                const attached = sidebarAgentPane;
-                sidebarAgentPane = undefined;
-                sidebarAgentMention = undefined;
-                sidebarModeLabel = undefined;
+                const attached = hostedSidebar.release(extensionId);
                 forgetPersistedAgentPane();
                 void attached?.detach().catch(() => attached.close());
-                sidebarOwner = undefined;
                 clearSidebarEntryNodes();
                 sidebar.setHeader(undefined);
                 sidebar.close();
@@ -980,8 +987,8 @@ export async function startTui(
         },
         agents: createTuiClientExtensionAgentsAdapter({
             primary: () => client,
-            sidebar: () => sidebarAgentPane,
-            sidebarMention: () => sidebarAgentMention,
+            sidebar: () => hostedSidebar.pane,
+            sidebarMention: () => hostedSidebar.mention,
             createAgent: dependencies.createAgent,
             branchAgent: dependencies.branchAgent,
             attachAgent: dependencies.attachAgent,
@@ -1467,7 +1474,7 @@ export async function startTui(
             }
         },
         onPanelRelease: () => {
-            if (sidebarAgentPane === undefined || anyOverlayOpen()) return;
+            if (hostedSidebar.pane === undefined || anyOverlayOpen()) return;
             // Pointer input never chooses the addressed agent; Ctrl+G owns
             // that. It does return typing focus after either transcript is
             // clicked or selected, matching the main pane.
@@ -1477,11 +1484,11 @@ export async function startTui(
         // Clicking the column is how you talk to it: with one seat there is no
         // question who, and typing the name again is the part nobody wants.
         onPanelClick: () => {
-            if (sidebarAgentPane !== undefined) {
+            if (hostedSidebar.pane !== undefined) {
                 return;
             }
             const declared = clientExtensionRegistry
-                ?.experimentalHostedAgentAddressing(sidebarOwner);
+                ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
             const first = declared?.secondary ?? visibleMentions()[0];
             if (first === undefined) return;
             // Already addressing someone (even with a trailing space): a
@@ -1521,60 +1528,23 @@ export async function startTui(
             switchToClient(next, undefined, { preserveSidebar: true });
             return;
         }
-        if (
-            !replaceSidebarOwner
-            && sidebarAgentPane === undefined
-            && sidebarOwner !== undefined
-            && sidebarOwner !== extensionId
-        ) {
-            next.close();
-            throw new Error(`${sidebarOwner} is using the sidebar`);
-        }
-        const previous = sidebarAgentPane;
-        const previousModeLabel = sidebarModeLabel;
-        sidebarAgentPane = undefined;
-        try {
-            await previous?.detach();
-        } catch (error) {
-            next.close();
-            throw error;
-        }
-        if (signal?.aborted) {
-            next.close();
-            throw signal.reason;
-        }
-        sidebarOwner = extensionId;
-        const attached = new TuiAgentPane({
+        const previousModeLabel = await hostedSidebar.adopt({
+            extensionId,
             client: next,
-            onUpdate: (update, current) => {
-                handleSidebarAgentUpdate(update, current);
-                renderSidebarAgent(current);
-                if (
-                    update.type === "ui_request"
-                    || update.type === "ui_request_closed"
-                ) {
-                    focusActiveSurface();
-                }
-            },
-            onFailure: (error, current) => {
-                if (current !== sidebarAgentPane) return;
-                sidebar.append("agent", `Connection failed: ${error.message}`);
-                renderState();
-            },
+            replaceOwner: replaceSidebarOwner,
+            mention,
+            attachmentLifetime,
+            initialApprovalMode,
+            statusLabel,
+            signal,
         });
-        sidebarAgentPane = attached;
-        sidebarAttachmentLifetime = attachmentLifetime;
-        sidebarInitialApprovalMode = initialApprovalMode
-            ?? sidebarInitialApprovalMode;
-        sidebarAgentMention = mention ?? attached.agentId;
-        sidebarModeLabel = statusLabel;
         rememberOpenPaneGroup();
         clearSidebarEntryNodes();
         sidebar.clear();
         sidebar.setHeader(undefined);
         sidebar.open();
         sidebar.setFocused(true);
-        attached.start();
+        hostedSidebar.start();
         requestAgentSettings(next);
         renderState();
         if (
@@ -1589,34 +1559,34 @@ export async function startTui(
     }
 
     function focusedAgentClient(): TuiAgentClient {
-        return sidebar.isFocused() && sidebarAgentPane !== undefined
-            ? sidebarAgentPane.client
+        return sidebar.isFocused() && hostedSidebar.pane !== undefined
+            ? hostedSidebar.pane.client
             : client;
     }
 
     function focusedAgentState(): TuiState {
-        return sidebar.isFocused() && sidebarAgentPane !== undefined
-            ? sidebarAgentPane.state.state
+        return sidebar.isFocused() && hostedSidebar.pane !== undefined
+            ? hostedSidebar.pane.state.state
             : state;
     }
 
     function focusedUiRequest(): UiRequestUpdate | undefined {
-        return sidebar.isFocused() && sidebarAgentPane !== undefined
-            ? sidebarAgentPane.state.pendingUiRequest
+        return sidebar.isFocused() && hostedSidebar.pane !== undefined
+            ? hostedSidebar.pane.state.pendingUiRequest
             : pendingUiRequest;
     }
 
     function focusedAbortRequested(): boolean {
-        return sidebar.isFocused() && sidebarAgentPane !== undefined
-            ? sidebarAgentPane.state.abortRequested
+        return sidebar.isFocused() && hostedSidebar.pane !== undefined
+            ? hostedSidebar.pane.state.abortRequested
             : abortRequested;
     }
 
     function abortFocusedAgent(): void {
-        if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
-            sidebarAgentPane.state.abortRequested = true;
-            sidebarAgentPane.state.activity = "stopping";
-            void sidebarAgentPane.client.send({ type: "abort" })
+        if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+            hostedSidebar.pane.state.abortRequested = true;
+            hostedSidebar.pane.state.activity = "stopping";
+            void hostedSidebar.pane.client.send({ type: "abort" })
                 .catch(reportConnectionError);
             return;
         }
@@ -1626,11 +1596,11 @@ export async function startTui(
     }
 
     function visibleMentions(): readonly string[] {
-        if (sidebarAgentPane === undefined || sidebarAgentMention === undefined) {
+        if (hostedSidebar.pane === undefined || hostedSidebar.mention === undefined) {
             return extensionMentions;
         }
         const declared = clientExtensionRegistry
-            ?.experimentalHostedAgentAddressing(sidebarOwner);
+            ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
         if (declared !== undefined) {
             return [
                 declared.primary,
@@ -1642,17 +1612,17 @@ export async function startTui(
         }
         return extensionMentions.length > 0
             ? extensionMentions
-            : [sidebarAgentMention, "all", "vera"];
+            : [hostedSidebar.mention, "all", "vera"];
     }
 
     function hostedAgentAddressing(): TuiHostedAgentAddressing {
         const declared = clientExtensionRegistry
-            ?.experimentalHostedAgentAddressing(sidebarOwner);
+            ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
         if (declared !== undefined) return declared;
         return {
             primary: "vera",
-            secondary: sidebarAgentMention
-                ?? sidebarAgentPane?.agentId
+            secondary: hostedSidebar.mention
+                ?? hostedSidebar.pane?.agentId
                 ?? "agent",
             broadcast: "all",
         };
@@ -1691,7 +1661,7 @@ export async function startTui(
                 );
             }
         });
-        const side = sidebarAgentPane;
+        const side = hostedSidebar.pane;
         if (side === undefined) return;
         side.state.state.entries.forEach((entry, index) => {
             const node = sidebarEntryNodes[index];
@@ -1710,9 +1680,9 @@ export async function startTui(
 
     function rememberOpenPaneGroup(): void {
         const mainId = client.agentId;
-        const sidebarId = sidebarAgentPane?.agentId;
+        const sidebarId = hostedSidebar.pane?.agentId;
         if (mainId === undefined || sidebarId === undefined) return;
-        if (sidebarAttachmentLifetime === "ephemeral") {
+        if (hostedSidebar.attachmentLifetime === "ephemeral") {
             sharedSessionGroups = sharedSessionGroups.filter((group) =>
                 !group.includes(mainId) && !group.includes(sidebarId)
             );
@@ -1737,13 +1707,13 @@ export async function startTui(
             saveTuiPersistedAgentPane(mainId, {
                 mainAgentId: mainId,
                 sidebarAgentId: sidebarId,
-                owner: sidebarOwner ?? "vera.tui.agent-attachments",
-                ...(sidebarAgentMention === undefined
+                owner: hostedSidebar.owner ?? "vera.tui.agent-attachments",
+                ...(hostedSidebar.mention === undefined
                     ? {}
-                    : { mention: sidebarAgentMention }),
-                ...(sidebarModeLabel === undefined
+                    : { mention: hostedSidebar.mention }),
+                ...(hostedSidebar.modeLabel === undefined
                     ? {}
-                    : { statusLabel: sidebarModeLabel }),
+                    : { statusLabel: hostedSidebar.modeLabel }),
             });
         } catch {
             // A failed UI preference write must not prevent an attachment.
@@ -1762,7 +1732,7 @@ export async function startTui(
     function renderSidebarAgent(
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
-        if (pane !== sidebarAgentPane) return;
+        if (pane !== hostedSidebar.pane) return;
         const entries = pane.state.state.entries;
         const changedKindAt = entries.findIndex((entry, index) =>
             sidebarEntryNodes[index] !== undefined
@@ -1868,7 +1838,7 @@ export async function startTui(
         update: AgentUpdate,
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
-        if (pane !== sidebarAgentPane) return;
+        if (pane !== hostedSidebar.pane) return;
         if (update.type === "ui_request") {
             sidebar.setFocused(true);
         }
@@ -2059,10 +2029,7 @@ export async function startTui(
             pending.reject(new Error("TUI is closing"));
         }
         pendingExtensionSettings.clear();
-        const attachedSidebar = sidebarAgentPane;
-        sidebarAgentPane = undefined;
-        sidebarAgentMention = undefined;
-        sidebarModeLabel = undefined;
+        const attachedSidebar = hostedSidebar.release();
         void Promise.all([
             Promise.resolve(clientExtensionRegistry?.close()),
             attachedSidebar?.detach(),
@@ -2283,8 +2250,8 @@ export async function startTui(
                 if (result.response !== undefined) {
                     void focusedAgentClient().send(result.response)
                         .catch(reportConnectionError);
-                    if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
-                        sidebarAgentPane.state.activity = "thinking";
+                    if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+                        hostedSidebar.pane.state.activity = "thinking";
                     } else {
                         activity = "thinking";
                     }
@@ -2306,8 +2273,8 @@ export async function startTui(
                 if (result.response !== undefined) {
                     void focusedAgentClient().send(result.response)
                         .catch(reportConnectionError);
-                    if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
-                        sidebarAgentPane.state.activity = "thinking";
+                    if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+                        hostedSidebar.pane.state.activity = "thinking";
                     } else {
                         activity = "thinking";
                     }
@@ -2726,7 +2693,7 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            const side = sidebar.isFocused() ? sidebarAgentPane : undefined;
+            const side = sidebar.isFocused() ? hostedSidebar.pane : undefined;
             const wasFollowing = side === undefined
                 ? transcript.scrollTop
                     >= transcript.scrollHeight - transcript.viewport.height
@@ -2781,7 +2748,7 @@ export async function startTui(
             key.stopPropagation();
             // Read this before the fold changes the transcript height. Once
             // expanded, the old bottom can look like a manually scrolled view.
-            const side = sidebar.isFocused() ? sidebarAgentPane : undefined;
+            const side = sidebar.isFocused() ? hostedSidebar.pane : undefined;
             const wasFollowing = side === undefined
                 ? transcript.scrollTop
                     >= transcript.scrollHeight - transcript.viewport.height
@@ -3041,7 +3008,7 @@ export async function startTui(
         if (
             interceptedText === undefined
             && !prompt.startsWith("/")
-            && sidebarAgentPane !== undefined
+            && hostedSidebar.pane !== undefined
             && routeVisibleAgentPrompt(prompt)
         ) {
             return;
@@ -3082,7 +3049,7 @@ export async function startTui(
         if (
             commandAction !== undefined
             && sidebar.isFocused()
-            && sidebarAgentPane !== undefined
+            && hostedSidebar.pane !== undefined
             && tuiCommandScope(commandAction) === "main_session"
         ) {
             composer.clearComposer();
@@ -3637,7 +3604,7 @@ export async function startTui(
         if (commandAction?.type === "create_session") {
             composer.clearComposer();
             const clearingSidebar = sidebar.isFocused()
-                && sidebarAgentPane !== undefined;
+                && hostedSidebar.pane !== undefined;
             if (
                 clearingSidebar
                     ? dependencies.createAgent === undefined
@@ -3668,9 +3635,9 @@ export async function startTui(
             const nextSession = clearingSidebar
                 ? dependencies.createAgent!(
                     workspace,
-                    sidebarInitialApprovalMode
+                    hostedSidebar.initialApprovalMode
                         ?? focusedAgentState().approvalMode,
-                    sidebarAttachmentLifetime,
+                    hostedSidebar.attachmentLifetime,
                 )
                 : dependencies.createSession!(workspace);
             void withSessionSwitchDeadline(
@@ -3683,13 +3650,13 @@ export async function startTui(
                 }
                 if (clearingSidebar) {
                     await openExtensionAgent(
-                        sidebarOwner ?? "vera.tui.agent-attachments",
+                        hostedSidebar.owner ?? "vera.tui.agent-attachments",
                         requireIdentifiedClient(next),
                         "sidebar",
                         true,
-                        sidebarAgentMention,
-                        sidebarAttachmentLifetime,
-                        sidebarInitialApprovalMode,
+                        hostedSidebar.mention,
+                        hostedSidebar.attachmentLifetime,
+                        hostedSidebar.initialApprovalMode,
                     );
                     sessionSwitchPending = false;
                     return;
@@ -3909,7 +3876,7 @@ export async function startTui(
     }
 
     function routeVisibleAgentPrompt(prompt: string): boolean {
-        const side = sidebarAgentPane;
+        const side = hostedSidebar.pane;
         if (side === undefined || client.agentId === undefined) return false;
         const route = routeTuiAgentMessage(
             prompt,
@@ -3919,7 +3886,7 @@ export async function startTui(
                 {
                     agentId: side.agentId,
                     pane: "sidebar",
-                    mention: sidebarAgentMention ?? side.agentId,
+                    mention: hostedSidebar.mention ?? side.agentId,
                 },
             ],
             hostedAgentAddressing(),
@@ -4508,9 +4475,7 @@ export async function startTui(
     }
 
     function requireSidebarOwner(extensionId: string): void {
-        if (sidebarOwner !== extensionId) {
-            throw new Error("The sidebar is not open for this extension");
-        }
+        hostedSidebar.requireOwner(extensionId);
     }
 
     /**
@@ -5023,8 +4988,8 @@ export async function startTui(
             && !anyOverlayOpen();
         renderHeldAddress();
         composer.placeholder = extensionAddressee === undefined
-            ? sidebar.isFocused() && sidebarAgentMention !== undefined
-                ? `Message ${sidebarAgentMention}\u2026`
+            ? sidebar.isFocused() && hostedSidebar.mention !== undefined
+                ? `Message ${hostedSidebar.mention}\u2026`
                 : COMPOSER_PLACEHOLDER
             : `Message ${extensionAddressee}\u2026`;
         renderPendingQuote();
@@ -5518,12 +5483,12 @@ export async function startTui(
             const notice = renderPermissionInspection(
                 targetState.permissionInspection,
             );
-            if (sidebar.isFocused() && sidebarAgentPane !== undefined) {
-                sidebarAgentPane.state.state = appendTuiNotice(
-                    sidebarAgentPane.state.state,
+            if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+                hostedSidebar.pane.state.state = appendTuiNotice(
+                    hostedSidebar.pane.state.state,
                     notice,
                 );
-                renderSidebarAgent(sidebarAgentPane);
+                renderSidebarAgent(hostedSidebar.pane);
             } else {
                 state = appendTuiNotice(state, notice);
             }
@@ -6277,14 +6242,10 @@ export async function startTui(
         // left, so the client takes them down and each extension is told to
         // let go of whatever else it was holding.
         if (options.preserveSidebar !== true) {
-            const previousSidebarAgent = sidebarAgentPane;
-            sidebarAgentPane = undefined;
-            sidebarAgentMention = undefined;
-            sidebarModeLabel = undefined;
+            const previousSidebarAgent = hostedSidebar.release();
             void previousSidebarAgent?.detach().catch(() =>
                 previousSidebarAgent.close()
             );
-            sidebarOwner = undefined;
             clearSidebarEntryNodes();
             sidebar.clear();
             sidebar.setHeader(undefined);
@@ -6363,7 +6324,7 @@ export async function startTui(
         sessionId?: string,
     ): void {
         const openingInSidebar = sidebar.isFocused()
-            && sidebarAgentPane !== undefined;
+            && hostedSidebar.pane !== undefined;
         settingsPicker = undefined;
         if (sessionId !== undefined && sessionId === client.agentId) {
             // The row for the session already on screen. Tearing down that
@@ -6378,7 +6339,7 @@ export async function startTui(
         if (
             openingInSidebar
             && sessionId !== undefined
-            && sessionId === sidebarAgentPane?.agentId
+            && sessionId === hostedSidebar.pane?.agentId
         ) {
             settingsPickerView.box.visible = false;
             focusActiveSurface();
@@ -6990,7 +6951,7 @@ export async function startTui(
         }
         const statusState = focusedAgentState();
         const uiRequest = focusedUiRequest();
-        const focusedSide = sidebar.isFocused() ? sidebarAgentPane : undefined;
+        const focusedSide = sidebar.isFocused() ? hostedSidebar.pane : undefined;
         const focusedAbort = focusedAbortRequested();
         const focusedActivity = focusedSide?.state.activity ?? activity;
         const focusedElapsed = focusedSide?.state.elapsedWorkingTime()
@@ -6999,17 +6960,17 @@ export async function startTui(
         const mainPaneActivity = state.working
             ? activity
             : pendingUiRequest === undefined ? "idle" : "waiting";
-        const sidePaneActivity = sidebarAgentPane?.state.state.working
-            ? sidebarAgentPane.state.activity
-            : sidebarAgentPane?.state.pendingUiRequest === undefined
+        const sidePaneActivity = hostedSidebar.pane?.state.state.working
+            ? hostedSidebar.pane.state.activity
+            : hostedSidebar.pane?.state.pendingUiRequest === undefined
             ? "idle"
             : "waiting";
         const mainPaneStatus = `Vera · ${state.approvalMode ?? "loading"} · ${mainPaneActivity}`;
-        const sidePaneStatus = sidebarAgentPane === undefined
+        const sidePaneStatus = hostedSidebar.pane === undefined
             ? ""
-            : `${sidebarAgentMention ?? sidebarAgentPane.agentId} · ${sidebarAgentPane.state.state.approvalMode ?? "loading"} · ${sidePaneActivity}`;
+            : `${hostedSidebar.mention ?? hostedSidebar.pane.agentId} · ${hostedSidebar.pane.state.state.approvalMode ?? "loading"} · ${sidePaneActivity}`;
         paneStatusText.visible = !anyOverlayOpen();
-        paneStatusText.content = sidebarAgentPane === undefined
+        paneStatusText.content = hostedSidebar.pane === undefined
             ? ""
             : layout === "split"
             ? new StyledText([
@@ -7032,8 +6993,8 @@ export async function startTui(
             ]);
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
-            : `enter queue → ${sidebarAgentMention ?? focusedSide.agentId}`
-                + ` · esc stop ${sidebarAgentMention ?? focusedSide.agentId}`
+            : `enter queue → ${hostedSidebar.mention ?? focusedSide.agentId}`
+                + ` · esc stop ${hostedSidebar.mention ?? focusedSide.agentId}`
                 + ` · ${tuiKeyHint("interrupt")}`;
         renderPendingQuote();
         renderHeldAddress();
@@ -7086,7 +7047,7 @@ export async function startTui(
                     || extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
-        const quietAttachedPane = sidebarAgentPane !== undefined
+        const quietAttachedPane = hostedSidebar.pane !== undefined
             && statusNotice === undefined
             && !statusState.working
             && uiRequest === undefined
@@ -7121,10 +7082,10 @@ export async function startTui(
                 process.cwd(),
                 0,
                 statusState.effortSubstitution,
-                sidebarAgentPane === undefined,
+                hostedSidebar.pane === undefined,
             )
             : renderTuiStatusSegments(
-                sidebarAgentPane === undefined
+                hostedSidebar.pane === undefined
                     ? extensionSegments
                     : extensionSegments.filter((segment) =>
                         segment.kind !== "permissions"
@@ -7134,26 +7095,26 @@ export async function startTui(
         // rest of the conversation's state is said. The sidebar is a whole
         // column that arrived without being asked for, so the key that takes
         // it away is only offered while it is there.
-        const extensionOwnsAgentState = sidebarOwner !== undefined
+        const extensionOwnsAgentState = hostedSidebar.owner !== undefined
             && clientExtensionRegistry?.experimentalHostedAgentAddressing(
-                sidebarOwner,
+                hostedSidebar.owner,
             ) !== undefined;
         const extensionState = extensionOwnsAgentState ? [] : [
-            ...(sidebarAgentPane === undefined
+            ...(hostedSidebar.pane === undefined
                 ? []
                 : [
-                    `${sidebarModeLabel ?? sidebarAgentMention ?? "agent"} mode`,
+                    `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} mode`,
                     sidebar.layout() === "split"
                         ? "split"
                         : sidebar.layout() === "sidebar"
-                        ? `${sidebarModeLabel ?? sidebarAgentMention ?? "agent"} only`
+                        ? `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} only`
                         : "vera only",
                     "ctrl+/ layout",
                 ]),
-            ...(sidebarAgentPane !== undefined && sidebar.layout() === "split"
+            ...(hostedSidebar.pane !== undefined && sidebar.layout() === "split"
                 ? [sidebar.isFocused()
                     ? "ctrl+g main"
-                    : `ctrl+g ${sidebarAgentMention ?? sidebarAgentPane.agentId}`]
+                    : `ctrl+g ${hostedSidebar.mention ?? hostedSidebar.pane.agentId}`]
                 : []),
         ];
         // Keep extension-owned state on its own row. The model/path/context
