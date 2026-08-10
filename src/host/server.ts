@@ -55,8 +55,13 @@ export interface StartHostServerOptions {
     /** Absolute path of the entrypoint this host was started from. */
     readonly entrypoint?: string;
     readonly startupClaimPath?: string;
-    readonly findAgent?: (agentId: string) => ResidentAgent | undefined;
-    readonly listAgents?: () => readonly RegisteredAgentSummary[];
+    readonly findAgent?: (
+        agentId: string,
+    ) => ResidentAgent | undefined | Promise<ResidentAgent | undefined>;
+    readonly listAgents?: () =>
+        | readonly RegisteredAgentSummary[]
+        | Promise<readonly RegisteredAgentSummary[]>;
+    readonly listBackgroundAgents?: () => readonly RegisteredAgentSummary[];
     readonly runScheduleOperation?: (
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>;
@@ -185,6 +190,10 @@ export async function startHostServer(
             identity,
             options.findAgent ?? (() => undefined),
             options.listAgents ?? (() => []),
+            options.listBackgroundAgents ?? (() => {
+                const agents = options.listAgents?.();
+                return Array.isArray(agents) ? agents : [];
+            }),
             options.runScheduleOperation ?? (() => Promise.reject(
                 new UserFacingError("Scheduling is unavailable"),
             )),
@@ -255,8 +264,13 @@ export async function startHostServer(
 function receiveConnection(
     socket: Socket,
     identity: HostIdentity,
-    findAgent: (agentId: string) => ResidentAgent | undefined,
-    listAgents: () => readonly RegisteredAgentSummary[],
+    findAgent: (
+        agentId: string,
+    ) => ResidentAgent | undefined | Promise<ResidentAgent | undefined>,
+    listAgents: () =>
+        | readonly RegisteredAgentSummary[]
+        | Promise<readonly RegisteredAgentSummary[]>,
+    listBackgroundAgents: () => readonly RegisteredAgentSummary[],
     runScheduleOperation: (
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>,
@@ -295,6 +309,7 @@ function receiveConnection(
     let attachment: AgentAttachment | undefined;
     let buffered = Buffer.alloc(0);
     let finished = false;
+    let initialRequestPending = false;
     let writes: Promise<void> = Promise.resolve();
     let attachmentClosed: (() => void) | undefined;
     let attachedWorkspace: string | undefined;
@@ -341,7 +356,7 @@ function receiveConnection(
     });
 
     function receiveLines(): void {
-        while (!finished) {
+        while (!finished && !initialRequestPending) {
             const newlineAt = buffered.indexOf(0x0a);
             if (newlineAt === -1) {
                 if (buffered.length > MAX_REQUEST_BYTES) {
@@ -365,7 +380,12 @@ function receiveConnection(
 
     function receiveLine(line: string): void {
         if (attachment === undefined) {
-            receiveInitialRequest(line);
+            initialRequestPending = true;
+            void receiveInitialRequest(line).catch(() => socket.destroy())
+                .finally(() => {
+                    initialRequestPending = false;
+                    receiveLines();
+                });
             return;
         }
 
@@ -546,7 +566,7 @@ function receiveConnection(
         }
     }
 
-    function receiveInitialRequest(line: string): void {
+    async function receiveInitialRequest(line: string): Promise<void> {
         const request = parseHostRequest(line);
         if (request?.type === "host_identity") {
             clearTimeout(deadline);
@@ -579,18 +599,10 @@ function receiveConnection(
         }
         if (request?.type === "list_agents") {
             clearTimeout(deadline);
-            let agents: readonly RegisteredAgentSummary[];
-            try {
-                agents = listAgents();
-            } catch {
-                socket.destroy();
-                return;
-            }
             finished = true;
-            void send({ type: "agent_list", agents }).then(
-                () => socket.end(),
-                () => socket.destroy(),
-            );
+            void Promise.resolve().then(listAgents).then(
+                (agents) => send({ type: "agent_list", agents }),
+            ).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (isShutdownFenced()) {
@@ -749,9 +761,14 @@ function receiveConnection(
 
         let agent: ResidentAgent | undefined;
         try {
-            agent = findAgent(request.agent_id);
+            agent = await findAgent(request.agent_id);
         } catch {
-            socket.destroy();
+            finished = true;
+            void send({
+                type: "attach_failed",
+                agent_id: request.agent_id,
+                reason: "unavailable",
+            }).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (agent === undefined) {
@@ -808,7 +825,10 @@ function receiveConnection(
         attachedAgentId: string,
     ): BackgroundAgentsSnapshot {
         try {
-            return backgroundAgentsSnapshot(listAgents(), attachedAgentId);
+            return backgroundAgentsSnapshot(
+                listBackgroundAgents(),
+                attachedAgentId,
+            );
         } catch {
             return NO_BACKGROUND_AGENTS;
         }
