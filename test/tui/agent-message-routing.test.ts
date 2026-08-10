@@ -33,7 +33,8 @@ test("a bare visible mention changes focus without sending", () => {
     });
 });
 
-test("all broadcasts exactly to the visible agents", () => {
+test("literal all broadcasts without a declaration (current policy leak)", () => {
+    expect(visible.some((agent) => agent.mention === "all")).toBe(false);
     expect(routeTuiAgentMessage("@all compare", "main", visible)).toEqual({
         kind: "message",
         text: "compare",
