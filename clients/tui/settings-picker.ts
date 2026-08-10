@@ -1305,18 +1305,41 @@ export function handleTuiSettingsPickerKey(
     ) {
         return { state, handled: true, openProviders: true };
     }
-    // Tab cycles the views of the same list. Shift is tolerated rather than
-    // given its own direction: the cycle is short enough that forward always
-    // gets there.
+    // Tab walks the strip, which ends in Providers. Shift is tolerated rather
+    // than given its own direction: the strip is short enough that forward
+    // always gets there.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
         const cycle: readonly TuiModelPickerTab[] = ["pool", "all", "help"];
-        const tab: TuiModelPickerTab = cycle[
-            (cycle.indexOf(state.tab ?? "all") + 1) % cycle.length
-        ]!;
-        return { state: switchedModelTab(state, tab), handled: true };
+        const at = cycle.indexOf(state.tab ?? "all");
+        // Providers is the last stop, and it swaps what the card lists rather
+        // than what the model list shows, so the list under it wraps to the
+        // first tab. Both ways out of that pane then land on the start of the
+        // strip; parking the list on Help would send the next ⇥ straight back
+        // into the pane the user just left.
+        if (at === cycle.length - 1) {
+            return {
+                state: switchedModelTab(state, cycle[0]!),
+                handled: true,
+                openProviders: true,
+            };
+        }
+        return {
+            state: switchedModelTab(state, cycle[at + 1] ?? cycle[0]!),
+            handled: true,
+        };
+    }
+    // ⇥ off the connect pane and back onto the collections. It resumes the pane
+    // that opened it rather than a fixed tab: arriving by ^e from All models
+    // and leaving by ⇥ should not silently move the list somewhere else.
+    if (
+        state.kind === "provider"
+        && state.parent?.kind === "model"
+        && tuiBindingId("model_picker", key) === "switch_tab"
+    ) {
+        return { state: state.parent, handled: true };
     }
     // Fold and unfold everything, ahead of the modifier bail-out below because
     // both chords carry shift. Either one replaces whatever mix of open and
@@ -1604,7 +1627,7 @@ export function tuiPickerViewportRows(
 ): number {
     const rows = pickerMaxRows(
         renderer,
-        (state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0)
+        (modelStripStop(state) === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
             + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
     );
     return state.kind === "model" && state.tab === "all"
@@ -1857,7 +1880,7 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["^s", "add the highlighted model to the pool, or remove it."],
     ["^n", "give a pooled model a short name of your own."],
     ["^⇧r", "probe a model and record what it can do."],
-    ["⇥", "move between these views. Search clears on the way."],
+    ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
 /**
@@ -1931,6 +1954,8 @@ function renderListPickerRows(
     onConfigure?: () => void,
 ): void {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
+    const stripPane = modelStripPane(state);
+    const stop = modelStripStop(state);
     // The help page keeps the field so that tabbing onto it does not lift the
     // tabs and everything under them by three lines. It draws inert, without
     // the caret, since this page holds nothing to filter.
@@ -1939,7 +1964,13 @@ function renderListPickerRows(
         renderer,
         pickerTitle(
             state.kind,
-            state.kind === "extension" ? state.title : undefined,
+            state.kind === "extension"
+                ? state.title
+                // The connect pane keeps the model pane's name while it draws
+                // inside it: one card that changes what it lists, not two.
+                : stop === "providers"
+                ? pickerTitle("model")
+                : undefined,
         ),
     );
     box.add(header);
@@ -1967,10 +1998,10 @@ function renderListPickerRows(
         box.add(search);
         nodes.push(search);
     }
-    if (tab !== undefined) {
-        const strip = modelTabStripNode(renderer, tab, {
-            pool: modelTabRows(state.allOptions, "pool").length,
-            all: modelTabRows(state.allOptions, "all").length,
+    if (stop !== undefined && stripPane !== undefined) {
+        const strip = modelTabStripNode(renderer, stop, {
+            pool: modelTabRows(stripPane.allOptions, "pool").length,
+            all: modelTabRows(stripPane.allOptions, "all").length,
         }, onTab, onConfigure);
         box.add(strip);
         nodes.push(strip);
@@ -2021,7 +2052,7 @@ function renderListPickerRows(
 
     const availableRows = pickerMaxRows(
         renderer,
-        (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines,
+        (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines,
     );
     const rows = windowedDisplayRows(
         listDisplayRows(state),
@@ -2151,7 +2182,7 @@ function renderListPickerRows(
     box.add(footer);
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
-        + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
+        + (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
         + subtitleLines
         + (tip !== undefined && tip.length > 0 ? 2 : 0);
 }
@@ -2160,6 +2191,38 @@ function renderListPickerRows(
 // the detail column, which has the room for it without pushing the list down.
 const MODEL_TAB_STRIP_HEIGHT = 2;
 const MODEL_ALL_MAX_ROWS = 28;
+
+/**
+ * Where the strip's highlight sits. The connect pane is a stop on it rather
+ * than a modal over it: it draws in the same card, under the same tabs, so
+ * ⇥ walks onto it and off it the way it walks between the collections.
+ */
+type ModelStripStop = TuiModelPickerTab | "providers";
+
+/**
+ * The model pane the strip belongs to, which is the pane itself on the three
+ * collections and the parent on the connect pane. Undefined on a pane that
+ * carries no strip, including a connect pane opened from anywhere else.
+ */
+function modelStripPane(
+    state: TuiAnySettingsPickerState,
+): TuiSettingsPickerState | undefined {
+    if (state.kind === "model") {
+        return state;
+    }
+    return state.kind === "provider" && state.parent?.kind === "model"
+        ? state.parent
+        : undefined;
+}
+
+function modelStripStop(
+    state: TuiAnySettingsPickerState,
+): ModelStripStop | undefined {
+    if (state.kind === "model") {
+        return state.tab ?? "all";
+    }
+    return modelStripPane(state) === undefined ? undefined : "providers";
+}
 
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Pool"],
@@ -2198,7 +2261,7 @@ function topPickNote(state: TuiAnySettingsPickerState): string | undefined {
 
 function modelTabStripNode(
     renderer: RenderContext,
-    tab: TuiModelPickerTab,
+    tab: ModelStripStop,
     counts: Readonly<Partial<Record<TuiModelPickerTab, number>>>,
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
@@ -2250,15 +2313,16 @@ function modelTabStripNode(
             height: 1,
         }));
     });
-    // Not a fourth view: it opens the provider pane rather than switching what
-    // the list shows, so ⇥ does not stop on it and it carries its own key. A
-    // chip that sits among the tabs and answers to nothing on the keyboard is
-    // one the keyboard cannot reach at all.
+    // The last stop on the strip. It swaps what the card lists rather than
+    // what the model list shows, so it keeps a key of its own as well, but it
+    // highlights and answers to ⇥ like the chips before it.
+    const chord = tuiKeyHint("open_providers").split(" ")[0] ?? "";
     const configure = new TextRenderable(renderer, {
-        content: new StyledText([
-            fg(TUI_ACCENT)("Providers "),
-            fg(TUI_MUTED)(tuiKeyHint("open_providers").split(" ")[0] ?? ""),
-        ]),
+        content: new StyledText(
+            tab === "providers"
+                ? [fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(` Providers ${chord} `))]
+                : [fg(TUI_ACCENT)("Providers "), fg(TUI_MUTED)(chord)],
+        ),
         flexShrink: 0,
         height: 1,
     });
@@ -2342,6 +2406,7 @@ export function pickerFooter(
         return [
             "↑↓ move",
             selected?.connected === true ? "⏎ reconnect" : "⏎ connect",
+            ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
     }
