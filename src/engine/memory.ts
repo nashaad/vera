@@ -1,4 +1,4 @@
-import { lstat, readFile, stat } from "node:fs/promises";
+import { lstat, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -216,20 +216,28 @@ async function loadIndex(
     let bytes: Uint8Array;
     let modifiedAt = 0;
     try {
-        const details = await stat(path);
-        if (!details.isFile()) {
-            warnings.push(`${label} exists but is not a regular file`);
-            return undefined;
+        const handle = await open(
+            path,
+            constants.O_RDONLY | constants.O_NOFOLLOW,
+        );
+        try {
+            const details = await handle.stat();
+            if (!details.isFile()) {
+                warnings.push(`${label} exists but is not a regular file`);
+                return undefined;
+            }
+            if (details.size > MEMORY_INDEX_MAX_BYTES) {
+                warnings.push(
+                    `${label} is ${details.size} bytes; the `
+                        + `${MEMORY_INDEX_MAX_BYTES}-byte limit was exceeded`,
+                );
+                return undefined;
+            }
+            modifiedAt = details.mtimeMs;
+            bytes = await handle.readFile();
+        } finally {
+            await handle.close();
         }
-        if (details.size > MEMORY_INDEX_MAX_BYTES) {
-            warnings.push(
-                `${label} is ${details.size} bytes; the `
-                    + `${MEMORY_INDEX_MAX_BYTES}-byte limit was exceeded`,
-            );
-            return undefined;
-        }
-        modifiedAt = details.mtimeMs;
-        bytes = await readFile(path);
         if (bytes.byteLength > MEMORY_INDEX_MAX_BYTES) {
             warnings.push(
                 `${label} grew beyond the ${MEMORY_INDEX_MAX_BYTES}-byte `

@@ -342,3 +342,20 @@ test("memory topics never follow symlinks outside their indexed directory", asyn
         "memory topic project/linked.md was not loaded: unreadable",
     );
 });
+
+test("memory indexes never follow symlinks outside their memory directory", async () => {
+    const dirs = await tempDirectories();
+    const root = await tempDir();
+    await mkdir(dirs.project, { recursive: true });
+    const outside = join(root, "outside-index.md");
+    await writeFile(outside, "- [Escape](escape.md): secret instructions\n");
+    await symlink(outside, join(dirs.project, MEMORY_INDEX_FILENAME));
+
+    const snapshot = await loadMemory(gitRoot(root), dirs, {
+        query: "secret instructions",
+    });
+
+    expect(snapshot.files).toEqual([]);
+    expect(snapshot.loadedTopics).toEqual([]);
+    expect(snapshot.warnings[0]).toContain("project memory index could not be read");
+});
