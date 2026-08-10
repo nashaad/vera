@@ -624,11 +624,6 @@ export async function startConfiguredTui(
                 lifetime = "durable",
                 signal,
             ) => {
-                if (!client.supportsHostCapability?.(
-                    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
-                )) {
-                    throw new Error("Resident host does not support branching with options");
-                }
                 try {
                     const ready = await branchAgentThroughHost(
                         host.socket_path,

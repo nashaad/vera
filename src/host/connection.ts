@@ -10,6 +10,7 @@ export interface HostConnectionOptions {
     readonly maxLineBytes?: number;
     readonly maxPendingValues?: number;
     readonly connectionTimeoutMs?: number;
+    readonly signal?: AbortSignal;
 }
 
 /**
@@ -31,6 +32,7 @@ export interface HostConnection {
 export function connectHost(
     options: HostConnectionOptions,
 ): Promise<HostConnection> {
+    options.signal?.throwIfAborted();
     const maxLineBytes = positiveInteger(
         options.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES,
         "maximum line bytes",
@@ -45,15 +47,28 @@ export function connectHost(
         const socket = createConnection(options.socketPath);
         const connectDeadline = setTimeout(() => {
             socket.destroy();
+            options.signal?.removeEventListener("abort", onAbort);
             reject(new Error("host connection deadline exceeded"));
         }, connectionTimeoutMs);
+        const onAbort = (): void => {
+            clearTimeout(connectDeadline);
+            socket.destroy();
+            reject(options.signal?.reason ?? new DOMException(
+                "Host connection aborted",
+                "AbortError",
+            ));
+        };
+        options.signal?.addEventListener("abort", onAbort, { once: true });
+        if (options.signal?.aborted) onAbort();
         const onConnectError = (error: Error): void => {
             clearTimeout(connectDeadline);
+            options.signal?.removeEventListener("abort", onAbort);
             reject(error);
         };
         socket.once("connect", () => {
             clearTimeout(connectDeadline);
             socket.off("error", onConnectError);
+            options.signal?.removeEventListener("abort", onAbort);
             resolve(createConnection_(
                 socket,
                 maxLineBytes,

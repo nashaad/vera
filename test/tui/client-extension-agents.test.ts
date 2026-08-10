@@ -86,7 +86,10 @@ test("cancelling creation closes the unadopted client", async () => {
 test("extension agents branch only from a visible hosted agent", async () => {
     const branched: unknown[] = [];
     const adapter = createTuiClientExtensionAgentsAdapter({
-        primary: () => agent("main"),
+        primary: () => ({
+            ...agent("main"),
+            supportsHostCapability: () => true,
+        }),
         sidebar: () => undefined,
         sidebarMention: () => undefined,
         branchAgent: async (...options) => {
