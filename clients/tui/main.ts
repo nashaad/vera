@@ -16,7 +16,6 @@ import {
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 import { sourceVersion } from "../../src/build-info.ts";
-import { HOST_CAPABILITIES } from "../../src/host/capabilities.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -74,16 +73,9 @@ import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
 } from "./timeline-picker.ts";
-import {
-    AgentBranchCommitError,
-    branchAgentThroughHost,
-    createAgentThroughHost,
-    resumeAgentThroughHost,
-} from "../../src/host/agent-start-client.ts";
-import {
-    attachAgent,
-    type AttachedAgentClient,
-} from "../../src/host/attached-client.ts";
+import { createAgentThroughHost, resumeAgentThroughHost } from
+    "../../src/host/agent-start-client.ts";
+import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
 import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
@@ -114,6 +106,7 @@ import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
 import {
     createTuiClientExtensionAgentsAdapter,
 } from "./client-extension-agents.ts";
+import { createConfiguredTuiAgentClients } from "./configured-agent-client.ts";
 import {
     requireIdentifiedTuiAgentClient,
     type IdentifiedTuiAgentClient,
@@ -572,11 +565,8 @@ export async function startConfiguredTui(
                 resolvedTarget.sessionPath,
             )).id
             : resolvedTarget.agentId;
-    const client = await attachAgent({
-        socketPath: host.socket_path,
-        agentId,
-        requestedCapabilities: HOST_CAPABILITIES,
-    });
+    const agentClients = createConfiguredTuiAgentClients(() => host.socket_path);
+    const client = await agentClients.attach(agentId);
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);
     };
@@ -588,12 +578,7 @@ export async function startConfiguredTui(
     // One call, not a loop: the TUI attaches to whatever session the user moves
     // to without closing, so there is no longer a "start me again against this
     // other session" answer for a caller to act on.
-    const attach = (id: string) =>
-        attachAgent({
-            socketPath: host.socket_path,
-            agentId: id,
-            requestedCapabilities: HOST_CAPABILITIES,
-        });
+    const attach = (id: string) => agentClients.attach(id);
     try {
         const listAgents = () => listAgentsThroughHost(host.socket_path);
         const mismatchNotice = hostEntrypointMismatchNotice(host);
@@ -612,61 +597,12 @@ export async function startConfiguredTui(
             listAgents,
             createSession: async (workspace) =>
                 attach((await createAgentThroughHost(host.socket_path, workspace)).id),
-            createAgent: async (workspace, approvalMode, lifetime = "durable") =>
-                attach((await createAgentThroughHost(
-                    host.socket_path,
-                    workspace,
-                    approvalMode,
-                    lifetime,
-                )).id),
-            branchAgent: async (
-                sourceAgentId,
-                approvalMode,
-                lifetime = "durable",
-                initialMessages = [],
-                signal,
-            ) => {
-                try {
-                    const ready = await branchAgentThroughHost(
-                        host.socket_path,
-                        sourceAgentId,
-                        "at",
-                        undefined,
-                        { approvalMode, lifetime, initialMessages, signal },
-                    );
-                    return attach(ready.id);
-                } catch (error) {
-                    if (error instanceof AgentBranchCommitError) {
-                        return attach(error.agentId);
-                    }
-                    throw error;
-                }
-            },
-            attachAgent: attach,
-            cloneSession: async (currentAgentId) =>
-                attach(
-                    (await branchAgentThroughHost(
-                        host.socket_path,
-                        currentAgentId,
-                        "at",
-                    )).id,
-                ),
-            forkSession: async (currentAgentId, boundaryId) => {
-                const ready = await branchAgentThroughHost(
-                    host.socket_path,
-                    currentAgentId,
-                    "before",
-                    boundaryId,
-                );
-                if (ready.prompt === undefined) {
-                    throw new Error("Host did not return the fork prompt");
-                }
-                return { client: await attach(ready.id), prompt: ready.prompt };
-            },
-            resumeSession: async (sessionPath) =>
-                attach(
-                    (await resumeAgentThroughHost(host.socket_path, sessionPath)).id,
-                ),
+            createAgent: agentClients.create,
+            branchAgent: agentClients.branch,
+            attachAgent: agentClients.attach,
+            cloneSession: agentClients.clone,
+            forkSession: agentClients.fork,
+            resumeSession: agentClients.resume,
             reconnectSession: async (currentAgentId) => {
                 host = await findOrStartResidentHost({
                     ...(options.confirmBusyUpgrade === undefined
