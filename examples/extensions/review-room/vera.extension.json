@@ -1,0 +1,10 @@
+{
+  "id": "vera.review-room",
+  "version": "0.1.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "client.commands.register",
+    "client.agents"
+  ]
+}
