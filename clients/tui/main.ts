@@ -6960,16 +6960,16 @@ export async function startTui(
         paneStatusText.content = layout === "split"
             ? new StyledText([
                 fg(sidebar.isFocused() ? TUI_MUTED : TUI_ACCENT)(
-                    `${sidebar.isFocused() ? "  " : "› "}${mainPaneStatus}`,
+                    mainPaneStatus,
                 ),
                 fg(TUI_MUTED)("    "),
                 fg(sidebar.isFocused() ? TUI_ACCENT : TUI_MUTED)(
-                    `${sidebar.isFocused() ? "› " : "  "}${sidePaneStatus}`,
+                    sidePaneStatus,
                 ),
             ])
             : layout === "sidebar"
-            ? new StyledText([fg(TUI_ACCENT)(`› ${sidePaneStatus}`)])
-            : new StyledText([fg(TUI_ACCENT)(`› ${mainPaneStatus}`)]);
+            ? new StyledText([fg(TUI_ACCENT)(sidePaneStatus)])
+            : new StyledText([fg(TUI_ACCENT)(mainPaneStatus)]);
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
             : `enter queue → ${sidebarAgentMention ?? focusedSide.agentId}`
@@ -7027,6 +7027,14 @@ export async function startTui(
                 ? TUI_ACCENT
                 : TUI_MUTED;
         const statusLine = statusNotice ?? lifecycleHint;
+        const quietAttachedPane = sidebarAgentPane !== undefined
+            && statusNotice === undefined
+            && !statusState.working
+            && uiRequest === undefined
+            && lifecycleHint === READY_HINT;
+        statusText.visible = !(approvalView.box.visible
+            || questionView.box.visible)
+            && !quietAttachedPane;
         // Pull on repaint: the renderer is handed the snapshot and answers
         // synchronously, or it does not answer at all. Nothing here waits on
         // an extension, and a renderer that fails leaves the built-in line.
@@ -7052,8 +7060,15 @@ export async function startTui(
                 process.cwd(),
                 0,
                 statusState.effortSubstitution,
+                sidebarAgentPane === undefined,
             )
-            : renderTuiStatusSegments(extensionSegments);
+            : renderTuiStatusSegments(
+                sidebarAgentPane === undefined
+                    ? extensionSegments
+                    : extensionSegments.filter((segment) =>
+                        segment.kind !== "permissions"
+                    ),
+            );
         // What an extension has made true of this conversation, said where the
         // rest of the conversation's state is said. The sidebar is a whole
         // column that arrived without being asked for, so the key that takes
@@ -7127,8 +7142,9 @@ export async function startTui(
         backgroundStatusText.height = agentSection.length === 0
             ? 1
             : 2 + agentSection.length;
-        composerBox.marginBottom = 2 + backgroundStatusText.height
-            + (paneStatusText.visible ? 1 : 0);
+        composerBox.marginBottom = 1 + backgroundStatusText.height
+            + (paneStatusText.visible ? 1 : 0)
+            + (statusText.visible ? 1 : 0);
         statusText.content = statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined
