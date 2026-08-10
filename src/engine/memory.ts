@@ -1,4 +1,6 @@
 import { lstat, readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import {
@@ -389,14 +391,30 @@ async function readTopic(
         return undefined;
     }
     try {
-        const details = await lstat(topic.path);
-        if (details.isSymbolicLink()) throw new Error("unreadable");
-        const index = files.find((file) => file.scope === topic.scope);
-        if (!details.isFile()) throw new Error("unreadable");
-        if (details.size > MEMORY_TOPIC_MAX_BYTES) throw new Error("oversized");
-        if (index !== undefined && details.mtimeMs > index.modifiedAt) throw new Error("stale");
-        const bytes = await readFile(topic.path);
-        if (bytes.byteLength > MEMORY_TOPIC_MAX_BYTES) throw new Error("oversized");
+        // Open with O_NOFOLLOW so a replacement between discovery and read
+        // cannot turn an ordinary topic into an outside-file read.
+        const handle = await open(
+            topic.path,
+            constants.O_RDONLY | constants.O_NOFOLLOW,
+        );
+        let bytes: Buffer;
+        try {
+            const details = await handle.stat();
+            const index = files.find((file) => file.scope === topic.scope);
+            if (!details.isFile()) throw new Error("unreadable");
+            if (details.size > MEMORY_TOPIC_MAX_BYTES) {
+                throw new Error("oversized");
+            }
+            if (index !== undefined && details.mtimeMs > index.modifiedAt) {
+                throw new Error("stale");
+            }
+            bytes = await handle.readFile();
+            if (bytes.byteLength > MEMORY_TOPIC_MAX_BYTES) {
+                throw new Error("oversized");
+            }
+        } finally {
+            await handle.close();
+        }
         let content: string;
         try {
             content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
