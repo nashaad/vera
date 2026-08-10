@@ -363,6 +363,7 @@ const MODE_TOAST_DURATION_MS = 2_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
 const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
+const SHIMMER_FRAME_INTERVAL_MS = 40;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 const POINTER_HOVER_DELAY_MS = 25;
@@ -2107,7 +2108,9 @@ export async function startTui(
 
     const statusTimer = setInterval(() => {
         renderStatus();
-    }, STATUS_REFRESH_INTERVAL_MS);
+    }, activityAnimation === "shimmer"
+        ? activityAnimationInterval ?? SHIMMER_FRAME_INTERVAL_MS
+        : STATUS_REFRESH_INTERVAL_MS);
     watchBackgroundAgents(dependencies.client);
 
     renderer.on(CliRenderEvents.RESIZE, () => {
@@ -7324,7 +7327,9 @@ export async function startTui(
 
     function activityFrame(): number {
         const interval = activityAnimationInterval
-            ?? (activityAnimation === "symmetric_wave"
+            ?? (activityAnimation === "shimmer"
+                ? SHIMMER_FRAME_INTERVAL_MS
+                : activityAnimation === "symmetric_wave"
                 ? SYMMETRIC_WAVE_FRAME_INTERVAL_MS
                 : DEFAULT_ACTIVITY_FRAME_INTERVAL_MS);
         return Math.floor(Date.now() / interval);

@@ -10,6 +10,7 @@ export interface TuiActivityPulseColors {
 export type TuiActivityAnimation =
     | "conveyor"
     | "symmetric_wave"
+    | "shimmer"
     | "braille"
     | "off";
 
@@ -42,6 +43,9 @@ export function renderTuiActivityAnimation(
             oddWidth(width ?? DEFAULT_SYMMETRIC_WAVE_WIDTH),
         );
     }
+    if (animation === "shimmer") {
+        return renderShimmer(frame, message, colors);
+    }
     if (animation === "braille") {
         const glyph = BRAILLE_FRAMES[positiveModulo(
             frame,
@@ -53,6 +57,38 @@ export function renderTuiActivityAnimation(
         ]);
     }
     return new StyledText([fg(colors.text)(message)]);
+}
+
+function renderShimmer(
+    frame: number,
+    message: string,
+    colors: TuiActivityPulseColors,
+): StyledText {
+    const padding = 10;
+    const characters = Array.from(message);
+    const period = characters.length + padding * 2;
+    const head = positiveModulo(frame, period) - padding;
+    const dotPhase = positiveModulo(frame, 30);
+    const dotColor = dotPhase < 5 || dotPhase >= 25
+        ? colors.active
+        : dotPhase < 10 || dotPhase >= 20
+        ? colors.trail
+        : colors.inactive;
+    const chunks: TextChunk[] = [
+        fg(dotColor)("•"),
+        fg(colors.inactive)(" "),
+    ];
+
+    for (let index = 0; index < characters.length; index += 1) {
+        const distance = Math.abs(index - head);
+        const color = distance === 0
+            ? colors.active
+            : distance <= 2
+            ? colors.trail
+            : colors.inactive;
+        chunks.push(fg(color)(characters[index] ?? ""));
+    }
+    return new StyledText(chunks);
 }
 
 export function renderTuiActivityPulse(

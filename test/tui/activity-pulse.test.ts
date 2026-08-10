@@ -73,6 +73,31 @@ test("TUI activity animation can use Braille or disable motion", () => {
     ))).toBe("working");
 });
 
+test("TUI shimmer pulses a bullet while a highlight crosses the text", () => {
+    const shimmer = renderTuiActivityAnimation("shimmer", 12, "working", colors);
+    expect(plainText(shimmer)).toBe("• working");
+    expect(shimmer.chunks.map((chunk) => String(chunk.fg))).toEqual([
+        "rgba(0.36, 0.39, 0.44, 1.00)",
+        "rgba(0.36, 0.39, 0.44, 1.00)",
+        "rgba(0.72, 0.71, 0.85, 1.00)",
+        "rgba(0.72, 0.71, 0.85, 1.00)",
+        "rgba(0.48, 0.64, 0.97, 1.00)",
+        "rgba(0.72, 0.71, 0.85, 1.00)",
+        "rgba(0.72, 0.71, 0.85, 1.00)",
+        "rgba(0.36, 0.39, 0.44, 1.00)",
+        "rgba(0.36, 0.39, 0.44, 1.00)",
+    ]);
+    const dimShimmer = renderTuiActivityAnimation(
+        "shimmer",
+        15,
+        "working 🚀",
+        colors,
+    );
+    expect(plainText(dimShimmer)).toBe("• working 🚀");
+    expect(String(dimShimmer.chunks[0]?.fg))
+        .toBe("rgba(0.36, 0.39, 0.44, 1.00)");
+});
+
 test("TUI activity animation accepts a numeric width", () => {
     expect(plainText(renderTuiActivityAnimation(
         "symmetric_wave",
