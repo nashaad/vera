@@ -1529,19 +1529,18 @@ export class AgentRegistry {
         if (!sameWorkspace(caller, recipient)) {
             return toolError("agent_send recipients must be in the same workspace.");
         }
+        let replyTo: number | undefined;
         if (effect.replyTo !== undefined) {
             const replied = inbox.entry(effect.replyTo);
             const message = replied === undefined ? undefined : parsePeerMessage(replied);
             const readThrough = caller.inbox.consumer.offset();
-            if (
+            if (!(
                 message === undefined
                 || message.from !== effect.to
                 || message.to !== callerId
                 || readThrough < effect.replyTo
-            ) {
-                return toolError(
-                    "agent_send reply_to must identify a message already read from the recipient.",
-                );
+            )) {
+                replyTo = effect.replyTo;
             }
         }
         const payload: PeerMessagePayload = {
@@ -1549,7 +1548,7 @@ export class AgentRegistry {
             from: callerId,
             to: effect.to,
             text: effect.text,
-            ...(effect.replyTo === undefined ? {} : { reply_to: effect.replyTo }),
+            ...(replyTo === undefined ? {} : { reply_to: replyTo }),
         };
         const recipientLive = entryIsLive(recipient);
         const notice = recipient.agent.attached ? "ui" as const : "none" as const;
@@ -1568,6 +1567,9 @@ export class AgentRegistry {
                 stored: true,
                 recipient_live: recipientLive,
                 notice,
+                ...(effect.replyTo === undefined
+                    ? {}
+                    : { reply_to_applied: replyTo !== undefined }),
             }),
             isError: false,
         };

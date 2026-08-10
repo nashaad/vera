@@ -36,6 +36,26 @@ test("list returns sorted top-level paths", async () => {
     }
 });
 
+test("list treats an empty path as the workspace", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-list-"));
+    try {
+        await writeFile(join(workspace, "workspace-file.txt"), "");
+
+        const result = await listTool.execute(
+            { path: "" },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+
+        expect(result).toMatchObject({ kind: "output", isError: false });
+        if (result.kind === "output") {
+            expect(result.output).toContain("workspace-file.txt");
+        }
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("list respects recursive and glob filters", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-list-"));
     try {
@@ -134,4 +154,21 @@ test("list is a routine read allowed under every profile", () => {
                 .behavior,
         ).toBe("allow");
     }
+});
+
+test("list with an empty path is a routine workspace read", () => {
+    const workspace = "/Users/nash/Projects/vera";
+    const call = { id: "call_1", name: "list", input: { path: "" } };
+
+    expect(extractPermissionActions({
+        toolCall: call,
+        workspace,
+        homeDirectory: "/Users/nash",
+    })).toEqual([{
+        tool: "list",
+        verb: "read",
+        path: workspace,
+        scope: "workspace",
+    }]);
+    expect(decideToolPermission("ask", call, workspace).behavior).toBe("allow");
 });

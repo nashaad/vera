@@ -1880,12 +1880,13 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).not.toContain("$ grep");
 
             sendKey(socket, session, "3");
-            await waitForVisiblePaneWhere(
+            pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
-                (current) => !current.includes("Allow once"),
-                "closed approval",
+                (current) => current.includes("RESPONSE AFTER APPROVAL"),
+                "response after closed approval",
             );
+            expect(pane).not.toContain("Allow once");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {

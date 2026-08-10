@@ -730,7 +730,7 @@ function structuredInputAction(
     workspace: string,
 ): PermissionAction {
     const raw = toolCall.input[spec.field];
-    if (typeof raw !== "string" || raw.length === 0) {
+    if (typeof raw !== "string") {
         return { tool: toolCall.name, verb: "unknown" };
     }
     if (spec.kind === "url") {
@@ -742,7 +742,13 @@ function structuredInputAction(
         };
     }
     // Structured tool inputs are literal paths, not shell words.
-    const path = resolve(workspace, raw);
+    // Read-only discovery tools commonly receive "" from smaller models when
+    // they mean the current workspace. Treat that literal spelling as the
+    // workspace before deciding permission; mutations still fail closed.
+    if (raw.length === 0 && spec.verb !== "read") {
+        return { tool: toolCall.name, verb: "unknown" };
+    }
+    const path = resolve(workspace, raw || ".");
     return {
         tool: toolCall.name,
         verb: spec.verb,

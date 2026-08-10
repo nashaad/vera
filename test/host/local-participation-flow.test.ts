@@ -262,6 +262,67 @@ test("an outside-harness entry stays inert and unread across a restart", async (
     }
 });
 
+test("an invalid reply id falls back to a new durable message", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-reply-fallback-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+    );
+    const senderPath = join(root, "sender.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            toolCall("send", "agent_send", {
+                to: "recipient",
+                text: "Please inspect the parser.",
+                reply_to: 1,
+            }),
+            textResponse("sent"),
+        ]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+
+    try {
+        const sender = await registry.create({
+            id: "sender",
+            workspace: root,
+            sessionPath: senderPath,
+        });
+        const recipient = await registry.create({
+            id: "recipient",
+            workspace: root,
+            sessionPath: join(root, "recipient.jsonl"),
+        });
+        const senderAttachment = sender.attach();
+        const recipientAttachment = recipient.attach();
+        await senderAttachment.receive();
+        await recipientAttachment.receive();
+
+        await runPrompt(senderAttachment, "Send a new message.");
+
+        expect(JSON.parse(await lastToolResult(senderPath))).toMatchObject({
+            message_id: 1,
+            stored: true,
+            reply_to_applied: false,
+        });
+        const message = parsePeerMessage(inbox.entry(1)!);
+        expect(message).toMatchObject({
+            from: "sender",
+            to: "recipient",
+            text: "Please inspect the parser.",
+        });
+        expect(message).not.toHaveProperty("reply_to");
+
+        senderAttachment.detach();
+        recipientAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
  test("concurrent native sends keep unique ordered host message ids", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-local-concurrent-"));
     temporaryDirectories.push(root);

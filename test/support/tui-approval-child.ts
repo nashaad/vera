@@ -40,6 +40,12 @@ const client: TuiAgentClient = {
     async send(command: ClientCommand): Promise<void> {
         if (command.type === "ui_response" && command.requestId === requestId) {
             updates.push({ type: "ui_request_closed", requestId, seq: 3 });
+            updates.push({
+                type: "assistant_delta",
+                text: "RESPONSE AFTER APPROVAL",
+                seq: 4,
+            });
+            updates.push({ type: "turn_finished", seq: 5 });
         }
     },
     receive(signal) {
