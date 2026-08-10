@@ -1637,11 +1637,11 @@ test.skipIf(!tmuxAvailable)(
 
             pane = await waitForPane(socket, session, "enter queue");
             expect(pane).toMatch(/[░▒▓█]{7} (thinking|responding) · \d+s/);
-            expect(pane).toContain("esc redirect/stop");
+            expect(pane).toContain("esc stop");
 
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
-            expect(pane).toContain("esc redirect/stop");
+            expect(pane).toContain("esc stop");
             // No fold marker: this turn reasons without producing any summary
             // text, so there is nothing behind the line to open.
             expect(pane).toMatch(/(?<![+-] )Thought: \d+\.\d+s/);

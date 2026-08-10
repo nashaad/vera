@@ -353,7 +353,7 @@ import {
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
-const WORKING_HINT = `enter queue · esc redirect/stop · ${tuiKeyHint("interrupt")}`;
+const WORKING_HINT = `enter queue · esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 // The question overlay owns the choose/cancel hint now, so the status line only
 // carries the waiting phase and the global interrupt.
@@ -7032,7 +7032,7 @@ export async function startTui(
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
             : `enter queue → ${sidebarAgentMention ?? focusedSide.agentId}`
-                + ` · esc steer ${sidebarAgentMention ?? focusedSide.agentId}`
+                + ` · esc stop ${sidebarAgentMention ?? focusedSide.agentId}`
                 + ` · ${tuiKeyHint("interrupt")}`;
         renderPendingQuote();
         renderHeldAddress();
