@@ -49,7 +49,81 @@ export interface StartTuiClientExtensionHostOptions {
     ) => void;
     readonly postNotice: (text: string) => void;
     readonly commandRegistry: TuiCommandRegistry;
+    readonly signal?: AbortSignal;
     readonly onFailure: (failure: ClientExtensionRegistryFailure) => void;
+}
+
+export interface TuiClientExtensionHostController {
+    current(): ClientExtensionRegistry | undefined;
+    reload(): Promise<ClientExtensionRegistry | undefined>;
+    close(): Promise<void>;
+}
+
+/**
+ * Owns replaceable client generations without touching the resident host.
+ * Reload is deliberately dispose-then-activate: activation APIs reach live
+ * client surfaces, so pretending a candidate generation is invisible would
+ * make rollback incomplete.
+ */
+export function createTuiClientExtensionHostController(
+    start: (signal: AbortSignal) => Promise<ClientExtensionRegistry>,
+    onChange: (registry: ClientExtensionRegistry | undefined) => void,
+): TuiClientExtensionHostController {
+    let registry: ClientExtensionRegistry | undefined;
+    let closed = false;
+    let tail = Promise.resolve();
+    let activating: AbortController | undefined;
+
+    const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
+        const result = tail.then(operation, operation);
+        tail = result.then(() => undefined, () => undefined);
+        return result;
+    };
+
+    return {
+        current: () => registry,
+        reload(): Promise<ClientExtensionRegistry | undefined> {
+            return enqueue(async () => {
+                if (closed) return undefined;
+                const previous = registry;
+                registry = undefined;
+                if (previous !== undefined) {
+                    onChange(undefined);
+                }
+                await previous?.close();
+                if (closed) return undefined;
+                const controller = new AbortController();
+                activating = controller;
+                let replacement: ClientExtensionRegistry;
+                try {
+                    replacement = await start(controller.signal);
+                } finally {
+                    if (activating === controller) {
+                        activating = undefined;
+                    }
+                }
+                if (closed) {
+                    await replacement.close();
+                    return undefined;
+                }
+                registry = replacement;
+                onChange(replacement);
+                return replacement;
+            });
+        },
+        close(): Promise<void> {
+            closed = true;
+            activating?.abort();
+            return enqueue(async () => {
+                const previous = registry;
+                registry = undefined;
+                if (previous !== undefined) {
+                    onChange(undefined);
+                }
+                await previous?.close();
+            });
+        },
+    };
 }
 
 export function configuredTuiClientExtensions(
@@ -111,6 +185,7 @@ export async function startTuiClientExtensionHost(
             options.commandRegistry.registeredCommands().map(({ name }) => name),
         reservedKeybindingKeys: [],
         onFailure: options.onFailure,
+        signal: options.signal,
     });
     let disposeCommands: (() => void) | undefined;
     try {
