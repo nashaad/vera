@@ -6962,7 +6962,7 @@ export async function startTui(
                 fg(sidebar.isFocused() ? TUI_MUTED : TUI_ACCENT)(
                     mainPaneStatus,
                 ),
-                fg(TUI_MUTED)(" | "),
+                fg(TUI_MUTED)("   |   "),
                 fg(sidebar.isFocused() ? TUI_ACCENT : TUI_MUTED)(
                     sidePaneStatus,
                 ),
