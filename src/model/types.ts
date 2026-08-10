@@ -49,12 +49,15 @@ export interface UserMessage {
     readonly role: "user";
     readonly content: readonly UserContent[];
     readonly internal?: boolean;
+    /** Compaction may summarize history before this message, never across it. */
+    readonly compactionBarrier?: boolean;
 }
 
 export interface ModelInputUserMessage {
     readonly role: "user";
     readonly content: readonly (UserContent | ImageContent)[];
     readonly internal?: boolean;
+    readonly compactionBarrier?: boolean;
 }
 
 /**

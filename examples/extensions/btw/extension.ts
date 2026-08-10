@@ -98,6 +98,7 @@ export function activateClient(vera: any): void {
                             role: "user",
                             text: SIDE_CONVERSATION_BOUNDARY,
                             hidden: true,
+                            compactionBarrier: true,
                         }],
                     }),
             }, signal);

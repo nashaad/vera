@@ -104,7 +104,12 @@ test("extension agents branch only from a visible hosted agent", async () => {
         source: { type: "branch", agentId: "main" },
         approvalMode: "readonly",
         attachmentLifetime: "ephemeral",
-        initialMessages: [{ role: "user", text: "boundary", hidden: true }],
+        initialMessages: [{
+            role: "user",
+            text: "boundary",
+            hidden: true,
+            compactionBarrier: true,
+        }],
     }, signal)).resolves.toEqual({ agentId: "branch" });
     expect(branched).toEqual([[
         "main",
@@ -114,6 +119,7 @@ test("extension agents branch only from a visible hosted agent", async () => {
             role: "user",
             content: [{ type: "text", text: "boundary" }],
             internal: true,
+            compactionBarrier: true,
         }],
     ]]);
     await expect(adapter.create("extension", {
@@ -141,6 +147,34 @@ test("branch initial messages require their own negotiated capability", async ()
         initialMessages: [{ role: "user", text: "boundary", hidden: true }],
     }, new AbortController().signal)).rejects.toThrow(
         "does not support branch initial messages",
+    );
+});
+
+test("branch compaction barriers require their own negotiated capability", async () => {
+    const adapter = createTuiClientExtensionAgentsAdapter({
+        primary: () => ({
+            ...agent("main"),
+            supportsHostCapability: (capability) =>
+                capability === "agent.branch-options.v1"
+                || capability === "agent.branch-initial-messages.v1",
+        }),
+        sidebar: () => undefined,
+        sidebarMention: () => undefined,
+        branchAgent: async () => agent("branch"),
+        async adoptAgent() {},
+    });
+
+    await expect(adapter.create("extension", {
+        pane: "sidebar",
+        source: { type: "branch", agentId: "main" },
+        initialMessages: [{
+            role: "user",
+            text: "boundary",
+            hidden: true,
+            compactionBarrier: true,
+        }],
+    }, new AbortController().signal)).rejects.toThrow(
+        "does not support branch compaction barriers",
     );
 });
 

@@ -1687,6 +1687,38 @@ test("a compaction cannot split a tool call from its result", async () => {
     })).rejects.toThrow("leaves tool call call-1 unanswered");
 });
 
+test("a compaction record cannot cross a model-context barrier", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    await store.appendMessage(userMessage("inherited"));
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "boundary" }],
+        internal: true,
+        compactionBarrier: true,
+    });
+    await store.appendMessage(userMessage("side request"));
+
+    await expect(store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [assistantMessage("invalid summary")],
+        measured: { inputTokens: 20, estimated: true },
+    })).rejects.toThrow("cannot cross a model-context barrier");
+
+    await store.appendCompaction({
+        boundaryMessageId: "message-1",
+        firstRetainedMessageId: "message-2",
+        projection: [assistantMessage("inherited summary")],
+        measured: { inputTokens: 20, estimated: true },
+    });
+    expect(store.modelContext().map((message) => message.content.flatMap(
+        (content) => content.type === "text" ? [content.text] : [],
+    ).join("\n")))
+        .toEqual(["inherited summary", "boundary", "side request"]);
+});
+
 test("a compaction is refused unless its anchors are on the active branch", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

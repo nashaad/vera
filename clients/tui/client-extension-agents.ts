@@ -10,6 +10,7 @@ import {
     type TuiAgentClient,
 } from "./agent-client.ts";
 import {
+    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
 } from "../../src/host/capabilities.ts";
@@ -98,6 +99,18 @@ export function createTuiClientExtensionAgentsAdapter(
                     "Resident host does not support branch initial messages",
                 );
             }
+            if (
+                request.initialMessages?.some((message) =>
+                    message.compactionBarrier === true
+                ) === true
+                && !primary.supportsHostCapability?.(
+                    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
+                )
+            ) {
+                throw new Error(
+                    "Resident host does not support branch compaction barriers",
+                );
+            }
             const next = requireIdentifiedTuiAgentClient(await (
                 source === undefined
                     ? options.createAgent === undefined
@@ -118,6 +131,9 @@ export function createTuiClientExtensionAgentsAdapter(
                                 content: [{ type: "text" as const, text: message.text }],
                                 ...(message.hidden === true
                                     ? { internal: true }
+                                    : {}),
+                                ...(message.compactionBarrier === true
+                                    ? { compactionBarrier: true }
                                     : {}),
                             })),
                             signal,

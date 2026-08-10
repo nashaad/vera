@@ -14,6 +14,7 @@ import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
 import {
+    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
 } from "../../src/host/capabilities.ts";
@@ -35,6 +36,7 @@ import { connectHost } from "../../src/host/connection.ts";
             capabilities: [
                 HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
                 HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+                HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
             ],
             commitBranch: () => true,
             createAgent: async (options) => {
@@ -102,6 +104,7 @@ import { connectHost } from "../../src/host/connection.ts";
                         role: "user",
                         content: [{ type: "text", text: "boundary" }],
                         internal: true,
+                        compactionBarrier: true,
                     }],
                 },
             )).toEqual({
@@ -117,6 +120,7 @@ import { connectHost } from "../../src/host/connection.ts";
                     role: "user",
                     content: [{ type: "text", text: "boundary" }],
                     internal: true,
+                    compactionBarrier: true,
                 }],
             });
         } finally {

@@ -158,6 +158,8 @@ function isModelMessage(value: unknown): value is ModelMessage {
     }
     if (value.role === "user") {
         return (value.internal === undefined || typeof value.internal === "boolean")
+            && (value.compactionBarrier === undefined
+                || typeof value.compactionBarrier === "boolean")
             && value.content.every((block) =>
                 isTextContent(block) || isImageAttachmentContent(block)
             );

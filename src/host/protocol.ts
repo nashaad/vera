@@ -78,6 +78,7 @@ export interface BranchAgentRequest {
         readonly role: "user";
         readonly content: readonly { readonly type: "text"; readonly text: string }[];
         readonly internal?: boolean;
+        readonly compactionBarrier?: boolean;
     }[];
 }
 
@@ -565,6 +566,8 @@ function isBranchInitialMessages(
             return candidate.role === "user"
                 && (candidate.internal === undefined
                     || typeof candidate.internal === "boolean")
+                && (candidate.compactionBarrier === undefined
+                    || typeof candidate.compactionBarrier === "boolean")
                 && Array.isArray(candidate.content)
                 && candidate.content.length === 1
                 && candidate.content.every((content) => {

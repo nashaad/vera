@@ -17,6 +17,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { sourceVersion } from "../../src/build-info.ts";
 import {
+    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
 } from "../../src/host/capabilities.ts";
@@ -581,6 +582,7 @@ export async function startConfiguredTui(
         requestedCapabilities: [
             HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
             HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+            HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
         ],
     });
     const rememberSession = (enteredAgentId: string): void => {
@@ -601,6 +603,7 @@ export async function startConfiguredTui(
             requestedCapabilities: [
                 HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
                 HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+                HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
             ],
         });
     try {

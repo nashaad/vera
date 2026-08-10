@@ -1977,6 +1977,8 @@ function validateAgentInitialMessages(
             || text.length > 16_000
             || (message.hidden !== undefined
                 && typeof message.hidden !== "boolean")
+            || (message.compactionBarrier !== undefined
+                && typeof message.compactionBarrier !== "boolean")
         ) {
             throw new Error("Client extension initial message is invalid");
         }
@@ -1984,6 +1986,9 @@ function validateAgentInitialMessages(
             role: "user" as const,
             text,
             ...(message.hidden === undefined ? {} : { hidden: message.hidden }),
+            ...(message.compactionBarrier === undefined
+                ? {}
+                : { compactionBarrier: message.compactionBarrier }),
         };
     });
     const bytes = new TextEncoder().encode(JSON.stringify(validated)).byteLength;
