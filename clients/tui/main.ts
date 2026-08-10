@@ -110,6 +110,15 @@ import { TuiAgentPane } from "./agent-pane.ts";
 import { createTuiExperimentalHost } from "./experimental-tui-host.ts";
 import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
 import {
+    createTuiClientExtensionAgentsAdapter,
+} from "./client-extension-agents.ts";
+import {
+    requireIdentifiedTuiAgentClient,
+    type IdentifiedTuiAgentClient,
+    type TuiAgentClient,
+} from "./agent-client.ts";
+export type { TuiAgentClient } from "./agent-client.ts";
+import {
     routeTuiAgentMessage,
     type TuiHostedAgentAddressing,
 } from "./agent-message-routing.ts";
@@ -480,30 +489,10 @@ export interface TuiExit {
     readonly agentId?: string;
 }
 
-export interface TuiAgentClient {
-    readonly agentId?: string;
-    readonly workspace?: string;
-    /** Background work as of the attach, before anything has changed. */
-    readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
-    onBackgroundAgents?: AttachedAgentClient["onBackgroundAgents"];
-    send(command: ClientCommand): Promise<void>;
-    receive(signal?: AbortSignal): Promise<AgentUpdate>;
-    listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];
-    runExtensionCommand?: AttachedAgentClient["runExtensionCommand"];
-    detach(): Promise<void>;
-    close(): void;
-}
-
-type IdentifiedTuiAgentClient = TuiAgentClient & { readonly agentId: string };
-
 function requireIdentifiedClient(
     client: TuiAgentClient,
 ): IdentifiedTuiAgentClient {
-    if (client.agentId === undefined || client.agentId.length === 0) {
-        client.close();
-        throw new Error("Attached agent has no identity");
-    }
-    return client as IdentifiedTuiAgentClient;
+    return requireIdentifiedTuiAgentClient(client);
 }
 
 export interface TuiStartOptions {
@@ -1016,97 +1005,33 @@ export async function startTui(
                 renderState();
             },
         },
-        agents: {
-            visible(_extensionId) {
-                return [
-                    ...(client.agentId === undefined
-                        ? []
-                        : [{ agentId: client.agentId, pane: "main" as const }]),
-                    ...(sidebarAgentPane === undefined
-                        ? []
-                        : [{
-                            agentId: sidebarAgentPane.agentId,
-                            pane: "sidebar" as const,
-                            ...(sidebarAgentMention === undefined
-                                ? {}
-                                : { mention: sidebarAgentMention }),
-                        }]),
-                ];
-            },
-            async create(extensionId, request, signal) {
-                if (signal.aborted) throw signal.reason;
-                if (dependencies.createAgent === undefined) {
-                    throw new Error("This client cannot create agents");
-                }
-                const next = requireIdentifiedClient(await dependencies.createAgent(
-                    request.workspace ?? client.workspace ?? process.cwd(),
-                    request.approvalMode,
-                    request.attachmentLifetime,
-                ));
-                await openExtensionAgent(
-                    extensionId,
-                    next,
-                    request.pane,
-                    false,
-                    request.mention,
-                    request.attachmentLifetime,
-                    request.approvalMode,
-                    request.statusLabel,
-                );
-                return { agentId: next.agentId };
-            },
-            async open(extensionId, request, signal) {
-                if (signal.aborted) throw signal.reason;
-                if (dependencies.attachAgent === undefined) {
-                    throw new Error("This client cannot attach agents");
-                }
-                const next = requireIdentifiedClient(
-                    await dependencies.attachAgent(request.agentId),
-                );
-                await openExtensionAgent(
-                    extensionId,
-                    next,
-                    request.pane,
-                    false,
-                    request.mention,
-                    request.attachmentLifetime,
-                    undefined,
-                    request.statusLabel,
-                );
-            },
-            async message(_extensionId, request, signal) {
-                if (signal.aborted) throw signal.reason;
-                const side = request.agentId === sidebarAgentPane?.agentId
-                    ? sidebarAgentPane
-                    : undefined;
-                if (side !== undefined) {
-                    const attachments = await attachImagesToSidebar(
-                        side,
-                        request.imagePaths ?? [],
-                        signal,
-                    );
-                    await side.client.send({
-                        type: "prompt",
-                        content: request.text,
-                        ...(attachments.length === 0
-                            ? {}
-                            : {
-                                attachmentIds: attachments.map(
-                                    (attachment) => attachment.id,
-                                ),
-                            }),
-                    });
-                    return;
-                }
-                if (request.agentId !== client.agentId) {
-                    throw new Error("Agent must be open before it can be messaged");
-                }
-                if ((request.imagePaths?.length ?? 0) > 0) {
-                    throw new Error("Submitted images already belong to the main agent");
-                }
-                await client.send({ type: "prompt", content: request.text });
-            },
-        },
+        agents: createTuiClientExtensionAgentsAdapter({
+            primary: () => client,
+            sidebar: () => sidebarAgentPane,
+            sidebarMention: () => sidebarAgentMention,
+            createAgent: dependencies.createAgent,
+            attachAgent: dependencies.attachAgent,
+            adoptAgent: (
+                extensionId,
+                next,
+                pane,
+                mention,
+                attachmentLifetime,
+                initialApprovalMode,
+                statusLabel,
+                signal,
+            ) => openExtensionAgent(
+                extensionId,
+                next,
+                pane,
+                false,
+                mention,
+                attachmentLifetime,
+                initialApprovalMode,
+                statusLabel,
+                signal,
+            ),
+        }),
         experimentalTui: {
             ...experimentalTuiHost.adapter,
             agentSurface: hostedAgentSurface,
@@ -1615,7 +1540,9 @@ export async function startTui(
         attachmentLifetime: "ephemeral" | "durable" = "durable",
         initialApprovalMode?: string,
         statusLabel?: string,
+        signal?: AbortSignal,
     ): Promise<void> {
+        signal?.throwIfAborted();
         if (pane === "main") {
             switchToClient(next, undefined, { preserveSidebar: true });
             return;
@@ -1632,7 +1559,16 @@ export async function startTui(
         const previous = sidebarAgentPane;
         const previousModeLabel = sidebarModeLabel;
         sidebarAgentPane = undefined;
-        await previous?.detach();
+        try {
+            await previous?.detach();
+        } catch (error) {
+            next.close();
+            throw error;
+        }
+        if (signal?.aborted) {
+            next.close();
+            throw signal.reason;
+        }
         sidebarOwner = extensionId;
         const attached = new TuiAgentPane({
             client: next,
