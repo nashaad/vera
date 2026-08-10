@@ -12,6 +12,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera resume <session-id|path>", description: "Resume a durable session" },
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
+    { usage: "vera configure", description: "Open Vera's config file in your editor" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn" },
     { usage: "vera pool list", description: "List pooled models" },
     { usage: "vera pool add <provider/model> [--verify]", description: "Add a model to the pool" },

@@ -54,6 +54,7 @@ import { runScheduleCli } from "./schedule.ts";
 import type { ScheduleOperation } from "../../src/scheduler/types.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import type { StartupProfile } from "../../src/startup-profile.ts";
+import { openFileInEditor, veraConfigPath } from "../editor.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -70,6 +71,7 @@ export interface CliDependencies {
         format: SessionExportFormat,
     ) => Promise<string>;
     readonly inspectModelRequest?: (sessionPath: string) => Promise<string>;
+    readonly openConfigure?: () => Promise<void>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
     readonly runRpc?: () => Promise<void>;
@@ -233,6 +235,12 @@ export async function runCli(
             dependencies.inspectModelRequest ?? inspectLatestModelRequest
         )(args[1]);
         output.write(rendered);
+        return 0;
+    }
+
+    if (args.length === 1 && args[0] === "configure") {
+        await (dependencies.openConfigure ?? (() =>
+            openFileInEditor(veraConfigPath())))();
         return 0;
     }
 

@@ -16,6 +16,7 @@ import {
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 import { sourceVersion } from "../../src/build-info.ts";
+import { openFileInEditor, veraConfigPath } from "../editor.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -406,6 +407,7 @@ function displayModeLabel(label: string): string {
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
+    readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     /**
      * The four ways to reach another session, each handed the identity of the
@@ -3450,6 +3452,12 @@ export async function startTui(
             openSettingsMenu();
             return;
         }
+        if (commandAction?.type === "open_configure") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            void openConfigureEditor();
+            return;
+        }
         if (commandAction?.type === "open_command_palette") {
             composer.clearComposer();
             openCommandPalette();
@@ -5465,8 +5473,33 @@ export async function startTui(
             undefined,
             targetState.modelSettings?.pooled,
         ), parent);
+        // Auth changes happen outside the host's original model snapshot.
+        // Refresh here so reopening the picker also repairs a stale model pane
+        // that was kept underneath the provider picker.
+        requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    async function openConfigureEditor(): Promise<void> {
+        renderer.suspend();
+        try {
+            await (dependencies.openConfigure ?? (() =>
+                openFileInEditor(veraConfigPath())))();
+            state = appendTuiNotice(
+                state,
+                "Configure editor closed. Restart Vera to apply config changes.",
+            );
+        } catch (error) {
+            state = appendTuiNotice(
+                state,
+                `Could not open config: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        } finally {
+            renderer.resume();
+            renderState();
+            focusActiveSurface();
+        }
     }
 
     /**
@@ -5779,6 +5812,9 @@ export async function startTui(
             return;
         }
         settingsPicker = prompt.parent;
+        if (settingsPicker?.kind === "model") {
+            requestAgentSettings(focusedAgentClient());
+        }
         renderState();
         focusActiveSurface();
     }
@@ -6015,6 +6051,8 @@ export async function startTui(
         // Escape: `handleTuiSettingsPickerKey` returns no `state` on Enter,
         // so this is the only place that still has it.
         const previousPicker = settingsPicker;
+        const returningToModelPicker = settingsPicker?.kind !== "model"
+            && transition.state?.kind === "model";
         settingsPicker = transition.state;
         if (
             extensionPickerWasOpen
@@ -6258,6 +6296,9 @@ export async function startTui(
             composer.blur();
             settingsPickerView.update(settingsPicker);
             settingsPickerView.box.focus();
+        }
+        if (returningToModelPicker) {
+            requestAgentSettings(focusedAgentClient());
         }
         renderState();
     }

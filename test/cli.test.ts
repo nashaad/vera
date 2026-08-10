@@ -26,6 +26,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera resume <session-id|path>");
     expect(output).toContain("vera export <session-path>");
     expect(output).toContain("vera inspect <session-path>");
+    expect(output).toContain("vera configure");
     expect(output).toContain("vera pool list");
     expect(output).toContain("vera pool add <provider/model>");
     expect(output).toContain("vera pool remove <pool name|id>");
@@ -35,6 +36,22 @@ test("vera help and version are available without starting a client", async () =
     output = "";
     expect(await runCli(["--version"], dependencies)).toBe(0);
     expect(output).toBe("vera source abc1234\n");
+    expect(started).toBe(false);
+});
+
+test("vera configure opens the config editor without starting a client", async () => {
+    let opened = false;
+    let started = false;
+
+    expect(await runCli(["configure"], {
+        openConfigure: async () => {
+            opened = true;
+        },
+        runTui: async () => {
+            started = true;
+        },
+    })).toBe(0);
+    expect(opened).toBe(true);
     expect(started).toBe(false);
 });
 
