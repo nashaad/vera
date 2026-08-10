@@ -44,6 +44,25 @@ attachment lifetime, sidebar placement, addressing, mode and layout status, and
 the pane layout and focus keys. Vera owns agent creation, attachment, validated
 message delivery, permissions, persistence, and the generic TUI pane surface.
 
+## Extension boundary
+
+BTW is built from general client-extension primitives rather than a built-in
+sidekick mode. `vera.agents.create()` can either create a fresh hosted agent or
+branch a visible one with structured history. A branch may append bounded
+initial user messages before its first turn; hidden messages remain visible to
+the model but not the transcript and never count as user authorization.
+
+An initial message may also be a compaction barrier. Vera can summarize history
+before that seam but will not compact across it. This is intentionally
+conservative: exact context ordering wins over reclaiming the later side
+conversation. Hosts negotiate initial-message and compaction-barrier support
+separately, so a mixed-version client fails clearly instead of silently losing
+either behavior.
+
+The extension owns the boundary wording and decides that BTW branches while
+Pair starts fresh. The runtime only understands generic branch, message,
+permission, attachment, and compaction semantics.
+
 ## Install
 
 Add it to your Vera config:
