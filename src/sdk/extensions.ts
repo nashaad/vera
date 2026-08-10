@@ -38,6 +38,14 @@ export interface VeraExtensionTools {
 export interface VeraExtensionHooks {
     registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
     registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
+    registerCommand(spec: VeraExtensionCommandHookSpec): VeraExtensionDisposer;
+}
+
+export interface VeraExtensionCommandHookSpec {
+    readonly phase: "pre_tool_use" | "post_tool_use";
+    /** Executable plus arguments; never interpreted by a shell. */
+    readonly argv: readonly string[];
+    readonly timeoutMs?: number;
 }
 
 export interface VeraExtensionToolSpec {

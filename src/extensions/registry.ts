@@ -8,6 +8,7 @@ import type {
     VeraExtensionApi,
     VeraExtensionCommandHandler,
     VeraExtensionCommandSpec,
+    VeraExtensionCommandHookSpec,
     VeraExtensionDisposer,
     VeraExtensionModule,
     VeraExtensionToolHandler,
@@ -21,6 +22,7 @@ import type {
     PreToolUseHookPayload,
     PreToolUseHookResult,
 } from "../sdk/hooks.ts";
+import { createCommandHook, type CommandHookSpec } from "./command-hook.ts";
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
@@ -405,6 +407,26 @@ async function activateExtension(
                     throw new Error("Invalid post-tool hook registration");
                 }
                 const safe = safePostToolHook(hook);
+                postToolUseHooks.push(safe);
+                return () => removeHook(postToolUseHooks, safe);
+            },
+            registerCommand(spec: VeraExtensionCommandHookSpec): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension hooks must be registered during activation",
+                    );
+                }
+                if (!loaded.manifest.capabilities.includes("hooks.command")) {
+                    throw new Error("Extension did not declare hooks.command");
+                }
+                const command = normalizeCommandHookSpec(spec);
+                const hook = createCommandHook(command);
+                if (command.phase === "pre_tool_use") {
+                    const safe = safePreToolHook(hook as PreToolUseHook);
+                    preToolUseHooks.push(safe);
+                    return () => removeHook(preToolUseHooks, safe);
+                }
+                const safe = safePostToolHook(hook as PostToolUseHook);
                 postToolUseHooks.push(safe);
                 return () => removeHook(postToolUseHooks, safe);
             },
@@ -845,6 +867,20 @@ async function runDisposers(
         }
     }
     return failures;
+}
+
+/** Normalize before the command adapter applies its exact argv bounds. */
+function normalizeCommandHookSpec(
+    spec: VeraExtensionCommandHookSpec,
+): CommandHookSpec {
+    if (typeof spec !== "object" || spec === null) {
+        throw new Error("Invalid command hook registration");
+    }
+    return {
+        phase: spec.phase,
+        argv: [...(spec.argv ?? [])],
+        ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
+    };
 }
 
 /** Extension failures are isolated from the engine's built-in hook chain. */
