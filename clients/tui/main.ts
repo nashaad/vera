@@ -1244,25 +1244,6 @@ export async function startTui(
     });
     sidebarJump.add(sidebarJumpText);
 
-    const soloPaneText = new TextRenderable(renderer, {
-        id: "solo-pane-label-text",
-        content: "",
-        fg: theme.muted,
-        bg: theme.panel,
-        width: "100%",
-        height: 1,
-    });
-    const soloPaneLabel = new BoxRenderable(renderer, {
-        id: "solo-pane-label",
-        position: "absolute",
-        width: 8,
-        height: 1,
-        backgroundColor: theme.panel,
-        zIndex: 3,
-        visible: false,
-    });
-    soloPaneLabel.add(soloPaneText);
-
     const placeholder = new TextRenderable(renderer, {
         id: "placeholder",
         content: "Start a conversation with Vera.",
@@ -1298,6 +1279,14 @@ export async function startTui(
         width: "100%",
         height: 1,
     });
+    const paneStatusText = new TextRenderable(renderer, {
+        id: "pane-status",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        visible: false,
+    });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
         content: "",
@@ -1329,6 +1318,7 @@ export async function startTui(
         paddingLeft: 2,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
+    statusBand.add(paneStatusText);
     statusBand.add(statusText);
     statusBand.add(backgroundStatusText);
 
@@ -1593,9 +1583,7 @@ export async function startTui(
         rememberOpenPaneGroup();
         clearSidebarEntryNodes();
         sidebar.clear();
-        sidebar.setHeader(
-            `${sidebarAgentMention} · ${attached.state.state.approvalMode ?? "loading"}`,
-        );
+        sidebar.setHeader(undefined);
         sidebar.open();
         sidebar.setFocused(true);
         attached.start();
@@ -1648,7 +1636,12 @@ export async function startTui(
     }
 
     function sidebarTranscriptWidth(): number {
-        return Math.max(1, sidebar.width() - 2);
+        return Math.max(
+            1,
+            (sidebar.layout() === "sidebar"
+                ? renderer.terminalWidth
+                : sidebar.width()) - 2,
+        );
     }
 
     function mainTranscriptWidth(): number {
@@ -1748,12 +1741,6 @@ export async function startTui(
     ): void {
         if (pane !== sidebarAgentPane) return;
         const entries = pane.state.state.entries;
-        const paneActivity = pane.state.state.working
-            ? pane.state.activity
-            : pane.state.pendingUiRequest === undefined ? "idle" : "waiting";
-        sidebar.setHeader(
-            `${sidebarAgentMention ?? pane.agentId} · ${pane.state.state.approvalMode ?? "loading"} · ${paneActivity}`,
-        );
         const changedKindAt = entries.findIndex((entry, index) =>
             sidebarEntryNodes[index] !== undefined
             && sidebarEntryNodeKinds[index] !== entry.kind
@@ -1902,7 +1889,6 @@ export async function startTui(
     app.add(sidebar.body);
     app.add(jumpToBottom);
     app.add(sidebarJump);
-    app.add(soloPaneLabel);
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
@@ -6654,9 +6640,7 @@ export async function startTui(
         sidebarJumpText.fg = theme.background;
         sidebarJumpText.bg = theme.accent;
         sidebarJump.backgroundColor = theme.accent;
-        soloPaneText.fg = theme.muted;
-        soloPaneText.bg = theme.panel;
-        soloPaneLabel.backgroundColor = theme.panel;
+        paneStatusText.fg = theme.muted;
         commandSuggestionsText.fg = theme.text;
         commandSuggestionsBox.backgroundColor = theme.background;
         composerBox.backgroundColor = theme.panel;
@@ -6879,7 +6863,6 @@ export async function startTui(
      * anything, which is the whole point.
      */
     function renderJumpToBottom(): void {
-        renderSoloPaneLabel();
         const following = transcript.scrollTop
             >= transcript.scrollHeight - transcript.viewport.height;
         const visible = !following && !anyOverlayOpen();
@@ -6892,31 +6875,6 @@ export async function startTui(
             0,
             transcript.x + transcript.width - JUMP_TO_BOTTOM_LABEL.length - 2,
         );
-    }
-
-    function renderSoloPaneLabel(): void {
-        const layout = sidebar.layout();
-        if (sidebarAgentPane === undefined || layout === "split") {
-            soloPaneLabel.visible = false;
-            return;
-        }
-        const name = layout === "main"
-            ? "Vera"
-            : sidebarAgentMention ?? "agent";
-        const label = ` ${name} pane `;
-        const region = layout === "main"
-            ? {
-                x: transcript.x,
-                y: transcript.y,
-                width: transcript.width,
-                height: transcript.height,
-            }
-            : sidebar.bounds();
-        soloPaneText.content = label;
-        soloPaneLabel.width = label.length;
-        soloPaneLabel.top = region.y + region.height - 1;
-        soloPaneLabel.left = Math.max(0, region.x + 1);
-        soloPaneLabel.visible = !anyOverlayOpen();
     }
 
     function renderSidebarJump(): void {
@@ -6983,6 +6941,34 @@ export async function startTui(
         const focusedActivity = focusedSide?.state.activity ?? activity;
         const focusedElapsed = focusedSide?.state.elapsedWorkingTime()
             ?? elapsedWorkingTime();
+        const layout = sidebar.layout();
+        const mainPaneActivity = state.working
+            ? activity
+            : pendingUiRequest === undefined ? "idle" : "waiting";
+        const sidePaneActivity = sidebarAgentPane?.state.state.working
+            ? sidebarAgentPane.state.activity
+            : sidebarAgentPane?.state.pendingUiRequest === undefined
+            ? "idle"
+            : "waiting";
+        const mainPaneStatus = `Vera · ${state.approvalMode ?? "loading"} · ${mainPaneActivity}`;
+        const sidePaneStatus = sidebarAgentPane === undefined
+            ? ""
+            : `${sidebarAgentMention ?? sidebarAgentPane.agentId} · ${sidebarAgentPane.state.state.approvalMode ?? "loading"} · ${sidePaneActivity}`;
+        paneStatusText.visible = sidebarAgentPane !== undefined
+            && !anyOverlayOpen();
+        paneStatusText.content = layout === "split"
+            ? new StyledText([
+                fg(sidebar.isFocused() ? TUI_MUTED : TUI_ACCENT)(
+                    `${sidebar.isFocused() ? "  " : "› "}${mainPaneStatus}`,
+                ),
+                fg(TUI_MUTED)("    "),
+                fg(sidebar.isFocused() ? TUI_ACCENT : TUI_MUTED)(
+                    `${sidebar.isFocused() ? "› " : "  "}${sidePaneStatus}`,
+                ),
+            ])
+            : layout === "sidebar"
+            ? new StyledText([fg(TUI_ACCENT)(`› ${sidePaneStatus}`)])
+            : new StyledText([fg(TUI_ACCENT)(`› ${mainPaneStatus}`)]);
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
             : `enter queue → ${sidebarAgentMention ?? focusedSide.agentId}`
@@ -7140,7 +7126,8 @@ export async function startTui(
         backgroundStatusText.height = agentSection.length === 0
             ? 1
             : 2 + agentSection.length;
-        composerBox.marginBottom = 2 + backgroundStatusText.height;
+        composerBox.marginBottom = 2 + backgroundStatusText.height
+            + (paneStatusText.visible ? 1 : 0);
         statusText.content = statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined
