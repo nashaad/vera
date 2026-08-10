@@ -285,6 +285,8 @@ export interface StartClientExtensionRegistryOptions {
 }
 
 export interface ClientExtensionRegistry {
+    /** IDs that completed activation in this client generation. */
+    loadedExtensionIds(): readonly string[];
     commands(): readonly ClientExtensionCommandDescriptor[];
     keybindings(): readonly ClientExtensionKeybindingDescriptor[];
     tips(): readonly ClientExtensionTipDescriptor[];
@@ -526,6 +528,9 @@ export async function startClientExtensionRegistry(
     }
 
     return {
+        loadedExtensionIds(): readonly string[] {
+            return loaded.map((extension) => extension.id);
+        },
         commands(): readonly ClientExtensionCommandDescriptor[] {
             return [...commands.values()].map(
                 ({ command }) => command.descriptor,

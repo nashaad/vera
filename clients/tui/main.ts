@@ -408,6 +408,16 @@ function displayModeLabel(label: string): string {
     return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`;
 }
 
+class ClientExtensionReloadPartialFailure extends Error {
+    readonly kind: "none" | "some";
+
+    constructor(kind: "none" | "some", details: string) {
+        super(details);
+        this.name = "ClientExtensionReloadPartialFailure";
+        this.kind = kind;
+    }
+}
+
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
@@ -917,13 +927,15 @@ export async function startTui(
         renderStatus,
         requestRender: () => renderer.requestRender(),
     });
-    function startConfiguredClientExtensionHost(
+    async function startConfiguredClientExtensionHost(
         signal: AbortSignal,
         extensions: readonly VeraExtensionConfig[] = configuredClientExtensions,
+        failureSink?: string[],
     ): Promise<
         ClientExtensionRegistry
     > {
-        return startTuiClientExtensionHost({
+        let activeFailureSink = failureSink;
+        const registry = await startTuiClientExtensionHost({
         extensions,
         currentModelSettings: () => state.modelSettings,
         updateModelSettings: requestExtensionModelSettingsUpdate,
@@ -1024,13 +1036,17 @@ export async function startTui(
         },
         commandRegistry,
         onFailure(failure) {
-            state = appendTuiNotice(
-                state,
-                `${failure.extensionId ?? failure.path}: ${failure.message}`,
-            );
+            const summary = `${failure.extensionId ?? failure.path}: ${failure.message}`;
+            if (activeFailureSink !== undefined) {
+                activeFailureSink.push(summary);
+            } else {
+                state = appendTuiNotice(state, summary);
+            }
         },
         signal,
         });
+        activeFailureSink = undefined;
+        return registry;
     }
     const clientExtensionHost = createTuiClientExtensionHostController(
         startConfiguredClientExtensionHost,
@@ -1060,6 +1076,7 @@ export async function startTui(
         const refreshed = dependencies.loadClientExtensionConfiguration?.();
         let nextDisabledBuiltinExtensions = disabledBuiltinExtensions;
         let nextConfiguredClientExtensions = configuredClientExtensions;
+        const failures: string[] = [];
         if (refreshed !== undefined) {
             nextDisabledBuiltinExtensions = refreshed.disabledBuiltinExtensions;
             nextConfiguredClientExtensions = configuredTuiClientExtensions(
@@ -1071,10 +1088,23 @@ export async function startTui(
             startConfiguredClientExtensionHost(
                 signal,
                 nextConfiguredClientExtensions,
+                failures,
             )
         );
         disabledBuiltinExtensions = nextDisabledBuiltinExtensions;
         configuredClientExtensions = nextConfiguredClientExtensions;
+        const loaded = clientExtensionHost.current()?.loadedExtensionIds() ?? [];
+        if (failures.length === 0) {
+            return;
+        }
+        const stateLabel = loaded.length === 0 ? "none loaded" : "some failed";
+        throw new ClientExtensionReloadPartialFailure(
+            loaded.length === 0 ? "none" : "some",
+            `${stateLabel}: ${failures.slice(0, 3).join("; ")}`
+                + (failures.length > 3
+                    ? `; and ${failures.length - 3} more`
+                    : ""),
+        );
     }
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
@@ -3042,9 +3072,15 @@ export async function startTui(
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
+                const partialReload =
+                    error instanceof ClientExtensionReloadPartialFailure;
                 state = appendTuiNotice(
                     state,
-                    `Client extensions could not reload: ${message}`,
+                    partialReload
+                        ? `Client extensions reloaded with failures: ${
+                            error.kind
+                        }: ${message}`
+                        : `Client extensions could not reload: ${message}`,
                 );
                 renderState();
                 focusActiveSurface();
