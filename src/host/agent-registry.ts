@@ -1452,7 +1452,10 @@ export class AgentRegistry {
      * declared by an agent and nothing is stored, so a host that is gone and
      * an empty roster mean the same thing.
      */
-    private applyAgentRosterEffect(callerId: string): Promise<ToolOutput> {
+    private applyAgentRosterEffect(
+        callerId: string,
+        details: boolean,
+    ): Promise<ToolOutput> {
         const caller = this.agents.get(callerId);
         if (caller === undefined) {
             return Promise.resolve({
@@ -1479,15 +1482,19 @@ export class AgentRegistry {
                     addresses: [id],
                     excludeKinds: [SOURCE_GAP_KIND],
                 }) ?? { count: 0, oldestAgeMs: null };
-                return {
+                const compact = {
                     participant_id: id,
                     name: entry.arcName,
+                    status: entryStatus(entry),
+                    live: entryIsLive(entry),
+                };
+                if (!details) return compact;
+                return {
+                    ...compact,
                     workspace: entry.agent.workspace,
                     workspace_key: workspaceKey(entry.agent.workspace),
                     ...gitRosterFacts(entry.agent.workspace),
                     kind: entry.kind,
-                    status: entryStatus(entry),
-                    live: entryIsLive(entry),
                     last_activity: entryUpdatedAt(entry),
                     notice: entry.inbox !== undefined && entry.agent.attached
                         ? "ui"
@@ -2093,7 +2100,7 @@ export class AgentRegistry {
                 return this.applyPoolAddEffect(effect);
             }
             if (effect.type === "agent_roster") {
-                return this.applyAgentRosterEffect(agent.id);
+                return this.applyAgentRosterEffect(agent.id, effect.details);
             }
             if (effect.type === "agent_send") {
                 return this.applyAgentSendEffect(agent.id, effect);
