@@ -1244,6 +1244,25 @@ export async function startTui(
     });
     sidebarJump.add(sidebarJumpText);
 
+    const soloPaneText = new TextRenderable(renderer, {
+        id: "solo-pane-label-text",
+        content: "",
+        fg: theme.muted,
+        bg: theme.panel,
+        width: "100%",
+        height: 1,
+    });
+    const soloPaneLabel = new BoxRenderable(renderer, {
+        id: "solo-pane-label",
+        position: "absolute",
+        width: 8,
+        height: 1,
+        backgroundColor: theme.panel,
+        zIndex: 3,
+        visible: false,
+    });
+    soloPaneLabel.add(soloPaneText);
+
     const placeholder = new TextRenderable(renderer, {
         id: "placeholder",
         content: "Start a conversation with Vera.",
@@ -1883,6 +1902,7 @@ export async function startTui(
     app.add(sidebar.body);
     app.add(jumpToBottom);
     app.add(sidebarJump);
+    app.add(soloPaneLabel);
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
@@ -4001,6 +4021,11 @@ export async function startTui(
                     sidebarPromptSubmitting = false;
                     renderState();
                 });
+            return true;
+        }
+        if (sendsToMain && route.text === prompt) return false;
+        if (sendsToMain) {
+            submitPrompt(route.text);
             return true;
         }
         composer.rememberSubmittedText(prompt);
@@ -6629,6 +6654,9 @@ export async function startTui(
         sidebarJumpText.fg = theme.background;
         sidebarJumpText.bg = theme.accent;
         sidebarJump.backgroundColor = theme.accent;
+        soloPaneText.fg = theme.muted;
+        soloPaneText.bg = theme.panel;
+        soloPaneLabel.backgroundColor = theme.panel;
         commandSuggestionsText.fg = theme.text;
         commandSuggestionsBox.backgroundColor = theme.background;
         composerBox.backgroundColor = theme.panel;
@@ -6851,6 +6879,7 @@ export async function startTui(
      * anything, which is the whole point.
      */
     function renderJumpToBottom(): void {
+        renderSoloPaneLabel();
         const following = transcript.scrollTop
             >= transcript.scrollHeight - transcript.viewport.height;
         const visible = !following && !anyOverlayOpen();
@@ -6863,6 +6892,31 @@ export async function startTui(
             0,
             transcript.x + transcript.width - JUMP_TO_BOTTOM_LABEL.length - 2,
         );
+    }
+
+    function renderSoloPaneLabel(): void {
+        const layout = sidebar.layout();
+        if (sidebarAgentPane === undefined || layout === "split") {
+            soloPaneLabel.visible = false;
+            return;
+        }
+        const name = layout === "main"
+            ? "Vera"
+            : sidebarAgentMention ?? "agent";
+        const label = ` ${name} pane `;
+        const region = layout === "main"
+            ? {
+                x: transcript.x,
+                y: transcript.y,
+                width: transcript.width,
+                height: transcript.height,
+            }
+            : sidebar.bounds();
+        soloPaneText.content = label;
+        soloPaneLabel.width = label.length;
+        soloPaneLabel.top = region.y + region.height - 1;
+        soloPaneLabel.left = Math.max(0, region.x + 1);
+        soloPaneLabel.visible = !anyOverlayOpen();
     }
 
     function renderSidebarJump(): void {
