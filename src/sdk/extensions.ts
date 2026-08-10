@@ -124,6 +124,7 @@ export interface VeraClientAgentOpenRequest {
 export interface VeraClientAgentMessageRequest {
     readonly agentId: string;
     readonly text: string;
+    readonly imagePaths?: readonly string[];
 }
 
 /** Hosted-agent operations; the client owns attachment and presentation. */
@@ -158,6 +159,8 @@ export interface VeraClientExtensionCommandSpec {
     readonly palette?: VeraClientExtensionPaletteEntry;
     /** Human interaction owns the lifetime; TUI close still cancels it. */
     readonly interactive?: boolean;
+    /** Whether this command consumes images submitted with its invocation. */
+    readonly acceptsImages?: boolean;
     /**
      * What the first argument names, so the client can complete it. The
      * client owns the list: `model` completes from the model pool, and
@@ -179,6 +182,8 @@ export interface VeraClientExtensionPaletteEntry {
 export interface VeraClientExtensionCommandRequest {
     readonly argumentsText: string;
     readonly workspace: string;
+    readonly imageCount: number;
+    readonly imagePaths: readonly string[];
     readonly signal: AbortSignal;
 }
 

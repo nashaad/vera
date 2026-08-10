@@ -58,9 +58,11 @@ export function activateClient(vera: any): void {
             description,
             usage: `/${name} [message]`,
             interactive: true,
-            async run({ argumentsText, workspace, signal }: {
+            acceptsImages: true,
+            async run({ argumentsText, workspace, imagePaths, signal }: {
                 argumentsText: string;
                 workspace: string;
+                imagePaths: readonly string[];
                 signal: AbortSignal;
             }) {
                 const target = await openAgent(
@@ -71,8 +73,12 @@ export function activateClient(vera: any): void {
                     signal,
                 );
                 const text = argumentsText.trim();
-                if (text.length > 0) {
-                    await vera.agents.message({ agentId: target, text }, signal);
+                if (text.length > 0 || imagePaths.length > 0) {
+                    await vera.agents.message({
+                        agentId: target,
+                        text,
+                        imagePaths,
+                    }, signal);
                 }
             },
         });

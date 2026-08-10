@@ -2,7 +2,7 @@ import { BoxRenderable, TextRenderable } from "@opentui/core";
 import type { RenderContext } from "@opentui/core";
 
 import type { TuiTranscriptEntry } from "./state.ts";
-import { TUI_ACCENT, TUI_BACKGROUND, TUI_ELEMENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
+import { TUI_ACCENT, TUI_ELEMENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 
 /**
  * The user's own message, as a full-width tinted band. An accent rule down the
@@ -71,9 +71,9 @@ export function createTuiUserEntry(
         });
         chip.add(new TextRenderable(renderer, {
             id: `${id}-chip-${index}-label`,
-            content: " File ",
-            fg: TUI_BACKGROUND,
-            bg: TUI_ACCENT,
+            content: "File ",
+            fg: TUI_ACCENT,
+            bg: TUI_ELEMENT,
             selectable: true,
         }));
         chip.add(new TextRenderable(renderer, {

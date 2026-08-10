@@ -2727,6 +2727,80 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "btw and direct addressing send images through the sidekick session",
+    async () => {
+        const socket = `vera-btw-image-${process.pid}-${randomUUID()}`;
+        const session = "btw-image";
+        const home = mkdtempSync(join(tmpdir(), "vera-btw-image-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-btw-child.ts",
+                100,
+                30,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/btw ");
+            sendEscapeSequence(
+                socket,
+                session,
+                "\x1b[200~/tmp/screenshot.png\x1b[201~",
+            );
+            await waitForVisiblePane(socket, session, "1 image attached");
+            sendText(socket, session, "what do you see");
+            sendKey(socket, session, "Enter");
+
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "SIDEKICK SAW IMAGE 1",
+            );
+            expect(pane).toContain("screenshot.png");
+            expect(pane).not.toContain("AGENT ANSWERED");
+
+            sendKey(socket, session, "C-g");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes(" · auto · "),
+                "main agent focus",
+            );
+            sendText(socket, session, "@sidekick ");
+            sendEscapeSequence(
+                socket,
+                session,
+                "\x1b[200~/tmp/second.png\x1b[201~",
+            );
+            await waitForVisiblePane(socket, session, "1 image attached");
+            sendText(socket, session, "and this one");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "SIDEKICK SAW IMAGE 2",
+            );
+            expect(pane).toContain("and this one");
+            sendKey(socket, session, "C-c");
+            await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "pair opens a tool-capable peer and shows its effective mode",
     async () => {
         const socket = `vera-pair-hosted-${process.pid}-${randomUUID()}`;

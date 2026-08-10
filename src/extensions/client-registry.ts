@@ -98,6 +98,7 @@ export interface ClientExtensionCommandDescriptor {
     readonly usage: string;
     readonly source: string;
     readonly arguments?: ExtensionCommandArgumentKind;
+    readonly acceptsImages?: boolean;
     /** Safe to call while rendering; failures make the command unavailable. */
     readonly isAvailable?: () => boolean;
     readonly palette?: {
@@ -258,6 +259,8 @@ export interface ClientExtensionRegistry {
         argumentsText: string,
         workspace: string,
         signal?: AbortSignal,
+        imageCount?: number,
+        imagePaths?: readonly string[],
     ): Promise<ExtensionCommandResult | undefined>;
     invokeKeybinding(
         id: string,
@@ -493,9 +496,20 @@ export async function startClientExtensionRegistry(
             argumentsText,
             workspace,
             signal,
+            imageCount = 0,
+            imagePaths = [],
         ): Promise<ExtensionCommandResult | undefined> {
             if (closing !== undefined) {
                 throw new Error("Client extension registry is closing");
+            }
+            if (!Number.isSafeInteger(imageCount) || imageCount < 0) {
+                throw new Error("Client extension image count must be non-negative");
+            }
+            if (
+                !Array.isArray(imagePaths)
+                || imagePaths.some((path) => typeof path !== "string")
+            ) {
+                throw new Error("Client extension image paths must be strings");
             }
             const owner = commands.get(name);
             if (
@@ -504,11 +518,19 @@ export async function startClientExtensionRegistry(
             ) {
                 throw new Error(`Client extension command /${name} is unavailable`);
             }
+            if (imageCount > 0 && !owner.command.descriptor.acceptsImages) {
+                throw new Error(`Client extension command /${name} does not accept images`);
+            }
+            if (imagePaths.length !== imageCount) {
+                throw new Error("Every submitted image must have a readable source path");
+            }
             const body = await invokeTracked(
                 owner.extension,
                 (operationSignal) => owner.command.run({
                     argumentsText,
                     workspace,
+                    imageCount,
+                    imagePaths: [...imagePaths],
                     signal: operationSignal,
                 }),
                 owner.command.interactive ? undefined : handlerTimeoutMs,
@@ -818,6 +840,9 @@ async function activateClientExtension(
                         description: spec.description.trim(),
                         usage: spec.usage.trim(),
                         source: options.id,
+                        ...(spec.acceptsImages === true
+                            ? { acceptsImages: true }
+                            : {}),
                         ...(spec.arguments === undefined
                             ? {}
                             : { arguments: spec.arguments }),
@@ -1393,6 +1418,8 @@ function validateCommandSpec(spec: VeraClientExtensionCommandSpec): void {
         || spec.usage.trim().length === 0
         || (spec.interactive !== undefined
             && typeof spec.interactive !== "boolean")
+        || (spec.acceptsImages !== undefined
+            && typeof spec.acceptsImages !== "boolean")
         || (spec.arguments !== undefined
             && !isExtensionCommandArgumentKind(spec.arguments))
         || (spec.when !== undefined && typeof spec.when !== "function")
@@ -1718,14 +1745,31 @@ function validateAgentMessageRequest(
     request: VeraClientAgentMessageRequest,
 ): VeraClientAgentMessageRequest {
     const agentId = request?.agentId?.trim();
-    const text = request?.text?.trim();
+    const text = typeof request?.text === "string" ? request.text.trim() : "";
+    if (
+        request.imagePaths !== undefined
+        && (!Array.isArray(request.imagePaths)
+            || request.imagePaths.some((path) => typeof path !== "string"))
+    ) {
+        throw new Error("Client extension agent image paths must be strings");
+    }
+    const imagePaths = request.imagePaths?.map((path) => path.trim());
     if (agentId === undefined || agentId.length === 0) {
         throw new Error("Client extension must name an agent to message");
     }
-    if (text === undefined || text.length === 0) {
-        throw new Error("Client extension agent message must not be empty");
+    if (text.length === 0 && (imagePaths?.length ?? 0) === 0) {
+        throw new Error("Client extension agent message must have text or an image");
     }
-    return { agentId, text };
+    if (imagePaths?.some((path) => path.length === 0)) {
+        throw new Error("Client extension agent image paths must not be empty");
+    }
+    return {
+        agentId,
+        text,
+        ...(imagePaths === undefined || imagePaths.length === 0
+            ? {}
+            : { imagePaths }),
+    };
 }
 
 function validateConsultRequest(request: VeraClientConsultRequest): void {
