@@ -1389,7 +1389,6 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        paddingLeft: 2,
         visible: false,
     });
 
@@ -5055,7 +5054,10 @@ export async function startTui(
             : `Message ${extensionAddressee}\u2026`;
         renderPendingQuote();
         const focusedState = focusedAgentState();
-        queuedPromptText.content = renderTuiQueuedPrompt(focusedState);
+        const queuedPrompt = renderTuiQueuedPrompt(focusedState);
+        queuedPromptText.content = queuedPrompt.length === 0
+            ? ""
+            : `  ${queuedPrompt}`;
         queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
         approvalView.box.visible = uiRequest?.request.type
             === "tool_approval";
