@@ -27,6 +27,7 @@ import {
     isTuiExperimentalViewVisible,
     tuiExperimentalViewSignature,
 } from "./experimental-tui-view-state.ts";
+import { createTuiExperimentalSlotRegistry } from "./experimental-tui-slots.ts";
 import { tuiChord, type TuiChordKey } from "./keymap.ts";
 import type {
     ClientExtensionExperimentalTuiAdapter,
@@ -87,22 +88,17 @@ export function createTuiExperimentalHost(
     const views = new Map<string, MountedView>();
     const rawViews = new Map<string, TuiExperimentalRawView>();
 
-    const transcriptTop = createSlot("transcript-top");
-    const transcriptBottom = createSlot("transcript-bottom");
-    const footer = createSlot("footer");
-    const composerAdornment = createSlot("composer-adornment");
-    const overlay = new BoxRenderable(options.renderer, {
-        id: "experimental-tui-overlay",
-        position: "absolute",
-        left: 2,
-        right: 2,
-        top: 2,
-        bottom: 2,
-        flexDirection: "column",
-        backgroundColor: theme.panel,
-        zIndex: 30,
-        visible: false,
+    const slotRegistry = createTuiExperimentalSlotRegistry({
+        renderer: options.renderer,
+        theme,
     });
+    const {
+        transcriptTop,
+        transcriptBottom,
+        footer,
+        composerAdornment,
+        overlay,
+    } = slotRegistry;
     const eventBus: TuiExperimentalEventBus = createTuiExperimentalEventBus(
         options.onFailure,
     );
@@ -143,7 +139,7 @@ export function createTuiExperimentalHost(
                 requestRender: options.onRenderRequested,
             });
             rawViews.set(key, view);
-            slotFor(spec.slot).add(view.container);
+            slotRegistry.slotFor(spec.slot).add(view.container);
             options.onRenderRequested();
             let active = true;
             return async () => {
@@ -151,7 +147,7 @@ export function createTuiExperimentalHost(
                 active = false;
                 disposeTuiExperimentalRawView(
                     view,
-                    (containerId) => slotFor(spec.slot).remove(containerId),
+                    (containerId) => slotRegistry.slotFor(spec.slot).remove(containerId),
                 );
                 rawViews.delete(key);
                 options.onRenderRequested();
@@ -164,15 +160,6 @@ export function createTuiExperimentalHost(
             toggleFocus: () => false,
         },
     };
-
-    function createSlot(id: string): BoxRenderable {
-        return new BoxRenderable(options.renderer, {
-            id: `experimental-tui-${id}`,
-            width: "100%",
-            flexDirection: "column",
-            visible: false,
-        });
-    }
 
     function contextFor(view: MountedView): VeraExperimentalTuiContext {
         return {
@@ -247,22 +234,12 @@ export function createTuiExperimentalHost(
         });
         view.root = root;
         view.lastRender = signature;
-        slotFor(view.spec.slot).add(root);
-    }
-
-    function slotFor(slot: VeraExperimentalTuiViewSpec["slot"]): BoxRenderable {
-        switch (slot) {
-            case "transcript-top": return transcriptTop;
-            case "transcript-bottom": return transcriptBottom;
-            case "footer": return footer;
-            case "composer-adornment": return composerAdornment;
-            case "overlay": return overlay;
-        }
+        slotRegistry.slotFor(view.spec.slot).add(root);
     }
 
     function removeView(view: MountedView): void {
         if (view.root === undefined) return;
-        slotFor(view.spec.slot).remove(view.root.id);
+        slotRegistry.slotFor(view.spec.slot).remove(view.root.id);
         view.root.destroy();
         view.root = undefined;
         view.lastRender = undefined;
@@ -450,20 +427,12 @@ export function createTuiExperimentalHost(
             for (const view of rawViews.values()) {
                 disposeTuiExperimentalRawView(
                     view,
-                    (containerId) => slotFor(view.spec.slot).remove(containerId),
+                    (containerId) => slotRegistry.slotFor(view.spec.slot).remove(containerId),
                 );
             }
             rawViews.clear();
             eventBus.clear();
-            for (const slot of [
-                transcriptTop,
-                transcriptBottom,
-                footer,
-                composerAdornment,
-                overlay,
-            ]) {
-                slot.destroy();
-            }
+            slotRegistry.destroy();
         },
     };
 }
