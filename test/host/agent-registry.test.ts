@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import type {
+    AgentUpdate,
     ModelSettingsUpdate,
     PermissionsUpdate,
     TaskNotificationUpdate,
@@ -1326,7 +1327,7 @@ test("a resumed session with a stale provider fails on its first turn", async ()
     const attemptedProviders: string[] = [];
     const resumedRegistry = new AgentRegistry({
         createAdapter: (provider) => {
-            attemptedProviders.push(provider);
+            attemptedProviders.push(provider ?? "<default>");
             if (provider === "ollama") {
                 throw new Error("provider credentials are no longer configured");
             }
