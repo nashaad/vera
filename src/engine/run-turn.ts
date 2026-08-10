@@ -970,6 +970,15 @@ export async function runTurn(
                             path: state.toolRuntime.workspace,
                             source: "workspace",
                         },
+                    undefined,
+                    userMessage === undefined
+                        ? {}
+                        : {
+                            query: userMessage.content
+                                .filter((block) => block.type === "text")
+                                .map((block) => block.text)
+                                .join("\n"),
+                        },
                 )
                 : undefined;
             const scratchState = state.loadOptionalContext === false

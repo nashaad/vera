@@ -300,9 +300,33 @@ function renderMemory(snapshot: MemorySnapshot): string {
             "Memory index. Each line points to a file under "
                 + `\`${file.dir}\`; read a file when its hook is relevant `
                 + "to the task.",
+            "Memory topic discovery (index metadata; topic bodies are not "
+                + "loaded unless listed below):",
+            ...file.topics.map((topic) =>
+                `- ${topic.availability}: ${topic.file} — ${topic.title ?? "(untitled)"}`
+                    + ` — hook: ${topic.hook ?? "(none)"}`
+                    + (topic.bytes === undefined ? "" : ` — ${topic.bytes} bytes`)
+            ),
+            ...(file.topics.length === 0 ? ["(no valid topic entries)"] : []),
             file.content,
         ].join("\n")
     );
+    if (snapshot.recommendations.length > 0) {
+        sections.push([
+            "Memory topics recommended from the current request:",
+            ...snapshot.recommendations.map((topic) =>
+                `- ${topic.scope}/${topic.file} (${topic.availability})`
+            ),
+        ].join("\n"));
+    }
+    if (snapshot.loadedTopics.length > 0) {
+        sections.push([
+            "Memory topic bodies actually loaded by the engine:",
+            ...snapshot.loadedTopics.map((topic) =>
+                `### ${topic.scope}/${topic.file}\n${topic.content}`
+            ),
+        ].join("\n\n"));
+    }
     if (snapshot.warnings.length > 0) {
         sections.push([
             "### Loading diagnostics",
