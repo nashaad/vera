@@ -143,6 +143,34 @@ test("reviewer routes try models in order only when one is unavailable", async (
     ]);
 });
 
+test("configured reviewer bypasses project-pool availability and effort checks", async () => {
+    const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
+        risk_level: "low",
+        user_authorization: "medium",
+        outcome: "allow",
+        rationale: "The configured route was called.",
+    })));
+    // The reviewer constructor receives only the configured route. There is
+    // no pool argument or ordinary model resolver in this seam, so even a
+    // model absent from the project-scoped pool and an unsupported effort are
+    // sent to the adapter as-is. This is a reproduction, not a policy choice.
+    const review = createRoutedToolReviewer(adapter, {
+        models: [{
+            provider: "project-provider",
+            model: "not-in-project-pool",
+            reasoningEffort: "xhigh",
+        }],
+    });
+
+    expect((await review(request, new AbortController().signal)).decision)
+        .toBe("allow");
+    expect(adapter.requests[0]).toMatchObject({
+        provider: "project-provider",
+        model: "not-in-project-pool",
+        reasoningEffort: "xhigh",
+    });
+});
+
 test("reviewer routes do not fall through a valid denial", async () => {
     const adapter = new ScriptedAdapter(assistantText(JSON.stringify({
         risk_level: "high",
