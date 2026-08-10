@@ -235,6 +235,9 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
         ? chunk.choices.map((choice) => {
             const record = choice as Record<string, unknown>;
             const delta = record.delta as Record<string, unknown> | undefined;
+            const reasoningContent = typeof delta?.reasoning_content === "string"
+                ? delta.reasoning_content
+                : undefined;
             return {
                 ...record,
                 ...(record.finish_reason === undefined
@@ -245,6 +248,10 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
                     : {
                         delta: {
                             ...delta,
+                            ...(reasoningContent === undefined
+                                || delta?.reasoning !== undefined
+                                ? {}
+                                : { reasoning: reasoningContent }),
                             ...(delta.tool_calls === undefined
                                 ? {}
                                 : { toolCalls: delta.tool_calls }),

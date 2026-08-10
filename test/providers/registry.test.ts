@@ -54,6 +54,10 @@ test("a stored key is used ahead of the environment", () => {
         authStorage: storage({}),
         env: { CEREBRAS_API_KEY: "from-env" },
     })).toBe(true);
+    expect(isProviderConnected(findProvider("deepseek")!, {
+        authStorage: storage({}),
+        env: { DEEPSEEK_API_KEY: "from-env" },
+    })).toBe(true);
 });
 
 test("a provider needing no credential is always connected", () => {
