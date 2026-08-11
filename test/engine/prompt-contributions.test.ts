@@ -158,3 +158,54 @@ test("scratch state renders as a contextual contribution", () => {
     expect(state?.content).toContain("notes.txt, todo.md");
     expect(state?.content).toContain("- [ ] next");
 });
+
+test("owner-provided contextual contributions append after core context", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/repo",
+        date: new Date("2026-08-10T12:00:00Z"),
+        additionalContextualContributions: [{
+            id: "host.skills",
+            owner: "host",
+            target: "contextual",
+            title: "Skills",
+            content: "- consult",
+        }],
+    });
+
+    expect(contributions.at(-1)).toEqual({
+        id: "host.skills",
+        owner: "host",
+        target: "contextual",
+        title: "Skills",
+        content: "- consult",
+    });
+});
+
+test("owner-provided contributions cannot collide or enter the stable prefix", () => {
+    const input = {
+        tools: [],
+        workspace: "/repo",
+        date: new Date("2026-08-10T12:00:00Z"),
+    };
+    expect(() => collectBuiltInPromptContributions({
+        ...input,
+        additionalContextualContributions: [{
+            id: "core.date",
+            owner: "host",
+            target: "contextual",
+            title: "Collision",
+            content: "bad",
+        }],
+    })).toThrow("Duplicate prompt contribution id");
+    expect(() => collectBuiltInPromptContributions({
+        ...input,
+        additionalContextualContributions: [{
+            id: "host.stable",
+            owner: "host",
+            target: "stable",
+            title: "Stable injection",
+            content: "bad",
+        }],
+    })).toThrow("attributed contextual text");
+});

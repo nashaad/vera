@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ import {
     type AssistantMessage,
     type ModelAdapter,
     type ModelRequest,
+    type ToolResultMessage,
 } from "../../src/model/types.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
@@ -18,6 +19,9 @@ import { ToolHooks } from "../../src/engine/hooks.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
+import { projectSkillDirectory } from "../../src/skills/catalog.ts";
+import { loadSkillContribution } from "../../src/skills/contribution.ts";
+import { skillScriptTool } from "../../src/skills/script.ts";
 
 test("multiple tool calls execute sequentially in content order", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-tool-loop-"));
@@ -131,6 +135,92 @@ test("multiple tool calls execute sequentially in content order", async () => {
         expect(toolResults[0]?.content[0]?.text).toBe(realWorkspace);
         expect(toolResults[1]?.isError).toBe(false);
         expect(toolResults[2]?.content[0]?.text).toBe("hello");
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a discovered skill script runs through the ordinary tool loop", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-skill-loop-"));
+    const skillDirectory = join(projectSkillDirectory(workspace), "inspect");
+    const scriptsDirectory = join(skillDirectory, "scripts");
+    await mkdir(scriptsDirectory, { recursive: true });
+    await writeFile(join(skillDirectory, "SKILL.md"), `---
+name: inspect
+description: Inspect a value with the bundled helper.
+---
+Run \`scripts/inspect.sh\` with the value as its first argument.
+`);
+    const scriptPath = join(scriptsDirectory, "inspect.sh");
+    await writeFile(scriptPath, "#!/bin/sh\nprintf 'inspected:%s' \"$1\"\n");
+    await chmod(scriptPath, 0o755);
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_skill_script",
+            name: "skill_script",
+            input: {
+                skill: "inspect",
+                script: "scripts/inspect.sh",
+                args: ["value"],
+            },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const faux = new FauxAdapter([toolCallResponse, finalResponse]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        instructionRoot: { path: workspace, source: "workspace" },
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+        extensionTools: [skillScriptTool],
+        loadContextualContributions: loadSkillContribution,
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "use $inspect" });
+        const turn = runTurn(adapter, "test", state);
+        while ((await channel.client.receive()).type !== "turn_finished") {
+            // Drain the observable lifecycle through its terminal update.
+        }
+        await turn;
+
+        expect(requests[0]?.systemPrompt).toContain("## Skills");
+        expect(requests[0]?.systemPrompt).toContain("inspect: Inspect a value");
+        expect(requests[0]?.tools?.some((tool) => tool.name === "skill_script"))
+            .toBe(true);
+        const result = state.messages.find((message): message is ToolResultMessage =>
+            message.role === "tool_result" && message.toolName === "skill_script"
+        );
+        expect(result?.content).toEqual([{
+            type: "text",
+            text: "inspected:value",
+        }]);
+        expect(result?.isError).toBe(false);
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

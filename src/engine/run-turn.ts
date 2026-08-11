@@ -68,7 +68,10 @@ import type {
 } from "../tools/types.ts";
 import { loadMemory, type InstructionRoot } from "./memory.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
-import { promptContributionMetadata } from "./prompt-contributions.ts";
+import {
+    promptContributionMetadata,
+    type PromptContribution,
+} from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
 import { loadScratchState } from "./scratch-state.ts";
@@ -215,6 +218,9 @@ export interface RunTurnState {
     /** Where a truncated tool result's full output goes. */
     readonly toolResultSpill?: ToolResultSpill;
     readonly disabledPromptContributions?: readonly string[];
+    readonly loadContextualContributions?: (
+        instructionRoot: InstructionRoot,
+    ) => Promise<readonly PromptContribution[]>;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
 }
@@ -320,6 +326,9 @@ export interface RunHeadlessLoopOptions {
     readonly sendConsultReply?: InboundCommandRouterOptions["sendConsultReply"];
     readonly reviewToolCall?: ReviewToolCall;
     readonly disabledPromptContributions?: readonly string[];
+    readonly loadContextualContributions?: (
+        instructionRoot: InstructionRoot,
+    ) => Promise<readonly PromptContribution[]>;
     /** Hooks for the session's turns; absent means none registered. */
     readonly hooks?: ToolHooks;
     /**
@@ -751,6 +760,9 @@ export async function runHeadlessLoop(
         ...(options.disabledPromptContributions === undefined ? {} : {
             disabledPromptContributions: options.disabledPromptContributions,
         }),
+        ...(options.loadContextualContributions === undefined ? {} : {
+            loadContextualContributions: options.loadContextualContributions,
+        }),
     };
     protocol.checkpoint(state.messages);
 
@@ -977,6 +989,17 @@ export async function runTurn(
                 ? undefined
                 : await loadScratchState(state.scratchDir);
             const requestDate = new Date();
+            const additionalContextualContributions =
+                state.loadOptionalContext === false
+                    || state.loadContextualContributions === undefined
+                    ? undefined
+                    : await state.loadContextualContributions(
+                        state.instructionRoot
+                            ?? {
+                                path: state.toolRuntime.workspace,
+                                source: "workspace",
+                            },
+                    );
             const projection = projectModelRequest({
                 ...(modelSettings.provider === undefined
                     ? {}
@@ -999,6 +1022,9 @@ export async function runTurn(
                 ...(state.disabledPromptContributions === undefined ? {} : {
                     disabledPromptContributions:
                         state.disabledPromptContributions,
+                }),
+                ...(additionalContextualContributions === undefined ? {} : {
+                    additionalContextualContributions,
                 }),
                 signal: turn.signal,
             });
