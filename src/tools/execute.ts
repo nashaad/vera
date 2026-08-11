@@ -22,6 +22,7 @@ import { asyncSubagentTool } from "./async-subagent.ts";
 import { messageSubagentTool } from "./message-subagent.ts";
 import { notifyParentTool } from "./notify-parent.ts";
 import { webFetchTool } from "./web-fetch.ts";
+import { webDownloadTool } from "./web-download.ts";
 import { catalogSearchTool } from "./catalog-search.ts";
 import { poolAddTool } from "./pool-add.ts";
 import { agentRosterTool } from "./agent-roster.ts";
@@ -42,6 +43,7 @@ const ordinaryTools: readonly RegisteredTool[] = [
     grepTool,
     listTool,
     webFetchTool,
+    webDownloadTool,
     catalogSearchTool,
     memoryWriteTool,
 ];

@@ -1,4 +1,7 @@
 import { lookup } from "node:dns/promises";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { isIP } from "node:net";
 import { Parser } from "htmlparser2";
 import { Readable } from "node:stream";
@@ -16,6 +19,7 @@ const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_PDF_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_CHARACTERS = 50_000;
 const REQUEST_TIMEOUT_MS = 20_000;
+const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 type Fetch = (
     input: string | URL | Request,
@@ -90,73 +94,89 @@ export async function fetchReadablePage(
     const transport = fetcher === undefined
         ? pinnedTransport()
         : injectedTransport(fetcher);
-    let current = parsePublicUrl(input);
-
     try {
-        for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-            const addresses = await publicAddresses(
-                current,
-                resolveHost,
-                combined,
+        const { response, url } = await openPublicResponse(
+            input,
+            combined,
+            transport,
+            resolveHost,
+        );
+        const contentType = response.headers.get("content-type") ?? "";
+        if (isPdfContentType(contentType)) {
+            const bytes = await readBoundedBytes(
+                response,
+                MAX_PDF_RESPONSE_BYTES,
             );
-            const response = await transport.request(current, {
-                headers: {
-                    Accept:
-                        "text/html,application/xhtml+xml,text/plain,"
-                        + "application/json;q=0.8,application/pdf;q=0.8,"
-                        + "*/*;q=0.1",
-                    "User-Agent": "Vera/2 web_fetch",
-                },
-                redirect: "manual",
-                signal: combined,
-            }, addresses);
-
-            if (isRedirect(response.status)) {
-                const location = response.headers.get("location");
-                await response.body?.cancel();
-                if (location === null) {
-                    throw new Error(
-                        `web_fetch received HTTP ${response.status} without a redirect location`,
-                    );
-                }
-                if (redirects === MAX_REDIRECTS) {
-                    throw new Error(
-                        `web_fetch followed more than ${MAX_REDIRECTS} redirects`,
-                    );
-                }
-                current = parsePublicUrl(new URL(location, current).href);
-                continue;
-            }
-            if (!response.ok) {
-                await response.body?.cancel();
-                throw new Error(`web_fetch failed with HTTP ${response.status}`);
-            }
-
-            const contentType = response.headers.get("content-type") ?? "";
-            if (isPdfContentType(contentType)) {
-                const bytes = await readBoundedBytes(
-                    response,
-                    MAX_PDF_RESPONSE_BYTES,
-                );
-                return formatReadablePage(
-                    current.href,
-                    await pdfText(bytes),
-                    contentType,
-                );
-            }
-            if (!isReadableContentType(contentType)) {
-                await response.body?.cancel();
-                throw new Error(
-                    `web_fetch does not support content type ${contentType || "(missing)"}`,
-                );
-            }
-            const body = await readBoundedBody(response);
-            return formatReadablePage(current.href, body, contentType);
+            return formatReadablePage(
+                url.href,
+                await pdfText(bytes),
+                contentType,
+            );
         }
-        throw new Error("web_fetch redirect handling failed");
+        if (!isReadableContentType(contentType)) {
+            await response.body?.cancel();
+            throw new Error(
+                `web_fetch does not support content type ${contentType || "(missing)"}`,
+            );
+        }
+        return formatReadablePage(
+            url.href,
+            await readBoundedBody(response),
+            contentType,
+        );
     } finally {
         await transport.close();
     }
+}
+
+/**
+ * Follows redirects with every hop re-checked against the public-address
+ * rules, so a redirect cannot walk a request onto the local network.
+ */
+async function openPublicResponse(
+    input: string,
+    signal: AbortSignal,
+    transport: FetchTransport,
+    resolveHost: ResolveHost,
+): Promise<{ readonly response: Response; readonly url: URL }> {
+    let current = parsePublicUrl(input);
+    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+        const addresses = await publicAddresses(current, resolveHost, signal);
+        const response = await transport.request(current, {
+            headers: {
+                Accept:
+                    "text/html,application/xhtml+xml,text/plain,"
+                    + "application/json;q=0.8,application/pdf;q=0.8,"
+                    + "*/*;q=0.1",
+                "User-Agent": "Vera/2 web_fetch",
+            },
+            redirect: "manual",
+            signal,
+        }, addresses);
+
+        if (isRedirect(response.status)) {
+            const location = response.headers.get("location");
+            await response.body?.cancel();
+            if (location === null) {
+                throw new Error(
+                    `web_fetch received HTTP ${response.status} without a redirect location`,
+                );
+            }
+            if (redirects === MAX_REDIRECTS) {
+                throw new Error(
+                    `web_fetch followed more than ${MAX_REDIRECTS} redirects`,
+                );
+            }
+            current = parsePublicUrl(new URL(location, current).href);
+            continue;
+        }
+        if (!response.ok) {
+            await response.body?.cancel();
+            throw new Error(`web_fetch failed with HTTP ${response.status}`);
+        }
+        return { response, url: current };
+    }
+    throw new Error("web_fetch redirect handling failed");
 }
 
 async function resolvePublicHost(
@@ -541,4 +561,86 @@ function readableHtml(html: string): { readonly title: string; readonly text: st
         .replace(/\n{3,}/g, "\n\n")
         .trim(),
     };
+}
+
+/** Downloads cover archives and installers, which dwarf anything the reading
+ * path accepts. */
+const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+
+/**
+ * Streams a public URL to a file and returns the path written. Nothing about
+ * the response body is parsed or returned: the caller asked for the file, not
+ * its contents.
+ */
+export async function downloadPublicFile(
+    input: string,
+    directory: string,
+    signal: AbortSignal,
+    fetcher?: Fetch,
+    resolveHost: ResolveHost = resolvePublicHost,
+): Promise<{ readonly path: string; readonly bytes: number }> {
+    const timeout = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
+    const combined = AbortSignal.any([signal, timeout]);
+    const transport = fetcher === undefined
+        ? pinnedTransport()
+        : injectedTransport(fetcher);
+    try {
+        const { response, url } = await openPublicResponse(
+            input,
+            combined,
+            transport,
+            resolveHost,
+        );
+        const declared = Number(response.headers.get("content-length"));
+        if (Number.isFinite(declared) && declared > MAX_DOWNLOAD_BYTES) {
+            await response.body?.cancel();
+            throw new Error(
+                `web_download response exceeds ${MAX_DOWNLOAD_BYTES} bytes`,
+            );
+        }
+        const bytes = await readBoundedBytes(response, MAX_DOWNLOAD_BYTES);
+        await mkdir(directory, { recursive: true });
+        const path = await unusedPath(
+            directory,
+            downloadName(url, response.headers.get("content-disposition")),
+        );
+        await writeFile(path, bytes);
+        return { path, bytes: bytes.byteLength };
+    } finally {
+        await transport.close();
+    }
+}
+
+/**
+ * The server names the file, so the name is treated as hostile: only the last
+ * segment survives, and separators and leading dots cannot escape the
+ * directory the caller chose.
+ */
+function downloadName(url: URL, disposition: string | null): string {
+    const fromHeader = disposition
+        ?.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)?.[1];
+    const raw = fromHeader ?? decodeURIComponent(url.pathname);
+    const candidate = raw.split("/").pop()?.trim() ?? "";
+    const safe = candidate
+        .replace(/[/\\\u0000]/g, "")
+        .replace(/^\.+/, "")
+        .slice(0, 120);
+    return safe.length === 0 ? "download" : safe;
+}
+
+/** Downloading the same file twice keeps both, the way a browser does. */
+async function unusedPath(directory: string, name: string): Promise<string> {
+    const dot = name.lastIndexOf(".");
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const extension = dot > 0 ? name.slice(dot) : "";
+    for (let index = 0; index < 1000; index += 1) {
+        const candidate = join(
+            directory,
+            index === 0 ? name : `${stem} (${index})${extension}`,
+        );
+        if (!existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    throw new Error(`web_download found no free name for ${name}`);
 }
