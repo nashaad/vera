@@ -346,15 +346,15 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 : undefined);
         return error === undefined
             ? finished
-            : appendEntry(finished, {
-                kind: "notice",
-                text: error.startsWith("Image attachment unavailable:")
+            : appendTuiError(
+                finished,
+                error.startsWith("Image attachment unavailable:")
                     ? `Attachment error: ${error.slice("Image attachment unavailable:".length).trim()}`
                     : `Model error: ${error}`,
-            });
+            );
     }
     if (update.type === "agent_failed") {
-        return appendEntry({
+        return appendTuiError({
             ...state,
             entries: applyToolDetailPreference(
                 settleToolEntries(state.entries),
@@ -363,10 +363,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             working: false,
             queuedPrompts: [],
             modelActivity: undefined,
-        }, {
-            kind: "notice",
-            text: `Agent error: ${update.detail}`,
-        });
+        }, `Agent error: ${update.detail}`);
     }
     if (update.type === "status") {
         return {
@@ -932,7 +929,7 @@ export function appendTuiExtensionBlock(
 }
 
 export function failTuiConnection(state: TuiState, message: string): TuiState {
-    return appendTuiNotice({
+    return appendTuiError({
         ...state,
         entries: applyToolDetailPreference(
             settleToolEntries(state.entries),
