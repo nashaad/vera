@@ -79,6 +79,8 @@ export class AgentAttachError extends Error {
     constructor(
         message: string,
         readonly reason?: "not_found" | "unavailable",
+        readonly reasonCode?: "provider_unavailable",
+        readonly provider?: string,
     ) {
         super(message);
         this.name = "AgentAttachError";
@@ -120,9 +122,17 @@ export async function attachAgent(
         });
         const response = await connection.receive();
         if (isAttachFailure(response, options.agentId)) {
+            const providerUnavailable =
+                response.unavailable_reason === "provider_unavailable"
+                && typeof response.provider === "string"
+                && response.provider.length > 0;
             throw new AgentAttachError(
-                `Could not attach to agent ${options.agentId}: ${response.reason}`,
+                providerUnavailable
+                    ? `Session provider "${response.provider}" is unavailable in this Vera build`
+                    : `Could not attach to agent ${options.agentId}: ${response.reason}`,
                 response.reason,
+                providerUnavailable ? response.unavailable_reason : undefined,
+                providerUnavailable ? response.provider : undefined,
             );
         }
         const backgroundAgents = isAttached(response, options.agentId)
@@ -549,6 +559,8 @@ function isAttachFailure(
     readonly type: "attach_failed";
     readonly agent_id: string;
     readonly reason: "not_found" | "unavailable";
+    readonly unavailable_reason?: unknown;
+    readonly provider?: unknown;
 } {
     const response = asRecord(value);
     return response?.type === "attach_failed"

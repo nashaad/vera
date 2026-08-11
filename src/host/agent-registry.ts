@@ -25,7 +25,10 @@ import {
     type PermissionMode,
 } from "../engine/permissions.ts";
 import type { ToolHooks } from "../engine/hooks.ts";
-import { UserFacingError } from "../user-facing-error.ts";
+import {
+    ProviderUnavailableError,
+    UserFacingError,
+} from "../user-facing-error.ts";
 import type { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import type { ModelFallbackPolicy } from "../engine/recovery.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
@@ -1079,6 +1082,15 @@ export class AgentRegistry {
     ): Promise<ResidentAgent> {
         const sessionPath = await realpath(options.sessionPath);
         const store = await SessionStore.open(sessionPath);
+        const storedProvider = store.modelSettings()?.provider;
+        if (
+            store.agentFailure() === undefined
+            && storedProvider !== undefined
+            && !(storedProvider === "unknown" && this.defaultProvider === "unknown")
+            && !isVeraProviderId(storedProvider)
+        ) {
+            throw new ProviderUnavailableError(storedProvider);
+        }
         this.reserveId(store.header.id);
         try {
             this.requireOpen();

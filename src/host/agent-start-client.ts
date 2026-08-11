@@ -20,6 +20,8 @@ export class AgentStartError extends Error {
     constructor(
         readonly operation: "create" | "resume",
         readonly reason?: string,
+        readonly reasonCode?: "provider_unavailable",
+        readonly provider?: string,
     ) {
         super(reason ?? `Resident agent ${operation} failed`);
         this.name = "AgentStartError";
@@ -205,11 +207,21 @@ async function requestAgentStart(
             response?.type === "agent_start_failed"
             && response.operation === operationOf(request)
         ) {
+            const providerUnavailable =
+                response.reason_code === "provider_unavailable"
+                && typeof response.provider === "string"
+                && response.provider.length > 0;
             throw new AgentStartError(
                 operationOf(request),
                 typeof response.reason === "string"
                         && response.reason.length > 0
                     ? response.reason
+                    : undefined,
+                providerUnavailable
+                    ? "provider_unavailable"
+                    : undefined,
+                providerUnavailable
+                    ? response.provider as string
                     : undefined,
             );
         }
