@@ -1,11 +1,10 @@
-import { HOST_CAPABILITIES } from "../../src/host/capabilities.ts";
 import {
     AgentBranchCommitError,
     branchAgentThroughHost,
     createAgentThroughHost,
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
-import { attachAgent } from "../../src/host/attached-client.ts";
+import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import type { UserMessage } from "../../src/model/types.ts";
 import type {
     IdentifiedTuiAgentClient,
@@ -37,10 +36,9 @@ export interface ConfiguredTuiAgentClients {
 export function createConfiguredTuiAgentClients(
     socketPath: () => string,
 ): ConfiguredTuiAgentClients {
-    const attach = (agentId: string) => attachAgent({
-        socketPath: socketPath(),
+    const attach = (agentId: string) => attachReconnectingAgent({
+        socketPath,
         agentId,
-        requestedCapabilities: HOST_CAPABILITIES,
     });
     return {
         attach,
