@@ -5212,6 +5212,15 @@ export async function startTui(
         }
         connectionFailed = true;
         const message = error instanceof Error ? error.message : String(error);
+        for (const pending of pendingConsults.values()) {
+            pending.reject(new Error(message));
+        }
+        pendingConsults.clear();
+        for (const image of pendingImages) {
+            composer.removeImageChip(image.requestId);
+        }
+        pendingImages = [];
+        submitAfterImageAttachment = false;
         const interruptedRename = pendingSessionRename;
         pendingSessionRename = undefined;
         if (

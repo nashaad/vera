@@ -29,6 +29,7 @@ export interface AttachAgentOptions {
     readonly maxPendingUpdates?: number;
     readonly requestedCapabilities?: readonly string[];
     readonly afterSequence?: number;
+    readonly signal?: AbortSignal;
 }
 
 export interface AttachedAgentClient {
@@ -102,7 +103,10 @@ export async function attachAgent(
             || options.afterSequence < 0)) {
         throw new Error("Agent replay cursor is invalid");
     }
-    const connection = await connectHost({ socketPath: options.socketPath });
+    const connection = await connectHost({
+        socketPath: options.socketPath,
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
     try {
         await connection.send({
             type: "attach",
