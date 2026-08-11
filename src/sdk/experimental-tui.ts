@@ -111,7 +111,7 @@ export interface VeraExperimentalTuiViewSpec {
     readonly onKey?: (
         key: VeraExperimentalTuiKey,
         context: VeraExperimentalTuiContext,
-    ) => boolean | void | Promise<boolean | void>;
+    ) => boolean | void;
     readonly onAction?: (
         action: string,
         context: VeraExperimentalTuiContext,
@@ -138,7 +138,7 @@ export interface VeraExperimentalTuiRawViewSpec {
     create(context: VeraExperimentalTuiRawContext): Renderable;
     onKey?: (
         key: VeraExperimentalTuiKey,
-    ) => boolean | void | Promise<boolean | void>;
+    ) => boolean | void;
 }
 
 export interface VeraExperimentalTuiEvents {

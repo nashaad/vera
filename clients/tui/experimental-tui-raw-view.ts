@@ -62,8 +62,23 @@ export function disposeTuiExperimentalRawView(
     view: TuiExperimentalRawView,
     removeFromSlot: (containerId: string) => void,
 ): void {
-    removeFromSlot(view.container.id);
-    view.container.destroy();
+    let firstFailure: unknown;
+    try {
+        removeFromSlot(view.container.id);
+    } catch (error) {
+        firstFailure = error;
+    }
+    try {
+        view.root.destroyRecursively();
+    } catch (error) {
+        firstFailure ??= error;
+    }
+    try {
+        view.container.destroy();
+    } catch (error) {
+        firstFailure ??= error;
+    }
+    if (firstFailure !== undefined) throw firstFailure;
 }
 
 export function refreshTuiExperimentalRawView(

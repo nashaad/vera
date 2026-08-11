@@ -42,6 +42,7 @@ interface EventListeners {
 
 export function createTuiExperimentalEventBus(
     onFailure: (extensionId: string, message: string) => void,
+    onRenderRequested: () => void,
 ): TuiExperimentalEventBus {
     let lastTranscript: VeraExperimentalTuiContext["transcript"] = [];
     let closed = false;
@@ -73,11 +74,12 @@ export function createTuiExperimentalEventBus(
     ): void {
         for (const registered of listeners[event]) {
             try {
-                void Promise.resolve(registered.listener(...args)).catch((error) => {
-                    reportFailure(registered, error);
-                });
+                void Promise.resolve(registered.listener(...args))
+                    .catch((error) => reportFailure(registered, error))
+                    .then(() => onRenderRequested());
             } catch (error) {
                 reportFailure(registered, error);
+                onRenderRequested();
             }
         }
     }
@@ -96,16 +98,8 @@ export function createTuiExperimentalEventBus(
         events,
         currentTranscript: () => lastTranscript,
         transcriptChanged(transcript): void {
-            let signature: string;
-            let previousSignature: string;
-            try {
-                signature = JSON.stringify(transcript);
-                previousSignature = JSON.stringify(lastTranscript);
-            } catch {
-                lastTranscript = transcript;
-                fire("transcript_changed", transcript);
-                return;
-            }
+            const signature = JSON.stringify(transcript);
+            const previousSignature = JSON.stringify(lastTranscript);
             if (signature === previousSignature) return;
             lastTranscript = transcript;
             fire("transcript_changed", transcript);

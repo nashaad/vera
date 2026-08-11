@@ -4,14 +4,23 @@ export interface TuiExperimentalKeyResultOptions {
 }
 
 export function settleTuiExperimentalKeyResult(
-    result: boolean | void | Promise<boolean | void>,
+    result: boolean | void,
     options: TuiExperimentalKeyResultOptions,
 ): boolean {
-    if (result instanceof Promise) {
-        void result
-            .then(() => options.onRenderRequested())
-            .catch((error) => options.onFailure(error));
-        return true;
+    if (
+        typeof result === "object"
+        && result !== null
+        && "then" in result
+    ) {
+        options.onFailure(
+            new Error("Experimental TUI onKey handlers must return synchronously"),
+        );
+        options.onRenderRequested();
+        void Promise.resolve(result).catch((error) => {
+            options.onFailure(error);
+            options.onRenderRequested();
+        });
+        return false;
     }
     options.onRenderRequested();
     return result !== false;

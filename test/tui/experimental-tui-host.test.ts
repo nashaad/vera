@@ -323,3 +323,100 @@ test("experimental TUI host attributes async listener failures", async () => {
         renderer.destroy();
     }
 });
+
+test("experimental TUI host shows raw modal overlays", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure() {},
+        onRenderRequested() {},
+    });
+    try {
+        host.adapter.mountRenderable("fixture", {
+            id: "raw-modal",
+            slot: "overlay",
+            modal: true,
+            create(context) {
+                return new TextRenderable(context.renderer, {
+                    id: "raw-modal-text",
+                    content: "modal",
+                    height: 1,
+                });
+            },
+        });
+        host.render();
+        expect(host.overlay.visible).toBe(true);
+        expect(host.hasModal()).toBe(true);
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});
+
+test("experimental TUI host finishes cleanup after raw destroy throws", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const failures: string[] = [];
+    let nestedChildDestroyed = false;
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure(extensionId, message) {
+            failures.push(`${extensionId}:${message}`);
+        },
+        onRenderRequested() {},
+    });
+    host.adapter.mountRenderable("broken", {
+        id: "broken-destroy",
+        slot: "footer",
+        create(context) {
+            const root = new TextRenderable(context.renderer, {
+                id: "broken-destroy-text",
+                content: "broken",
+                height: 1,
+            });
+            Object.defineProperty(root, "destroy", {
+                value: () => { throw new Error("destroy failed"); },
+            });
+            return root;
+        },
+    });
+    host.adapter.mountRenderable("healthy", {
+        id: "healthy-destroy",
+        slot: "footer",
+        create(context) {
+            const root = new BoxRenderable(context.renderer, {
+                id: "healthy-destroy-root",
+            });
+            const child = new TextRenderable(context.renderer, {
+                id: "healthy-destroy-child",
+                content: "healthy",
+                height: 1,
+            });
+            const destroy = child.destroy.bind(child);
+            Object.defineProperty(child, "destroy", {
+                value: () => {
+                    nestedChildDestroyed = true;
+                    destroy();
+                },
+            });
+            root.add(child);
+            return root;
+        },
+    });
+
+    await expect(host.close()).resolves.toBeUndefined();
+    expect(nestedChildDestroyed).toBe(true);
+    expect(failures).toEqual(["broken:destroy failed"]);
+    renderer.destroy();
+});
