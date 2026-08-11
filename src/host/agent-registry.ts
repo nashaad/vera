@@ -40,6 +40,7 @@ import {
     bindCompaction,
 } from "../engine/compaction-binding.ts";
 import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
+import { isVeraProviderId } from "../config.ts";
 import {
     createSubagentEffectApplier,
     resolveSpawnModelChoice,
@@ -1274,10 +1275,7 @@ export class AgentRegistry {
             (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
             || (patch.provider !== undefined && patch.provider.trim().length === 0)
             || (patch.provider !== undefined
-                && patch.provider !== "openrouter"
-                && patch.provider !== "openai-codex"
-                && patch.provider !== "ollama"
-                && patch.provider !== "cerebras")
+                && !isVeraProviderId(patch.provider.trim()))
             || (patch.model !== undefined && patch.model.trim().length === 0)
             || (patch.reasoningEffort !== undefined
                 && patch.reasoningEffort !== null
