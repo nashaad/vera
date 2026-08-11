@@ -24,6 +24,7 @@ import {
     parseAgentName,
 } from "../../src/host/agent-name.ts";
 import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";
+import { VERA_PROVIDER_IDS } from "../../src/config.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
@@ -3202,6 +3203,36 @@ test("a reviewer patch answers with the new slots and persists them", async () =
             settings: { reviewerDefault: { mode: "agent" } },
         });
         expect(written[1]).toBeNull();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("every configured provider id is selectable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-provider-ids-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: "first-model",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        for (const provider of VERA_PROVIDER_IDS) {
+            expect(await registry.updateModelSettings(agent.id, {
+                provider,
+                model: "some-model",
+            })).toMatchObject({ provider, model: "some-model" });
+        }
+        expect(await registry.updateModelSettings(agent.id, {
+            provider: "not-a-provider",
+            model: "some-model",
+        })).toBeUndefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
