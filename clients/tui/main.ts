@@ -17,6 +17,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
+import { openFileInEditor, veraConfigPath } from "../editor.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -179,6 +180,7 @@ import {
     COMPOSER_PLACEHOLDER,
     createTuiComposer,
     createTuiComposerPanel,
+    TUI_COMPOSER_PANEL_ROWS,
 } from "./composer.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { TuiBodyFocusController } from "./body-focus.ts";
@@ -207,10 +209,13 @@ import {
 } from "./quote.ts";
 import {
     renderTuiIdleHint,
-    renderTuiStatusDetailsLine,
+    renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
     tuiStatusSnapshot,
+    statusToneColor,
+    type TuiStatusChunk,
 } from "./status.ts";
+import { watchWorkspaceBranch } from "./workspace-branch.ts";
 import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerScroll,
@@ -315,6 +320,7 @@ import {
     TUI_TEXT,
     applyTuiTheme,
     appendTuiExtensionBlock,
+    appendTuiError,
     appendTuiNotice,
     appendTuiThought,
     dropTuiThinking,
@@ -324,6 +330,7 @@ import {
     userEntryShows,
     beginNextQueuedTuiTurn,
     beginTuiAdmission,
+    dropTuiAdmission,
     beginTuiTurn,
     createTuiState,
     failTuiConnection,
@@ -380,9 +387,12 @@ const MODE_TOAST_DURATION_MS = 2_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
 const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
+const SHIMMER_FRAME_INTERVAL_MS = 40;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 const POINTER_HOVER_DELAY_MS = 25;
+/** Rows the composer, the status band and a little transcript need. */
+const SUGGESTIONS_RESERVED_ROWS = 12;
 
 function assistantFollowsWork(
     entries: readonly TuiTranscriptEntry[],
@@ -422,6 +432,7 @@ function displayModeLabel(label: string): string {
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly copyText?: (text: string) => Promise<void>;
+    readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     /**
      * The four ways to reach another session, each handed the identity of the
@@ -570,6 +581,9 @@ export async function startConfiguredTui(
         ? (await createAgentThroughHost(
             host.socket_path,
             resolvedTarget.workspace,
+            undefined,
+            undefined,
+            resolvedTarget.startupProfile,
         )).id
         : resolvedTarget.type === "resume"
             ? (await resumeAgentThroughHost(
@@ -819,6 +833,18 @@ export async function startTui(
         readonly model: string;
         readonly label: string;
     } | undefined;
+    interface PoolChangeUndo {
+        readonly action: "add" | "remove";
+        readonly provider: string;
+        readonly model: string;
+        readonly poolName?: string;
+    }
+    const pendingPoolChanges = new Map<string, PoolChangeUndo>();
+    const pendingPoolUndos = new Map<string, {
+        readonly undo: PoolChangeUndo;
+        readonly completesOnSettings: boolean;
+    }>();
+    let poolChangeUndo: PoolChangeUndo | undefined;
     let admissionDialog: TuiAdmissionDialogState | undefined;
     /** The model pane the dialog covered, put back when the dialog leaves. */
     let admissionReturnPicker: TuiSettingsPickerState | undefined;
@@ -1068,8 +1094,11 @@ export async function startTui(
                         attached.client,
                         new Error("The client extension host closed"),
                     );
+                    // Reloading an extension generation removes the pane it
+                    // owned. During TUI shutdown the pane was already released
+                    // above, so its durable restore record must survive.
+                    forgetPersistedAgentPane();
                 }
-                forgetPersistedAgentPane();
                 void attached?.detach().catch(() => attached.close());
                 clearSidebarEntryNodes();
                 sidebar.clear();
@@ -1245,8 +1274,11 @@ export async function startTui(
         id: "status",
         content: READY_HINT,
         fg: TUI_MUTED,
-        width: "100%",
         height: 1,
+        flexShrink: 0,
+        // On the last line of the place row rather than a line of its own: it
+        // is the shortest thing down there and the row has the room.
+        alignSelf: "flex-end",
     });
     const paneStatusText = new TextRenderable(renderer, {
         id: "pane-status",
@@ -1261,8 +1293,24 @@ export async function startTui(
         content: "",
         fg: TUI_MUTED,
         width: "100%",
-        height: 1,
+        height: 2,
     });
+    // The details sit in a panel of their own rather than loose under the
+    // composer: the composer is where the session is typed into, and this is
+    // what the session currently is. One border says the two are separate
+    // things without a heading having to say it.
+    const statusCard = new BoxRenderable(renderer, {
+        id: "status-card",
+        border: false,
+        width: "100%",
+        height: "auto",
+        flexDirection: "column",
+    });
+    statusCard.add(backgroundStatusText);
+    const workspaceBranch = watchWorkspaceBranch(
+        process.cwd(),
+        () => renderer.requestRender(),
+    );
     // A text node paints only the cells its glyphs fill, so the status rows
     // would show the transcript through every gap in the line, and through the
     // spaces inside it. The band that backs them is this box rather than a
@@ -1274,22 +1322,32 @@ export async function startTui(
         id: "status-band",
         position: "absolute",
         left: 0,
-        // A row of floor under the band, so the last line of status is not
-        // sitting on the terminal's edge.
-        bottom: 1,
+        bottom: 0,
         width: "100%",
         height: "auto",
         flexDirection: "column",
         // The rows are indented from the band, not from themselves: a text
         // node laid out as a flex child does not carry its own padding. The
-        // indent lands just inside the composer's edge, so the status reads as
-        // sitting under the composer rather than starting a new column.
-        paddingLeft: 2,
+        // indent clears the frame above and its padding, so these rows start
+        // in the same column as the text inside it.
+        paddingLeft: 4,
+        paddingRight: 4,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
+    // Where the session is on the left, what it is doing on the right, both
+    // under the frame they belong to.
+    const placeRow = new BoxRenderable(renderer, {
+        id: "place-row",
+        width: "100%",
+        height: "auto",
+        flexDirection: "row",
+    });
+    statusCard.flexGrow = 1;
+    statusCard.flexShrink = 1;
+    placeRow.add(statusCard);
+    placeRow.add(statusText);
+    statusBand.add(placeRow);
     statusBand.add(paneStatusText);
-    statusBand.add(statusText);
-    statusBand.add(backgroundStatusText);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -1352,7 +1410,6 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        paddingLeft: 2,
         visible: false,
     });
 
@@ -1417,6 +1474,28 @@ export async function startTui(
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
 
+    /**
+     * How many rows the status band takes under the composer. The suggestion
+     * strip floats outside the layout flow and has to clear that band, so the
+     * margin is kept here rather than read back off the box.
+     */
+    let composerMarginRows = 2;
+
+    function setComposerMargin(rows: number): void {
+        composerMarginRows = rows;
+        composerBox.marginBottom = rows;
+        positionCommandSuggestions();
+    }
+
+    function positionCommandSuggestions(): void {
+        commandSuggestionsBox.bottom = TUI_COMPOSER_PANEL_ROWS
+            + composerMarginRows
+            + experimentalTuiHost.bottomInsetRows()
+            + (composerTipText.visible ? 1 : 0)
+            + (quoteText.visible ? 1 : 0)
+            + (heldAddressText.visible ? 1 : 0);
+    }
+
     const modeToastText = new TextRenderable(renderer, {
         id: "mode-toast-text",
         content: "",
@@ -1445,7 +1524,11 @@ export async function startTui(
     modeToast.add(modeToastText);
     let modeToastVersion = 0;
 
-    const composerBox = createTuiComposerPanel(renderer, composer);
+    const {
+        panel: composerBox,
+        status: composerStatusText,
+        rule: composerRule,
+    } = createTuiComposerPanel(renderer, composer);
 
     const bodyFocus = new TuiBodyFocusController();
     // Everything the sidebar sits beside: the conversation and what hangs off
@@ -1854,7 +1937,7 @@ export async function startTui(
             const subject = requestedModelChanges.get(update.requestId);
             requestedModelChanges.delete(update.requestId);
             if (subject !== undefined) {
-                pane.state.state = appendTuiNotice(
+                pane.state.state = appendTuiError(
                     pane.state.state,
                     rejectionNotice(subject, update.reason),
                 );
@@ -1865,7 +1948,7 @@ export async function startTui(
             const subject = requestedPermissionChanges.get(update.requestId);
             requestedPermissionChanges.delete(update.requestId);
             if (subject !== undefined) {
-                pane.state.state = appendTuiNotice(
+                pane.state.state = appendTuiError(
                     pane.state.state,
                     rejectionNotice(subject, update.reason),
                 );
@@ -1916,11 +1999,21 @@ export async function startTui(
         settingsPicker = { ...settingsPicker, selectedIndex: index };
     });
     settingsPickerView.onTab = (tab) => {
-        if (settingsPicker === undefined || settingsPicker.kind !== "model") {
+        // The strip is on screen on the connect pane too, and a chip on it
+        // leaves that pane for the collection it names.
+        const pane = settingsPicker?.kind === "provider"
+            ? settingsPicker.parent
+            : settingsPicker;
+        if (pane === undefined || pane.kind !== "model") {
             return;
         }
-        settingsPicker = switchedModelTab(settingsPicker, tab);
+        settingsPicker = switchedModelTab(pane, tab);
         renderState();
+    };
+    settingsPickerView.onConfigure = () => {
+        if (settingsPicker?.kind === "provider") return;
+        if (settingsPicker?.kind !== "model") return;
+        openProviderPicker(settingsPicker);
     };
     preferencesListView.pointer = rowPointer((index) => {
         if (preferencesList === undefined) return;
@@ -2054,7 +2147,9 @@ export async function startTui(
 
     const statusTimer = setInterval(() => {
         renderStatus();
-    }, STATUS_REFRESH_INTERVAL_MS);
+    }, activityAnimation === "shimmer"
+        ? activityAnimationInterval ?? SHIMMER_FRAME_INTERVAL_MS
+        : STATUS_REFRESH_INTERVAL_MS);
     watchBackgroundAgents(dependencies.client);
 
     renderer.on(CliRenderEvents.RESIZE, () => {
@@ -2955,7 +3050,7 @@ export async function startTui(
             });
         } catch (error) {
             if (shuttingDown || client.agentId !== mainAgentId) return;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not restore paired pane: ${
                     error instanceof Error ? error.message : String(error)
@@ -3246,7 +3341,7 @@ export async function startTui(
             const provider = state.modelSettings?.provider;
             const model = state.modelSettings?.model;
             if (provider === undefined || model === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "No model is running yet, so there is nothing to pool",
                 );
@@ -3284,7 +3379,7 @@ export async function startTui(
                     && client.runExtensionCommand === undefined)
             ) {
                 composer.setComposerText(prompt);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `${commandAction.source}: command unavailable`,
                 );
@@ -3411,7 +3506,7 @@ export async function startTui(
             const provider = separator > 0 ? typed.slice(0, separator) : undefined;
             const model = separator > 0 ? typed.slice(separator + 1) : typed;
             if (model.length === 0) {
-                state = appendTuiNotice(state, `"${typed}" is not a model name`);
+                state = appendTuiError(state, `"${typed}" is not a model name`);
                 renderState();
                 return;
             }
@@ -3478,6 +3573,12 @@ export async function startTui(
             openSettingsMenu();
             return;
         }
+        if (commandAction?.type === "open_configure") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            void openConfigureEditor();
+            return;
+        }
         if (commandAction?.type === "open_command_palette") {
             composer.clearComposer();
             openCommandPalette();
@@ -3494,7 +3595,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             if (dependencies.listAgents === undefined) {
-                state = appendTuiNotice(state, "Session listing is unavailable");
+                state = appendTuiError(state, "Session listing is unavailable");
                 renderState();
                 return;
             }
@@ -3520,7 +3621,7 @@ export async function startTui(
                     targetAgentId,
                     false,
                     new Date(),
-                    false,
+                    true,
                     hostedPanePersistence.groups,
                 );
                 focusActiveSurface();
@@ -3534,7 +3635,7 @@ export async function startTui(
                     const message = error instanceof Error
                         ? error.message
                         : String(error);
-                    state = appendTuiNotice(
+                    state = appendTuiError(
                         state,
                         `Could not list sessions: ${message}`,
                     );
@@ -3549,7 +3650,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             if (dependencies.listAgents === undefined) {
-                state = appendTuiNotice(state, "Session listing is unavailable");
+                state = appendTuiError(state, "Session listing is unavailable");
                 renderState();
                 return;
             }
@@ -3604,7 +3705,7 @@ export async function startTui(
                     const message = error instanceof Error
                         ? error.message
                         : String(error);
-                    state = appendTuiNotice(
+                    state = appendTuiError(
                         state,
                         `Could not list sessions: ${message}`,
                     );
@@ -3619,7 +3720,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             if (dependencies.listAgents === undefined) {
-                state = appendTuiNotice(state, "Session listing is unavailable");
+                state = appendTuiError(state, "Session listing is unavailable");
                 renderState();
                 return;
             }
@@ -3648,7 +3749,7 @@ export async function startTui(
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not find the parent conversation: ${message}`,
                 );
@@ -3664,7 +3765,7 @@ export async function startTui(
                 || dependencies.reconnectSession === undefined
                 || currentAgentId === undefined
             ) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     connectionFailed
                         ? "Reconnecting this session is unavailable"
@@ -3688,7 +3789,7 @@ export async function startTui(
             }).catch((error) => {
                 if (shuttingDown) return;
                 sessionSwitchPending = false;
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not reconnect: ${
                         error instanceof Error ? error.message : String(error)
@@ -3707,7 +3808,7 @@ export async function startTui(
                     ? dependencies.createAgent === undefined
                     : dependencies.createSession === undefined
             ) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Starting a new session is unavailable",
                 );
@@ -3719,7 +3820,7 @@ export async function startTui(
             }
             const workspace = focusedAgentClient().workspace;
             if (workspace === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Current session workspace is unavailable",
                 );
@@ -3767,7 +3868,7 @@ export async function startTui(
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not start a new session: ${message}`,
                 );
@@ -3778,7 +3879,7 @@ export async function startTui(
         if (commandAction?.type === "clone_session") {
             composer.clearComposer();
             if (dependencies.cloneSession === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Cloning this session is unavailable",
                 );
@@ -3787,7 +3888,7 @@ export async function startTui(
             }
             const sourceAgentId = client.agentId;
             if (sourceAgentId === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Current session ID is unavailable",
                 );
@@ -3812,7 +3913,7 @@ export async function startTui(
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not clone this session: ${message}`,
                 );
@@ -4210,7 +4311,7 @@ export async function startTui(
                         if (rejected !== undefined) {
                             composer.removeImageChip(rejected.requestId);
                         }
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             `Could not attach image: ${update.error}`,
                         );
@@ -4267,7 +4368,7 @@ export async function startTui(
                         ) {
                             composer.setComposerText(pending.commandText);
                         }
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             update.reason === "invalid"
                                 ? "Session name must be 1 to 200 UTF-8 bytes"
@@ -4347,6 +4448,38 @@ export async function startTui(
                     update.type === "model_settings"
                     || update.type === "model_settings_rejected"
                 ) {
+                    const poolChange = pendingPoolChanges.get(update.requestId);
+                    pendingPoolChanges.delete(update.requestId);
+                    if (
+                        poolChange !== undefined
+                        && update.type === "model_settings"
+                    ) {
+                        poolChangeUndo = poolChange;
+                    }
+                    const pendingUndo = pendingPoolUndos.get(update.requestId);
+                    pendingPoolUndos.delete(update.requestId);
+                    if (
+                        pendingUndo?.completesOnSettings === true
+                        && update.type === "model_settings"
+                    ) {
+                        poolChangeUndo = undefined;
+                        showStatusNotice("pool change undone");
+                    } else if (
+                        pendingUndo !== undefined
+                        && update.type === "model_settings_rejected"
+                    ) {
+                        poolChangeUndo = pendingUndo.undo;
+                        if (settingsPicker?.kind === "model") {
+                            settingsPicker = {
+                                ...settingsPicker,
+                                canUndoPoolChange: true,
+                            };
+                        }
+                        state = appendTuiError(
+                            state,
+                            rejectionNotice("undo that pool change", update.reason),
+                        );
+                    }
                     settleExtensionModelSettings(update);
                     const subject = requestedModelChanges.get(
                         update.requestId,
@@ -4356,14 +4489,55 @@ export async function startTui(
                         subject !== undefined
                         && update.type === "model_settings_rejected"
                     ) {
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             rejectionNotice(subject, update.reason),
                         );
                     }
                 }
                 observeActivity(update);
+                if (
+                    update.type === "pool_admission_result"
+                    && retryPoolAdmission(update.requestId, update.verdict)
+                ) {
+                    renderState();
+                    continue;
+                }
                 state = applyAgentUpdate(state, update);
+                if (update.type === "pool_admission_result") {
+                    const pendingUndo = pendingPoolUndos.get(update.requestId);
+                    if (
+                        pendingUndo !== undefined
+                        && update.verdict === "added"
+                        && pendingUndo.undo.poolName !== undefined
+                    ) {
+                        pendingPoolUndos.delete(update.requestId);
+                        const nameRequestId = randomUUID();
+                        pendingPoolUndos.set(nameRequestId, {
+                            undo: pendingUndo.undo,
+                            completesOnSettings: true,
+                        });
+                        sendCommand({
+                            type: "pool_name",
+                            requestId: nameRequestId,
+                            provider: update.provider,
+                            model: update.model,
+                            name: pendingUndo.undo.poolName,
+                        });
+                    } else if (
+                        pendingUndo !== undefined
+                        && update.verdict !== "added"
+                    ) {
+                        pendingPoolUndos.delete(update.requestId);
+                        poolChangeUndo = pendingUndo.undo;
+                        if (settingsPicker?.kind === "model") {
+                            settingsPicker = {
+                                ...settingsPicker,
+                                canUndoPoolChange: true,
+                            };
+                        }
+                    }
+                }
                 if (
                     update.type === "pool_admission_result"
                     && pendingPoolName?.requestId === update.requestId
@@ -4403,6 +4577,12 @@ export async function startTui(
                         settingsPicker,
                         state.modelSettings,
                     );
+                    if (poolChangeUndo !== undefined) {
+                        settingsPicker = {
+                            ...settingsPicker,
+                            canUndoPoolChange: true,
+                        };
+                    }
                 }
                 if (
                     update.type === "model_settings"
@@ -4437,12 +4617,12 @@ export async function startTui(
                     );
                     requestedPermissionChanges.delete(update.requestId);
                     if (subject !== undefined) {
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             rejectionNotice(subject, update.reason),
                         );
                     } else if (preferencesList !== undefined) {
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             update.reason === "unavailable"
                                 ? "Removing permissions is unavailable on this host"
@@ -4786,7 +4966,7 @@ export async function startTui(
             const message = error instanceof Error
                 ? error.message
                 : String(error);
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not load extension commands: ${message}`,
             );
@@ -4938,14 +5118,14 @@ export async function startTui(
         timelinePicker = undefined;
         timelinePickerView.box.visible = false;
         if (dependencies.forkSession === undefined) {
-            state = appendTuiNotice(state, "Forking this session is unavailable");
+            state = appendTuiError(state, "Forking this session is unavailable");
             composer.focus();
             renderState();
             return;
         }
         const sourceAgentId = client.agentId;
         if (sourceAgentId === undefined) {
-            state = appendTuiNotice(state, "Current session ID is unavailable");
+            state = appendTuiError(state, "Current session ID is unavailable");
             composer.focus();
             renderState();
             return;
@@ -4978,7 +5158,7 @@ export async function startTui(
             if (shuttingDown) return;
             sessionSwitchPending = false;
             const message = error instanceof Error ? error.message : String(error);
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not fork this session: ${message}`,
             );
@@ -5120,7 +5300,10 @@ export async function startTui(
             : `Message ${extensionAddressee}\u2026`;
         renderPendingQuote();
         const focusedState = focusedAgentState();
-        queuedPromptText.content = renderTuiQueuedPrompt(focusedState);
+        const queuedPrompt = renderTuiQueuedPrompt(focusedState);
+        queuedPromptText.content = queuedPrompt.length === 0
+            ? ""
+            : `  ${queuedPrompt}`;
         queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
         approvalView.box.visible = uiRequest?.request.type
             === "tool_approval";
@@ -5524,8 +5707,33 @@ export async function startTui(
             undefined,
             targetState.modelSettings?.pooled,
         ), parent);
+        // Auth changes happen outside the host's original model snapshot.
+        // Refresh here so reopening the picker also repairs a stale model pane
+        // that was kept underneath the provider picker.
+        requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    async function openConfigureEditor(): Promise<void> {
+        renderer.suspend();
+        try {
+            await (dependencies.openConfigure ?? (() =>
+                openFileInEditor(veraConfigPath())))();
+            state = appendTuiNotice(
+                state,
+                "Configure editor closed. Restart Vera to apply config changes.",
+            );
+        } catch (error) {
+            state = appendTuiError(
+                state,
+                `Could not open config: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        } finally {
+            renderer.resume();
+            renderState();
+            focusActiveSurface();
+        }
     }
 
     /**
@@ -5672,7 +5880,7 @@ export async function startTui(
     const authStorage: AuthStorage = dependencies.authStorage
         ?? createAuthStorage({
             onQuarantine(quarantinePath) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `The old credential file could not be read and was moved to ${quarantinePath}`,
                 );
@@ -5685,7 +5893,7 @@ export async function startTui(
         // is actually written to it.
         const unreadable = unreadableAuthStoragePath();
         if (unreadable !== undefined) {
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `${unreadable} could not be read, so no provider shows as connected. Connecting one rewrites it.`,
             );
@@ -5785,7 +5993,7 @@ export async function startTui(
             renderState();
         }, (error: unknown) => {
             connectingProviders.delete(provider.id);
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `could not connect to ${provider.label}: ${
                     error instanceof Error ? error.message : String(error)
@@ -5821,8 +6029,9 @@ export async function startTui(
                     key: transition.submitted,
                 });
                 state = appendTuiNotice(state, `stored ${prompt.label} API key`);
+                requestAgentSettings(focusedAgentClient());
             } catch (error) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `could not store the ${prompt.label} API key: ${
                         error instanceof Error ? error.message : String(error)
@@ -5837,6 +6046,9 @@ export async function startTui(
             return;
         }
         settingsPicker = prompt.parent;
+        if (settingsPicker?.kind === "model") {
+            requestAgentSettings(focusedAgentClient());
+        }
         renderState();
         focusActiveSurface();
     }
@@ -5900,7 +6112,7 @@ export async function startTui(
         name: string | null,
     ): Promise<void> {
         if (dependencies.renameSession === undefined) {
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 "Renaming another conversation is unavailable",
             );
@@ -5926,20 +6138,23 @@ export async function startTui(
         // The session on screen may have been swapped underneath while the
         // host was answering, and this result belongs to the one that left.
         if (shuttingDown || generation !== clientGeneration) return;
-        state = appendTuiNotice(
-            state,
-            result.status === "renamed"
-                ? result.name === null
+        state = result.status === "renamed"
+            ? appendTuiNotice(
+                state,
+                result.name === null
                     ? "session name cleared"
-                    : `session renamed: ${result.name}`
-                : result.reason === "busy"
-                ? "That conversation is open in another client"
-                : result.reason === "not_found"
-                ? "That conversation is no longer available"
-                : result.reason === "invalid"
-                ? "Session name must be 1 to 200 UTF-8 bytes"
-                : "Could not rename that conversation",
-        );
+                    : `session renamed: ${result.name}`,
+            )
+            : appendTuiError(
+                state,
+                result.reason === "busy"
+                    ? "That conversation is open in another client"
+                    : result.reason === "not_found"
+                    ? "That conversation is no longer available"
+                    : result.reason === "invalid"
+                    ? "Session name must be 1 to 200 UTF-8 bytes"
+                    : "Could not rename that conversation",
+            );
         if (result.status === "renamed" && settingsPicker?.kind === "session") {
             await refreshSessionPicker();
         }
@@ -5969,7 +6184,7 @@ export async function startTui(
                 client.agentId,
                 false,
                 new Date(),
-                false,
+                true,
                 hostedPanePersistence.groups,
             );
             renderState();
@@ -6073,6 +6288,8 @@ export async function startTui(
         // Escape: `handleTuiSettingsPickerKey` returns no `state` on Enter,
         // so this is the only place that still has it.
         const previousPicker = settingsPicker;
+        const returningToModelPicker = settingsPicker?.kind !== "model"
+            && transition.state?.kind === "model";
         settingsPicker = transition.state;
         if (
             extensionPickerWasOpen
@@ -6137,8 +6354,15 @@ export async function startTui(
         if ("openProviders" in transition && transition.openProviders === true) {
             // The model pane stays underneath: connecting a provider is a
             // detour on the way to picking a model, not a change of subject.
+            // The pane it returns to is the one the transition left behind, not
+            // the one the key arrived on: ⇥ onto Providers wraps the list back
+            // to its first tab, and Escape has to land on that.
             openProviderPicker(
-                previousPicker?.kind === "extension" ? undefined : previousPicker,
+                settingsPicker?.kind === "model"
+                    ? settingsPicker
+                    : previousPicker?.kind === "extension"
+                    ? undefined
+                    : previousPicker,
             );
             return;
         }
@@ -6168,6 +6392,13 @@ export async function startTui(
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             const toggle = transition.poolToggle;
+            poolChangeUndo = undefined;
+            if (settingsPicker?.kind === "model") {
+                settingsPicker = {
+                    ...settingsPicker,
+                    canUndoPoolChange: false,
+                };
+            }
             if (toggle.action === "add") {
                 // The name prompt follows the verdict, not the keypress: a
                 // model that never made it into the pool cannot be named.
@@ -6181,14 +6412,68 @@ export async function startTui(
                     model: toggle.model,
                     label: `${toggle.provider}/${toggle.model}`,
                 };
+                pendingPoolChanges.set(requestId, {
+                    action: "remove",
+                    provider: toggle.provider,
+                    model: toggle.model,
+                });
                 return;
             }
+            const removed = state.modelSettings?.pooled?.find((entry) =>
+                entry.provider === toggle.provider
+                && entry.model === toggle.model
+            );
+            const requestId = randomUUID();
+            pendingPoolChanges.set(requestId, {
+                action: "add",
+                provider: toggle.provider,
+                model: toggle.model,
+                ...(removed?.poolName === undefined
+                    ? {}
+                    : { poolName: removed.poolName }),
+            });
             sendCommand({
                 type: "pool_remove",
-                requestId: randomUUID(),
+                requestId,
                 provider: toggle.provider,
                 model: toggle.model,
             });
+        }
+        if (
+            "undoPoolChange" in transition
+            && transition.undoPoolChange === true
+            && poolChangeUndo !== undefined
+        ) {
+            const undo = poolChangeUndo;
+            if (settingsPicker?.kind === "model") {
+                settingsPicker = {
+                    ...settingsPicker,
+                    canUndoPoolChange: false,
+                };
+            }
+            if (undo.action === "remove") {
+                const requestId = randomUUID();
+                pendingPoolUndos.set(requestId, {
+                    undo,
+                    completesOnSettings: true,
+                });
+                sendCommand({
+                    type: "pool_remove",
+                    requestId,
+                    provider: undo.provider,
+                    model: undo.model,
+                });
+            } else {
+                const requestId = requestPoolAdmission(
+                    undo.provider,
+                    undo.model,
+                );
+                pendingPoolUndos.set(requestId, {
+                    undo,
+                    completesOnSettings: undo.poolName === undefined,
+                });
+            }
+            return;
         }
         if (transition.selection !== undefined) {
             const selection = transition.selection;
@@ -6316,6 +6601,9 @@ export async function startTui(
             composer.blur();
             settingsPickerView.update(settingsPicker);
             settingsPickerView.box.focus();
+        }
+        if (returningToModelPicker) {
+            requestAgentSettings(focusedAgentClient());
         }
         renderState();
     }
@@ -6483,7 +6771,7 @@ export async function startTui(
             return;
         }
         if (dependencies.resumeSession === undefined) {
-            state = appendTuiNotice(state, "Switching sessions is unavailable");
+            state = appendTuiError(state, "Switching sessions is unavailable");
             settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
@@ -6520,7 +6808,7 @@ export async function startTui(
         }).catch((error) => {
             if (shuttingDown) return;
             sessionSwitchPending = false;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not switch conversation: ${
                     error instanceof Error ? error.message : String(error)
@@ -6548,7 +6836,7 @@ export async function startTui(
     }): void {
         if (dependencies.trashSession === undefined) {
             sessionTrashCandidate = undefined;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 "Moving conversations to Trash is unavailable",
             );
@@ -6604,7 +6892,7 @@ export async function startTui(
                     }
                 }
             } else {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     result.reason === "busy"
                         ? "That conversation is active in another client"
@@ -6619,10 +6907,10 @@ export async function startTui(
             sessionTrashPending = false;
             sessionSwitchPending = false;
             sessionTrashCandidate = undefined;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
-                    "Could not move that conversation to Trash",
-                );
+                "Could not move that conversation to Trash",
+            );
             }
             sessionTrashPending = false;
             sessionSwitchPending = false;
@@ -6654,6 +6942,65 @@ export async function startTui(
     }
 
     /**
+     * What each live `pool_add` asked for, so an unavailable verdict can be
+     * sent again without the user re-picking the model.
+     */
+    const poolAdmissionAttempts = new Map<string, {
+        readonly provider: string;
+        readonly model: string;
+        readonly verify: boolean;
+        readonly retry: boolean;
+    }>();
+
+    /**
+     * One silent second run when a provider was unreachable, because that
+     * verdict is usually a blip and the first thing a user does is ask again.
+     * Answers whether the verdict was swallowed: the caller then skips it, and
+     * the failed checklist comes back off the transcript so the retry replaces
+     * it rather than stacking under it. A retry that fails too is reported.
+     */
+    function retryPoolAdmission(
+        requestId: string,
+        verdict: string,
+    ): boolean {
+        const attempt = poolAdmissionAttempts.get(requestId);
+        poolAdmissionAttempts.delete(requestId);
+        if (
+            attempt === undefined || attempt.retry || verdict !== "unavailable"
+        ) {
+            return false;
+        }
+        state = dropTuiAdmission(state, requestId);
+        const retryId = requestPoolAdmission(
+            attempt.provider,
+            attempt.model,
+            attempt.verify,
+            true,
+        );
+        const poolChange = pendingPoolChanges.get(requestId);
+        pendingPoolChanges.delete(requestId);
+        if (poolChange !== undefined) {
+            pendingPoolChanges.set(retryId, poolChange);
+        }
+        const pendingUndo = pendingPoolUndos.get(requestId);
+        pendingPoolUndos.delete(requestId);
+        if (pendingUndo !== undefined) {
+            pendingPoolUndos.set(retryId, pendingUndo);
+        }
+        if (admissionDialog?.requestId === requestId) {
+            admissionDialog = startTuiAdmissionDialog(
+                attempt.provider,
+                attempt.model,
+                retryId,
+            );
+        }
+        if (pendingPoolName?.requestId === requestId) {
+            pendingPoolName = { ...pendingPoolName, requestId: retryId };
+        }
+        return true;
+    }
+
+    /**
      * Sends `pool_add` and opens the admission checklist in the transcript.
      * The reply is a stream rather than one update, so the checklist entry is
      * created here and rewritten by the progress updates as they land. The
@@ -6664,8 +7011,10 @@ export async function startTui(
         provider: string,
         model: string,
         verify = false,
+        retry = false,
     ): string {
         const requestId = randomUUID();
+        poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
         state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
         sendCommand({
             type: "pool_add",
@@ -6768,10 +7117,12 @@ export async function startTui(
         modeToast.backgroundColor = theme.panel;
         commandSuggestionsText.fg = theme.text;
         commandSuggestionsBox.backgroundColor = theme.background;
-        composerBox.backgroundColor = theme.panel;
-        composerBox.borderColor = theme.accent;
-        composer.backgroundColor = theme.panel;
-        composer.focusedBackgroundColor = theme.panel;
+        composerBox.backgroundColor = theme.background;
+        composerBox.borderColor = theme.element;
+        composerStatusText.fg = theme.muted;
+        composerRule.borderColor = theme.element;
+        composer.backgroundColor = theme.background;
+        composer.focusedBackgroundColor = theme.background;
         composer.textColor = theme.text;
         composer.focusedTextColor = theme.text;
         composer.cursorColor = theme.accent;
@@ -6848,19 +7199,15 @@ export async function startTui(
         };
     }
 
-    /** Rows the composer, the status band and a little transcript need. */
-    const SUGGESTIONS_RESERVED_ROWS = 12;
-
     function renderCommandSuggestions(): void {
         const extensionBottomRows = experimentalTuiHost.bottomInsetRows();
-        // The composer is five rows plus its two-row status margin. These
-        // transient and extension-owned lines sit above it in normal flow, so
-        // the overlay clears whichever are currently visible instead of
+        // Measured off the composer's own margin, which the status card below
+        // it grows and shrinks: a fixed offset here lands inside the composer
+        // as soon as that card is taller than the single line it replaced.
+        // These transient lines sit above the composer in normal flow, so the
+        // overlay clears whichever of them are currently visible instead of
         // painting over quote/address context.
-        commandSuggestionsBox.bottom = 8 + extensionBottomRows
-            + (composerTipText.visible ? 1 : 0)
-            + (quoteText.visible ? 1 : 0)
-            + (heldAddressText.visible ? 1 : 0);
+        positionCommandSuggestions();
         if (composer.plainText.length === 0) {
             commandSuggestionIndex = 0;
         }
@@ -7050,7 +7397,7 @@ export async function startTui(
     function renderPendingQuote(): void {
         const quote = pendingQuote;
         quoteText.visible = quote !== undefined && !anyOverlayOpen();
-        composerBox.marginBottom = quoteText.visible ? 3 : 2;
+        setComposerMargin(quoteText.visible ? 3 : 2);
         if (quote === undefined) {
             quoteText.content = "";
             return;
@@ -7105,7 +7452,10 @@ export async function startTui(
         const sidePaneStatus = hostedSidebar.pane === undefined
             ? ""
             : `${hostedSidebar.mention ?? hostedSidebar.pane.agentId} · ${hostedSidebar.pane.state.state.approvalMode ?? "loading"} · ${sidePaneActivity}`;
-        paneStatusText.visible = !anyOverlayOpen();
+        // Only when there are two panes to tell apart: an empty row still
+        // takes a line under the frame.
+        paneStatusText.visible = hostedSidebar.pane !== undefined
+            && !anyOverlayOpen();
         paneStatusText.content = hostedSidebar.pane === undefined
             ? ""
             : layout === "split"
@@ -7210,23 +7560,28 @@ export async function startTui(
                         : "waiting",
             ),
         );
-        const statusDetailsLine = extensionSegments === undefined
-            ? renderTuiStatusDetailsLine(
-                statusState.modelSettings,
-                statusState.approvalMode,
-                statusState.context,
-                process.cwd(),
-                0,
-                statusState.effortSubstitution,
-                hostedSidebar.pane === undefined,
-            )
-            : renderTuiStatusSegments(
-                hostedSidebar.pane === undefined
-                    ? extensionSegments
-                    : extensionSegments.filter((segment) =>
-                        segment.kind !== "permissions"
+        const statusDetailsRows: TuiStatusChunk[][] =
+            extensionSegments === undefined
+                ? renderTuiStatusDetailsRows(
+                    statusState.modelSettings,
+                    statusState.approvalMode,
+                    statusState.context,
+                    process.cwd(),
+                    0,
+                    statusState.effortSubstitution,
+                    hostedSidebar.pane === undefined,
+                    workspaceBranch.current(),
+                )
+                : [[{
+                    tone: "muted",
+                    text: renderTuiStatusSegments(
+                        hostedSidebar.pane === undefined
+                            ? extensionSegments
+                            : extensionSegments.filter((segment) =>
+                                segment.kind !== "permissions"
+                            ),
                     ),
-            );
+                }]];
         // What an extension has made true of this conversation, said where the
         // rest of the conversation's state is said. The sidebar is a whole
         // column that arrived without being asked for, so the key that takes
@@ -7257,9 +7612,15 @@ export async function startTui(
         // line can already fill a narrow terminal; appending layout controls
         // to it would leave the only proof of a changed layout clipped past
         // the right edge.
-        const detailsLine = extensionState.length === 0
-            ? statusDetailsLine
-            : `${extensionState.join(" · ")}\n${statusDetailsLine}`;
+        const detailsRows = extensionState.length === 0
+            ? statusDetailsRows
+            : [
+                ...statusDetailsRows,
+                [{
+                    tone: "muted" as const,
+                    text: extensionState.join(" · "),
+                }],
+            ];
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
@@ -7279,6 +7640,8 @@ export async function startTui(
         const agentHeader = agentSection[0] ?? "";
         const animatedAgentHeader = runningNames.length === 0
             ? new StyledText([fg(TUI_MUTED)(agentHeader)])
+            : activityAnimation === "shimmer"
+            ? new StyledText([fg(TUI_MUTED)(agentHeader)])
             : renderTuiActivityAnimation(
                 activityAnimation,
                 activityFrame(),
@@ -7291,25 +7654,50 @@ export async function startTui(
                 },
                 activityAnimationWidth,
             );
-        backgroundStatusText.content = agentSection.length === 0
-            ? detailsLine
-            : new StyledText([
-                fg(TUI_MUTED)(`${detailsLine}\n`),
-                fg(TUI_ELEMENT)(
-                    `${"·".repeat(Math.max(1, renderer.width - 4))}\n`,
-                ),
+        // The card's own inner width, past the band's indent, its border and
+        // its padding: the rules drawn inside it have to stop where it does.
+        const cardWidth = Math.max(1, renderer.width - 8);
+        const rule = (glyph: string) =>
+            fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
+        // The first row says what the session is answering as, and it lives
+        // inside the composer's frame: it is a property of the thing being
+        // typed into. What is left describes where the session is, and reads
+        // under the frame.
+        const insideRow = detailsRows[0] ?? [];
+        const outsideRows = detailsRows.slice(1);
+        composerStatusText.content = new StyledText(
+            insideRow.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
+        );
+        const detailChunks = outsideRows.flatMap((row, index) => [
+            ...row.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
+            ...(index === outsideRows.length - 1
+                ? []
+                : [fg(TUI_MUTED)("\n"), rule("─")]),
+        ]);
+        backgroundStatusText.content = new StyledText([
+            ...detailChunks,
+            ...(agentSection.length === 0 ? [] : [
+                fg(TUI_MUTED)("\n"),
+                rule("·"),
                 ...animatedAgentHeader.chunks,
                 fg(TUI_MUTED)(
                     agentSection.length === 1
                         ? ""
                         : `\n${agentSection.slice(1).join("\n")}`,
                 ),
-            ]);
-        backgroundStatusText.height = (extensionState.length === 0 ? 0 : 1)
-            + (agentSection.length === 0 ? 1 : 2 + agentSection.length);
-        composerBox.marginBottom = 1 + backgroundStatusText.height
-            + (paneStatusText.visible ? 1 : 0)
-            + (statusText.visible ? 1 : 0);
+            ]),
+        ]);
+        // A rule between every pair of rows under the frame, and one more
+        // above the agent section when there is one.
+        const cardRows = Math.max(1, outsideRows.length * 2 - 1)
+            + (agentSection.length === 0 ? 0 : 1 + agentSection.length);
+        backgroundStatusText.height = cardRows;
+        // The band's own rows, which the composer sits straight on top of with
+        // no gutter of its own: the card, its border lines, and whichever
+        // status lines are showing above it.
+        setComposerMargin(
+            cardRows + (paneStatusText.visible ? 1 : 0),
+        );
         statusText.content = statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined
@@ -7322,7 +7710,9 @@ export async function startTui(
                     active: TUI_ACCENT,
                     // The trail is part of Vera's ActiveGrid identity, not a
                     // success indicator inherited from the selected theme.
-                    trail: VERA_TUI_THEME.success,
+                    trail: activityAnimation === "shimmer"
+                        ? TUI_ELEMENT
+                        : VERA_TUI_THEME.success,
                     inactive: TUI_MUTED,
                     text: state.approvalMode === "full_access"
                         ? "#ff3b30"
@@ -7430,7 +7820,9 @@ export async function startTui(
 
     function activityFrame(): number {
         const interval = activityAnimationInterval
-            ?? (activityAnimation === "symmetric_wave"
+            ?? (activityAnimation === "shimmer"
+                ? SHIMMER_FRAME_INTERVAL_MS
+                : activityAnimation === "symmetric_wave"
                 ? SYMMETRIC_WAVE_FRAME_INTERVAL_MS
                 : DEFAULT_ACTIVITY_FRAME_INTERVAL_MS);
         return Math.floor(Date.now() / interval);

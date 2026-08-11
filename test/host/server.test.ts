@@ -717,6 +717,31 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host reports a lazy attach load failure as unavailable",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => Promise.reject(new Error("corrupt session")),
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "attach", agent_id: "broken" });
+            expect(await connection.receive()).toEqual({
+                type: "attach_failed",
+                agent_id: "broken",
+                reason: "unavailable",
+            });
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "socket loss detaches the timeline owner",
     async () => {
         const directory = temporaryHostDirectory();

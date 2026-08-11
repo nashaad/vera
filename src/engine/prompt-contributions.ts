@@ -91,6 +91,23 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         }),
     },
     {
+        id: "core.subagents",
+        owner: "core",
+        target: "stable",
+        contribute: (input) =>
+            input.tools.some((tool) => tool.name === "subagent") ? {
+                title: "Subagents",
+                content:
+                    "Use the subagent tool when a task benefits from it: "
+                    + "parallelizing independent queries, or protecting your "
+                    + "context window from large intermediate results. Do not "
+                    + "spawn subagents when direct work is simpler, and do not "
+                    + "duplicate work you have delegated (if a subagent is "
+                    + "researching something, do not run the same searches "
+                    + "yourself).",
+            } : null,
+    },
+    {
         id: "core.workspace",
         owner: "core",
         target: "stable",

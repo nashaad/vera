@@ -63,6 +63,10 @@ export interface OpenSettingsMenuTuiCommandAction {
     readonly type: "open_settings_menu";
 }
 
+export interface OpenConfigureTuiCommandAction {
+    readonly type: "open_configure";
+}
+
 export interface OpenCommandPaletteTuiCommandAction {
     readonly type: "open_command_palette";
 }
@@ -156,6 +160,7 @@ export type TuiCommandAction =
     | OpenPermissionsPickerTuiCommandAction
     | OpenPreferencesListTuiCommandAction
     | OpenSettingsMenuTuiCommandAction
+    | OpenConfigureTuiCommandAction
     | OpenCommandPaletteTuiCommandAction
     | PrefillComposerTuiCommandAction
     | OpenThemePickerTuiCommandAction
@@ -189,6 +194,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_reasoning_picker":
         case "open_permissions_picker":
         case "open_settings_menu":
+        case "open_configure":
         case "open_resume_picker":
         case "open_subagents_picker":
         case "go_to_parent":
@@ -253,6 +259,7 @@ export interface TuiCommandDefinition {
         | OpenForkTuiCommandAction
         | OpenPreferencesListTuiCommandAction
         | OpenSettingsMenuTuiCommandAction
+        | OpenConfigureTuiCommandAction
         | OpenCommandPaletteTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
@@ -304,6 +311,12 @@ const SETTINGS_COMMAND = {
     name: "settings",
     description: "Model, reasoning, permissions, and theme",
     usage: "/settings",
+} as const satisfies TuiCommandCatalogEntry;
+
+const CONFIGURE_COMMAND = {
+    name: "configure",
+    description: "Open Vera's config file in your editor",
+    usage: "/configure",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PALETTE_COMMAND = {
@@ -391,6 +404,7 @@ export const BUILTIN_COMMANDS = [
     EFFORT_COMMAND,
     PERMISSIONS_COMMAND,
     SETTINGS_COMMAND,
+    CONFIGURE_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
     SUBAGENTS_COMMAND,
@@ -895,6 +909,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Settings",
             slashName: "settings",
             action: { type: "open_settings_menu" },
+        },
+    });
+    registry.registerCommand({
+        ...CONFIGURE_COMMAND,
+        action: { type: "open_configure" },
+        palette: {
+            name: "configure",
+            label: "Open config file",
+            description: "edit Vera's provider and model defaults",
+            group: "Settings",
+            slashName: "configure",
+            action: { type: "open_configure" },
         },
     });
     registry.registerCommand({

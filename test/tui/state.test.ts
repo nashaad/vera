@@ -9,6 +9,7 @@ import {
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
     beginTuiAdmission,
+    dropTuiAdmission,
     beginTuiTurn,
     createTuiState,
     tuiPoolListing,
@@ -457,7 +458,27 @@ test("TUI shows model failures when a turn finishes", () => {
     expect(state.working).toBe(false);
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
-        text: "Model error: Kimi only supports reasoning max",
+        text: "",
+        errorText: "Model error: Kimi only supports reasoning max",
+    });
+});
+
+test("TUI draws attachment failures as errors", () => {
+    const state = applyAgentUpdate(
+        beginTuiTurn(createTuiState(), "inspect image"),
+        {
+            type: "turn_finished",
+            error: "Image attachment unavailable: the selected model provider "
+                + "does not support image input",
+            seq: 1,
+        },
+    );
+
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "",
+        errorText: "Attachment error: the selected model provider does not "
+            + "support image input",
     });
 });
 
@@ -479,7 +500,8 @@ test("TUI stops working when the resident agent fails", () => {
     expect(state.queuedPrompts).toEqual([]);
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
-        text: "Agent error: Resident agent stopped unexpectedly",
+        text: "",
+        errorText: "Agent error: Resident agent stopped unexpectedly",
     });
 });
 
@@ -505,7 +527,8 @@ test("TUI connection failure stops work and clears unsendable prompts", () => {
     expect(entryLine(state.entries[1]!)).toBe("Ran");
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
-        text: "Connection error: Host sent a non-contiguous agent update sequence",
+        text: "",
+        errorText: "Connection error: Host sent a non-contiguous agent update sequence",
     });
 });
 
@@ -730,7 +753,7 @@ test("failed admission verdicts carry the reason and invite a retry", () => {
         reason: "no tool calling",
         seq: 1,
     });
-    expect(state.entries[0]?.text)
+    expect((state.entries[0] as { errorText?: string })?.errorText)
         .toContain("Not added, incompatible: no tool calling");
     expect(state.admission?.settled).toBe(true);
 
@@ -745,7 +768,7 @@ test("failed admission verdicts carry the reason and invite a retry", () => {
         statusCode: 503,
         seq: 1,
     });
-    expect(retried.entries[0]?.text).toContain(
+    expect((retried.entries[0] as { errorText?: string })?.errorText).toContain(
         "Provider unavailable (HTTP 503): provider timeout. "
             + "Select the model again to retry.",
     );
@@ -1523,7 +1546,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         state.effortSubstitution,
-    )).toContain("reasoning high (asked low)");
+    )).toContain("HIGH (ASKED LOW)");
 
     // The stored setting is untouched: the line reports, it does not change.
     expect(state.modelSettings?.reasoningEffort).toBe("low");
@@ -1540,7 +1563,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         none.effortSubstitution,
-    )).toContain("reasoning none (asked low)");
+    )).toContain("NONE (ASKED LOW)");
 
     // A different model is a different question, so the evidence is dropped.
     const moved = applyAgentUpdate(state, settingsUpdate({
@@ -1555,7 +1578,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         moved.effortSubstitution,
-    )).toContain("reasoning low ·");
+    )).toContain("LOW ·");
 });
 
 test("the same substitution is announced once, and again when it changes", () => {
@@ -1727,4 +1750,22 @@ test("TUI shows a compaction budget warning when the run starts", () => {
         text: "Compaction targets 90000 tokens, above trigger_tokens (5000).",
     });
     expect(quiet.entries).toEqual([]);
+});
+
+test("dropping an admission takes its checklist entry with it", () => {
+    let state = beginTuiAdmission(createTuiState(), "pool-3", "or/glm");
+    state = applyAgentUpdate(state, {
+        type: "pool_admission_result",
+        requestId: "pool-3",
+        provider: "or",
+        model: "glm",
+        verdict: "unavailable",
+        reason: "provider timeout",
+        seq: 1,
+    });
+    expect(state.entries.length).toBe(1);
+
+    const dropped = dropTuiAdmission(state, "pool-3");
+    expect(dropped.entries.length).toBe(0);
+    expect(dropped.admission).toBeUndefined();
 });

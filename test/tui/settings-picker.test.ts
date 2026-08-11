@@ -611,7 +611,8 @@ test("model picker filters its choices as the user types", async () => {
     // rather than repeating the provider on each row.
     const frame = await pickerFrame(second.state ?? state);
     expect(frame).toContain("gl");
-    expect(frame).toMatch(/openrouter\s+GLM-5\.2/);
+    expect(frame).toMatch(/▼ openrouter/);
+    expect(frame).toMatch(/GLM-5\.2/);
 });
 
 test("model picker distinguishes the same model id across providers", async () => {
@@ -1157,14 +1158,16 @@ test("the pane opens on Pool even when the running model is not in it", () => {
     expect(state.tab).toBe("pool");
 });
 
-test("with an empty pool the pane opens on explained All models", async () => {
+test("with an empty pool the pane opens on All models, full width", async () => {
     // An empty tab answers no question, so the pane falls back to the list that
     // can always answer "which model do I switch to".
     const state = modelPickerWithPool([]);
     expect(state.tab).toBe("all");
-    expect(await pickerFrame(state)).toContain(
-        "Everything your providers offer.",
-    );
+    // Hundreds of rows, read by scanning names: the whole card goes to the
+    // names rather than half of it to facts about one of them.
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("All models");
+    expect(frame).not.toContain("\u2502");
 });
 
 test("All models keeps a moderate modal height on a tall terminal", async () => {
@@ -1294,22 +1297,6 @@ test("a top pick says so on its own row, except under the heading that says it",
     expect(opened).toMatch(/Kimi K3\s+top pick/);
 });
 
-test("the tab's line says what Top picks are while the cursor is in them", async () => {
-    const state = allTabWithRecommendations();
-
-    // The heading itself, and then the row under it: both are inside the
-    // section the note explains.
-    expect(await pickerFrame({ ...state, selectedIndex: 0 }))
-        .toContain("Vera's own picks");
-    expect(await pickerFrame({ ...state, selectedIndex: 1 }))
-        .toContain("Vera's own picks");
-    // Outside it the line goes back to explaining the tab, and it is the same
-    // line either way: a note that appeared would push the list down.
-    const away = await pickerFrame({ ...state, selectedIndex: 2 });
-    expect(away).not.toContain("Vera's own picks");
-    expect(away).toContain("Everything your providers offer");
-});
-
 test("a tab is switched by clicking its chip, cursor and all", () => {
     const state = modelPickerWithPool();
 
@@ -1332,14 +1319,26 @@ test("the Help tab explains the pane in the pane", async () => {
     // A page, not a list: nothing to filter, nothing to select, and the footer
     // says only what the page can do.
     expect(help.options).toHaveLength(0);
-    // The tab strip sits directly under the title: no search row in between.
-    const lines = frame.split("\n").map((line) => line.trim());
+    // The search field stays in place even though this page holds nothing to
+    // filter: dropping it would lift the tabs and the page under them as the
+    // user tabs onto Help and drop them again on the way off.
+    const lines = frame.split("\n").map((line) => line.trim())
+        .filter((line) => line.length > 0);
     const title = lines.findIndex((line) => line.startsWith("Select model"));
-    expect(lines[title + 1]).toStartWith("Pool 2");
+    expect(lines[title + 1]).toBe("Search");
+    expect(lines[title + 2]).toStartWith("Pool 2");
     expect(frame).toContain("⇥ tabs · esc close");
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);
     expect(frame).not.toMatch(/Help \d/);
+});
+
+test("the model tab strip offers the providers pane and its key", async () => {
+    const frame = await pickerFrame(modelPickerWithPool());
+    // The chip is not a fourth view, so ⇥ never lands on it. It carries the
+    // chord that opens it instead: a chip that sits among the tabs and answers
+    // to nothing on the keyboard is one the keyboard cannot reach at all.
+    expect(frame).toContain("Providers ^e");
 });
 
 test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
@@ -1491,7 +1490,7 @@ test("no model appears twice, because pool membership is a mark on its own row",
     expect(glm?.pooledRank).toBe(1);
 });
 
-test("an unverified pool row says so and offers the verify key", async () => {
+test("an unprobed pool row keeps its row clean and offers the verify key", async () => {
     const state = modelPickerWithPool([{
         provider: "openrouter",
         model: "z-ai/glm-5.2",
@@ -1503,10 +1502,11 @@ test("an unverified pool row says so and offers the verify key", async () => {
     const frame = await pickerFrame(state);
 
     expect(state.tab).toBe("pool");
-    // The row runs like any other. The column carries the absence of
-    // evidence, and the footer offers the probe as a deliberate act. The
-    // provider is in the detail pane beside the list, not on the row.
-    expect(frame).toContain("unverified");
+    // The row runs like any other and says nothing about the probe it has not
+    // had: the column beside the list carries that, and the footer offers the
+    // probe as a deliberate act. The provider is in that column too.
+    expect(frame).toMatch(/GLM-5\.2\s+│/);
+    expect(frame).toContain("not probed yet");
     expect(frame).toContain("verify");
     const row = state.options[state.selectedIndex];
     expect(row?.unverified).toBe(true);
@@ -1640,6 +1640,29 @@ test("ctrl+s asks to pool the highlighted model, and to remove a pooled one", ()
         provider: "openai-codex",
         model: "gpt-5.6-sol",
     });
+});
+
+test("ctrl+z asks the caller to undo only when a pool change is available", async () => {
+    const state = modelPickerWithPool(pooledModels, "gpt-5.6-sol", "openai-codex");
+    expect(
+        handleTuiSettingsPickerKey(state, { name: "z", ctrl: true })
+            .undoPoolChange,
+    ).toBeUndefined();
+
+    const undoable = { ...state, canUndoPoolChange: true };
+    expect(
+        handleTuiSettingsPickerKey(undoable, { name: "z", ctrl: true })
+            .undoPoolChange,
+    ).toBe(true);
+    expect(await pickerFrame(undoable)).toContain("^z undo");
+
+    const synced = syncTuiModelPicker(undoable, {
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        availableModels,
+        pooled: pooledModels,
+    });
+    expect(synced.canUndoPoolChange).toBe(true);
 });
 
 test("the model picker footer names the action the highlighted row would take", async () => {
@@ -1808,6 +1831,42 @@ test("escape from the connect pane returns to the model pane it was opened over"
 
     expect(handleTuiSettingsPickerKey(providers, { name: "escape" }).state)
         .toBe(model);
+});
+
+test("the connect pane opened from the model pane draws in the same card", async () => {
+    const providers = withTuiPickerParent(
+        startTuiProviderPicker(PROVIDER_ROWS),
+        modelPickerWithPool(),
+    );
+
+    const frame = await pickerFrame(providers);
+
+    // Same title, same tab strip: one card that changes what it lists, so the
+    // strip the user tabbed along is still there to tab back on.
+    expect(frame).toContain("Select model");
+    expect(frame).not.toContain("Connect a provider");
+    expect(frame).toMatch(/Pool 2\s+All models \d+\s+Help\s+Providers \^e/);
+    expect(frame).toContain("⇥ tabs");
+    expect(frame).toContain("OpenRouter");
+});
+
+test("⇥ walks from the last tab onto the connect pane and back off it", () => {
+    const help = switchedModelTab(modelPickerWithPool(), "help");
+
+    const onto = handleTuiSettingsPickerKey(help, { name: "tab" });
+    expect(onto.openProviders).toBe(true);
+    // The list under the pane wraps, so leaving it does not drop the user back
+    // on the stop that opened it.
+    expect(onto.state?.kind).toBe("model");
+    expect((onto.state as TuiSettingsPickerState).tab).toBe("pool");
+
+    const providers = withTuiPickerParent(
+        startTuiProviderPicker(PROVIDER_ROWS),
+        onto.state as TuiSettingsPickerState,
+    );
+    const off = handleTuiSettingsPickerKey(providers, { name: "tab" });
+    expect(off.handled).toBe(true);
+    expect(off.state).toBe(onto.state);
 });
 
 test("the wheel moves the cursor, so enter still means the row on screen", () => {

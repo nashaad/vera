@@ -3,7 +3,14 @@ import { homedir } from "node:os";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
-import type { TuiEffortSubstitution } from "./state.ts";
+import {
+    TUI_ACCENT,
+    TUI_ELEMENT,
+    TUI_MUTED,
+    TUI_SUCCESS,
+    TUI_TEXT,
+    type TuiEffortSubstitution,
+} from "./state.ts";
 import type {
     StatusLineSegment,
     StatusLineSnapshot,
@@ -105,6 +112,25 @@ function renderTuiStatusSegment(segment: StatusLineSegment): string {
     }
 }
 
+/**
+ * A tone names what a piece of status is, not the colour it ends up. The
+ * palette lives with the theme, so a client repainting under a new theme has
+ * only the mapping to redo.
+ */
+export type TuiStatusTone =
+    | "text"
+    | "muted"
+    | "accent"
+    | "good"
+    | "danger"
+    | "meter"
+    | "meterEmpty";
+
+export interface TuiStatusChunk {
+    readonly text: string;
+    readonly tone: TuiStatusTone;
+}
+
 export function renderTuiStatusDetailsLine(
     settings: ModelTurnSettings | undefined,
     approvalMode: ApprovalMode | undefined,
@@ -113,7 +139,37 @@ export function renderTuiStatusDetailsLine(
     runningBackgroundAgents = 0,
     substitution: TuiEffortSubstitution | undefined = undefined,
     includePermissions = true,
+    branch: string | undefined = undefined,
 ): string {
+    return renderTuiStatusDetailsRows(
+        settings,
+        approvalMode,
+        context,
+        workspace,
+        runningBackgroundAgents,
+        substitution,
+        includePermissions,
+        branch,
+    )
+        .map((row) => row.map((chunk) => chunk.text).join(""))
+        .join("\n");
+}
+
+/**
+ * The details rows as facts with tones, one array per line. Two lines, split
+ * by what a narrow terminal can least afford to clip: the model, the level and
+ * the context share lead, and the place the session is sitting in follows.
+ */
+export function renderTuiStatusDetailsRows(
+    settings: ModelTurnSettings | undefined,
+    approvalMode: ApprovalMode | undefined,
+    context: ContextMeasurement | undefined,
+    workspace: string,
+    runningBackgroundAgents = 0,
+    substitution: TuiEffortSubstitution | undefined = undefined,
+    includePermissions = true,
+    branch: string | undefined = undefined,
+): TuiStatusChunk[][] {
     const providerLabel = settings?.provider === undefined
         ? undefined
         : findProvider(settings.provider)?.shortLabel;
@@ -145,14 +201,101 @@ export function renderTuiStatusDetailsLine(
     const permissions = approvalMode === undefined
         ? "permissions loading"
         : renderPermissions(approvalMode);
-    const usage = renderContextUsage(context);
     const background = runningBackgroundAgents === 0
-        ? ""
-        : `${runningBackgroundAgents} async subagent${
-            runningBackgroundAgents === 1 ? "" : "s"
-        } running · `;
-    return `${background}${model} · reasoning ${thinking} · ${compactWorkspace(workspace)}`
-        + `${includePermissions ? ` · ${permissions}` : ""}${usage}`;
+        ? []
+        : [
+            muted(
+                `${runningBackgroundAgents} async subagent${
+                    runningBackgroundAgents === 1 ? "" : "s"
+                } running`,
+            ),
+            separator,
+        ];
+    // The level is the word on its own: the dial it belongs to is named
+    // wherever it is changed, and repeating it here spends columns the context
+    // share needs.
+    const first: TuiStatusChunk[] = [
+        ...background,
+        { text: model, tone: "text" },
+        separator,
+        muted(thinking.toUpperCase()),
+        ...contextChunks(context),
+        ...(includePermissions
+            ? [separator, {
+                text: permissions,
+                tone: permissionsTone(approvalMode),
+            } as TuiStatusChunk]
+            : []),
+    ];
+    const second: TuiStatusChunk[] = [
+        muted(compactWorkspace(workspace)),
+        ...(branch === undefined
+            ? []
+            : [separator, { text: branch, tone: "accent" } as TuiStatusChunk]),
+    ];
+    return [first, second];
+}
+
+/**
+ * Read at paint time rather than captured: the theme is swapped in place, and
+ * a colour resolved once would keep the palette the session started under.
+ */
+export function statusToneColor(tone: TuiStatusTone): string {
+    switch (tone) {
+        case "text":
+            return TUI_TEXT;
+        case "muted":
+            return TUI_MUTED;
+        case "accent":
+        case "meter":
+            return TUI_ACCENT;
+        case "good":
+            return TUI_SUCCESS;
+        case "danger":
+            return FULL_ACCESS_RED;
+        case "meterEmpty":
+            return TUI_ELEMENT;
+    }
+}
+
+const FULL_ACCESS_RED = "#ff3b30";
+
+const separator: TuiStatusChunk = { text: " · ", tone: "muted" };
+
+function muted(text: string): TuiStatusChunk {
+    return { text, tone: "muted" };
+}
+
+/**
+ * Absent until the engine has measured something. A session that has not sent
+ * a request has no honest percentage to show: its prompt and tool definitions
+ * already occupy the window, so "0%" would be a number nobody measured.
+ */
+function contextChunks(
+    context: ContextMeasurement | undefined,
+): TuiStatusChunk[] {
+    if (context?.capacity === undefined) return [];
+    const { tokens, capacity, estimated } = context;
+    const percent = Math.min(100, Math.round(tokens / capacity * 100));
+    const filled = Math.min(8, Math.round(percent / 100 * 8));
+    return [
+        separator,
+        muted(
+            `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${
+                formatTokenCount(capacity)
+            } [`,
+        ),
+        { text: "█".repeat(filled), tone: "meter" },
+        { text: "░".repeat(8 - filled), tone: "meterEmpty" },
+        muted(`] ${percent}%`),
+    ];
+}
+
+function permissionsTone(
+    mode: ApprovalMode | undefined,
+): TuiStatusTone {
+    if (mode === undefined) return "muted";
+    return mode === "full_access" ? "danger" : mode === "ask" ? "muted" : "good";
 }
 
 /**
@@ -185,21 +328,10 @@ function compactWorkspace(workspace: string): string {
 }
 
 /**
- * Absent until the engine has measured something. A session that has not sent
- * a request has no honest percentage to show: its prompt and tool definitions
- * already occupy the window, so "0%" would be a number nobody measured.
- *
  * The tilde is the estimate label. Vera counts characters until a provider
  * reports its own total, and a percentage that hides which of the two it is
  * reads as precise when it is not.
  */
-function renderContextUsage(context: ContextMeasurement | undefined): string {
-    if (context?.capacity === undefined) return "";
-    return ` · ${
-        contextUsage(context.tokens, context.capacity, context.estimated)
-    }`;
-}
-
 function contextUsage(
     tokens: number,
     capacity: number,

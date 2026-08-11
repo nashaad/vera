@@ -1,4 +1,5 @@
 import { connectHost } from "./connection.ts";
+import type { StartupProfile } from "../startup-profile.ts";
 
 export interface RunOnceOutcome {
     readonly agentId: string;
@@ -24,6 +25,7 @@ export async function runOnceThroughHost(
         readonly approvalMode?: string;
         readonly model?: string;
         readonly effort?: string;
+        readonly startupProfile?: StartupProfile;
     },
 ): Promise<RunOnceOutcome> {
     const connection = await connectHost({ socketPath });
@@ -37,6 +39,10 @@ export async function runOnceThroughHost(
                 : { approval_mode: request.approvalMode }),
             ...(request.model === undefined ? {} : { model: request.model }),
             ...(request.effort === undefined ? {} : { effort: request.effort }),
+            ...(request.startupProfile === undefined
+                    || request.startupProfile === "default"
+                ? {}
+                : { startup_profile: request.startupProfile }),
         });
         const response = asRecord(await connection.receive());
         if (response?.type === "run_once_failed") {

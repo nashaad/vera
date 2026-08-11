@@ -49,6 +49,7 @@ import {
     bindCompaction,
 } from "../engine/compaction-binding.ts";
 import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
+import { isVeraProviderId } from "../config.ts";
 import {
     createSubagentEffectApplier,
     resolveSpawnModelChoice,
@@ -107,6 +108,11 @@ import {
 } from "../store/session-store.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 import { createSessionBranch } from "../store/session-branch.ts";
+import {
+    disabledContributionsForProfile,
+    storedStartupProfile,
+    type StartupProfile,
+} from "../startup-profile.ts";
 import type { UserMessage } from "../model/types.ts";
 import type { ConsultMessage } from "../engine/protocol.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
@@ -262,6 +268,8 @@ export interface AgentRegistryOptions {
      */
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
+    /** Rebuilds dynamic provider rows after credentials change in this process. */
+    readonly refreshAvailableModels?: () => readonly SuggestedModel[];
     /**
      * Read per settings snapshot, not once at startup: the pool changes while
      * the host runs, so a snapshot taken when it came up would freeze the
@@ -337,6 +345,7 @@ export interface CreateRegisteredAgentOptions {
     readonly eventLogPath?: string;
     /** Keep this session only for the lifetime of the resident host. */
     readonly ephemeral?: boolean;
+    readonly startupProfile?: StartupProfile;
     /**
      * The mode this agent starts in, when it must not be the host default.
      * It is written to the session like any other approval-mode change, so a
@@ -833,6 +842,7 @@ export class AgentRegistry {
     /** Child id to the ladder notice its spawn produced, if any. */
     private readonly spawnNotices = new Map<string, string>();
     private readonly catalog: EffectiveCatalogOptions;
+    private availableModels: readonly SuggestedModel[];
     private readonly rosterListeners = new Set<() => void>();
 
     constructor(private readonly options: AgentRegistryOptions) {
@@ -840,6 +850,7 @@ export class AgentRegistry {
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
         this.defaultReasoningEffort = options.reasoningEffort;
+        this.availableModels = options.availableModels ?? [];
         this.defaultApprovalMode = options.approvalMode;
         this.maxConcurrentBackgroundAgents = validChildAgentLimit(
             options.maxConcurrentBackgroundAgents
@@ -850,6 +861,14 @@ export class AgentRegistry {
         this.catalog = options.cacheDir === undefined
             ? {}
             : { cacheDir: options.cacheDir };
+    }
+
+    private modelsForClient(): readonly SuggestedModel[] {
+        const refreshed = this.options.refreshAvailableModels?.();
+        if (refreshed !== undefined) {
+            this.availableModels = refreshed;
+        }
+        return this.availableModels;
     }
 
     async create(
@@ -1007,6 +1026,9 @@ export class AgentRegistry {
         this.reserveId(id);
         try {
             const workspace = await realpath(options.workspace);
+            const startupProfile = storedStartupProfile(
+                options.startupProfile ?? "default",
+            );
             const ephemeralDirectory = options.ephemeral === true
                 ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
                 : undefined;
@@ -1020,6 +1042,9 @@ export class AgentRegistry {
                 {
                     sessionId: id,
                     cwd: workspace,
+                    ...(startupProfile === undefined
+                        ? {}
+                        : { startupProfile }),
                     ...(inherited?.parentId === undefined
                         ? {}
                         : { parentId: inherited.parentId }),
@@ -1343,7 +1368,7 @@ export class AgentRegistry {
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.catalog,
-                    this.options.availableModels,
+                    this.modelsForClient(),
                     this.options.readPool?.(entry.store.header.cwd),
                     this.options.subagentModel,
                     entry.requestedReasoningEffort,
@@ -1355,10 +1380,7 @@ export class AgentRegistry {
             (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
             || (patch.provider !== undefined && patch.provider.trim().length === 0)
             || (patch.provider !== undefined
-                && patch.provider !== "openrouter"
-                && patch.provider !== "openai-codex"
-                && patch.provider !== "ollama"
-                && patch.provider !== "cerebras")
+                && !isVeraProviderId(patch.provider.trim()))
             || (patch.model !== undefined && patch.model.trim().length === 0)
             || (patch.reasoningEffort !== undefined
                 && patch.reasoningEffort !== null
@@ -1445,7 +1467,7 @@ export class AgentRegistry {
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
-            this.options.availableModels,
+            this.modelsForClient(),
             this.options.readPool?.(entry.store.header.cwd),
             this.options.subagentModel,
             entry.requestedReasoningEffort,
@@ -1494,7 +1516,7 @@ export class AgentRegistry {
                 agentEntry.modelSettings,
                 agentEntry.modelSettings.provider ?? this.defaultProvider,
                 this.catalog,
-                this.options.availableModels,
+                this.modelsForClient(),
                 this.options.readPool?.(agentEntry.store.header.cwd),
                 this.options.subagentModel,
                 agentEntry.requestedReasoningEffort,
@@ -1779,7 +1801,7 @@ export class AgentRegistry {
             agentEntry.modelSettings,
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
-            this.options.availableModels,
+            this.modelsForClient(),
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
@@ -1812,7 +1834,7 @@ export class AgentRegistry {
             agentEntry.modelSettings,
             agentEntry.modelSettings.provider ?? this.defaultProvider,
             this.catalog,
-            this.options.availableModels,
+            this.modelsForClient(),
             this.options.readPool?.(agentEntry.store.header.cwd),
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
@@ -2041,6 +2063,14 @@ export class AgentRegistry {
         ephemeral = false,
         pendingPublication = false,
     ): ResidentAgent {
+        const startupProfile = store.header.startupProfile ?? "default";
+        const extensionTools = startupProfile === "default"
+            ? this.options.extensionTools
+            : [];
+        const disabledPromptContributions = disabledContributionsForProfile(
+            startupProfile,
+            this.options.disabledPromptContributions,
+        );
         const storedFailure = store.agentFailure();
         const captureFailedRequest = (
             this.options.createFailedRequestCapture
@@ -2132,13 +2162,22 @@ export class AgentRegistry {
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),
-            ...(this.options.disabledPromptContributions === undefined
+            ...(disabledPromptContributions.length === 0
                 ? {}
                 : {
                     disabledPromptContributions:
-                        this.options.disabledPromptContributions,
+                        disabledPromptContributions,
                 }),
-            extensionTools: this.options.extensionTools,
+            extensionTools,
+            offerTools: startupProfile !== "prompt_only",
+            loadOptionalContext: startupProfile === "default",
+            ...(store.header.startupProfile === undefined
+                ? {}
+                : {
+                    sessionMetadata: {
+                        startupProfile: store.header.startupProfile,
+                    },
+                }),
             ...(this.options.readPool === undefined
                 ? {}
                 : {
@@ -2302,7 +2341,9 @@ export class AgentRegistry {
                     ]
                     : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
-                extensionTools: this.options.extensionTools,
+                extensionTools,
+                offerTools: startupProfile !== "prompt_only",
+                loadOptionalContext: startupProfile === "default",
                 onInboundReady: (inbound) => {
                     entry.inbound = inbound;
                 },
@@ -2310,7 +2351,7 @@ export class AgentRegistry {
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
                     this.catalog,
-                    this.options.availableModels,
+                    this.modelsForClient(),
                     this.options.readPool?.(store.header.cwd),
                     this.options.subagentModel,
                     entry.requestedReasoningEffort,
@@ -2376,13 +2417,14 @@ export class AgentRegistry {
                     agent.sendTimelineReply(ownerId, reply),
                 sendSessionNameReply: (ownerId, reply) =>
                     agent.sendSessionNameReply(ownerId, reply),
-                ...(this.options.disabledPromptContributions === undefined
+                ...(disabledPromptContributions.length === 0
                     ? {}
                     : {
                         disabledPromptContributions:
-                            this.options.disabledPromptContributions,
+                            disabledPromptContributions,
                     }),
-                ...(this.options.createToolHooks === undefined
+                ...(startupProfile !== "default"
+                        || this.options.createToolHooks === undefined
                     ? {}
                     : { hooks: this.options.createToolHooks() }),
             },
@@ -2483,7 +2525,15 @@ export class AgentRegistry {
         let child: ResidentAgent;
         try {
             child = await this.createWithKind(
-                { workspace: parentStore.header.cwd },
+                {
+                    workspace: parentStore.header.cwd,
+                    ...(parentStore.header.startupProfile === undefined
+                        ? {}
+                        : {
+                            startupProfile:
+                                parentStore.header.startupProfile,
+                        }),
+                },
                 "background",
                 {
                     approvalMode: context.approvalMode,

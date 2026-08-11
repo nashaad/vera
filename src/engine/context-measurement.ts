@@ -1,4 +1,9 @@
-import type { ModelMessage, ModelTool, ModelUsage } from "../model/types.ts";
+import type {
+    AssistantMessage,
+    ModelMessage,
+    ModelTool,
+    ModelUsage,
+} from "../model/types.ts";
 import type { ProjectedModelRequest } from "./model-request.ts";
 
 /**
@@ -69,6 +74,21 @@ export function measureMessages(messages: readonly ModelMessage[]): number {
     }
     return Math.ceil(characters / CHARACTERS_PER_TOKEN)
         + messages.length * TOKENS_PER_MESSAGE;
+}
+
+/**
+ * The part of the next request contributed by a completed response. Provider
+ * output usage sees hidden reasoning and encoded content that the visible
+ * message estimate cannot; the message estimate supplies framing and remains
+ * the fallback for providers that report no output count.
+ */
+export function measureCompletedAssistant(message: AssistantMessage): number {
+    return Math.max(
+        measureMessages([message]),
+        message.usage.outputTokens > 0
+            ? message.usage.outputTokens + TOKENS_PER_MESSAGE
+            : 0,
+    );
 }
 
 /**

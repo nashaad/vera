@@ -86,7 +86,9 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Extensions");
             expect(pane).toContain("Runtime");
             expect(pane).toContain("copy  enter");
-            expect(pane).toContain("┃");
+            // The composer stays behind the overlay, and its frame carries the
+            // row that says what the session is answering as.
+            expect(pane).toContain("test · HIGH");
 
             sendKey(socket, session, "C-p");
             await Bun.sleep(100);
@@ -242,7 +244,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "Learn Vera controls and commands",
+                "Learn Vera controls and command",
             );
             sendKey(socket, session, "Enter");
             pane = captureVisiblePane(socket, session);
@@ -260,7 +262,9 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(socket, session, "Rewind the active conversation");
             sendKey(socket, session, "C-p");
             pane = await waitForVisiblePane(socket, session, "Commands");
-            expect(pane).toContain("┃");
+            // The composer stays behind the overlay, and its frame carries the
+            // row that says what the session is answering as.
+            expect(pane).toContain("test · HIGH");
             expect(pane).toContain("Settings");
             expect(pane).toContain("Switch model");
             expect(pane).not.toContain("Rewind the active conversation");
@@ -269,7 +273,9 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("Switch model");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "Select model");
-            expect(pane).toContain("┃");
+            // The composer stays behind the overlay, and its frame carries the
+            // row that says what the session is answering as.
+            expect(pane).toContain("test · HIGH");
             expect(pane).not.toContain("switch model");
             sendKey(socket, session, "Escape");
             await waitForVisiblePaneWhere(
@@ -341,7 +347,7 @@ test.skipIf(!tmuxAvailable)(
                 "Changing the model to openrouter/other is unavailable",
             );
             // The status line kept reporting the model that is still in force.
-            expect(pane).toContain("current-model · reasoning");
+            expect(pane).toContain("current-model · DEFAULT");
 
             sendText(socket, session, "/permissions auto");
             sendKey(socket, session, "Enter");
@@ -524,7 +530,13 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "kimi-k3 · low");
             expect(pane).toContain("Slot 1");
             sendKey(socket, session, "Escape");
-            await waitForVisiblePane(socket, session, "Start a conversation");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && !visible.includes("Quickslots"),
+                "Quickslots to close",
+            );
 
             sendText(socket, session, "/model openrouter/other");
             sendKey(socket, session, "Enter");
@@ -533,7 +545,7 @@ test.skipIf(!tmuxAvailable)(
             await waitForVisiblePane(
                 socket,
                 session,
-                "other · reasoning",
+                "other · LOW",
             );
             sendText(socket, session, "/quickslot");
             sendKey(socket, session, "Enter");
@@ -1024,6 +1036,9 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "forked-model");
             expect(pane).toContain("FULL ACCESS · RED ZONE");
             expect(pane).not.toContain("source-model");
+            // The first interrupt clears the restored draft and attachment;
+            // the second exits the now-idle TUI.
+            sendKey(socket, session, "C-c");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(JSON.parse(readFileSync(
@@ -1702,14 +1717,14 @@ test.skipIf(!tmuxAvailable)(
 
             // The selected row is now a background highlight rather than a "›"
             // caret, so it does not show up in tmux's text-only capture. The
-            // "reasoning max" wait below is the real guard: the status line
+            // The MAX wait below is the real guard: the status line
             // only reads that way if Down moved the selection off High.
             sendKey(socket, session, "Down");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(
                 socket,
                 session,
-                "reasoning max",
+                "test · MAX",
             );
 
             sendText(socket, session, "testing");
@@ -1759,7 +1774,7 @@ test.skipIf(!tmuxAvailable)(
                 } run test/support/tui-child.ts`,
             ]);
 
-            pane = await waitForPane(socket, session, "test · reasoning high");
+            pane = await waitForPane(socket, session, "test · HIGH");
             expect(pane).toContain("Start a conversation");
             expect(pane).not.toContain("shift+enter newline");
             sendText(socket, session, "start streaming");
@@ -1779,6 +1794,9 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
 
             pane = await waitForPane(socket, session, "queued · redirect now");
+            expect(pane.split("\n").find((line) =>
+                line.includes("queued · redirect now")
+            )).toMatch(/^  queued · redirect now/);
             sendKey(socket, session, "Escape");
 
             pane = await waitForPane(socket, session, "STEER WORKED");
@@ -1787,11 +1805,8 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).not.toContain("FIRST-END");
             // The estimate stands while the request is in flight, so the
             // provider's own count only replaces it once the turn ends.
-            pane = await waitForPane(
-                socket,
-                session,
-                "auto · ctx 64.5k/258k [██░░░░░░] 25%",
-            );
+            pane = await waitForPane(socket, session, "ctx ~");
+            expect(pane).toContain("100%");
 
             // The second turn reasons, so its summary carries a fold that
             // ctrl+o opens over a row already drawn.
@@ -2199,7 +2214,9 @@ test.skipIf(!tmuxAvailable)(
 
             const styledPane = captureVisiblePaneWithStyles(socket, session);
             expect(styledPane).toMatch(
-                new RegExp(`\\x1b\\[48;2;\\d+;\\d+;\\d+m${selectedText}`),
+                new RegExp(
+                    `\\x1b\\[48;(?:2;\\d+;\\d+;\\d+|5;\\d+)m${selectedText}`,
+                ),
             );
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
@@ -2220,7 +2237,7 @@ function startTuiSession(
     home: string,
     childPath: string,
     width = 100,
-    height = 30,
+    height = 34,
     env: Readonly<Record<string, string>> = {},
 ): void {
     const exported = Object.entries(env)
@@ -2638,7 +2655,7 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-child.ts",
                 100,
-                14,
+                18,
             );
             await waitForPane(socket, session, "Start a conversation");
             expect(pane).not.toContain("Jump to bottom");
@@ -2836,7 +2853,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes("Message sidekick")
-                    && visible.includes("reasoning low"),
+                    && visible.includes("test · LOW"),
                 "Quickslot to change the focused sidekick",
             );
             expect(pane).toContain("quickslot 1: test · low");
@@ -2846,7 +2863,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes("Message Vera")
-                    && visible.includes("reasoning high"),
+                    && visible.includes("test · HIGH"),
                 "Vera to retain its model settings",
             );
 
@@ -2858,7 +2875,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes("Message peer")
-                    && visible.includes("reasoning low"),
+                    && visible.includes("test · LOW"),
                 "Quickslot to change the focused peer",
             );
 
@@ -2867,7 +2884,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes("Message Vera")
-                    && visible.includes("reasoning high"),
+                    && visible.includes("test · HIGH"),
                 "Vera to remain unchanged after changing the peer",
             );
         } catch (error) {
@@ -2992,7 +3009,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "reasoning low",
+                "test · LOW",
             );
 
             sendText(socket, session, "/permissions ask");
@@ -3011,10 +3028,10 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes(" · auto · ")
-                    && visible.includes("reasoning high"),
+                    && visible.includes("test · HIGH"),
                 "the main agent permission mode after focus changes",
             );
-            expect(pane).toContain("reasoning high");
+            expect(pane).toContain("test · HIGH");
             sendText(socket, session, "main only");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(

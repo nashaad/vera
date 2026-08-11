@@ -1,4 +1,4 @@
-import { readdir, realpath } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -41,6 +41,9 @@ import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitToPool } from "../model/pool-admission.ts";
 import { createFeedRowReader } from "../model/feed-cache.ts";
+import {
+    refreshDeepSeekCatalog,
+} from "../model/deepseek-catalog.ts";
 import { migrateConfigPool } from "../model/pool-migration.ts";
 import { createPoolEffortPool } from "../model/effort-pool.ts";
 import {
@@ -59,7 +62,10 @@ import {
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
-import { defaultSessionDirectory } from "../store/session-store.ts";
+import {
+    defaultSessionDirectory,
+    readSessionIndexMetadata,
+} from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
@@ -72,7 +78,10 @@ import {
 import type { WatchSecretResolver } from "../watch/arc-connector.ts";
 import type { WatchConnector } from "../watch/source.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
-import { AgentRegistry } from "./agent-registry.ts";
+import {
+    AgentRegistry,
+    type RegisteredAgentSummary,
+} from "./agent-registry.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
 import { createReminderHook } from "./reminder-rules.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
@@ -119,15 +128,9 @@ export interface StartResidentHostOptions {
     readonly spawnConsentPath?: string;
     /** @deprecated Inbox arrivals no longer cold-spawn sessions. */
     readonly spawnSession?: SpawnSessionFn;
-    readonly onRestoreFailure?: (failure: SessionRestoreFailure) => void;
     readonly onExtensionFailure?: (
         failure: ExtensionRegistryFailure,
     ) => void;
-}
-
-export interface SessionRestoreFailure {
-    readonly sessionPath: string;
-    readonly error: unknown;
 }
 
 export interface ResidentHost {
@@ -157,7 +160,7 @@ export async function startResidentHost(
     // One store for the host, so a sign-in from anywhere is the same fact to
     // every agent it is running.
     const authStorage = options.authStorage ?? createAuthStorage();
-    const models = options.createAdapter === undefined
+    let models = options.createAdapter === undefined
         ? await discoverAvailableModels(options.config, authStorage)
         : configuredCatalog(options.config);
     // Opened once per host, not per agent: the file is per-user. A malformed
@@ -229,6 +232,16 @@ export async function startResidentHost(
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,
+        refreshAvailableModels: options.createAdapter === undefined
+            ? () => {
+                models = refreshDynamicAvailableModels(
+                    models,
+                    options.config,
+                    authStorage,
+                );
+                return models;
+            }
+            : undefined,
         readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
         // Built here because the pool lives in a file the host owns; the
         // engine receives only the interface. One per agent, because the
@@ -371,12 +384,31 @@ export async function startResidentHost(
     });
 
     let server: HostServer;
+    const restoringSessions = new Map<string, Promise<ResidentAgent>>();
+    let publishStoredSessions: (
+        sessions: ReadonlyMap<string, RegisteredAgentSummary>,
+    ) => void = () => {};
+    const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
+    const storedSessions = new Promise<
+        ReadonlyMap<string, RegisteredAgentSummary>
+    >(
+        (resolve) => publishStoredSessions = resolve,
+    );
+    const resumeSession = (sessionPath: string) =>
+        resumeOrFind(registry, sessionPath, restoringSessions);
+    let closing: Promise<void> | undefined;
+    const closeHost = (): Promise<void> => {
+        if (closing === undefined) {
+            closing = closeResidentHost(
+                server,
+                registry,
+                extensions,
+                closeInbox,
+            );
+        }
+        return closing;
+    };
     try {
-        await restoreStoredAgents(
-            registry,
-            sessionDirectory,
-            options.onRestoreFailure ?? reportRestoreFailure,
-        );
         watches = startWatchRuntimeIfEnabled(inbox, {
             watches: extensions.contributions().watches(),
             ...(options.watchConnectors === undefined
@@ -417,14 +449,24 @@ export async function startResidentHost(
             ...(options.entrypoint === undefined
                 ? {}
                 : { entrypoint: options.entrypoint }),
-            findAgent: (agentId) => registry.find(agentId),
-            listAgents: () => registry.list(),
+            findAgent: (agentId) => findOrRestoreAgent(
+                registry,
+                agentId,
+                sessionDirectory,
+                storedSessions,
+                resumeSession,
+            ),
+            listAgents: async () => mergeStoredAndResidentAgents(
+                await storedSessions,
+                registry.list(),
+            ),
+            listBackgroundAgents: () => registry.list(),
             ...(scheduler === null ? {} : {
                 runScheduleOperation: (operation) => scheduler!.execute(operation),
             }),
             onRosterChanged: (listener) => registry.onRosterChanged(listener),
             createAgent: (createOptions) => registry.create(createOptions),
-            resumeAgent: (sessionPath) => resumeOrFind(registry, sessionPath),
+            resumeAgent: resumeSession,
             branchAgent: (options) => registry.branch(options),
             discardBranch: async (agentId) => {
                 await registry.trashSession(agentId);
@@ -447,9 +489,11 @@ export async function startResidentHost(
                 signal,
             ),
             canShutdown: () => registry.idleForShutdown(),
-            onShutdownAccepted: () =>
-                closeResidentHost(server, registry, extensions, closeInbox),
+            onShutdownAccepted: closeHost,
         });
+        void indexStoredSessions(sessionDirectory, storedSessionIndex).then(
+            publishStoredSessions,
+        );
     } catch (error) {
         try {
             await extensions.close();
@@ -461,20 +505,11 @@ export async function startResidentHost(
         throw error;
     }
 
-    let closing: Promise<void> | undefined;
     return {
         registry,
         extensions,
         server,
-        close(): Promise<void> {
-            closing ??= closeResidentHost(
-                server,
-                registry,
-                extensions,
-                closeInbox,
-            );
-            return closing;
-        },
+        close: closeHost,
     };
 }
 
@@ -538,6 +573,7 @@ async function discoverAvailableModels(
         catalog.push(...openrouter);
     }
     catalog.push(...cerebras);
+    catalog.push(...discoveredDeepSeekModels(config, { authStorage }));
     catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -893,6 +929,64 @@ function catalogModels(config: VeraConfig): SuggestedModel[] {
     );
 }
 
+export interface DeepSeekDiscoveryOptions {
+    readonly authStorage?: Pick<AuthStorage, "getCredential">;
+    readonly cacheDir?: string;
+}
+
+export function discoveredDeepSeekModels(
+    config: VeraConfig,
+    options: DeepSeekDiscoveryOptions = {},
+): readonly SuggestedModel[] {
+    if (!hasDeepSeekCredential(config, options.authStorage)) {
+        return [];
+    }
+    const catalog = refreshDeepSeekCatalog(options);
+    return catalog.models.map((model) => ({
+        provider: "deepseek",
+        model: model.id,
+        label: model.label,
+        description: model.description ?? "",
+        ...(model.context_window === undefined
+            ? {}
+            : { contextWindow: model.context_window }),
+    }));
+}
+
+function hasDeepSeekCredential(
+    config: VeraConfig,
+    authStorage?: Pick<AuthStorage, "getCredential">,
+): boolean {
+    return config.provider === "deepseek"
+        || hasProviderCredential("deepseek", authStorage)
+        || Boolean(process.env.DEEPSEEK_API_KEY);
+}
+
+function refreshDynamicAvailableModels(
+    models: readonly SuggestedModel[],
+    config: VeraConfig,
+    authStorage: AuthStorage,
+): readonly SuggestedModel[] {
+    const withoutDeepSeek = models.filter((model) => model.provider !== "deepseek");
+    const deepSeek = discoveredDeepSeekModels(config, { authStorage });
+    if (config.provider !== "deepseek") {
+        return [...withoutDeepSeek, ...deepSeek];
+    }
+    if (deepSeek.some((model) => model.model === config.model)) {
+        return [...withoutDeepSeek, ...deepSeek];
+    }
+    return [
+        ...withoutDeepSeek,
+        ...deepSeek,
+        {
+            provider: config.provider,
+            model: config.model,
+            label: config.model,
+            description: "configured model",
+        },
+    ];
+}
+
 function hasOpenRouterCredential(config: VeraConfig): boolean {
     return config.provider === "openrouter"
         || Boolean(process.env.OPENROUTER_API_KEY);
@@ -929,45 +1023,10 @@ export async function discoveredOpenRouterModels(
     })) ?? [];
 }
 
-async function restoreStoredAgents(
-    registry: AgentRegistry,
-    sessionDirectory: string,
-    onFailure: (failure: SessionRestoreFailure) => void,
-): Promise<void> {
-    let names: string[];
-    try {
-        names = await readdir(sessionDirectory);
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            return;
-        }
-        throw error;
-    }
-
-    for (const name of names.filter((value) => value.endsWith(".jsonl")).sort()) {
-        const sessionPath = join(sessionDirectory, name);
-        try {
-            await registry.resume({ sessionPath });
-        } catch (error) {
-            try {
-                onFailure({ sessionPath, error });
-            } catch {
-                // Diagnostics must not let one bad session block healthy restores.
-            }
-        }
-    }
-}
-
-function reportRestoreFailure(failure: SessionRestoreFailure): void {
-    const detail = failure.error instanceof Error
-        ? failure.error.message
-        : String(failure.error);
-    console.error(`Vera skipped corrupt session ${failure.sessionPath}: ${detail}`);
-}
-
 async function resumeOrFind(
     registry: AgentRegistry,
     sessionPath: string,
+    inFlight: Map<string, Promise<ResidentAgent>> = new Map(),
 ): Promise<ResidentAgent> {
     const canonicalPath = await realpath(sessionPath);
     const existing = registry.list().find(
@@ -979,7 +1038,91 @@ async function resumeOrFind(
             return agent;
         }
     }
-    return registry.resume({ sessionPath: canonicalPath });
+    const restoring = inFlight.get(canonicalPath);
+    if (restoring !== undefined) return restoring;
+    const resumed = registry.resume({ sessionPath: canonicalPath });
+    inFlight.set(canonicalPath, resumed);
+    try {
+        return await resumed;
+    } finally {
+        inFlight.delete(canonicalPath);
+    }
+}
+
+async function findOrRestoreAgent(
+    registry: AgentRegistry,
+    agentId: string,
+    sessionDirectory: string,
+    storedSessions: Promise<ReadonlyMap<string, RegisteredAgentSummary>>,
+    resume: (sessionPath: string) => Promise<ResidentAgent>,
+): Promise<ResidentAgent | undefined> {
+    const existing = registry.find(agentId);
+    if (existing !== undefined) return existing;
+    if (!/^[A-Za-z0-9_-]+$/.test(agentId)) return undefined;
+    const conventionalPath = join(sessionDirectory, `${agentId}.jsonl`);
+    try {
+        return await resume(conventionalPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const indexed = (await storedSessions).get(agentId);
+    return indexed === undefined ? undefined : resume(indexed.session_path);
+}
+
+async function indexStoredSessions(
+    sessionDirectory: string,
+    sessions = new Map<string, RegisteredAgentSummary>(),
+): Promise<ReadonlyMap<string, RegisteredAgentSummary>> {
+    let names: readonly string[];
+    try {
+        names = await readdir(sessionDirectory);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Map();
+        hostLog({
+            type: "session_index_failed",
+            message: error instanceof Error ? error.message : String(error),
+        });
+        return new Map();
+    }
+    for (const name of names.filter((value) => value.endsWith(".jsonl")).sort()) {
+        const path = join(sessionDirectory, name);
+        try {
+            const metadata = await readSessionIndexMetadata(path);
+            const header = metadata.header;
+            const fileStat = await stat(path).catch(() => undefined);
+            const size = fileStat?.size;
+            sessions.set(header.id, {
+                id: header.id,
+                workspace: header.cwd,
+                session_path: path,
+                kind: "interactive",
+                status: "completed",
+                live: false,
+                updated_at: fileStat?.mtime.toISOString() ?? header.timestamp,
+                ...(metadata.title === undefined
+                    ? {}
+                    : { title: metadata.title.slice(0, 80) }),
+                ...(header.origin === undefined
+                    ? {}
+                    : { forked_from: header.origin.sessionId }),
+                ...(size === undefined ? {} : { size_bytes: size }),
+            });
+        } catch {
+            // A corrupt unopened session cannot block healthy lazy resumes.
+        }
+    }
+    return sessions;
+}
+
+function mergeStoredAndResidentAgents(
+    stored: ReadonlyMap<string, RegisteredAgentSummary>,
+    resident: readonly RegisteredAgentSummary[],
+): RegisteredAgentSummary[] {
+    const merged = new Map(stored);
+    for (const agent of resident) merged.set(agent.id, agent);
+    return [...merged.values()].sort((left, right) =>
+        left.id.localeCompare(right.id)
+    );
 }
 
 async function closeResidentHost(

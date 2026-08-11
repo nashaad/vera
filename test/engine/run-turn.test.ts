@@ -53,6 +53,7 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 import type { SessionMessageStore } from "../../src/store/session-store.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import { disabledContributionsForProfile } from "../../src/startup-profile.ts";
 
 const temporaryWorkspaces: string[] = [];
 
@@ -135,6 +136,106 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         },
         response,
     ]);
+});
+
+test("bare and prompt-only startup profiles remove optional context", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-startup-profile-"));
+    temporaryWorkspaces.push(workspace);
+    writeFileSync(join(workspace, "AGENTS.local.md"), "PRIVATE_SENTINEL\n");
+
+    for (const profile of ["bare", "prompt_only"] as const) {
+        const response: AssistantMessage = {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        };
+        let request: ModelRequest | undefined;
+        const adapter: ModelAdapter = {
+            stream(next) {
+                request = next;
+                return new FauxAdapter([response]).stream(next);
+            },
+        };
+        const channel = createInProcessChannel();
+        const events = createTestEvents(channel.engine);
+        const state: RunTurnState = {
+            messages: [],
+            store: new InMemorySessionStore(),
+            toolRuntime: new ToolRuntime(workspace),
+            inbound: new InboundCommandRouter(channel.engine, events),
+            events,
+            hooks: new ToolHooks(),
+            approvalMode: "auto",
+            offerTools: profile !== "prompt_only",
+            loadOptionalContext: false,
+            disabledPromptContributions:
+                disabledContributionsForProfile(profile),
+        };
+        channel.client.send({ type: "prompt", content: "measure" });
+        const turn = runTurn(adapter, "test", state);
+        while ((await channel.client.receive()).type !== "turn_finished") {
+            // Drain the visible lifecycle through completion.
+        }
+        await turn;
+
+        expect(request?.systemPrompt).not.toContain("PRIVATE_SENTINEL");
+        expect(request?.systemPrompt).not.toContain("Project instructions");
+        expect(request?.systemPrompt).not.toContain("Scratch directory");
+        if (profile === "bare") {
+            expect(request?.tools?.length ?? 0).toBeGreaterThan(0);
+            expect(request?.systemPrompt).toContain("## Identity");
+            expect(request?.systemPrompt).toContain("## Tools");
+        } else {
+            expect(request?.tools).toEqual([]);
+            expect(request?.systemPrompt).toBe(
+                "## Identity\nYou are Vera, a coding agent. Follow the user's instructions and use the available tools when they help.\n\n",
+            );
+        }
+    }
+});
+
+test("a turn with no offered tools rejects a model tool call", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-no-tools-"));
+    temporaryWorkspaces.push(workspace);
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "hidden-write",
+            name: "write",
+            input: { path: "should-not-exist.txt", content: "no" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full",
+        offerTools: false,
+    };
+
+    channel.client.send({ type: "prompt", content: "do not use tools" });
+    const turn = runTurn(new FauxAdapter([response]), "test", state);
+    while ((await channel.client.receive()).type !== "turn_finished") {
+        // Drain the visible lifecycle through completion.
+    }
+    const result = await turn;
+
+    expect(result?.stopReason).toBe("error");
+    expect(result?.errorMessage).toBe(
+        "Model returned a tool call when no tools were offered.",
+    );
+    expect(existsSync(join(workspace, "should-not-exist.txt"))).toBe(false);
 });
 
 test("compaction preflight includes the pending user prompt", async () => {

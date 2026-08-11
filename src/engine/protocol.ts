@@ -21,6 +21,8 @@ import {
     isReviewerSettingsPatch,
 } from "./model-settings.ts";
 import {
+    measureCompletedAssistant,
+    measureMessages,
     measureReportedUsage,
     type ContextMeasurement,
 } from "./context-measurement.ts";
@@ -1117,7 +1119,9 @@ export function createProtocolEncoder(
 ): ProtocolEncoder {
     let seq = 0;
     let measuredCapacity: number | undefined;
+    let measuredContext: ContextMeasurement | undefined;
     let measuredModel: string | undefined;
+    let pendingCheckpointFloor: ContextMeasurement | undefined;
 
     const encode = (event: Parameters<EngineEventSubscriber>[0]): void => {
         if (event.type === "turn_started") {
@@ -1347,6 +1351,7 @@ export function createProtocolEncoder(
         if (event.type === "context_measured") {
             measuredModel = event.model;
             measuredCapacity = event.measurement.capacity;
+            measuredContext = event.measurement;
             seq += 1;
             sender.send({
                 type: "context",
@@ -1443,15 +1448,34 @@ export function createProtocolEncoder(
             // the estimate standing as the last word. The window is the one
             // that request was measured against; re-deriving it from the
             // catalog would drop a locally discovered model's.
-            const reported = reportedMeasurement(
+            const reportedRequest = reportedMeasurement(
                 event.message,
                 event.message.source.model === measuredModel
                     ? measuredCapacity
                     : undefined,
             );
-            if (reported !== undefined) {
+            if (reportedRequest !== undefined) {
+                // Provider usage covers the request before this assistant
+                // message existed. Add the completed response before calling
+                // the number current context, and retain a larger projection:
+                // correcting a coarse estimate must not make context appear to
+                // disappear merely because the turn finished.
+                const reportedNextContext = reportedRequest.tokens
+                    + measureCompletedAssistant(event.message);
+                const measurement: ContextMeasurement = {
+                    tokens: Math.max(
+                        measuredContext?.tokens ?? 0,
+                        reportedNextContext,
+                    ),
+                    ...(reportedRequest.capacity === undefined
+                        ? {}
+                        : { capacity: reportedRequest.capacity }),
+                    estimated: true,
+                };
+                measuredContext = measurement;
+                pendingCheckpointFloor = measurement;
                 seq += 1;
-                sender.send({ type: "context", measurement: reported, seq });
+                sender.send({ type: "context", measurement, seq });
             }
             seq += 1;
             const outcome = terminalOutcome(event.message);
@@ -1470,11 +1494,30 @@ export function createProtocolEncoder(
 
     return Object.assign(encode, {
         checkpoint(messages: readonly ModelMessage[]): void {
-            const context = latestMeasurement(
+            const restored = latestMeasurement(
                 messages,
                 measuredModel,
                 measuredCapacity,
             );
+            const floor = pendingCheckpointFloor;
+            pendingCheckpointFloor = undefined;
+            // A live encoder has the fuller projection that preceded this
+            // checkpoint. Keep it when the window is unchanged; a fresh
+            // encoder after restart has only durable provider usage and uses
+            // `restored` without pretending the old projection survived.
+            const context = restored === undefined
+                ? floor
+                : floor !== undefined
+                        && floor.capacity === restored.capacity
+                    ? {
+                        ...restored,
+                        tokens: Math.max(
+                            restored.tokens,
+                            floor.tokens,
+                        ),
+                        estimated: true,
+                    }
+                    : restored;
             sender.send({
                 type: "history",
                 entries: projectTranscript(messages, attachmentName),
@@ -1487,7 +1530,8 @@ export function createProtocolEncoder(
 
 /**
  * A reconnecting client needs a number before the next turn produces one, and
- * the last response's usage is the only measurement that survives a restart.
+ * the last response's usage is the baseline that survives a restart. Its
+ * response and everything appended afterward belong to the next request too.
  * A capacity measured this session is preferred over the catalog's, which has
  * no entry for a locally served model.
  */
@@ -1510,7 +1554,15 @@ function latestMeasurement(
             message.source.model === measuredModel ? capacity : undefined,
         );
         if (measurement !== undefined) {
-            return measurement;
+            return {
+                tokens: measurement.tokens
+                    + measureCompletedAssistant(message)
+                    + measureMessages(messages.slice(index + 1)),
+                ...(measurement.capacity === undefined
+                    ? {}
+                    : { capacity: measurement.capacity }),
+                estimated: true,
+            };
         }
     }
     return undefined;

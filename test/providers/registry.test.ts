@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+import { VERA_PROVIDER_IDS, type VeraConfig } from "../../src/config.ts";
 import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import {
     findProvider,
@@ -54,6 +55,10 @@ test("a stored key is used ahead of the environment", () => {
         authStorage: storage({}),
         env: { CEREBRAS_API_KEY: "from-env" },
     })).toBe(true);
+    expect(isProviderConnected(findProvider("deepseek")!, {
+        authStorage: storage({}),
+        env: { DEEPSEEK_API_KEY: "from-env" },
+    })).toBe(true);
 });
 
 test("a provider needing no credential is always connected", () => {
@@ -70,4 +75,26 @@ test("a provider with no credentials names the command that fixes it", () => {
         { schema_version: 1, provider: "openrouter", model: "any/model", approval_mode: "ask" },
         { authStorage: storage({}), env: NO_ENV },
     )).toThrow(/model pane \(ctrl\+e\) or set OPENROUTER_API_KEY/);
+});
+
+test("the registry, the adapter map, and the config ids list the same providers", () => {
+    expect([...PROVIDERS].map((provider) => provider.id).sort())
+        .toEqual([...VERA_PROVIDER_IDS].sort());
+
+    for (const id of VERA_PROVIDER_IDS) {
+        // A provider the registry offers but the adapter map cannot build
+        // would connect in the pane and then fail at the first turn.
+        expect(() =>
+            createConfiguredModelAdapter(
+                { provider: id, model: "some-model" } as VeraConfig,
+                {
+                    env: {
+                        CEREBRAS_API_KEY: "k",
+                        DEEPSEEK_API_KEY: "k",
+                        OPENROUTER_API_KEY: "k",
+                    },
+                },
+            )
+        ).not.toThrow(`Unknown provider ${id}`);
+    }
 });

@@ -49,6 +49,30 @@ test("attachments show as file chips under the message", async () => {
     }
 });
 
+test("an attachment-only prompt has no blank row above its file", async () => {
+    const setup = await createTestRenderer({ width: 48, height: 8 });
+    setup.renderer.root.add(createTuiUserEntry(
+        setup.renderer,
+        "entry-0",
+        {
+            kind: "user",
+            text: "",
+            attachments: ["shot.png"],
+        },
+        0,
+    ));
+
+    try {
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        const caretRow = rows.findIndex((row) => row.includes("›"));
+        const fileRow = rows.findIndex((row) => row.includes("File  shot.png"));
+        expect(fileRow).toBe(caretRow + 1);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("the band leaves out what an extension injected", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
     const note = "<system-note>\nsomeone joined\n</system-note>\n\n";
