@@ -1776,13 +1776,40 @@ test.skipIf(!tmuxAvailable)(
 
             pane = await waitForPane(socket, session, "test · HIGH");
             expect(pane).toContain("Start a conversation");
+            expect(pane).toContain("ready · ctrl+p commands");
             expect(pane).not.toContain("shift+enter newline");
             sendText(socket, session, "start streaming");
             sendKey(socket, session, "Enter");
 
-            pane = await waitForPane(socket, session, "enter queue");
+            pane = await waitForPane(socket, session, "esc stop");
             expect(pane).toMatch(/[░▒▓█]{7} (thinking|responding) · \d+s/);
             expect(pane).toContain("esc stop");
+            expect(pane).not.toContain("enter queue");
+            const workingLines = pane.split("\n");
+            const activityLine = workingLines.find((line) =>
+                line.includes("esc stop")
+            );
+            const placeLine = workingLines.find((line) =>
+                line.includes("ready · ctrl+p commands")
+            );
+            expect(activityLine).toBeDefined();
+            expect(placeLine).toBeDefined();
+            if (activityLine === undefined || placeLine === undefined) {
+                throw new Error("missing fixed activity or place row");
+            }
+            const activityLabel = Math.max(
+                activityLine.indexOf("thinking"),
+                activityLine.indexOf("responding"),
+            );
+            expect(activityLabel).toBeGreaterThanOrEqual(0);
+            expect(activityLine.indexOf("esc stop")).toBeGreaterThan(
+                activityLabel,
+            );
+            expect(activityLine).toEndWith("esc stop · ctrl+c stop");
+            expect(activityLine.length).toBe(96);
+            expect(workingLines.indexOf(activityLine)).toBeLessThan(
+                workingLines.indexOf(placeLine),
+            );
 
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
@@ -2743,10 +2770,41 @@ test.skipIf(!tmuxAvailable)(
             const sidekickHeader = pane.indexOf("sidekick · readonly");
             expect(modeRow).toBeGreaterThan(veraHeader);
             expect(modeRow).toBeGreaterThan(composerRow);
+            expect(pane).toContain(
+                "ready · ctrl+p commands · btw mode · split",
+            );
             expect(veraHeader).toBeGreaterThanOrEqual(0);
             expect(sidekickHeader).toBeGreaterThanOrEqual(0);
             expect(pane).not.toContain("|   sidekick · readonly");
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
+
+            sendText(socket, session, "milestone working footer");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "esc stop sidekick",
+            );
+            const hostedWorkingLines = pane.split("\n");
+            const hostedActivityRow = hostedWorkingLines.find((line) =>
+                line.includes("esc stop sidekick")
+            );
+            const hostedPlaceRow = hostedWorkingLines.find((line) =>
+                line.includes("ready · ctrl+p commands · btw mode · split")
+            );
+            expect(hostedActivityRow).toBeDefined();
+            expect(hostedPlaceRow).toBeDefined();
+            expect(pane).not.toContain("enter queue");
+            if (
+                hostedActivityRow === undefined
+                || hostedPlaceRow === undefined
+            ) {
+                throw new Error("missing hosted activity or place row");
+            }
+            expect(hostedWorkingLines.indexOf(hostedActivityRow)).toBeLessThan(
+                hostedWorkingLines.indexOf(hostedPlaceRow),
+            );
+            await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 1");
 
             sendKey(socket, session, "C-g");
             pane = await waitForVisiblePaneWhere(

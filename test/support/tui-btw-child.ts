@@ -98,9 +98,12 @@ function session(
                     stopReason: "tool_use",
                 }]).stream(request);
             }
-            return new FauxAdapter([
-                response(`${speaker} ANSWERED ${turns}`),
-            ]).stream(request);
+            const footerMilestoneTurn = JSON.stringify(request)
+                .includes("milestone working footer");
+            return new FauxAdapter(
+                [response(`${speaker} ANSWERED ${turns}`)],
+                footerMilestoneTurn ? { delayMs: 250 } : undefined,
+            ).stream(request);
         },
     };
     void runHeadlessLoop(channel.engine, adapter, "test", "high", {
