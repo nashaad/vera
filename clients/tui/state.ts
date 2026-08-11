@@ -782,7 +782,7 @@ function admissionChecklistParts(
 ): { readonly text: string; readonly errorText?: string } {
     const text = [
         admission.verdict === undefined
-            ? `Verifying ${admission.subject}\u2026`
+            ? `Verifying ${admission.subject}…`
             : `Verifying ${admission.subject}`,
         ...tuiAdmissionStepLines(admission),
     ].join("\n");
