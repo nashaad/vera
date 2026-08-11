@@ -10,13 +10,12 @@ export interface TuiExperimentalSlotSet {
 
 export function refreshTuiExperimentalSlotVisibility(
     slots: TuiExperimentalSlotSet,
-    overlayVisible: boolean,
 ): void {
     slots.transcriptTop.visible = hasVisibleChildren(slots.transcriptTop);
     slots.transcriptBottom.visible = hasVisibleChildren(slots.transcriptBottom);
     slots.footer.visible = hasVisibleChildren(slots.footer);
     slots.composerAdornment.visible = hasVisibleChildren(slots.composerAdornment);
-    slots.overlay.visible = overlayVisible;
+    slots.overlay.visible = hasVisibleChildren(slots.overlay);
 }
 
 export function tuiExperimentalBottomInsetRows(

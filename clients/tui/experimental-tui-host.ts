@@ -111,6 +111,7 @@ export function createTuiExperimentalHost(
     } = slotRegistry;
     const eventBus: TuiExperimentalEventBus = createTuiExperimentalEventBus(
         options.onFailure,
+        options.onRenderRequested,
     );
 
     const adapter: ClientExtensionExperimentalTuiAdapter = {
@@ -155,12 +156,15 @@ export function createTuiExperimentalHost(
             return async () => {
                 if (!active) return;
                 active = false;
-                disposeTuiExperimentalRawView(
-                    view,
-                    (containerId) => slotRegistry.slotFor(spec.slot).remove(containerId),
-                );
-                rawViews.delete(key);
-                options.onRenderRequested();
+                try {
+                    disposeTuiExperimentalRawView(
+                        view,
+                        (containerId) => slotRegistry.slotFor(spec.slot).remove(containerId),
+                    );
+                } finally {
+                    rawViews.delete(key);
+                    options.onRenderRequested();
+                }
             };
         },
         events: eventBus.events,
@@ -307,9 +311,7 @@ export function createTuiExperimentalHost(
             footer,
             composerAdornment,
             overlay,
-        }, [...views.values()].some((view) =>
-            view.spec.slot === "overlay" && view.root !== undefined && visible(view)
-        ));
+        });
     }
 
     return {
@@ -376,6 +378,7 @@ export function createTuiExperimentalHost(
                         rawModal.extensionId,
                         error instanceof Error ? error.message : String(error),
                     );
+                    options.onRenderRequested();
                     return true;
                 }
             }
@@ -400,6 +403,7 @@ export function createTuiExperimentalHost(
                     });
                 } catch (error) {
                     reportFailure(view, error);
+                    options.onRenderRequested();
                     return false;
                 }
             }
@@ -411,14 +415,28 @@ export function createTuiExperimentalHost(
             for (const view of [...views.values()]) removeView(view);
             views.clear();
             for (const view of rawViews.values()) {
-                disposeTuiExperimentalRawView(
-                    view,
-                    (containerId) => slotRegistry.slotFor(view.spec.slot).remove(containerId),
-                );
+                try {
+                    disposeTuiExperimentalRawView(
+                        view,
+                        (containerId) => slotRegistry.slotFor(view.spec.slot).remove(containerId),
+                    );
+                } catch (error) {
+                    options.onFailure(
+                        view.extensionId,
+                        error instanceof Error ? error.message : String(error),
+                    );
+                }
             }
             rawViews.clear();
             eventBus.clear();
-            slotRegistry.destroy();
+            try {
+                slotRegistry.destroy();
+            } catch (error) {
+                options.onFailure(
+                    "experimental-tui-host",
+                    error instanceof Error ? error.message : String(error),
+                );
+            }
         },
     };
 }

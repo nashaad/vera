@@ -37,6 +37,11 @@ test("experimental TUI layout reserves visible extension rows", async () => {
             content: "adornment",
             height: 1,
         }));
+        overlay.add(new TextRenderable(renderer, {
+            id: "overlay-text",
+            content: "overlay",
+            height: 1,
+        }));
 
         refreshTuiExperimentalSlotVisibility({
             transcriptTop,
@@ -44,7 +49,7 @@ test("experimental TUI layout reserves visible extension rows", async () => {
             footer,
             composerAdornment,
             overlay,
-        }, true);
+        });
 
         expect(footer.visible).toBe(true);
         expect(composerAdornment.visible).toBe(true);
@@ -87,7 +92,7 @@ test("experimental TUI layout hides empty slots and ignores hidden children", as
             footer,
             composerAdornment,
             overlay,
-        }, false);
+        });
         expect(footer.visible).toBe(false);
         expect(composerAdornment.visible).toBe(false);
         expect(overlay.visible).toBe(false);

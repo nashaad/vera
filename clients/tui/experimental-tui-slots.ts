@@ -54,6 +54,7 @@ export function createTuiExperimentalSlotRegistry(
             }
         },
         destroy(): void {
+            let firstFailure: unknown;
             for (const slot of [
                 transcriptTop,
                 transcriptBottom,
@@ -61,8 +62,13 @@ export function createTuiExperimentalSlotRegistry(
                 composerAdornment,
                 overlay,
             ]) {
-                slot.destroy();
+                try {
+                    slot.destroy();
+                } catch (error) {
+                    firstFailure ??= error;
+                }
             }
+            if (firstFailure !== undefined) throw firstFailure;
         },
     };
 }

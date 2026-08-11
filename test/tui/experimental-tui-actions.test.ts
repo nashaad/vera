@@ -45,5 +45,5 @@ test("experimental TUI actions isolate synchronous throws", async () => {
         onRenderRequested: () => { repaints += 1; },
     });
     expect(failures).toHaveLength(1);
-    expect(repaints).toBe(0);
+    expect(repaints).toBe(1);
 });

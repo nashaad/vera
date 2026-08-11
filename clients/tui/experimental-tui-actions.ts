@@ -21,6 +21,7 @@ export function invokeTuiExperimentalAction(
             .then(() => options.onRenderRequested());
     } catch (error) {
         options.onFailure(error);
+        options.onRenderRequested();
         return Promise.resolve();
     }
 }
