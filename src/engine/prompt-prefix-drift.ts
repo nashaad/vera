@@ -8,7 +8,7 @@ export type PromptPrefixChangeKind =
 
 export interface PromptPrefixChange {
     readonly id: string;
-    readonly owner: "core";
+    readonly owner: string;
     readonly kind: PromptPrefixChangeKind;
     readonly previousOrder?: number;
     readonly currentOrder?: number;

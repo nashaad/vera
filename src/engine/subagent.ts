@@ -16,6 +16,7 @@ import { EngineEventBus } from "./events.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import type { InstructionRoot } from "./memory.ts";
+import type { PromptContribution } from "./prompt-contributions.ts";
 import {
     createInProcessChannel,
     type InProcessChannel,
@@ -73,6 +74,9 @@ export interface CreateSubagentEffectApplierOptions {
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly maxConcurrentChildren?: number;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly loadContextualContributions?: (
+        instructionRoot: InstructionRoot,
+    ) => Promise<readonly PromptContribution[]>;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
     readonly sessionMetadata?: SessionCreationMetadata;
@@ -351,6 +355,9 @@ export interface RunSubagentOptions {
     readonly signal?: AbortSignal;
     readonly relayToolApproval?: ChildToolApprovalRelay;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly loadContextualContributions?: (
+        instructionRoot: InstructionRoot,
+    ) => Promise<readonly PromptContribution[]>;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
     readonly sessionMetadata?: SessionCreationMetadata;
@@ -429,6 +436,10 @@ export function createSubagentEffectApplier(
                 }),
                 approvalMode: context.approvalMode,
                 extensionTools: options.extensionTools,
+                ...(options.loadContextualContributions === undefined ? {} : {
+                    loadContextualContributions:
+                        options.loadContextualContributions,
+                }),
                 offerTools: options.offerTools,
                 loadOptionalContext: options.loadOptionalContext,
                 sessionMetadata: options.sessionMetadata,
@@ -548,6 +559,10 @@ export async function runSubagent(
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
             extensionTools: options.extensionTools,
+            ...(options.loadContextualContributions === undefined ? {} : {
+                loadContextualContributions:
+                    options.loadContextualContributions,
+            }),
             offerTools: options.offerTools ?? true,
             loadOptionalContext: options.loadOptionalContext ?? true,
             reviewToolCall,

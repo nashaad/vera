@@ -50,6 +50,7 @@ test("bare startup survives resume and excludes extension context", async () => 
     await writeFile(join(root, "AGENTS.local.md"), "PRIVATE_SENTINEL\n");
     const requests: ModelRequest[] = [];
     let hookBuilds = 0;
+    let contextLoads = 0;
     const extensionTool: RegisteredTool = {
         definition: {
             name: "extension_probe",
@@ -70,6 +71,16 @@ test("bare startup survives resume and excludes extension context", async () => 
         model: "faux/test",
         approvalMode: "auto",
         extensionTools: [extensionTool],
+        loadContextualContributions: async () => {
+            contextLoads += 1;
+            return [{
+                id: "host.test",
+                owner: "host",
+                target: "contextual",
+                title: "Private context",
+                content: "SKILL_SENTINEL",
+            }];
+        },
         createToolHooks: () => {
             hookBuilds += 1;
             return new ToolHooks();
@@ -103,8 +114,10 @@ test("bare startup survives resume and excludes extension context", async () => 
             "extension_probe",
         );
         expect(request.systemPrompt).not.toContain("PRIVATE_SENTINEL");
+        expect(request.systemPrompt).not.toContain("SKILL_SENTINEL");
     }
     expect(hookBuilds).toBe(0);
+    expect(contextLoads).toBe(0);
 });
 
 test("a created agent persists its per-session permission mode", async () => {
