@@ -19,8 +19,8 @@ panes are mentionable. Pointer input remains available for text selection and
 resizing, but does not change agent focus.
 
 `Ctrl+\` cycles split, side-agent-only, and Vera-only layouts. Focus follows a
-solo pane, so the composer never addresses an agent that is off screen. The
-footer names the active `btw` or `pair` mode and the current layout.
+solo pane, so the composer never addresses an agent that is off screen. Vera's
+composer footer keeps the mode and layout controls in their usual location.
 
 `/btw` starts its agent in `readonly`; `/pair` starts its peer in `ask`. The
 sidebar header always shows the attached name and effective permission mode.
@@ -40,8 +40,8 @@ instructions. `/pair` remains a fresh conversation rather than inheriting the
 primary transcript.
 
 This extension supplies the `/btw` and `/pair` policies: permission defaults,
-attachment lifetime, sidebar placement, addressing, mode and layout status, and
-the pane layout and focus keys. Vera owns agent creation, attachment, validated
+attachment lifetime, sidebar placement, addressing, and the pane layout and
+focus keys. Vera owns agent creation, attachment, validated
 message delivery, permissions, persistence, and the generic TUI pane surface.
 
 ## Extension boundary
@@ -80,5 +80,5 @@ Add it to your Vera config:
 - `client.commands.register` for `/btw [message]`
 - `client.agents` to create, attach, and message the hosted sidekick
 - `client.ui.mentions` for the visible-agent composer names
-- `client.experimental_tui` for mode status and pane-surface control
+- `client.experimental_tui` for pane layout and focus control
 - `client.keybindings.register` for `Ctrl+G` and `Ctrl+\`

@@ -149,11 +149,11 @@ test("pair creates a durable tool-capable peer", async () => {
     await harness.registry.close();
 });
 
-test("btw owns its mode footer and pane controls", async () => {
+test("btw owns pane controls without mounting client chrome", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "", "/workspace");
 
-    expect(harness.rawMounted.map((spec) => spec.id)).toContain("agent-mode");
+    expect(harness.rawMounted).toEqual([]);
     await harness.registry.invokeKeybinding(
         "cycle-agent-layout",
         "/workspace",

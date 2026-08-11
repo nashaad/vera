@@ -12,6 +12,7 @@ import type {
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_ARG_COUNT = 16;
 const MAX_ARG_BYTES = 8 * 1_024;
+const MAX_INPUT_BYTES = 256 * 1_024;
 const MAX_OUTPUT_BYTES = 64 * 1_024;
 
 export interface CommandHookSpec {
@@ -53,6 +54,10 @@ async function invokeCommand(
     timeoutMs: number,
     payload: unknown,
 ): Promise<unknown> {
+    const input = JSON.stringify(payload);
+    if (Buffer.byteLength(input, "utf8") > MAX_INPUT_BYTES) {
+        throw new Error("Command hook input exceeded its byte bound");
+    }
     return await new Promise<unknown>((resolve, reject) => {
         const child = spawn(argv[0]!, argv.slice(1), {
             shell: false,
@@ -72,6 +77,7 @@ async function invokeCommand(
             error === undefined ? resolve(value) : reject(error);
         };
         child.once("error", (error) => finish(error));
+        child.stdin.once("error", (error) => finish(error));
         child.stdout.on("data", (chunk: Buffer) => {
             bytes += chunk.byteLength;
             if (bytes > MAX_OUTPUT_BYTES) {
@@ -93,6 +99,6 @@ async function invokeCommand(
                 finish(new Error("Command hook returned invalid JSON"));
             }
         });
-        child.stdin.end(JSON.stringify(payload));
+        child.stdin.end(input);
     });
 }

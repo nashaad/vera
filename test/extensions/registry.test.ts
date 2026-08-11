@@ -17,11 +17,13 @@ import type { VeraExtensionConfig } from "../../src/config.ts";
 import {
     RESERVED_EXTENSION_COMMAND_NAMES,
 } from "../../src/extensions/commands.ts";
+import { createCommandHook } from "../../src/extensions/command-hook.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import type { PreToolUseHook } from "../../src/sdk/hooks.ts";
 import {
     decideToolPermission,
     extractPermissionActions,
@@ -379,6 +381,24 @@ test("the command hook adapter exchanges bounded JSON over an argv-only process"
         result: { power: "block", reason: "argv fixture" },
     });
     await registry.close();
+});
+
+test("command hooks reject oversized input before spawning a process", async () => {
+    const hook = createCommandHook({
+        phase: "pre_tool_use",
+        argv: [process.execPath, "-e", "process.stdout.write('{}')"],
+    }) as PreToolUseHook;
+
+    await expect(hook({
+        type: "pre_tool_use",
+        sessionId: "session-1",
+        workspace: "/work",
+        toolCall: {
+            id: "large-1",
+            name: "read",
+            input: { content: "x".repeat(256 * 1_024) },
+        },
+    })).rejects.toThrow("input exceeded its byte bound");
 });
 
 test("registry rejects extension tools that collide with built-ins", async () => {
