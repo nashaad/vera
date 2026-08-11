@@ -1,0 +1,4 @@
+interface:
+  display_name: "Browser Research"
+  short_description: "Research with the Vera Chrome extension"
+  default_prompt: "Use $browser-research to investigate this topic in Chrome and return a cited synthesis."
