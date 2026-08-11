@@ -2788,6 +2788,103 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "quickslot changes the focused BTW and Pair agent without changing Vera",
+    async () => {
+        const socket = `vera-focused-quickslot-${process.pid}-${randomUUID()}`;
+        const session = "focused-quickslot";
+        const home = mkdtempSync(join(tmpdir(), "vera-focused-quickslot-"));
+        let pane = "";
+
+        try {
+            mkdirSync(join(home, ".vera"), { recursive: true });
+            writeFileSync(join(home, ".vera", "tui.json"), JSON.stringify({
+                extensions: {
+                    "vera.model-presets": {
+                        slots: [
+                            {
+                                provider: "faux",
+                                model: "test",
+                                reasoningEffort: "low",
+                            },
+                            {
+                                provider: "faux",
+                                model: "test",
+                                reasoningEffort: "high",
+                            },
+                            null,
+                            null,
+                        ],
+                        "current-slot": 1,
+                    },
+                },
+            }));
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-btw-child.ts",
+                120,
+                35,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/btw");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Message sidekick");
+            sendEscapeSequence(socket, session, "\x1b[Z");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message sidekick")
+                    && visible.includes("reasoning low"),
+                "Quickslot to change the focused sidekick",
+            );
+            expect(pane).toContain("quickslot 1: test · low");
+
+            sendKey(socket, session, "C-g");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && visible.includes("reasoning high"),
+                "Vera to retain its model settings",
+            );
+
+            sendText(socket, session, "/pair");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Message peer");
+            sendEscapeSequence(socket, session, "\x1b[Z");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message peer")
+                    && visible.includes("reasoning low"),
+                "Quickslot to change the focused peer",
+            );
+
+            sendKey(socket, session, "C-g");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && visible.includes("reasoning high"),
+                "Vera to remain unchanged after changing the peer",
+            );
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "btw opens a hosted sidekick and routes only among the visible agents",
     async () => {
         const socket = `vera-btw-hosted-${process.pid}-${randomUUID()}`;
