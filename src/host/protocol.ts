@@ -57,6 +57,13 @@ export interface ShutdownIfIdleRequest {
     readonly requester_protocol_version: number;
 }
 
+export interface ShutdownForReplacementRequest {
+    readonly type: "shutdown_for_replacement";
+    readonly pid: number;
+    readonly started_at: string;
+    readonly requester_protocol_version: number;
+}
+
 export interface CreateAgentRequest {
     readonly type: "create_agent";
     readonly workspace: string;
@@ -322,6 +329,21 @@ export type ShutdownIfIdleResponse =
     | ShutdownIfIdleAcceptedResponse
     | ShutdownIfIdleRefusedResponse;
 
+export interface ShutdownForReplacementAcceptedResponse {
+    readonly type: "shutdown_for_replacement_accepted";
+    readonly pid: number;
+    readonly started_at: string;
+}
+
+export interface ShutdownForReplacementRefusedResponse {
+    readonly type: "shutdown_for_replacement_refused";
+    readonly reason: "busy" | "identity_mismatch" | "requester_not_newer";
+}
+
+export type ShutdownForReplacementResponse =
+    | ShutdownForReplacementAcceptedResponse
+    | ShutdownForReplacementRefusedResponse;
+
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
     readonly reason: "unsupported_or_invalid_command";
@@ -332,6 +354,7 @@ export type HostRequest =
     | ListAgentsRequest
     | ScheduleOperationRequest
     | ShutdownIfIdleRequest
+    | ShutdownForReplacementRequest
     | CreateAgentRequest
     | ResumeAgentRequest
     | BranchAgentRequest
@@ -362,6 +385,7 @@ export type HostResponse =
     | RunOnceFinishedResponse
     | RunOnceFailedResponse
     | ShutdownIfIdleResponse
+    | ShutdownForReplacementResponse
     | AttachedResponse
     | BackgroundAgentsResponse
     | AttachFailedResponse
@@ -384,7 +408,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         }
     }
     if (
-        value?.type === "shutdown_if_idle"
+        (value?.type === "shutdown_if_idle"
+            || value?.type === "shutdown_for_replacement")
         && Number.isInteger(value.pid)
         && (value.pid as number) > 0
         && typeof value.started_at === "string"
@@ -393,7 +418,7 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && (value.requester_protocol_version as number) > 0
     ) {
         return {
-            type: "shutdown_if_idle",
+            type: value.type,
             pid: value.pid as number,
             started_at: value.started_at,
             requester_protocol_version:
@@ -743,6 +768,63 @@ export function requestHostShutdownIfIdle(
     });
 }
 
+export function requestHostShutdownForReplacement(
+    socketPath: string,
+    identity: HostIdentity,
+    requesterProtocolVersion: number = HOST_PROTOCOL_VERSION,
+): Promise<ShutdownForReplacementResponse | undefined> {
+    return requestHostShutdown(socketPath, {
+        type: "shutdown_for_replacement",
+        pid: identity.pid,
+        started_at: identity.started_at,
+        requester_protocol_version: requesterProtocolVersion,
+    }, parseShutdownForReplacementResponse);
+}
+
+function requestHostShutdown<Response>(
+    socketPath: string,
+    request: ShutdownForReplacementRequest,
+    parseResponse: (source: string) => Response | undefined,
+): Promise<Response | undefined> {
+    return new Promise((resolve) => {
+        let socket: Socket;
+        try {
+            socket = createConnection(socketPath);
+        } catch {
+            resolve(undefined);
+            return;
+        }
+        let finished = false;
+        let buffered = "";
+        const deadline = setTimeout(() => finish(undefined), 1_000);
+        const finish = (response: Response | undefined): void => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(deadline);
+            socket.destroy();
+            resolve(response);
+        };
+        socket.setEncoding("utf8");
+        socket.once("connect", () => {
+            socket.write(`${JSON.stringify(request)}\n`);
+        });
+        socket.on("data", (chunk: string) => {
+            buffered += chunk;
+            if (buffered.length > 4_096) {
+                finish(undefined);
+                return;
+            }
+            const newline = buffered.indexOf("\n");
+            if (newline !== -1) {
+                finish(parseResponse(buffered.slice(0, newline)));
+            }
+        });
+        socket.once("error", () => finish(undefined));
+        socket.once("end", () => finish(undefined));
+        socket.once("close", () => finish(undefined));
+    });
+}
+
 function parseHostIdentity(source: string): HostIdentity | undefined {
     const response = parseJsonObject(source);
     if (
@@ -803,6 +885,39 @@ function parseShutdownIfIdleResponse(
     ) {
         return {
             type: "shutdown_if_idle_refused",
+            reason: response.reason,
+        };
+    }
+    return undefined;
+}
+
+function parseShutdownForReplacementResponse(
+    source: string,
+): ShutdownForReplacementResponse | undefined {
+    const response = parseJsonObject(source);
+    if (
+        response?.type === "shutdown_for_replacement_accepted"
+        && Number.isInteger(response.pid)
+        && (response.pid as number) > 0
+        && typeof response.started_at === "string"
+        && !Number.isNaN(Date.parse(response.started_at))
+    ) {
+        return {
+            type: "shutdown_for_replacement_accepted",
+            pid: response.pid as number,
+            started_at: response.started_at,
+        };
+    }
+    if (
+        response?.type === "shutdown_for_replacement_refused"
+        && (
+            response.reason === "busy"
+            || response.reason === "identity_mismatch"
+            || response.reason === "requester_not_newer"
+        )
+    ) {
+        return {
+            type: "shutdown_for_replacement_refused",
             reason: response.reason,
         };
     }

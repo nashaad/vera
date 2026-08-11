@@ -498,6 +498,7 @@ export async function startResidentHost(
                 signal,
             ),
             canShutdown: () => registry.idleForShutdown(),
+            canReplace: () => registry.idleForReplacement(),
             onShutdownAccepted: closeHost,
         });
         void indexStoredSessions(sessionDirectory, storedSessionIndex).then(

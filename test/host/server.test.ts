@@ -17,6 +17,7 @@ import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
+    requestHostShutdownForReplacement,
     requestHostShutdownIfIdle,
 } from "../../src/host/protocol.ts";
 import { UserFacingError } from "../../src/user-facing-error.ts";
@@ -134,6 +135,58 @@ afterEach(() => {
                 server.identity,
                 HOST_PROTOCOL_VERSION + 1,
             )).toMatchObject({ type: "shutdown_if_idle_accepted" });
+        } finally {
+            attached.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "replacement evicts attached clients only when resident work is idle",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        let replaceable = false;
+        let accepted = false;
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            canReplace: () => replaceable,
+            onShutdownAccepted: () => {
+                accepted = true;
+            },
+        });
+        const attached = await connectHost({ socketPath });
+        try {
+            await attached.send({ type: "attach", agent_id: agent.id });
+            await attached.receive();
+            await attached.receive();
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION + 1,
+            )).toEqual({
+                type: "shutdown_for_replacement_refused",
+                reason: "busy",
+            });
+
+            replaceable = true;
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION + 1,
+            )).toMatchObject({
+                type: "shutdown_for_replacement_accepted",
+                pid: server.identity.pid,
+            });
+            await Bun.sleep(0);
+            expect(accepted).toBeTrue();
+            await attached.send({ type: "prompt", content: "too late" });
+            await expect(attached.receive()).rejects.toThrow();
         } finally {
             attached.close();
             agent.close();

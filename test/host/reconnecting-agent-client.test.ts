@@ -81,14 +81,18 @@ test(
             { type: "history", entries: [], seq: 0 },
         ]);
         let attempts = 0;
-        const client = createReconnectingAgentClient(initial, async (cursor) => {
-            expect(cursor).toBe(0);
-            attempts += 1;
-            throw new Error("host is unavailable");
-        });
+        const client = createReconnectingAgentClient(
+            initial,
+            async (cursor) => {
+                expect(cursor).toBe(0);
+                attempts += 1;
+                throw new Error("host is unavailable");
+            },
+            { deadlineMs: 50, delaysMs: [0, 1, 1] },
+        );
         expect(await client.receive()).toMatchObject({ seq: 0 });
         await expect(client.receive()).rejects.toThrow(
-            "Could not reconnect agent after 3 attempts",
+            "Could not reconnect agent before its deadline",
         );
         expect(attempts).toBe(3);
         client.close();

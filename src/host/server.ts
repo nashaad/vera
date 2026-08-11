@@ -16,6 +16,7 @@ import {
     requestHostIdentity,
     type HostIdentity,
     type ShutdownIfIdleResponse,
+    type ShutdownForReplacementResponse,
 } from "./protocol.ts";
 import type {
     CreateRegisteredAgentOptions,
@@ -112,6 +113,7 @@ export interface StartHostServerOptions {
     ) => Promise<unknown>;
     readonly runOnce?: (options: RunOnceOptions) => Promise<RunOnceResult>;
     readonly canShutdown?: () => boolean;
+    readonly canReplace?: () => boolean;
     readonly onShutdownAccepted?: () => void | Promise<void>;
 }
 
@@ -142,7 +144,17 @@ export async function startHostServer(
     const sockets = new Set<Socket>();
     let shutdownFenced = false;
     let activeAttachments = 0;
+    let activeServerOperations = 0;
     let shutdownNotified = false;
+    const operationOpened = (): (() => void) => {
+        activeServerOperations += 1;
+        let closed = false;
+        return (): void => {
+            if (closed) return;
+            closed = true;
+            activeServerOperations -= 1;
+        };
+    };
     const requestShutdown = (
         requested: HostIdentity & { readonly requester_protocol_version: number },
     ): ShutdownIfIdleResponse => {
@@ -194,6 +206,43 @@ export async function startHostServer(
             activeAttachments -= 1;
         };
     };
+    const requestReplacement = (
+        requested: HostIdentity & { readonly requester_protocol_version: number },
+    ): ShutdownForReplacementResponse => {
+        if (
+            requested.pid !== identity.pid
+            || requested.started_at !== identity.started_at
+        ) {
+            return {
+                type: "shutdown_for_replacement_refused",
+                reason: "identity_mismatch",
+            };
+        }
+        if (requested.requester_protocol_version <= HOST_PROTOCOL_VERSION) {
+            return {
+                type: "shutdown_for_replacement_refused",
+                reason: "requester_not_newer",
+            };
+        }
+        if (shutdownFenced || activeServerOperations > 0) {
+            return { type: "shutdown_for_replacement_refused", reason: "busy" };
+        }
+        let replaceable = false;
+        try {
+            replaceable = options.canReplace?.() ?? false;
+        } catch {
+            replaceable = false;
+        }
+        if (!replaceable) {
+            return { type: "shutdown_for_replacement_refused", reason: "busy" };
+        }
+        shutdownFenced = true;
+        return {
+            type: "shutdown_for_replacement_accepted",
+            pid: identity.pid,
+            started_at: identity.started_at,
+        };
+    };
     const notifyShutdownAccepted = (): void => {
         if (shutdownNotified) {
             return;
@@ -238,7 +287,9 @@ export async function startHostServer(
             )),
             () => shutdownFenced,
             requestShutdown,
+            requestReplacement,
             attachmentOpened,
+            operationOpened,
             notifyShutdownAccepted,
             options.onRosterChanged ?? (() => () => undefined),
         );
@@ -328,7 +379,11 @@ function receiveConnection(
     requestShutdown: (
         identity: HostIdentity & { readonly requester_protocol_version: number },
     ) => ShutdownIfIdleResponse,
+    requestReplacement: (
+        identity: HostIdentity & { readonly requester_protocol_version: number },
+    ) => ShutdownForReplacementResponse,
     attachmentOpened: () => () => void,
+    operationOpened: () => () => void,
     notifyShutdownAccepted: () => void,
     onRosterChanged: (listener: () => void) => () => void,
 ): void {
@@ -450,6 +505,10 @@ function receiveConnection(
             );
             return;
         }
+        if (isShutdownFenced()) {
+            socket.destroy();
+            return;
+        }
         if (message.type === "list_extension_commands") {
             if (
                 extensionRequestIds.has(message.request_id)
@@ -506,6 +565,7 @@ function receiveConnection(
                 return;
             }
             const controller = new AbortController();
+            const operationClosed = operationOpened();
             extensionRequests.add(controller);
             let source = message.command;
             try {
@@ -517,6 +577,7 @@ function receiveConnection(
                 }
             } catch {
                 extensionRequests.delete(controller);
+                operationClosed();
                 void send({
                     type: "extension_command_failed",
                     request_id: message.request_id,
@@ -588,6 +649,7 @@ function receiveConnection(
             ).catch(() => socket.destroy()).finally(() => {
                 extensionRequests.delete(controller);
                 extensionRequestIds.delete(message.request_id);
+                operationClosed();
             });
             return;
         }
@@ -631,6 +693,24 @@ function receiveConnection(
             }, () => socket.destroy());
             return;
         }
+        if (request?.type === "shutdown_for_replacement") {
+            clearTimeout(deadline);
+            finished = true;
+            const response = requestReplacement({
+                pid: request.pid,
+                started_at: request.started_at,
+                protocol_version: HOST_PROTOCOL_VERSION,
+                requester_protocol_version:
+                    request.requester_protocol_version,
+            });
+            void send(response).then(() => {
+                if (response.type === "shutdown_for_replacement_accepted") {
+                    socket.once("close", notifyShutdownAccepted);
+                }
+                socket.end();
+            }, () => socket.destroy());
+            return;
+        }
         if (request?.type === "list_agents") {
             clearTimeout(deadline);
             finished = true;
@@ -646,13 +726,15 @@ function receiveConnection(
         if (request?.type === "schedule_operation") {
             clearTimeout(deadline);
             finished = true;
+            const operationClosed = operationOpened();
             void runScheduleOperation(request.operation).then(
                 (result) => send({ type: "schedule_result", result }),
                 (error) => send({
                     type: "schedule_failed",
                     reason: userFacingMessage(error) ?? "Schedule operation failed",
                 }),
-            ).then(() => socket.end(), () => socket.destroy());
+            ).then(() => socket.end(), () => socket.destroy())
+                .finally(operationClosed);
             return;
         }
         if (request?.type === "create_agent") {
