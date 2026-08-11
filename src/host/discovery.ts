@@ -6,9 +6,11 @@ import {
 } from "./lockfile.ts";
 import {
     HOST_PROTOCOL_VERSION,
+    requestHostShutdownForReplacement,
     requestHostShutdownIfIdle,
     type HostIdentity,
     type ShutdownIfIdleResponse,
+    type ShutdownForReplacementResponse,
 } from "./protocol.ts";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
@@ -25,6 +27,11 @@ export interface EnsureResidentHostOptions {
         socketPath: string,
         identity: HostIdentity,
     ) => Promise<ShutdownIfIdleResponse | undefined>;
+    readonly shutdownForReplacement?: (
+        socketPath: string,
+        identity: HostIdentity,
+        requesterProtocolVersion: number,
+    ) => Promise<ShutdownForReplacementResponse | undefined>;
     readonly confirmBusyUpgrade?: (
         error: HostProtocolMismatchError,
     ) => boolean | Promise<boolean>;
@@ -45,8 +52,29 @@ export async function ensureResidentHost(
     const lockfile = options.lockfile ?? createHostLockfile();
     const now = options.now ?? Date.now;
     const wait = options.wait ?? waitFor;
+    const deadline = now() + startupTimeoutMs;
+    const beforeDeadline = async <T>(
+        operation: () => Promise<T> | T,
+        message: string,
+    ): Promise<T> => {
+        const remainingMs = deadline - now();
+        if (remainingMs <= 0) throw new Error(message);
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+            return await Promise.race([
+                Promise.resolve().then(operation),
+                new Promise<never>((_resolve, reject) => {
+                    timeout = setTimeout(() => reject(new Error(message)), remainingMs);
+                }),
+            ]);
+        } finally {
+            if (timeout !== undefined) clearTimeout(timeout);
+        }
+    };
 
     const shutdownIfIdle = options.shutdownIfIdle ?? requestHostShutdownIfIdle;
+    const shutdownForReplacement = options.shutdownForReplacement
+        ?? requestHostShutdownForReplacement;
     let running: HostLockRecord | undefined;
     try {
         running = await lockfile.read();
@@ -60,26 +88,88 @@ export async function ensureResidentHost(
         ) {
             throw error;
         }
-        const response = await shutdownIfIdle(error.socketPath, {
+        const socketPath = error.socketPath;
+        const startedAt = error.startedAt;
+        const identity = {
             pid: error.pid,
-            started_at: error.startedAt,
+            started_at: startedAt,
             ...(error.actualVersion === undefined
                 ? {}
                 : { protocol_version: error.actualVersion }),
-        });
+        };
+        const replacement = await beforeDeadline(
+            () => shutdownForReplacement(
+                socketPath,
+                identity,
+                HOST_PROTOCOL_VERSION,
+            ),
+            "Resident host replacement exceeded its deadline",
+        );
+        if (
+            replacement?.type === "shutdown_for_replacement_refused"
+            && replacement.reason === "identity_mismatch"
+        ) {
+            try {
+                const current = await beforeDeadline(
+                    () => lockfile.read(),
+                    "Resident host replacement exceeded its deadline",
+                );
+                if (current !== undefined) return current;
+            } catch (currentError) {
+                if (!(currentError instanceof HostProtocolMismatchError)) {
+                    throw currentError;
+                }
+            }
+            throw error;
+        }
+        const response = replacement?.type
+                === "shutdown_for_replacement_accepted"
+            ? replacement
+            : await beforeDeadline(
+                () => shutdownIfIdle(socketPath, identity),
+                "Resident host replacement exceeded its deadline",
+            );
         if (
             response?.type !== "shutdown_if_idle_accepted"
+            && response?.type !== "shutdown_for_replacement_accepted"
             || response.pid !== error.pid
             || response.started_at !== error.startedAt
         ) {
-            const approved = await options.confirmBusyUpgrade?.(error) ?? false;
+            const approved = await beforeDeadline(
+                () => options.confirmBusyUpgrade?.(error) ?? false,
+                "Resident host replacement exceeded its deadline",
+            );
             if (!approved) throw error;
-            await (options.terminateHost ?? terminateHost)(error.pid);
+            let sameHostStillRunning = false;
+            try {
+                const current = await beforeDeadline(
+                    () => lockfile.read(),
+                    "Resident host replacement exceeded its deadline",
+                );
+                if (current !== undefined) return current;
+            } catch (currentError) {
+                if (
+                    !(currentError instanceof HostProtocolMismatchError)
+                    || currentError.pid !== error.pid
+                    || currentError.startedAt !== error.startedAt
+                ) {
+                    throw currentError;
+                }
+                sameHostStillRunning = true;
+            }
+            if (sameHostStillRunning) {
+                await beforeDeadline(
+                    () => (options.terminateHost ?? terminateHost)(error.pid),
+                    "Resident host replacement exceeded its deadline",
+                );
+            }
         }
-        const shutdownDeadline = now() + startupTimeoutMs;
         while (true) {
             try {
-                const replacement = await lockfile.read();
+                const replacement = await beforeDeadline(
+                    () => lockfile.read(),
+                    "Resident host did not stop before its deadline",
+                );
                 if (replacement === undefined) {
                     break;
                 }
@@ -93,7 +183,7 @@ export async function ensureResidentHost(
                     throw nextError;
                 }
             }
-            const remainingMs = shutdownDeadline - now();
+            const remainingMs = deadline - now();
             if (remainingMs <= 0) {
                 throw new Error(
                     "Resident host did not stop before its deadline",
@@ -106,10 +196,15 @@ export async function ensureResidentHost(
         return running;
     }
 
-    await options.startHost();
-    const deadline = now() + startupTimeoutMs;
+    await beforeDeadline(
+        () => options.startHost(),
+        "Resident host did not start before its deadline",
+    );
     while (true) {
-        const started = await lockfile.read();
+        const started = await beforeDeadline(
+            () => lockfile.read(),
+            "Resident host did not start before its deadline",
+        );
         if (started !== undefined) {
             return started;
         }

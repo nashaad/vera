@@ -561,13 +561,17 @@ export class ResidentAgent {
     }
 
     idleForShutdown(): boolean {
+        return this.idleForReplacement()
+            && this.attachments.size === 0;
+    }
+
+    idleForReplacement(): boolean {
         return this.isClosed || this.terminalFailure !== undefined || (
             this.currentStatus === "idle"
             && this.unstartedPrompts === 0
             && !this.deliveryTurnStarting
             && !this.deliveryTurnQueued
             && this.pendingCommandCount === 0
-            && this.attachments.size === 0
         );
     }
 }

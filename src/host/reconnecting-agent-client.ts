@@ -9,12 +9,17 @@ import {
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
 } from "./capabilities.ts";
 
-const RECONNECT_ATTEMPTS = 3;
-const RECONNECT_DELAY_MS = 50;
+const RECONNECT_DEADLINE_MS = 5_000;
+const RECONNECT_DELAYS_MS = [0, 50, 100, 200];
 
 export interface ReconnectingAgentOptions {
     readonly socketPath: () => string;
     readonly agentId: string;
+}
+
+export interface ReconnectPolicy {
+    readonly deadlineMs?: number;
+    readonly delaysMs?: readonly number[];
 }
 
 export async function attachReconnectingAgent(
@@ -43,6 +48,7 @@ export function createReconnectingAgentClient(
         afterSequence: number | undefined,
         signal: AbortSignal,
     ) => Promise<AttachedAgentClient>,
+    policy: ReconnectPolicy = {},
 ): AttachedAgentClient {
     let current = initial;
     let closed = false;
@@ -175,9 +181,14 @@ export function createReconnectingAgentClient(
         originalError: unknown,
         signal?: AbortSignal,
     ): Promise<AttachedAgentClient> {
-        const reconnectSignal = signal === undefined
-            ? lifecycle.signal
-            : AbortSignal.any([lifecycle.signal, signal]);
+        const deadline = AbortSignal.timeout(
+            policy.deadlineMs ?? RECONNECT_DEADLINE_MS,
+        );
+        const reconnectSignal = AbortSignal.any([
+            lifecycle.signal,
+            deadline,
+            ...(signal === undefined ? [] : [signal]),
+        ]);
         let afterSequence = current.supportsHostCapability(
                 HOST_CAPABILITY_AGENT_ATTACH_RESUME,
             )
@@ -185,12 +196,13 @@ export function createReconnectingAgentClient(
             : undefined;
         let lastError = originalError;
         current.close();
-        for (let attempt = 1; attempt <= RECONNECT_ATTEMPTS; attempt += 1) {
+        const delays = policy.delaysMs ?? RECONNECT_DELAYS_MS;
+        for (let attempt = 0; policy.delaysMs === undefined
+            || attempt < delays.length; attempt += 1) {
+            const delayMs = delays[Math.min(attempt, delays.length - 1)] ?? 0;
             if (closed) throw new Error("Agent attachment is closed");
             reconnectSignal.throwIfAborted();
-            if (attempt > 1) {
-                await delay(RECONNECT_DELAY_MS, reconnectSignal);
-            }
+            if (delayMs > 0) await delay(delayMs, reconnectSignal);
             try {
                 const next = await attach(afterSequence, reconnectSignal);
                 if (closed) {
@@ -218,7 +230,7 @@ export function createReconnectingAgentClient(
             }
         }
         throw new Error(
-            `Could not reconnect agent after ${RECONNECT_ATTEMPTS} attempts: ${messageOf(lastError)}`,
+            `Could not reconnect agent before its deadline: ${messageOf(lastError)}`,
         );
     }
 }

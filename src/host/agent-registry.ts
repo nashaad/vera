@@ -2038,6 +2038,14 @@ export class AgentRegistry {
             );
     }
 
+    idleForReplacement(): boolean {
+        return this.startingIds.size === 0
+            && this.deliveryTasks.size === 0
+            && [...this.agents.values()].every(
+                (entry) => entry.agent.idleForReplacement(),
+            );
+    }
+
     async close(): Promise<void> {
         this.isClosed = true;
         const entries = [...this.agents.values()];

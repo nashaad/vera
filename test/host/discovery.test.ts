@@ -142,10 +142,57 @@ test("host discovery replaces an incompatible host only after idle shutdown", as
                 started_at: runningHost.started_at,
             };
         },
+        shutdownForReplacement: async () => undefined,
         wait: async () => {},
     });
 
     expect(host).toEqual(runningHost);
+    expect(starts).toBe(1);
+});
+
+test("host discovery prefers graceful replacement over attachment-free shutdown", async () => {
+    const mismatch = new HostProtocolMismatchError(
+        101,
+        31,
+        runningHost.started_at,
+        runningHost.socket_path,
+    );
+    let reads = 0;
+    let idleRequests = 0;
+    let starts = 0;
+    const host = await ensureResidentHost({
+        lockfile: {
+            publish(): Promise<HostLockRecord> {
+                throw new Error("not used");
+            },
+            read(): Promise<HostLockRecord | undefined> {
+                reads += 1;
+                if (reads <= 2) return Promise.reject(mismatch);
+                return Promise.resolve(reads === 3 ? undefined : runningHost);
+            },
+        },
+        startHost: () => {
+            starts += 1;
+        },
+        shutdownForReplacement: async (socketPath, identity, requester) => {
+            expect(socketPath).toBe(runningHost.socket_path);
+            expect(identity).toMatchObject({ pid: 101 });
+            expect(requester).toBe(HOST_PROTOCOL_VERSION);
+            return {
+                type: "shutdown_for_replacement_accepted",
+                pid: 101,
+                started_at: runningHost.started_at,
+            };
+        },
+        shutdownIfIdle: async () => {
+            idleRequests += 1;
+            return undefined;
+        },
+        wait: async () => {},
+    });
+
+    expect(host).toEqual(runningHost);
+    expect(idleRequests).toBe(0);
     expect(starts).toBe(1);
 });
 
@@ -174,6 +221,7 @@ test("host discovery leaves a busy incompatible host running", async () => {
             type: "shutdown_if_idle_refused",
             reason: "busy",
         }),
+        shutdownForReplacement: async () => undefined,
     })).rejects.toBe(mismatch);
 });
 
@@ -195,7 +243,8 @@ test("host discovery can confirm and replace a busy older host", async () => {
             read(): Promise<HostLockRecord | undefined> {
                 reads += 1;
                 if (reads === 1) return Promise.reject(mismatch);
-                if (reads === 2) return Promise.resolve(undefined);
+                if (reads === 2) return Promise.reject(mismatch);
+                if (reads === 3) return Promise.resolve(undefined);
                 return Promise.resolve(runningHost);
             },
         },
@@ -206,6 +255,7 @@ test("host discovery can confirm and replace a busy older host", async () => {
             type: "shutdown_if_idle_refused",
             reason: "busy",
         }),
+        shutdownForReplacement: async () => undefined,
         confirmBusyUpgrade: async () => true,
         terminateHost: async (pid) => {
             terminated = pid;
@@ -231,6 +281,48 @@ test("host discovery stops at one fixed startup deadline", async () => {
         },
     })).rejects.toThrow("Resident host did not start before its deadline");
     expect(now).toBe(50);
+});
+
+test("replacement shutdown and startup share one fixed deadline", async () => {
+    const mismatch = new HostProtocolMismatchError(
+        101,
+        31,
+        runningHost.started_at,
+        runningHost.socket_path,
+    );
+    let reads = 0;
+    let now = 0;
+    let starts = 0;
+    const waits: number[] = [];
+    await expect(ensureResidentHost({
+        lockfile: {
+            publish(): Promise<HostLockRecord> {
+                throw new Error("not used");
+            },
+            read(): Promise<HostLockRecord | undefined> {
+                reads += 1;
+                if (reads <= 2) return Promise.reject(mismatch);
+                return Promise.resolve(undefined);
+            },
+        },
+        startHost: () => {
+            starts += 1;
+        },
+        shutdownForReplacement: async () => ({
+            type: "shutdown_for_replacement_accepted",
+            pid: 101,
+            started_at: runningHost.started_at,
+        }),
+        startupTimeoutMs: 50,
+        pollIntervalMs: 30,
+        now: () => now,
+        wait: async (delayMs) => {
+            waits.push(delayMs);
+            now += delayMs;
+        },
+    })).rejects.toThrow("Resident host did not start before its deadline");
+    expect(starts).toBe(1);
+    expect(waits).toEqual([30, 20]);
 });
 
 test("host discovery requires positive timing limits", async () => {

@@ -12,12 +12,14 @@ import { join } from "node:path";
 
 import { connectHost } from "../../src/host/connection.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
+import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import {
     HOST_PROTOCOL_VERSION,
     requestHostIdentity,
+    requestHostShutdownForReplacement,
     requestHostShutdownIfIdle,
 } from "../../src/host/protocol.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
@@ -64,6 +66,97 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                     throw new Error("Accepted resident host did not shut down");
                 }
                 await Bun.sleep(10);
+            }
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "an idle attached durable session survives graceful host replacement",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-replacement-"));
+        const workspace = await realpath(root);
+        const socketPath = join(root, "host.sock");
+        const lockPath = join(root, "host.json");
+        const sessionDirectory = join(root, "sessions");
+        const sessionPath = join(sessionDirectory, "agent.jsonl");
+        const config = {
+            schema_version: 1 as const,
+            provider: "openrouter" as const,
+            model: "faux/test",
+            approval_mode: "auto" as const,
+        };
+        let responses = [textResponse("before replacement")];
+        const start = () => startResidentHost({
+            config,
+            createAdapter: () => new FauxAdapter(responses),
+            socketPath,
+            lockPath,
+            sessionDirectory,
+        });
+        let host = await start();
+        try {
+            await host.registry.create({
+                id: "durable-agent",
+                workspace,
+                sessionPath,
+            });
+            const client = await attachReconnectingAgent({
+                socketPath: () => socketPath,
+                agentId: "durable-agent",
+            });
+            try {
+                await client.receive();
+                await client.send({ type: "prompt", content: "first" });
+                await receiveUntilType(client, "turn_finished");
+
+                const waiting = receiveUntilType(client, "user_prompt");
+                expect(await requestHostShutdownForReplacement(
+                    socketPath,
+                    host.server.identity,
+                    HOST_PROTOCOL_VERSION + 1,
+                )).toMatchObject({
+                    type: "shutdown_for_replacement_accepted",
+                });
+                const deadline = Date.now() + 1_000;
+                while (await requestHostIdentity(socketPath) !== undefined) {
+                    if (Date.now() >= deadline) {
+                        throw new Error("Replaced resident host did not stop");
+                    }
+                    await Bun.sleep(5);
+                }
+                // A cold replacement may take longer than the old three-attempt,
+                // 100 ms reconnect window.
+                await Bun.sleep(250);
+                responses = [textResponse("after replacement")];
+                host = await start();
+                await Bun.sleep(60);
+                await client.send({ type: "prompt", content: "second" });
+                await waiting;
+                await receiveUntilType(client, "turn_finished");
+
+                const fresh = await attachAgent({
+                    socketPath,
+                    agentId: "durable-agent",
+                });
+                try {
+                    expect(await fresh.receive()).toMatchObject({
+                        type: "history",
+                        entries: [
+                            { kind: "user", text: "first" },
+                            { kind: "assistant", text: "before replacement" },
+                            { kind: "user", text: "second" },
+                            { kind: "assistant", text: "after replacement" },
+                        ],
+                    });
+                } finally {
+                    fresh.close();
+                }
+            } finally {
+                client.close();
             }
         } finally {
             await host.close();

@@ -505,14 +505,17 @@ test("session name replies stay private to their requesting attachment", async (
 test("shutdown idleness includes attachments, queued prompts, and starting turns", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     expect(agent.idleForShutdown()).toBeTrue();
+    expect(agent.idleForReplacement()).toBeTrue();
 
     const attachment = agent.attach();
     await attachment.receive();
     expect(agent.idleForShutdown()).toBeFalse();
+    expect(agent.idleForReplacement()).toBeTrue();
 
     attachment.send({ type: "prompt", content: "hello" });
     attachment.detach();
     expect(agent.idleForShutdown()).toBeFalse();
+    expect(agent.idleForReplacement()).toBeFalse();
     expect(await agent.engine.receive()).toEqual({
         type: "prompt",
         content: "hello",
