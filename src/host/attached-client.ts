@@ -15,7 +15,10 @@ import {
     NO_BACKGROUND_AGENTS,
     type BackgroundAgentsSnapshot,
 } from "./background-agents.ts";
-import { parseHostCapabilities } from "./capabilities.ts";
+import {
+    HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+    parseHostCapabilities,
+} from "./capabilities.ts";
 
 const DEFAULT_MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -25,11 +28,14 @@ export interface AttachAgentOptions {
     readonly agentId: string;
     readonly maxPendingUpdates?: number;
     readonly requestedCapabilities?: readonly string[];
+    readonly afterSequence?: number;
 }
 
 export interface AttachedAgentClient {
     readonly agentId: string;
     readonly workspace: string;
+    /** Last sequenced update delivered to the caller. */
+    readonly lastSequence: number | undefined;
     readonly capabilities: readonly string[];
     supportsHostCapability(capability: string): boolean;
     /**
@@ -91,6 +97,11 @@ export async function attachAgent(
     if (requestedCapabilities === undefined) {
         throw new Error("Requested host capabilities are invalid");
     }
+    if (options.afterSequence !== undefined
+        && (!Number.isSafeInteger(options.afterSequence)
+            || options.afterSequence < 0)) {
+        throw new Error("Agent replay cursor is invalid");
+    }
     const connection = await connectHost({ socketPath: options.socketPath });
     try {
         await connection.send({
@@ -99,6 +110,9 @@ export async function attachAgent(
             ...(requestedCapabilities.length === 0
                 ? {}
                 : { requested_capabilities: requestedCapabilities }),
+            ...(options.afterSequence === undefined
+                ? {}
+                : { after_seq: options.afterSequence }),
         });
         const response = await connection.receive();
         if (isAttachFailure(response, options.agentId)) {
@@ -120,7 +134,9 @@ export async function attachAgent(
             || capabilities === undefined
             || capabilities.some((capability) =>
                 !requestedCapabilities.includes(capability)
-            )) {
+            )
+            || (options.afterSequence !== undefined
+                && !capabilities.includes(HOST_CAPABILITY_AGENT_ATTACH_RESUME))) {
             throw new AgentAttachError(
                 `Host returned an invalid attach response for ${options.agentId}`,
             );
@@ -132,6 +148,7 @@ export async function attachAgent(
             backgroundAgents,
             capabilities,
             maxPendingUpdates,
+            options.afterSequence,
         );
     } catch (error) {
         connection.close();
@@ -146,6 +163,7 @@ function createAttachedClient(
     initialBackgroundAgents: BackgroundAgentsSnapshot,
     negotiatedCapabilities: readonly string[],
     maxPendingUpdates: number,
+    initialSequence?: number,
 ): AttachedAgentClient {
     const updates = new AsyncQueue<AgentUpdate>();
     let backgroundAgents = initialBackgroundAgents;
@@ -159,7 +177,9 @@ function createAttachedClient(
     let rejectDetached: ((error: Error) => void) | undefined;
     let pendingUpdateCount = 0;
     let resumeReading: (() => void) | undefined;
-    let lastSequence: number | undefined;
+    let lastReadSequence = initialSequence;
+    let lastDeliveredSequence = initialSequence;
+    let awaitingFirstSequencedReplay = initialSequence !== undefined;
     let nextExtensionRequestId = 1;
     const extensionRequests = new Map<string, {
         readonly kind: "list" | "run";
@@ -180,6 +200,9 @@ function createAttachedClient(
     return {
         agentId,
         workspace,
+        get lastSequence(): number | undefined {
+            return lastDeliveredSequence;
+        },
         capabilities: [...negotiatedCapabilities],
         supportsHostCapability(capability): boolean {
             return negotiatedCapabilities.includes(capability);
@@ -206,6 +229,9 @@ function createAttachedClient(
                 }
                 resumeReading?.();
                 resumeReading = undefined;
+                if ("seq" in update) {
+                    lastDeliveredSequence = update.seq;
+                }
                 return update;
             });
         },
@@ -304,23 +330,27 @@ function createAttachedClient(
                     );
                 }
                 if ("seq" in update) {
-                    if (lastSequence === undefined) {
+                    if (lastReadSequence === undefined) {
                         if (update.type !== "history") {
                             throw new Error(
                                 "Host sent an agent update before its history checkpoint",
                             );
                         }
-                    } else {
-                        const expected = update.type === "history"
-                            ? lastSequence
-                            : lastSequence + 1;
-                        if (update.seq !== expected) {
+                    } else if (update.type === "history") {
+                        if (awaitingFirstSequencedReplay
+                            ? update.seq < lastReadSequence
+                            : update.seq !== lastReadSequence) {
                             throw new Error(
                                 "Host sent a non-contiguous agent update sequence",
                             );
                         }
+                    } else if (update.seq !== lastReadSequence + 1) {
+                        throw new Error(
+                            "Host sent a non-contiguous agent update sequence",
+                        );
                     }
-                    lastSequence = update.seq;
+                    lastReadSequence = update.seq;
+                    awaitingFirstSequencedReplay = false;
                 }
                 pendingUpdateCount += 1;
                 updates.push(update);

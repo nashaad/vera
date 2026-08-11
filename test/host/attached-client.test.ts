@@ -11,6 +11,7 @@ import {
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
 import { NO_BACKGROUND_AGENTS } from "../../src/host/background-agents.ts";
+import { HOST_CAPABILITY_AGENT_ATTACH_RESUME } from "../../src/host/capabilities.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
 
@@ -52,6 +53,115 @@ afterEach(() => {
             client.close();
             agent.close();
             await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached clients resume after their last accepted sequence",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+            findAgent: () => agent,
+        });
+        const first = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+        });
+        try {
+            expect((await first.receive()).type).toBe("history");
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "first",
+                seq: 1,
+            });
+            agent.engine.send({
+                type: "assistant_delta",
+                text: "second",
+                seq: 2,
+            });
+            expect(await first.receive()).toMatchObject({ seq: 1 });
+            expect(first.lastSequence).toBe(1);
+            first.close();
+
+            const resumed = await attachAgent({
+                socketPath,
+                agentId: agent.id,
+                requestedCapabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+                afterSequence: 1,
+            });
+            try {
+                expect(await resumed.receive()).toEqual({
+                    type: "assistant_delta",
+                    text: "second",
+                    seq: 2,
+                });
+                expect(resumed.lastSequence).toBe(2);
+            } finally {
+                resumed.close();
+            }
+
+            agent.engine.send({
+                type: "history",
+                entries: [{ kind: "assistant", text: "firstsecond" }],
+                seq: 2,
+            });
+            const rebuilt = await attachAgent({
+                socketPath,
+                agentId: agent.id,
+                requestedCapabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+                afterSequence: 1,
+            });
+            try {
+                expect(await rebuilt.receive()).toMatchObject({
+                    type: "history",
+                    seq: 2,
+                });
+            } finally {
+                rebuilt.close();
+            }
+
+            await expect(attachAgent({
+                socketPath,
+                agentId: agent.id,
+                requestedCapabilities: [],
+                afterSequence: 2,
+            })).rejects.toMatchObject({ reason: "unavailable" });
+            await expect(attachAgent({
+                socketPath,
+                agentId: agent.id,
+                requestedCapabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+                afterSequence: 3,
+            })).rejects.toMatchObject({ reason: "unavailable" });
+        } finally {
+            first.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached clients require negotiated support for a replay cursor",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, []);
+        try {
+            await expect(attachAgent({
+                socketPath,
+                agentId: "agent-1",
+                requestedCapabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+                afterSequence: 4,
+            })).rejects.toThrow("invalid attach response");
+        } finally {
+            await closeServer(server);
         }
     },
 );
@@ -659,6 +769,30 @@ afterEach(() => {
                 type: "history",
                 seq: 4,
             });
+            await expect(client.receive()).rejects.toThrow(
+                "Host sent a non-contiguous agent update sequence",
+            );
+        } finally {
+            client.close();
+            await closeServer(server);
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client rejects a checkpoint jump after replay begins",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await scriptedHost(socketPath, [
+            { type: "history", entries: [], seq: 4 },
+            { type: "assistant_delta", text: "continued", seq: 5 },
+            { type: "history", entries: [], seq: 100 },
+        ]);
+        const client = await attachAgent({ socketPath, agentId: "agent-1" });
+        try {
+            expect(await client.receive()).toMatchObject({ seq: 4 });
+            expect(await client.receive()).toMatchObject({ seq: 5 });
             await expect(client.receive()).rejects.toThrow(
                 "Host sent a non-contiguous agent update sequence",
             );

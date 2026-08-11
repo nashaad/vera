@@ -53,6 +53,12 @@ test("resident agent replays a checkpoint and every later update", async () => {
         text: "hello",
         seq: 2,
     });
+    const resumed = agent.attach(1);
+    expect(await resumed.receive()).toEqual({
+        type: "assistant_delta",
+        text: "hello",
+        seq: 2,
+    });
 
     const checkpoint: HistoryUpdate = {
         type: "history",
@@ -83,6 +89,13 @@ test("resident agent replays a checkpoint and every later update", async () => {
     const fourth = agent.attach();
     expect(await fourth.receive()).toEqual(checkpoint);
     expect(await fourth.receive()).toEqual(notification);
+
+    const resumedFromCheckpoint = agent.attach(2);
+    expect(await resumedFromCheckpoint.receive()).toEqual(notification);
+    const resumedBeforeCheckpoint = agent.attach(1);
+    expect(await resumedBeforeCheckpoint.receive()).toEqual(checkpoint);
+    expect(await resumedBeforeCheckpoint.receive()).toEqual(notification);
+    expect(() => agent.attach(4)).toThrow("replay cursor is unavailable");
 });
 
 test("resident agent bounds commands waiting for the engine", async () => {

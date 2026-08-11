@@ -149,6 +149,7 @@ export interface AttachRequest {
     readonly type: "attach";
     readonly agent_id: string;
     readonly requested_capabilities?: readonly string[];
+    readonly after_seq?: number;
 }
 
 export interface DetachRequest {
@@ -553,6 +554,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && value.agent_id.length > 0
         && (value.requested_capabilities === undefined
             || parseHostCapabilities(value.requested_capabilities) !== undefined)
+        && (value.after_seq === undefined
+            || (Number.isSafeInteger(value.after_seq)
+                && (value.after_seq as number) >= 0))
     ) {
         const requestedCapabilities = value.requested_capabilities === undefined
             ? undefined
@@ -563,6 +567,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(requestedCapabilities === undefined
                 ? {}
                 : { requested_capabilities: requestedCapabilities }),
+            ...(value.after_seq === undefined
+                ? {}
+                : { after_seq: value.after_seq as number }),
         };
     }
     return undefined;
