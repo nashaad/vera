@@ -251,3 +251,14 @@ test("a content type web_fetch cannot read points at web_download", async () => 
         publicAddress,
     )).rejects.toThrow(/web_download to save this URL/);
 });
+
+test("reading a PDF says no file was saved and names the tool that saves one", async () => {
+    const output = await fetchReadablePage(
+        "https://example.com/report.pdf",
+        signal,
+        async () => pdfResponse(minimalPdf("Consumption by state")),
+        publicAddress,
+    );
+    expect(output).toContain("No file was saved");
+    expect(output).toContain("web_download");
+});
