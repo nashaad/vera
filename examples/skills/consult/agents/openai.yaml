@@ -1,0 +1,4 @@
+interface:
+  display_name: "Consult"
+  short_description: "Consult independent Vera agents"
+  default_prompt: "Use $consult to gather independent agent perspectives and synthesize their evidence."

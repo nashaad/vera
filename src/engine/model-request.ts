@@ -32,6 +32,7 @@ export interface ModelRequestSnapshot {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledPromptContributions?: readonly string[];
+    readonly additionalContextualContributions?: readonly PromptContribution[];
     readonly signal: AbortSignal;
 }
 
@@ -89,6 +90,12 @@ export function projectModelRequest(
             ? {}
             : {
                 disabledContributions: snapshot.disabledPromptContributions,
+            }),
+        ...(snapshot.additionalContextualContributions === undefined
+            ? {}
+            : {
+                additionalContextualContributions:
+                    snapshot.additionalContextualContributions,
             }),
     });
     const request = Object.freeze({
