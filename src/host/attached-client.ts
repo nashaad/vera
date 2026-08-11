@@ -36,6 +36,14 @@ export interface AttachedAgentClient {
     onBackgroundAgents(
         listener: (agents: BackgroundAgentsSnapshot) => void,
     ): () => void;
+    /**
+     * The count of attached clients (including this one) as the host last
+     * reported it. Read it to draw, and subscribe to be told when it changes.
+     */
+    readonly attachedClients: number;
+    onAttachedClients(
+        listener: (count: number) => void,
+    ): () => void;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands(): Promise<readonly ExtensionCommandDescriptor[]>;
@@ -108,6 +116,7 @@ export async function attachAgent(
             response.agent_id,
             response.workspace,
             backgroundAgents,
+            response.attached_clients,
             maxPendingUpdates,
         );
     } catch (error) {
@@ -121,13 +130,16 @@ function createAttachedClient(
     agentId: string,
     workspace: string,
     initialBackgroundAgents: BackgroundAgentsSnapshot,
+    initialAttachedClients: number,
     maxPendingUpdates: number,
 ): AttachedAgentClient {
     const updates = new AsyncQueue<AgentUpdate>();
     let backgroundAgents = initialBackgroundAgents;
+    let attachedClients = initialAttachedClients;
     const backgroundAgentListeners = new Set<
         (agents: BackgroundAgentsSnapshot) => void
     >();
+    const attachedClientsListeners = new Set<(count: number) => void>();
     let isClosed = false;
     let isDetaching = false;
     let detachPromise: Promise<void> | undefined;
@@ -163,6 +175,15 @@ function createAttachedClient(
             backgroundAgentListeners.add(listener);
             return (): void => {
                 backgroundAgentListeners.delete(listener);
+            };
+        },
+        get attachedClients(): number {
+            return attachedClients;
+        },
+        onAttachedClients(listener): () => void {
+            attachedClientsListeners.add(listener);
+            return (): void => {
+                attachedClientsListeners.delete(listener);
             };
         },
         send(command): Promise<void> {
@@ -262,6 +283,9 @@ function createAttachedClient(
                     continue;
                 }
                 if (receiveBackgroundAgents(value)) {
+                    continue;
+                }
+                if (receiveAttachedClients(value)) {
                     continue;
                 }
                 const update = parseAgentUpdate(value);
@@ -416,6 +440,30 @@ function createAttachedClient(
         return true;
     }
 
+    function receiveAttachedClients(value: unknown): boolean {
+        if (asRecord(value)?.type !== "attached_clients") {
+            return false;
+        }
+        const record = asRecord(value);
+        if (
+            record === undefined
+            || !Number.isSafeInteger(record.count)
+            || (record.count as number) < 0
+        ) {
+            throw new Error("Host sent an invalid attached clients count");
+        }
+        const count = record.count as number;
+        attachedClients = count;
+        for (const listener of [...attachedClientsListeners]) {
+            try {
+                listener(count);
+            } catch {
+                // A listener that throws must not close the attachment.
+            }
+        }
+        return true;
+    }
+
     function failExtensionRequests(error: Error): void {
         for (const pending of extensionRequests.values()) {
             pending.reject(error);
@@ -446,12 +494,15 @@ function isAttached(
     readonly agent_id: string;
     readonly workspace: string;
     readonly background_agents: unknown;
+    readonly attached_clients: number;
 } {
     const response = asRecord(value);
     return response?.type === "attached"
         && response.agent_id === expectedAgentId
         && typeof response.workspace === "string"
-        && response.workspace.length > 0;
+        && response.workspace.length > 0
+        && Number.isSafeInteger(response.attached_clients)
+        && (response.attached_clients as number) >= 0;
 }
 
 /**

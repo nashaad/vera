@@ -35,6 +35,7 @@ export interface StatusLineSnapshot {
     readonly turn: StatusLineTurnState;
     readonly workspace: string;
     readonly runningBackgroundAgents: number;
+    readonly attachedClients?: number;
     readonly model?: StatusLineModelFacts;
     readonly approvalMode?: string;
     readonly context?: StatusLineContextFacts;
@@ -69,6 +70,11 @@ export interface BackgroundAgentsStatusSegment {
     readonly running: number;
 }
 
+export interface AttachedClientsStatusSegment {
+    readonly kind: "attached_clients";
+    readonly count: number;
+}
+
 export interface TurnStatusSegment {
     readonly kind: "turn";
     readonly state: StatusLineTurnState;
@@ -91,6 +97,7 @@ export type StatusLineSegment =
     | PermissionsStatusSegment
     | WorkspaceStatusSegment
     | BackgroundAgentsStatusSegment
+    | AttachedClientsStatusSegment
     | TurnStatusSegment
     | NoteStatusSegment;
 
@@ -143,6 +150,11 @@ export function parseStatusLineSegment(
             return hasKeys(value, ["kind", "running"])
                     && isCount(value.running)
                 ? { kind: "background_agents", running: value.running }
+                : undefined;
+        case "attached_clients":
+            return hasKeys(value, ["kind", "count"])
+                    && isCount(value.count)
+                ? { kind: "attached_clients", count: value.count }
                 : undefined;
         case "turn":
             return hasKeys(value, ["kind", "state"])

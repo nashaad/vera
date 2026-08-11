@@ -490,6 +490,9 @@ export interface TuiAgentClient {
     /** Background work as of the attach, before anything has changed. */
     readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
     onBackgroundAgents?: AttachedAgentClient["onBackgroundAgents"];
+    /** Attached clients count as of the attach, before anything has changed. */
+    readonly attachedClients?: AttachedAgentClient["attachedClients"];
+    onAttachedClients?: AttachedAgentClient["onAttachedClients"];
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];
@@ -867,7 +870,9 @@ export async function startTui(
     let runningBackgroundAgents = 0;
     let runningBackgroundAgentNames: readonly string[] = [];
     let currentAgentHasParent = false;
+    let attachedClientsCount = 0;
     let stopWatchingBackgroundAgents: (() => void) | undefined;
+    let stopWatchingAttachedClients: (() => void) | undefined;
     let pendingSessionRename: {
         readonly requestId: string;
         /** Restored to the composer if the rename never lands, when it came from one. */
@@ -2189,6 +2194,7 @@ export async function startTui(
         ? activityAnimationInterval ?? SHIMMER_FRAME_INTERVAL_MS
         : STATUS_REFRESH_INTERVAL_MS);
     watchBackgroundAgents(dependencies.client);
+    watchAttachedClients(dependencies.client);
 
     renderer.on(CliRenderEvents.RESIZE, () => {
         sidebar.refit();
@@ -6480,6 +6486,7 @@ export async function startTui(
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
         watchBackgroundAgents(next);
+        watchAttachedClients(next);
         sessionTitle = undefined;
         applyTerminalTitle();
         refreshTerminalTitle();
@@ -7236,6 +7243,7 @@ export async function startTui(
                 statusState.context,
                 process.cwd(),
                 runningBackgroundAgents,
+                attachedClientsCount > 1 ? attachedClientsCount : undefined,
                 state.working
                     ? "working"
                     : uiRequest === undefined
@@ -7428,6 +7436,23 @@ export async function startTui(
         runningBackgroundAgents = agents?.running ?? 0;
         runningBackgroundAgentNames = agents?.children ?? [];
         currentAgentHasParent = agents?.has_parent ?? false;
+    }
+
+    function watchAttachedClients(next: TuiAgentClient): void {
+        stopWatchingAttachedClients?.();
+        stopWatchingAttachedClients = undefined;
+        applyAttachedClients(next.attachedClients);
+        stopWatchingAttachedClients = next.onAttachedClients?.((count) => {
+            if (client !== next || shuttingDown) {
+                return;
+            }
+            applyAttachedClients(count);
+            renderStatus();
+        });
+    }
+
+    function applyAttachedClients(count: number | undefined): void {
+        attachedClientsCount = count ?? 0;
     }
 
     function observeActivity(update: AgentUpdate): void {

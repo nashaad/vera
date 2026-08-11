@@ -28,6 +28,7 @@ export function tuiStatusSnapshot(
     context: ContextMeasurement | undefined,
     workspace: string,
     runningBackgroundAgents: number,
+    attachedClients: number | undefined,
     turn: StatusLineSnapshot["turn"],
 ): StatusLineSnapshot {
     return {
@@ -35,6 +36,7 @@ export function tuiStatusSnapshot(
         turn,
         workspace,
         runningBackgroundAgents,
+        ...(attachedClients === undefined ? {} : { attachedClients }),
         ...(settings === undefined ? {} : {
             model: {
                 model: settings.model,

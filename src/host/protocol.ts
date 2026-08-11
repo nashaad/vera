@@ -190,6 +190,10 @@ export interface AttachedResponse {
      * count to draw before anything changes rather than after the first change.
      */
     readonly background_agents: BackgroundAgentsSnapshot;
+    /**
+     * The count of attached clients (including this one) as of the attach.
+     */
+    readonly attached_clients: number;
 }
 
 /**
@@ -203,6 +207,17 @@ export interface BackgroundAgentsResponse {
     readonly running: number;
     readonly children: readonly string[];
     readonly has_parent: boolean;
+}
+
+/**
+ * Sent whenever the count of attached clients to this session changes.
+ *
+ * Unsolicited and unsequenced: it is a host fact about other clients, not an
+ * engine update about this one, so it stays out of the agent update sequence.
+ */
+export interface AttachedClientsResponse {
+    readonly type: "attached_clients";
+    readonly count: number;
 }
 
 export interface AttachFailedResponse {
@@ -335,6 +350,7 @@ export type HostResponse =
     | ShutdownIfIdleResponse
     | AttachedResponse
     | BackgroundAgentsResponse
+    | AttachedClientsResponse
     | AttachFailedResponse
     | DetachedResponse
     | ExtensionCommandHostResponse

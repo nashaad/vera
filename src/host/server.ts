@@ -321,6 +321,7 @@ function receiveConnection(
     let attachedWorkspace: string | undefined;
     let stopWatchingRoster: (() => void) | undefined;
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
+    let sentAttachedClientsCount = 0;
     const extensionRequests = new Set<AbortController>();
     const extensionRequestIds = new Set<string>();
 
@@ -819,14 +820,19 @@ function receiveConnection(
         attachmentClosed = attachmentOpened();
         const attachedId = agent.id;
         sentBackgroundAgents = readBackgroundAgents(attachedId);
+        sentAttachedClientsCount = agent.getAttachmentCount();
         stopWatchingRoster = onRosterChanged(
-            () => sendBackgroundAgents(attachedId),
+            () => {
+                sendBackgroundAgents(attachedId);
+                sendAttachedClients(agent);
+            },
         );
         void send({
             type: "attached",
             agent_id: attachedId,
             workspace: agent.workspace,
             background_agents: sentBackgroundAgents,
+            attached_clients: sentAttachedClientsCount,
         }).then(
             () => forwardAgentUpdates(attached),
             () => socket.destroy(),
@@ -867,6 +873,22 @@ function receiveConnection(
             running: next.running,
             children: next.children,
             has_parent: next.has_parent,
+        }, () => !finished && attachment !== undefined)
+            .catch(() => socket.destroy());
+    }
+
+    function sendAttachedClients(agent: ResidentAgent): void {
+        if (finished || attachment === undefined) {
+            return;
+        }
+        const next = agent.getAttachmentCount();
+        if (next === sentAttachedClientsCount) {
+            return;
+        }
+        sentAttachedClientsCount = next;
+        void send({
+            type: "attached_clients",
+            count: next,
         }, () => !finished && attachment !== undefined)
             .catch(() => socket.destroy());
     }

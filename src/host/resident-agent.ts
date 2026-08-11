@@ -376,6 +376,10 @@ export class ResidentAgent {
         this.closeWithError(new ResidentAgentClosedError(), true);
     }
 
+    getAttachmentCount(): number {
+        return this.attachments.size;
+    }
+
     fail(failureId: string, detail: string): void {
         if (this.isClosed || this.terminalFailure !== undefined) {
             return;
