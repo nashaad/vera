@@ -540,13 +540,12 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/model openrouter/other");
             sendKey(socket, session, "Enter");
-            // The request itself is a transient toast, so the durable proof
-            // that it landed is the status line reporting the new model.
-            await waitForVisiblePane(
+            pane = await waitForVisiblePane(
                 socket,
                 session,
-                "other · LOW",
+                "Changed the model to openrouter/other; new conversations will use it by default",
             );
+            expect(pane).toContain("other · LOW");
             sendText(socket, session, "/quickslot");
             sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "kimi-k3 · low");

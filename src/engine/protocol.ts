@@ -544,6 +544,7 @@ export interface ModelSettingsUpdate {
     readonly requestId: string;
     readonly settings: ModelTurnSettings;
     readonly pending: boolean;
+    readonly updatedDefaults?: true;
     readonly seq: number;
 }
 
@@ -1275,6 +1276,9 @@ export function createProtocolEncoder(
                 requestId: event.requestId,
                 settings: event.settings,
                 pending: event.pending,
+                ...(event.updatedDefaults === true
+                    ? { updatedDefaults: true as const }
+                    : {}),
                 seq,
             });
             return;
