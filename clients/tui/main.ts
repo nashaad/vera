@@ -296,6 +296,7 @@ import {
     TUI_TEXT,
     applyTuiTheme,
     appendTuiExtensionBlock,
+    appendTuiError,
     appendTuiNotice,
     appendTuiThought,
     dropTuiThinking,
@@ -305,6 +306,7 @@ import {
     userEntryShows,
     beginNextQueuedTuiTurn,
     beginTuiAdmission,
+    dropTuiAdmission,
     beginTuiTurn,
     createTuiState,
     failTuiConnection,
@@ -1126,7 +1128,7 @@ export async function startTui(
         for (const key of binding.keys) {
             const owner = tuiChordOwner(key);
             if (owner !== undefined && owner.extensionId !== binding.id) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `${binding.id} cannot use ${key}: Vera already uses it to ${owner.description.toLowerCase()}`,
                 );
@@ -1978,7 +1980,7 @@ export async function startTui(
             const subject = requestedModelChanges.get(update.requestId);
             requestedModelChanges.delete(update.requestId);
             if (subject !== undefined) {
-                pane.state.state = appendTuiNotice(
+                pane.state.state = appendTuiError(
                     pane.state.state,
                     rejectionNotice(subject, update.reason),
                 );
@@ -1989,7 +1991,7 @@ export async function startTui(
             const subject = requestedPermissionChanges.get(update.requestId);
             requestedPermissionChanges.delete(update.requestId);
             if (subject !== undefined) {
-                pane.state.state = appendTuiNotice(
+                pane.state.state = appendTuiError(
                     pane.state.state,
                     rejectionNotice(subject, update.reason),
                 );
@@ -3107,7 +3109,7 @@ export async function startTui(
         } catch (error) {
             forgetPersistedAgentPane();
             if (shuttingDown || client.agentId !== mainAgentId) return;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not restore paired pane: ${
                     error instanceof Error ? error.message : String(error)
@@ -3293,7 +3295,7 @@ export async function startTui(
             const provider = state.modelSettings?.provider;
             const model = state.modelSettings?.model;
             if (provider === undefined || model === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "No model is running yet, so there is nothing to pool",
                 );
@@ -3331,7 +3333,7 @@ export async function startTui(
                     && client.runExtensionCommand === undefined)
             ) {
                 composer.setComposerText(prompt);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `${commandAction.source}: command unavailable`,
                 );
@@ -3455,7 +3457,7 @@ export async function startTui(
             const provider = separator > 0 ? typed.slice(0, separator) : undefined;
             const model = separator > 0 ? typed.slice(separator + 1) : typed;
             if (model.length === 0) {
-                state = appendTuiNotice(state, `"${typed}" is not a model name`);
+                state = appendTuiError(state, `"${typed}" is not a model name`);
                 renderState();
                 return;
             }
@@ -3544,7 +3546,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             if (dependencies.listAgents === undefined) {
-                state = appendTuiNotice(state, "Session listing is unavailable");
+                state = appendTuiError(state, "Session listing is unavailable");
                 renderState();
                 return;
             }
@@ -3584,7 +3586,7 @@ export async function startTui(
                     const message = error instanceof Error
                         ? error.message
                         : String(error);
-                    state = appendTuiNotice(
+                    state = appendTuiError(
                         state,
                         `Could not list sessions: ${message}`,
                     );
@@ -3599,7 +3601,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             if (dependencies.listAgents === undefined) {
-                state = appendTuiNotice(state, "Session listing is unavailable");
+                state = appendTuiError(state, "Session listing is unavailable");
                 renderState();
                 return;
             }
@@ -3654,7 +3656,7 @@ export async function startTui(
                     const message = error instanceof Error
                         ? error.message
                         : String(error);
-                    state = appendTuiNotice(
+                    state = appendTuiError(
                         state,
                         `Could not list sessions: ${message}`,
                     );
@@ -3669,7 +3671,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             if (dependencies.listAgents === undefined) {
-                state = appendTuiNotice(state, "Session listing is unavailable");
+                state = appendTuiError(state, "Session listing is unavailable");
                 renderState();
                 return;
             }
@@ -3698,7 +3700,7 @@ export async function startTui(
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not find the parent conversation: ${message}`,
                 );
@@ -3714,7 +3716,7 @@ export async function startTui(
                 || dependencies.reconnectSession === undefined
                 || currentAgentId === undefined
             ) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     connectionFailed
                         ? "Reconnecting this session is unavailable"
@@ -3738,7 +3740,7 @@ export async function startTui(
             }).catch((error) => {
                 if (shuttingDown) return;
                 sessionSwitchPending = false;
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not reconnect: ${
                         error instanceof Error ? error.message : String(error)
@@ -3757,7 +3759,7 @@ export async function startTui(
                     ? dependencies.createAgent === undefined
                     : dependencies.createSession === undefined
             ) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Starting a new session is unavailable",
                 );
@@ -3769,7 +3771,7 @@ export async function startTui(
             }
             const workspace = focusedAgentClient().workspace;
             if (workspace === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Current session workspace is unavailable",
                 );
@@ -3817,7 +3819,7 @@ export async function startTui(
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not start a new session: ${message}`,
                 );
@@ -3828,7 +3830,7 @@ export async function startTui(
         if (commandAction?.type === "clone_session") {
             composer.clearComposer();
             if (dependencies.cloneSession === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Cloning this session is unavailable",
                 );
@@ -3837,7 +3839,7 @@ export async function startTui(
             }
             const sourceAgentId = client.agentId;
             if (sourceAgentId === undefined) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     "Current session ID is unavailable",
                 );
@@ -3862,7 +3864,7 @@ export async function startTui(
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `Could not clone this session: ${message}`,
                 );
@@ -4259,7 +4261,7 @@ export async function startTui(
                         if (rejected !== undefined) {
                             composer.removeImageChip(rejected.requestId);
                         }
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             `Could not attach image: ${update.error}`,
                         );
@@ -4316,7 +4318,7 @@ export async function startTui(
                         ) {
                             composer.setComposerText(pending.commandText);
                         }
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             update.reason === "invalid"
                                 ? "Session name must be 1 to 200 UTF-8 bytes"
@@ -4420,13 +4422,20 @@ export async function startTui(
                         subject !== undefined
                         && update.type === "model_settings_rejected"
                     ) {
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             rejectionNotice(subject, update.reason),
                         );
                     }
                 }
                 observeActivity(update);
+                if (
+                    update.type === "pool_admission_result"
+                    && retryPoolAdmission(update.requestId, update.verdict)
+                ) {
+                    renderState();
+                    continue;
+                }
                 state = applyAgentUpdate(state, update);
                 if (
                     update.type === "pool_admission_result"
@@ -4506,12 +4515,12 @@ export async function startTui(
                     );
                     requestedPermissionChanges.delete(update.requestId);
                     if (subject !== undefined) {
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             rejectionNotice(subject, update.reason),
                         );
                     } else if (preferencesList !== undefined) {
-                        state = appendTuiNotice(
+                        state = appendTuiError(
                             state,
                             update.reason === "unavailable"
                                 ? "Removing permissions is unavailable on this host"
@@ -4808,7 +4817,7 @@ export async function startTui(
             const message = error instanceof Error
                 ? error.message
                 : String(error);
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not load extension commands: ${message}`,
             );
@@ -4957,14 +4966,14 @@ export async function startTui(
         timelinePicker = undefined;
         timelinePickerView.box.visible = false;
         if (dependencies.forkSession === undefined) {
-            state = appendTuiNotice(state, "Forking this session is unavailable");
+            state = appendTuiError(state, "Forking this session is unavailable");
             composer.focus();
             renderState();
             return;
         }
         const sourceAgentId = client.agentId;
         if (sourceAgentId === undefined) {
-            state = appendTuiNotice(state, "Current session ID is unavailable");
+            state = appendTuiError(state, "Current session ID is unavailable");
             composer.focus();
             renderState();
             return;
@@ -4997,7 +5006,7 @@ export async function startTui(
             if (shuttingDown) return;
             sessionSwitchPending = false;
             const message = error instanceof Error ? error.message : String(error);
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not fork this session: ${message}`,
             );
@@ -5561,7 +5570,7 @@ export async function startTui(
                 "Configure editor closed. Restart Vera to apply config changes.",
             );
         } catch (error) {
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not open config: ${error instanceof Error ? error.message : String(error)}`,
             );
@@ -5716,7 +5725,7 @@ export async function startTui(
     const authStorage: AuthStorage = dependencies.authStorage
         ?? createAuthStorage({
             onQuarantine(quarantinePath) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `The old credential file could not be read and was moved to ${quarantinePath}`,
                 );
@@ -5729,7 +5738,7 @@ export async function startTui(
         // is actually written to it.
         const unreadable = unreadableAuthStoragePath();
         if (unreadable !== undefined) {
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `${unreadable} could not be read, so no provider shows as connected. Connecting one rewrites it.`,
             );
@@ -5829,7 +5838,7 @@ export async function startTui(
             renderState();
         }, (error: unknown) => {
             connectingProviders.delete(provider.id);
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `could not connect to ${provider.label}: ${
                     error instanceof Error ? error.message : String(error)
@@ -5867,7 +5876,7 @@ export async function startTui(
                 state = appendTuiNotice(state, `stored ${prompt.label} API key`);
                 requestAgentSettings(focusedAgentClient());
             } catch (error) {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     `could not store the ${prompt.label} API key: ${
                         error instanceof Error ? error.message : String(error)
@@ -5948,7 +5957,7 @@ export async function startTui(
         name: string | null,
     ): Promise<void> {
         if (dependencies.renameSession === undefined) {
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 "Renaming another conversation is unavailable",
             );
@@ -5974,20 +5983,23 @@ export async function startTui(
         // The session on screen may have been swapped underneath while the
         // host was answering, and this result belongs to the one that left.
         if (shuttingDown || generation !== clientGeneration) return;
-        state = appendTuiNotice(
-            state,
-            result.status === "renamed"
-                ? result.name === null
+        state = result.status === "renamed"
+            ? appendTuiNotice(
+                state,
+                result.name === null
                     ? "session name cleared"
-                    : `session renamed: ${result.name}`
-                : result.reason === "busy"
-                ? "That conversation is open in another client"
-                : result.reason === "not_found"
-                ? "That conversation is no longer available"
-                : result.reason === "invalid"
-                ? "Session name must be 1 to 200 UTF-8 bytes"
-                : "Could not rename that conversation",
-        );
+                    : `session renamed: ${result.name}`,
+            )
+            : appendTuiError(
+                state,
+                result.reason === "busy"
+                    ? "That conversation is open in another client"
+                    : result.reason === "not_found"
+                    ? "That conversation is no longer available"
+                    : result.reason === "invalid"
+                    ? "Session name must be 1 to 200 UTF-8 bytes"
+                    : "Could not rename that conversation",
+            );
         if (result.status === "renamed" && settingsPicker?.kind === "session") {
             await refreshSessionPicker();
         }
@@ -6536,7 +6548,7 @@ export async function startTui(
             return;
         }
         if (dependencies.resumeSession === undefined) {
-            state = appendTuiNotice(state, "Switching sessions is unavailable");
+            state = appendTuiError(state, "Switching sessions is unavailable");
             settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
@@ -6573,7 +6585,7 @@ export async function startTui(
         }).catch((error) => {
             if (shuttingDown) return;
             sessionSwitchPending = false;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 `Could not switch conversation: ${
                     error instanceof Error ? error.message : String(error)
@@ -6601,7 +6613,7 @@ export async function startTui(
     }): void {
         if (dependencies.trashSession === undefined) {
             sessionTrashCandidate = undefined;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
                 "Moving conversations to Trash is unavailable",
             );
@@ -6657,7 +6669,7 @@ export async function startTui(
                     }
                 }
             } else {
-                state = appendTuiNotice(
+                state = appendTuiError(
                     state,
                     result.reason === "busy"
                         ? "That conversation is active in another client"
@@ -6672,10 +6684,10 @@ export async function startTui(
             sessionTrashPending = false;
             sessionSwitchPending = false;
             sessionTrashCandidate = undefined;
-            state = appendTuiNotice(
+            state = appendTuiError(
                 state,
-                    "Could not move that conversation to Trash",
-                );
+                "Could not move that conversation to Trash",
+            );
             }
             sessionTrashPending = false;
             sessionSwitchPending = false;
@@ -6707,6 +6719,55 @@ export async function startTui(
     }
 
     /**
+     * What each live `pool_add` asked for, so an unavailable verdict can be
+     * sent again without the user re-picking the model.
+     */
+    const poolAdmissionAttempts = new Map<string, {
+        readonly provider: string;
+        readonly model: string;
+        readonly verify: boolean;
+        readonly retry: boolean;
+    }>();
+
+    /**
+     * One silent second run when a provider was unreachable, because that
+     * verdict is usually a blip and the first thing a user does is ask again.
+     * Answers whether the verdict was swallowed: the caller then skips it, and
+     * the failed checklist comes back off the transcript so the retry replaces
+     * it rather than stacking under it. A retry that fails too is reported.
+     */
+    function retryPoolAdmission(
+        requestId: string,
+        verdict: string,
+    ): boolean {
+        const attempt = poolAdmissionAttempts.get(requestId);
+        poolAdmissionAttempts.delete(requestId);
+        if (
+            attempt === undefined || attempt.retry || verdict !== "unavailable"
+        ) {
+            return false;
+        }
+        state = dropTuiAdmission(state, requestId);
+        const retryId = requestPoolAdmission(
+            attempt.provider,
+            attempt.model,
+            attempt.verify,
+            true,
+        );
+        if (admissionDialog?.requestId === requestId) {
+            admissionDialog = startTuiAdmissionDialog(
+                attempt.provider,
+                attempt.model,
+                retryId,
+            );
+        }
+        if (pendingPoolName?.requestId === requestId) {
+            pendingPoolName = { ...pendingPoolName, requestId: retryId };
+        }
+        return true;
+    }
+
+    /**
      * Sends `pool_add` and opens the admission checklist in the transcript.
      * The reply is a stream rather than one update, so the checklist entry is
      * created here and rewritten by the progress updates as they land. The
@@ -6717,8 +6778,10 @@ export async function startTui(
         provider: string,
         model: string,
         verify = false,
+        retry = false,
     ): string {
         const requestId = randomUUID();
+        poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
         state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
         sendCommand({
             type: "pool_add",

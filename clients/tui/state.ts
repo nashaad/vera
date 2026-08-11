@@ -81,6 +81,12 @@ export interface TuiTextTranscriptEntry {
      * as one live surface instead of one line per state change.
      */
     readonly admission?: string;
+    /**
+     * The failure this entry ends on, drawn in the error red rather than the
+     * entry's own tone. A notice that is nothing but a failure carries this
+     * with an empty `text`.
+     */
+    readonly errorText?: string;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -183,6 +189,12 @@ export let TUI_SUCCESS = VERA_TUI_THEME.success;
 export let TUI_BACKGROUND = VERA_TUI_THEME.background;
 export let TUI_PANEL = VERA_TUI_THEME.panel;
 export let TUI_ELEMENT = VERA_TUI_THEME.element;
+
+/**
+ * Failure red, held outside the palette. Every theme paints notices in its own
+ * tone, and a failure that borrows that tone reads as one more notice.
+ */
+export const TUI_ERROR = "#ff5f56";
 
 export function applyTuiTheme(theme: TuiTheme): void {
     TUI_ACCENT = theme.accent;
@@ -765,20 +777,48 @@ export function tuiAdmissionVerdictLine(
     return undefined;
 }
 
-function admissionChecklistText(admission: TuiAdmissionState): string {
-    const lines = [
+function admissionChecklistParts(
+    admission: TuiAdmissionState,
+): { readonly text: string; readonly errorText?: string } {
+    const text = [
         admission.verdict === undefined
-            ? `Verifying ${admission.subject}…`
+            ? `Verifying ${admission.subject}\u2026`
             : `Verifying ${admission.subject}`,
         ...tuiAdmissionStepLines(admission),
-    ];
+    ].join("\n");
     const verdict = tuiAdmissionVerdictLine(admission);
-    if (verdict !== undefined) {
-        lines.push(admission.verdict === "unavailable"
-            ? `${verdict}. Select the model again to retry.`
-            : verdict);
+    if (verdict === undefined) {
+        return { text };
     }
-    return lines.join("\n");
+    if (admission.verdict === "added") {
+        return { text: `${text}\n${verdict}` };
+    }
+    return {
+        text,
+        errorText: admission.verdict === "unavailable"
+            ? `${verdict}. Select the model again to retry.`
+            : verdict,
+    };
+}
+
+/**
+ * Take back the checklist for a request, entry and all. Used when a run is
+ * about to be replaced by another one reporting on the same subject, so the
+ * transcript carries one checklist rather than an abandoned one above it.
+ */
+export function dropTuiAdmission(
+    state: TuiState,
+    requestId: string,
+): TuiState {
+    return {
+        ...state,
+        entries: state.entries.filter((entry) =>
+            !(entry.kind === "notice" && entry.admission === requestId)
+        ),
+        ...(state.admission?.requestId === requestId
+            ? { admission: undefined }
+            : {}),
+    };
 }
 
 /**
@@ -793,7 +833,7 @@ function withAdmissionEntry(
 ): TuiState {
     const entry: TuiTranscriptEntry = {
         kind: "notice",
-        text: admissionChecklistText(admission),
+        ...admissionChecklistParts(admission),
         admission: admission.requestId,
     };
     const index = state.entries.findLastIndex((candidate) =>
@@ -869,6 +909,11 @@ function substitutionEntry(
 
 export function appendTuiNotice(state: TuiState, message: string): TuiState {
     return appendEntry(state, { kind: "notice", text: message });
+}
+
+/** A notice that is a failure, drawn in the error red every theme shares. */
+export function appendTuiError(state: TuiState, message: string): TuiState {
+    return appendEntry(state, { kind: "notice", text: "", errorText: message });
 }
 
 /**
@@ -1030,7 +1075,15 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
     if (entry.kind === "notice" || entry.kind === "review") {
-        return new StyledText([fg(TUI_NOTICE)(entry.text)]);
+        if (entry.errorText === undefined) {
+            return new StyledText([fg(TUI_NOTICE)(entry.text)]);
+        }
+        return new StyledText(entry.text === ""
+            ? [fg(TUI_ERROR)(entry.errorText)]
+            : [
+                fg(TUI_NOTICE)(`${entry.text}\n`),
+                fg(TUI_ERROR)(entry.errorText),
+            ]);
     }
     if (entry.kind === "thought") {
         const summary = fg(TUI_NOTICE)(entry.text);
