@@ -1326,11 +1326,29 @@ export async function startTui(
         paddingRight: 4,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
-    // Reserve the transient activity row separately from the branch row. If
-    // they share a flex row, starting a turn lets the activity hint displace
-    // the workspace and branch information we still need to see.
+    const hostedModeText = new TextRenderable(renderer, {
+        id: "hosted-mode-status",
+        content: "",
+        fg: TUI_MUTED,
+        height: 1,
+        flexShrink: 0,
+        alignSelf: "flex-end",
+        visible: false,
+    });
+    // The transient activity gets the row above. This row keeps the place on
+    // the left and the hosted mode controls on the right throughout a turn.
+    const placeRow = new BoxRenderable(renderer, {
+        id: "place-row",
+        width: "100%",
+        height: "auto",
+        flexDirection: "row",
+    });
+    statusCard.flexGrow = 1;
+    statusCard.flexShrink = 1;
+    placeRow.add(statusCard);
+    placeRow.add(hostedModeText);
     statusBand.add(statusText);
-    statusBand.add(statusCard);
+    statusBand.add(placeRow);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -7106,6 +7124,7 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
+        hostedModeText.fg = theme.muted;
         app.backgroundColor = theme.background;
         quoteText.fg = theme.muted;
         heldAddressText.fg = theme.muted;
@@ -7544,15 +7563,10 @@ export async function startTui(
                     || extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
-        const quietAttachedPane = hostedSidebar.pane !== undefined
-            && statusNotice === undefined
-            && !statusState.working
-            && uiRequest === undefined
-            && lifecycleHint === READY_HINT;
         const hostedModeStatus = hostedSidebar.pane === undefined
             ? undefined
             : [
-                focusedActivity,
+                READY_HINT,
                 `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} mode`,
                 sidebar.layout() === "split"
                     ? "split"
@@ -7566,9 +7580,9 @@ export async function startTui(
                         : `ctrl+g ${hostedSidebar.mention ?? hostedSidebar.pane.agentId}`]
                     : []),
             ].join(" · ");
-        const statusLine = quietAttachedPane
-            ? hostedModeStatus ?? focusedActivity
-            : statusNotice ?? lifecycleHint;
+        hostedModeText.content = hostedModeStatus ?? "";
+        hostedModeText.visible = hostedModeStatus !== undefined;
+        const statusLine = statusNotice ?? lifecycleHint;
         statusText.visible = !(approvalView.box.visible
             || questionView.box.visible);
         // Pull on repaint: the renderer is handed the snapshot and answers
@@ -7610,9 +7624,8 @@ export async function startTui(
                             ),
                     ),
                 }]];
-        // Hosted-pane controls live in the bottom-right lifecycle line. A
-        // details row would put them above the composer and make opening a
-        // second pane rearrange unrelated chrome.
+        // Hosted-pane controls live at the bottom right beside the workspace
+        // row. The activity row above can then change without hiding them.
         const detailsRows = statusDetailsRows;
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
@@ -7691,7 +7704,14 @@ export async function startTui(
         setComposerMargin(
             cardRows + 1,
         );
-        statusText.content = statusState.working
+        const quietHostedActivity = hostedModeStatus !== undefined
+            && statusNotice === undefined
+            && !statusState.working
+            && uiRequest === undefined
+            && lifecycleHint === READY_HINT;
+        statusText.content = quietHostedActivity
+            ? ""
+            : statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined
                 && !focusedAbort

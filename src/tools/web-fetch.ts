@@ -52,12 +52,14 @@ export const webFetchTool: RegisteredTool = {
     definition: {
         name: "web_fetch",
         description: [
-            "Fetch one public HTTP or HTTPS URL and return bounded readable",
+            "Read one public HTTP or HTTPS URL and return bounded readable",
             "text. Handles HTML, plain text, JSON, XML, and PDF, extracting a",
-            "PDF's text automatically. Use this instead of writing a script or",
-            "invoking curl when the page contents are needed. Local and",
-            "private-network targets, other binary responses, oversized",
-            "bodies, and slow requests are rejected.",
+            "PDF's text automatically. This tool never writes a file: to save",
+            "a URL to disk, including a PDF, call web_download instead. Use",
+            "this instead of writing a script or invoking curl when the page",
+            "contents are needed. Local and private-network targets, other",
+            "binary responses, oversized bodies, and slow requests are",
+            "rejected.",
         ].join(" "),
         inputSchema: {
             type: "object",
@@ -107,11 +109,15 @@ export async function fetchReadablePage(
                 response,
                 MAX_PDF_RESPONSE_BYTES,
             );
-            return formatReadablePage(
+            // Reading a PDF looks enough like saving one that a caller asked
+            // to download a file will report this as the file being on disk,
+            // so the text says outright that it is not.
+            return `${formatReadablePage(
                 url.href,
                 await pdfText(bytes),
                 contentType,
-            );
+            )}\n\nThis is the PDF's text. No file was saved. `
+                + "To put the file on disk, call web_download with this URL.";
         }
         if (!isReadableContentType(contentType)) {
             await response.body?.cancel();
