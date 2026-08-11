@@ -102,7 +102,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "cycle_agent_layout",
-        keys: ["ctrl+/", "ctrl+_"],
+        keys: ["ctrl+\\", "ctrl+/", "ctrl+_"],
         scope: "global",
         description: "Cycle split and single-agent layouts",
         extensionId: "cycle-agent-layout",

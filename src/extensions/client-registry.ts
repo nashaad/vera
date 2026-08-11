@@ -1812,7 +1812,8 @@ function parseClientExtensionModule(
  * Bun caches dynamic imports for the life of the TUI, even when a query is
  * added to the file URL. A one-file in-memory bundle gives each client
  * generation a fresh module graph without writing build artifacts beside the
- * user's extension.
+ * user's extension. OpenTUI stays external so raw renderables share the host's
+ * Node identity; bundling it makes the host reject otherwise valid children.
  */
 async function importFreshClientExtension(
     entrypointPath: string,
@@ -1822,6 +1823,7 @@ async function importFreshClientExtension(
         target: "bun",
         format: "esm",
         sourcemap: "inline",
+        external: ["@opentui/core"],
     });
     if (!build.success) {
         throw new Error(

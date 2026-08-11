@@ -7161,7 +7161,7 @@ export async function startTui(
                         : sidebar.layout() === "sidebar"
                         ? `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} only`
                         : "vera only",
-                    "ctrl+/ layout",
+                    "ctrl+\\ layout",
                 ]),
             ...(hostedSidebar.pane !== undefined && sidebar.layout() === "split"
                 ? [sidebar.isFocused()

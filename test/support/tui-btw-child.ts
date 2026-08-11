@@ -6,6 +6,11 @@ import {
 } from "../../clients/tui/main.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
+import {
+    HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
+    HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
+    HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+} from "../../src/host/capabilities.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
 import {
@@ -17,6 +22,7 @@ import {
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
 const sessions = new Map<string, TuiAgentClient>();
 let nextSession = 1;
+let sidekickId: string | undefined;
 
 function session(
     id: string,
@@ -124,6 +130,12 @@ function session(
     const client: TuiAgentClient = {
         agentId: id,
         workspace: process.cwd(),
+        supportsHostCapability(capability): boolean {
+            return capability === HOST_CAPABILITY_AGENT_BRANCH_OPTIONS
+                || capability === HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES
+                || capability
+                    === HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS;
+        },
         async send(command): Promise<void> {
             if (command.type === "attach_image") {
                 await clientReady.promise;
@@ -201,7 +213,7 @@ await startTui({
         kind: "background",
         status: "working",
         live: true,
-        parent_id: "main-1",
+        parent_id: sidekickId ?? "main-1",
     }],
     createSession: async () => session(`main-${++nextSession}`, "AGENT"),
     createAgent: async (_workspace, approvalMode) => {
@@ -211,6 +223,15 @@ await startTui({
         return approvalMode === "readonly"
             ? session(`side-${++nextSession}`, "SIDEKICK", approvalMode)
             : session(`peer-${++nextSession}`, "PEER", approvalMode);
+    },
+    branchAgent: async (
+        _sourceAgentId,
+        approvalMode,
+        _attachmentLifetime,
+        _initialMessages,
+    ) => {
+        sidekickId = `side-${++nextSession}`;
+        return session(sidekickId, "SIDEKICK", approvalMode);
     },
     attachAgent: async (agentId) => {
         const client = sessions.get(agentId);
