@@ -116,7 +116,8 @@ export async function fetchReadablePage(
         if (!isReadableContentType(contentType)) {
             await response.body?.cancel();
             throw new Error(
-                `web_fetch does not support content type ${contentType || "(missing)"}`,
+                `web_fetch cannot read content type ${contentType || "(missing)"}; `
+                + "use web_download to save this URL to a file instead",
             );
         }
         return formatReadablePage(
