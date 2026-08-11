@@ -23,6 +23,7 @@ export interface AssembleSystemPromptInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    readonly additionalContextualContributions?: readonly PromptContribution[];
 }
 
 export interface AssembleStableSystemPromptInput {
@@ -38,6 +39,7 @@ export interface AssembleContextualSystemPromptInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    readonly additionalContributions?: readonly PromptContribution[];
 }
 
 export interface SystemPromptProjection {

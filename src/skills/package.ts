@@ -70,6 +70,11 @@ export async function loadSkillPackage(
     }
 
     const parsed = parseSkillSource(source);
+    if (basename(directory) !== parsed.metadata.name) {
+        throw new Error(
+            `Vera skill name ${parsed.metadata.name} must match directory ${basename(directory)}`,
+        );
+    }
     return {
         directory,
         skillPath,

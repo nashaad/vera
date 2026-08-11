@@ -98,3 +98,19 @@ Body
         `must contain a regular ${SKILL_FILENAME} file`,
     );
 });
+
+test("the skill name matches its package directory", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "vera-skill-name-"));
+    const directory = join(parent, "consult");
+    mkdirSync(directory);
+    writeFileSync(join(directory, SKILL_FILENAME), `---
+name: review
+description: Review a change.
+---
+Body
+`);
+
+    expect(loadSkillPackage(directory)).rejects.toThrow(
+        "name review must match directory consult",
+    );
+});
