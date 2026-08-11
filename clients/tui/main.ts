@@ -824,6 +824,18 @@ export async function startTui(
         readonly model: string;
         readonly label: string;
     } | undefined;
+    interface PoolChangeUndo {
+        readonly action: "add" | "remove";
+        readonly provider: string;
+        readonly model: string;
+        readonly poolName?: string;
+    }
+    const pendingPoolChanges = new Map<string, PoolChangeUndo>();
+    const pendingPoolUndos = new Map<string, {
+        readonly undo: PoolChangeUndo;
+        readonly completesOnSettings: boolean;
+    }>();
+    let poolChangeUndo: PoolChangeUndo | undefined;
     let admissionDialog: TuiAdmissionDialogState | undefined;
     /** The model pane the dialog covered, put back when the dialog leaves. */
     let admissionReturnPicker: TuiSettingsPickerState | undefined;
@@ -4398,6 +4410,38 @@ export async function startTui(
                     update.type === "model_settings"
                     || update.type === "model_settings_rejected"
                 ) {
+                    const poolChange = pendingPoolChanges.get(update.requestId);
+                    pendingPoolChanges.delete(update.requestId);
+                    if (
+                        poolChange !== undefined
+                        && update.type === "model_settings"
+                    ) {
+                        poolChangeUndo = poolChange;
+                    }
+                    const pendingUndo = pendingPoolUndos.get(update.requestId);
+                    pendingPoolUndos.delete(update.requestId);
+                    if (
+                        pendingUndo?.completesOnSettings === true
+                        && update.type === "model_settings"
+                    ) {
+                        poolChangeUndo = undefined;
+                        showStatusNotice("pool change undone");
+                    } else if (
+                        pendingUndo !== undefined
+                        && update.type === "model_settings_rejected"
+                    ) {
+                        poolChangeUndo = pendingUndo.undo;
+                        if (settingsPicker?.kind === "model") {
+                            settingsPicker = {
+                                ...settingsPicker,
+                                canUndoPoolChange: true,
+                            };
+                        }
+                        state = appendTuiError(
+                            state,
+                            rejectionNotice("undo that pool change", update.reason),
+                        );
+                    }
                     const pending = pendingExtensionSettings.get(
                         update.requestId,
                     );
@@ -4437,6 +4481,40 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (update.type === "pool_admission_result") {
+                    const pendingUndo = pendingPoolUndos.get(update.requestId);
+                    if (
+                        pendingUndo !== undefined
+                        && update.verdict === "added"
+                        && pendingUndo.undo.poolName !== undefined
+                    ) {
+                        pendingPoolUndos.delete(update.requestId);
+                        const nameRequestId = randomUUID();
+                        pendingPoolUndos.set(nameRequestId, {
+                            undo: pendingUndo.undo,
+                            completesOnSettings: true,
+                        });
+                        sendCommand({
+                            type: "pool_name",
+                            requestId: nameRequestId,
+                            provider: update.provider,
+                            model: update.model,
+                            name: pendingUndo.undo.poolName,
+                        });
+                    } else if (
+                        pendingUndo !== undefined
+                        && update.verdict !== "added"
+                    ) {
+                        pendingPoolUndos.delete(update.requestId);
+                        poolChangeUndo = pendingUndo.undo;
+                        if (settingsPicker?.kind === "model") {
+                            settingsPicker = {
+                                ...settingsPicker,
+                                canUndoPoolChange: true,
+                            };
+                        }
+                    }
+                }
                 if (
                     update.type === "pool_admission_result"
                     && pendingPoolName?.requestId === update.requestId
@@ -4481,6 +4559,12 @@ export async function startTui(
                         settingsPicker,
                         state.modelSettings,
                     );
+                    if (poolChangeUndo !== undefined) {
+                        settingsPicker = {
+                            ...settingsPicker,
+                            canUndoPoolChange: true,
+                        };
+                    }
                 }
                 if (
                     update.type === "model_settings"
@@ -6237,6 +6321,13 @@ export async function startTui(
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             const toggle = transition.poolToggle;
+            poolChangeUndo = undefined;
+            if (settingsPicker?.kind === "model") {
+                settingsPicker = {
+                    ...settingsPicker,
+                    canUndoPoolChange: false,
+                };
+            }
             if (toggle.action === "add") {
                 // The name prompt follows the verdict, not the keypress: a
                 // model that never made it into the pool cannot be named.
@@ -6250,14 +6341,68 @@ export async function startTui(
                     model: toggle.model,
                     label: `${toggle.provider}/${toggle.model}`,
                 };
+                pendingPoolChanges.set(requestId, {
+                    action: "remove",
+                    provider: toggle.provider,
+                    model: toggle.model,
+                });
                 return;
             }
+            const removed = state.modelSettings?.pooled?.find((entry) =>
+                entry.provider === toggle.provider
+                && entry.model === toggle.model
+            );
+            const requestId = randomUUID();
+            pendingPoolChanges.set(requestId, {
+                action: "add",
+                provider: toggle.provider,
+                model: toggle.model,
+                ...(removed?.poolName === undefined
+                    ? {}
+                    : { poolName: removed.poolName }),
+            });
             sendCommand({
                 type: "pool_remove",
-                requestId: randomUUID(),
+                requestId,
                 provider: toggle.provider,
                 model: toggle.model,
             });
+        }
+        if (
+            "undoPoolChange" in transition
+            && transition.undoPoolChange === true
+            && poolChangeUndo !== undefined
+        ) {
+            const undo = poolChangeUndo;
+            if (settingsPicker?.kind === "model") {
+                settingsPicker = {
+                    ...settingsPicker,
+                    canUndoPoolChange: false,
+                };
+            }
+            if (undo.action === "remove") {
+                const requestId = randomUUID();
+                pendingPoolUndos.set(requestId, {
+                    undo,
+                    completesOnSettings: true,
+                });
+                sendCommand({
+                    type: "pool_remove",
+                    requestId,
+                    provider: undo.provider,
+                    model: undo.model,
+                });
+            } else {
+                const requestId = requestPoolAdmission(
+                    undo.provider,
+                    undo.model,
+                );
+                pendingPoolUndos.set(requestId, {
+                    undo,
+                    completesOnSettings: undo.poolName === undefined,
+                });
+            }
+            return;
         }
         if (transition.selection !== undefined) {
             const selection = transition.selection;
@@ -6754,6 +6899,16 @@ export async function startTui(
             attempt.verify,
             true,
         );
+        const poolChange = pendingPoolChanges.get(requestId);
+        pendingPoolChanges.delete(requestId);
+        if (poolChange !== undefined) {
+            pendingPoolChanges.set(retryId, poolChange);
+        }
+        const pendingUndo = pendingPoolUndos.get(requestId);
+        pendingPoolUndos.delete(requestId);
+        if (pendingUndo !== undefined) {
+            pendingPoolUndos.set(retryId, pendingUndo);
+        }
         if (admissionDialog?.requestId === requestId) {
             admissionDialog = startTuiAdmissionDialog(
                 attempt.provider,

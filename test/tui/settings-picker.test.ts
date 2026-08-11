@@ -1642,6 +1642,29 @@ test("ctrl+s asks to pool the highlighted model, and to remove a pooled one", ()
     });
 });
 
+test("ctrl+z asks the caller to undo only when a pool change is available", async () => {
+    const state = modelPickerWithPool(pooledModels, "gpt-5.6-sol", "openai-codex");
+    expect(
+        handleTuiSettingsPickerKey(state, { name: "z", ctrl: true })
+            .undoPoolChange,
+    ).toBeUndefined();
+
+    const undoable = { ...state, canUndoPoolChange: true };
+    expect(
+        handleTuiSettingsPickerKey(undoable, { name: "z", ctrl: true })
+            .undoPoolChange,
+    ).toBe(true);
+    expect(await pickerFrame(undoable)).toContain("^z undo");
+
+    const synced = syncTuiModelPicker(undoable, {
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        availableModels,
+        pooled: pooledModels,
+    });
+    expect(synced.canUndoPoolChange).toBe(true);
+});
+
 test("the model picker footer names the action the highlighted row would take", async () => {
     const onPoolRow = modelPickerWithPool(
         pooledModels,
