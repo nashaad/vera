@@ -15,15 +15,16 @@ import type { ScheduleOperation } from "../scheduler/types.ts";
 import { parseHostCapabilities } from "./capabilities.ts";
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 
-// Bump this when attached command/update semantics change, even if older peers
-// could still parse the JSON shape. Exact matching keeps resident hosts and
-// clients on one behavioral contract.
+// Bump this only when the base wire contract changes. Additive operations use
+// negotiated capabilities and keep the compatibility floor unchanged.
 export const HOST_PROTOCOL_VERSION = 32;
+export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 30;
 
 export interface HostIdentity {
     readonly pid: number;
     readonly started_at: string;
     readonly protocol_version?: number;
+    readonly minimum_compatible_protocol_version?: number;
 }
 
 export interface HostIdentityRequest {
@@ -140,6 +141,8 @@ export interface HostIdentityResponse {
     readonly pid: number;
     readonly started_at: string;
     readonly protocol_version: typeof HOST_PROTOCOL_VERSION;
+    readonly minimum_compatible_protocol_version:
+        typeof HOST_MIN_COMPATIBLE_PROTOCOL_VERSION;
 }
 
 export interface AttachRequest {
@@ -750,6 +753,18 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
         ...(Number.isSafeInteger(response.protocol_version)
             && (response.protocol_version as number) > 0
             ? { protocol_version: response.protocol_version as number }
+            : {}),
+        ...(Number.isSafeInteger(
+                response.minimum_compatible_protocol_version,
+            )
+            && (response.minimum_compatible_protocol_version as number) > 0
+            && Number.isSafeInteger(response.protocol_version)
+            && (response.minimum_compatible_protocol_version as number)
+                <= (response.protocol_version as number)
+            ? {
+                minimum_compatible_protocol_version:
+                    response.minimum_compatible_protocol_version as number,
+            }
             : {}),
     };
 }

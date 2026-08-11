@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import {
+    HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
     requestHostIdentity,
     type HostIdentity,
@@ -146,7 +147,7 @@ export function createHostLockfile(
             ) {
                 return undefined;
             }
-            if (identity.protocol_version !== HOST_PROTOCOL_VERSION) {
+            if (!isCompatibleHostProtocol(identity)) {
                 throw new HostProtocolMismatchError(
                     identity.pid,
                     identity.protocol_version,
@@ -157,6 +158,19 @@ export function createHostLockfile(
             return record;
         },
     };
+}
+
+function isCompatibleHostProtocol(identity: HostIdentity): boolean {
+    const version = identity.protocol_version;
+    if (version === undefined) {
+        return false;
+    }
+    if (version <= HOST_PROTOCOL_VERSION) {
+        return version >= HOST_MIN_COMPATIBLE_PROTOCOL_VERSION;
+    }
+    return identity.minimum_compatible_protocol_version !== undefined
+        && identity.minimum_compatible_protocol_version
+            <= HOST_PROTOCOL_VERSION;
 }
 
 function currentProcessStartedAt(): string {
