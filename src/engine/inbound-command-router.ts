@@ -672,7 +672,17 @@ export class InboundCommandRouter {
         requestId: string,
         patch: ModelSettingsPatch,
     ): Promise<void> {
-        const settings = await this.options.updateModelSettings?.(patch);
+        let settings: ModelTurnSettings | undefined;
+        try {
+            settings = await this.options.updateModelSettings?.(patch);
+        } catch {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
         if (settings === undefined) {
             this.events.emit({
                 type: "model_settings_rejected",
@@ -688,6 +698,11 @@ export class InboundCommandRouter {
             requestId,
             settings: copyModelSettings(settings),
             pending: this.hasPendingTurn(),
+            ...(patch.provider !== undefined
+                    || patch.model !== undefined
+                    || patch.reasoningEffort !== undefined
+                ? { updatedDefaults: true as const }
+                : {}),
         });
     }
 

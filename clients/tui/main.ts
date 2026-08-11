@@ -35,7 +35,10 @@ import {
     type ClientCommand,
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
-import type { ModelSettingsPatch } from "../../src/engine/model-settings.ts";
+import type {
+    ModelSettingsPatch,
+    ModelTurnSettings,
+} from "../../src/engine/model-settings.ts";
 import type { UserMessage } from "../../src/model/types.ts";
 import type {
     ReasoningLevel,
@@ -741,7 +744,11 @@ export async function startTui(
     let statusNoticeVersion = 0;
     // What each in-flight change asked for, so a rejection can name it. The
     // status line reports the effective values once a change lands.
-    const requestedModelChanges = new Map<string, string>();
+    const requestedModelChanges = new Map<string, {
+        readonly subject: string;
+        readonly patch: ModelSettingsPatch;
+        readonly target: TuiAgentClient;
+    }>();
     const requestedPermissionChanges = new Map<string, string>();
     let abortRequested = false;
 
@@ -1962,8 +1969,20 @@ export async function startTui(
             }
         }
         if (update.type === "model_settings") {
-            settleExtensionModelSettings(update);
-            requestedModelChanges.delete(update.requestId);
+            settleExtensionModelSettings(update, pane.client);
+            const change = requestedModelChanges.get(update.requestId);
+            if (change?.target === pane.client) {
+                requestedModelChanges.delete(update.requestId);
+            }
+            if (
+                change?.target === pane.client
+                && update.updatedDefaults === true
+            ) {
+                pane.state.state = appendTuiNotice(
+                    pane.state.state,
+                    defaultModelChangeNotice(change.patch, update.settings),
+                );
+            }
             if (
                 sidebar.isFocused()
                 && pane.state.state.modelSettings !== undefined
@@ -1971,13 +1990,13 @@ export async function startTui(
                 notifyExtensionSettings(pane.state.state.modelSettings);
             }
         } else if (update.type === "model_settings_rejected") {
-            settleExtensionModelSettings(update);
-            const subject = requestedModelChanges.get(update.requestId);
-            requestedModelChanges.delete(update.requestId);
-            if (subject !== undefined) {
+            settleExtensionModelSettings(update, pane.client);
+            const change = requestedModelChanges.get(update.requestId);
+            if (change?.target === pane.client) {
+                requestedModelChanges.delete(update.requestId);
                 pane.state.state = appendTuiError(
                     pane.state.state,
-                    rejectionNotice(subject, update.reason),
+                    rejectionNotice(change.subject, update.reason),
                 );
             }
         } else if (update.type === "permissions") {
@@ -4519,18 +4538,32 @@ export async function startTui(
                             rejectionNotice("undo that pool change", update.reason),
                         );
                     }
-                    settleExtensionModelSettings(update);
-                    const subject = requestedModelChanges.get(
+                    settleExtensionModelSettings(update, client);
+                    const change = requestedModelChanges.get(
                         update.requestId,
                     );
-                    requestedModelChanges.delete(update.requestId);
+                    if (change?.target === client) {
+                        requestedModelChanges.delete(update.requestId);
+                    }
                     if (
-                        subject !== undefined
+                        change?.target === client
+                        && update.type === "model_settings"
+                        && update.updatedDefaults === true
+                    ) {
+                        state = appendTuiNotice(
+                            state,
+                            defaultModelChangeNotice(
+                                change.patch,
+                                update.settings,
+                            ),
+                        );
+                    } else if (
+                        change?.target === client
                         && update.type === "model_settings_rejected"
                     ) {
                         state = appendTuiError(
                             state,
-                            rejectionNotice(subject, update.reason),
+                            rejectionNotice(change.subject, update.reason),
                         );
                     }
                 }
@@ -4757,7 +4790,7 @@ export async function startTui(
             // it asked for while it is in flight, and a refusal names the same
             // thing rather than leaving the user to guess what was tried.
             const subject = modelPatchSubject(patch);
-            requestedModelChanges.set(requestId, subject);
+            requestedModelChanges.set(requestId, { subject, patch, target });
             showStatusNotice(`model → ${describeModelPatch(patch)}`);
             pendingExtensionSettings.set(requestId, {
                 target,
@@ -4784,9 +4817,10 @@ export async function startTui(
             AgentUpdate,
             { type: "model_settings" | "model_settings_rejected" }
         >,
+        target: TuiAgentClient,
     ): void {
         const pending = pendingExtensionSettings.get(update.requestId);
-        if (pending === undefined) return;
+        if (pending === undefined || pending.target !== target) return;
         pendingExtensionSettings.delete(update.requestId);
         pending.removeAbortListener();
         pending.resolve(update.type === "model_settings"
@@ -6980,7 +7014,7 @@ export async function startTui(
         target: TuiAgentClient = focusedAgentClient(),
     ): void {
         const requestId = randomUUID();
-        requestedModelChanges.set(requestId, subject);
+        requestedModelChanges.set(requestId, { subject, patch, target });
         void target.send({
             type: "update_model_settings",
             requestId,
@@ -7976,4 +8010,22 @@ function rejectionNotice(
     return reason === "unavailable"
         ? `Changing ${subject} is unavailable on this host`
         : `Could not change ${subject}`;
+}
+
+function defaultModelChangeNotice(
+    patch: ModelSettingsPatch,
+    settings: ModelTurnSettings,
+): string {
+    if (patch.model === undefined) {
+        const effort = settings.reasoningEffort ?? "the model default";
+        return `Changed the reasoning effort to ${effort}; new conversations will use it by default`;
+    }
+    const effectivePatch: ModelSettingsPatch = {
+        provider: settings.provider,
+        model: settings.model,
+        ...(patch.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: settings.reasoningEffort }),
+    };
+    return `Changed ${modelPatchSubject(effectivePatch)}; new conversations will use it by default`;
 }

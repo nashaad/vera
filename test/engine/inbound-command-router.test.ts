@@ -768,6 +768,42 @@ test("model settings commands reject explicitly when no owner is installed", asy
     });
 });
 
+test("a failed model settings write rejects without stopping later commands", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events, {
+        readModelSettings: () => ({ model: "current-model" }),
+        async updateModelSettings() {
+            throw new Error("config is not writable");
+        },
+    });
+
+    channel.client.send({
+        type: "update_model_settings",
+        requestId: "change-settings",
+        patch: { model: "next-model" },
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "model_settings_rejected",
+        requestId: "change-settings",
+        reason: "unavailable",
+        seq: 1,
+    });
+
+    channel.client.send({
+        type: "get_model_settings",
+        requestId: "read-settings",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "model_settings",
+        requestId: "read-settings",
+        settings: { model: "current-model" },
+        pending: false,
+        seq: 2,
+    });
+});
+
 test("permission commands reject explicitly when no owner is installed", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
@@ -1120,6 +1156,7 @@ test("a later settings command cannot change an earlier queued prompt", async ()
         requestId: "change-settings",
         settings: { model: "second-model", reasoningEffort: "low" },
         pending: true,
+        updatedDefaults: true,
     });
 
     const first = await router.startTurn();

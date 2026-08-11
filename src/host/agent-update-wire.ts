@@ -179,6 +179,8 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
         return typeof update.requestId === "string"
                 && update.requestId.length > 0
                 && typeof update.pending === "boolean"
+                && (update.updatedDefaults === undefined
+                    || update.updatedDefaults === true)
                 && isModelTurnSettings(update.settings)
             ? value as AgentUpdate
             : undefined;

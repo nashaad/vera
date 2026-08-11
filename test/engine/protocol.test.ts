@@ -470,6 +470,7 @@ test("model settings results share the ordered agent update sequence", () => {
         requestId: "settings-1",
         settings: { model: "next-model", reasoningEffort: "high" },
         pending: true,
+        updatedDefaults: true,
     });
     protocol({
         type: "model_settings_rejected",
@@ -483,6 +484,7 @@ test("model settings results share the ordered agent update sequence", () => {
             requestId: "settings-1",
             settings: { model: "next-model", reasoningEffort: "high" },
             pending: true,
+            updatedDefaults: true,
             seq: 1,
         },
         {

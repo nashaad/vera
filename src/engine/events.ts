@@ -157,6 +157,8 @@ export interface ModelSettingsChangedEvent {
     readonly requestId: string;
     readonly settings: ModelTurnSettings;
     readonly pending: boolean;
+    /** Present only when this edit also became the new-session default. */
+    readonly updatedDefaults?: true;
 }
 
 export interface ModelSettingsRejectedEvent {
