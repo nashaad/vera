@@ -151,3 +151,30 @@ test("DeepSeek HTTP failures become terminal model errors", async () => {
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toContain("DeepSeek returned HTTP 401");
 });
+
+test("DeepSeek tolerates a null usage field on a stream chunk", async () => {
+    const adapter = createDeepSeekAdapter({
+        apiKey: "sk-deepseek-test",
+        fetch: async () => {
+            const source = [
+                'data: {"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}],"usage":null}',
+                "",
+                'data: {"model":"deepseek-v4-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}',
+                "",
+                "data: [DONE]",
+                "",
+            ].join("\n");
+            return new Response(source, {
+                headers: { "content-type": "text/event-stream" },
+            });
+        },
+    });
+
+    const result = await adapter.stream({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    }).result();
+
+    expect(result.stopReason).toBe("stop");
+    expect(result.content).toMatchObject([{ type: "text", text: "hi" }]);
+});
