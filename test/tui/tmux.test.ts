@@ -2685,6 +2685,109 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "btw and pair expose working focus, layout, and green rail controls",
+    async () => {
+        const socket = `vera-btw-controls-${process.pid}-${randomUUID()}`;
+        const session = "btw-controls";
+        const home = mkdtempSync(join(tmpdir(), "vera-btw-controls-"));
+        let pane = "";
+
+        const greenRail = /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*▁+/;
+        const railWidth = (visible: string): number =>
+            visible.split("\n")
+                .map((line) => line.trim())
+                .find((line) => /^▁+$/.test(line))?.length ?? 0;
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-btw-child.ts",
+                120,
+                35,
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "/btw");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("btw mode · split")
+                    && visible.includes("Message sidekick")
+                    && visible.includes("sidekick · readonly · idle"),
+                "BTW split view",
+            );
+            const sidekickRailWidth = railWidth(pane);
+            expect(sidekickRailWidth).toBeGreaterThan(0);
+            expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
+
+            sendKey(socket, session, "C-g");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && visible.includes("ctrl+g sidekick"),
+                "Ctrl+G to focus Vera",
+            );
+            expect(railWidth(pane)).toBeGreaterThan(sidekickRailWidth);
+            expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
+
+            sendEscapeSequence(socket, session, String.fromCharCode(28));
+            pane = await waitForVisiblePane(socket, session, "btw mode · btw only");
+            expect(pane).toContain("Message sidekick");
+            expect(railWidth(pane)).toBe(0);
+
+            sendEscapeSequence(socket, session, String.fromCharCode(28));
+            await waitForVisiblePane(socket, session, "btw mode · vera only");
+            sendEscapeSequence(socket, session, String.fromCharCode(28));
+            await waitForVisiblePane(socket, session, "btw mode · split");
+
+            sendText(socket, session, "/pair");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("pair mode · split")
+                    && visible.includes("Message peer")
+                    && visible.includes("peer · ask · idle"),
+                "Pair split view",
+            );
+            const peerRailWidth = railWidth(pane);
+            expect(peerRailWidth).toBeGreaterThan(0);
+            expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
+
+            sendKey(socket, session, "C-g");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && visible.includes("ctrl+g peer"),
+                "Ctrl+G to focus Vera from Pair",
+            );
+            expect(railWidth(pane)).toBeGreaterThan(peerRailWidth);
+            expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
+
+            sendEscapeSequence(socket, session, String.fromCharCode(28));
+            pane = await waitForVisiblePane(socket, session, "pair mode · pair only");
+            expect(pane).toContain("Message peer");
+            expect(railWidth(pane)).toBe(0);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "btw opens a hosted sidekick and routes only among the visible agents",
     async () => {
         const socket = `vera-btw-hosted-${process.pid}-${randomUUID()}`;
@@ -2810,7 +2913,8 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
-                (visible) => visible.includes(" · auto · "),
+                (visible) => visible.includes(" · auto · ")
+                    && visible.includes("reasoning high"),
                 "the main agent permission mode after focus changes",
             );
             expect(pane).toContain("reasoning high");

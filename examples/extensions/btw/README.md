@@ -18,7 +18,7 @@ Mentions override focus for one message; only agents currently open in the two
 panes are mentionable. Pointer input remains available for text selection and
 resizing, but does not change agent focus.
 
-`Ctrl+/` cycles split, side-agent-only, and Vera-only layouts. Focus follows a
+`Ctrl+\` cycles split, side-agent-only, and Vera-only layouts. Focus follows a
 solo pane, so the composer never addresses an agent that is off screen. The
 footer names the active `btw` or `pair` mode and the current layout.
 
@@ -81,4 +81,4 @@ Add it to your Vera config:
 - `client.agents` to create, attach, and message the hosted sidekick
 - `client.ui.mentions` for the visible-agent composer names
 - `client.experimental_tui` for mode status and pane-surface control
-- `client.keybindings.register` for `Ctrl+G` and `Ctrl+/`
+- `client.keybindings.register` for `Ctrl+G` and `Ctrl+\`

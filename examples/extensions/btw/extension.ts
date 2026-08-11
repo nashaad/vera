@@ -32,7 +32,7 @@ export function activateClient(vera: any): void {
         return [
             `${activeMode} mode`,
             layout,
-            "ctrl+/ layout",
+            "ctrl+\\ layout",
             ...(focus === undefined ? [] : [focus]),
         ].join(" · ");
     }
@@ -200,7 +200,7 @@ export function activateClient(vera: any): void {
     vera.keybindings.register({
         id: "cycle-agent-layout",
         description: "Cycle split and single-agent layouts",
-        keys: ["ctrl+/", "ctrl+_"],
+        keys: ["ctrl+\\", "ctrl+/", "ctrl+_"],
         run() {
             if (vera.experimentalTui.agentSurface.cycleLayout()) {
                 renderModeStatus();
