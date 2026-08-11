@@ -26,6 +26,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera resume <session-id|path>");
     expect(output).toContain("vera export <session-path>");
     expect(output).toContain("vera inspect <session-path>");
+    expect(output).toContain("vera configure");
     expect(output).toContain("vera pool list");
     expect(output).toContain("vera pool add <provider/model>");
     expect(output).toContain("vera pool remove <pool name|id>");
@@ -35,6 +36,22 @@ test("vera help and version are available without starting a client", async () =
     output = "";
     expect(await runCli(["--version"], dependencies)).toBe(0);
     expect(output).toBe("vera source abc1234\n");
+    expect(started).toBe(false);
+});
+
+test("vera configure opens the config editor without starting a client", async () => {
+    let opened = false;
+    let started = false;
+
+    expect(await runCli(["configure"], {
+        openConfigure: async () => {
+            opened = true;
+        },
+        runTui: async () => {
+            started = true;
+        },
+    })).toBe(0);
+    expect(opened).toBe(true);
     expect(started).toBe(false);
 });
 
@@ -464,6 +481,43 @@ test("vera interactive commands select create, continue, attach, and resume targ
         { type: "attach", agentId: "agent-1" },
         { type: "resume", sessionPath: "/sessions/one.jsonl" },
     ]);
+});
+
+test("vera startup profiles reach interactive and print sessions", async () => {
+    const targets: unknown[] = [];
+    const requests: unknown[] = [];
+    const runOnce = async (request: unknown) => {
+        requests.push(request);
+        return {
+            agentId: "bounded",
+            sessionPath: "/sessions/bounded.jsonl",
+            text: "done",
+            outcome: "completed" as const,
+            notes: [],
+        };
+    };
+
+    expect(await runCli(["--bare"], {
+        runTui: async (target) => {
+            targets.push(target);
+        },
+    })).toBe(0);
+    expect(await runCli(["-p", "measure", "--prompt-only"], {
+        runOnce: runOnce as never,
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+    })).toBe(0);
+
+    expect(targets).toEqual([{
+        type: "create",
+        workspace: process.cwd(),
+        startupProfile: "bare",
+    }]);
+    expect(requests).toEqual([{
+        workspace: process.cwd(),
+        prompt: "measure",
+        startupProfile: "prompt_only",
+    }]);
 });
 
 test("vera --yes preapproves a busy resident-host restart", async () => {

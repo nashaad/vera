@@ -217,6 +217,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^s pool",
     },
     {
+        id: "undo_pool_change",
+        keys: ["ctrl+z"],
+        scope: "model_picker",
+        description: "Undo the last pool add or remove",
+        hint: "^z undo",
+    },
+    {
         // Reported as ctrl+shift+r only under the kitty keyboard protocol, the
         // same caveat the half-page chords above carry. Elsewhere it arrives
         // as plain ctrl+r, which this scope binds to nothing, so the chord

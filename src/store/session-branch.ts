@@ -36,6 +36,9 @@ export async function createSessionBranch(
             entryId: originEntryId,
             position: options.position,
         },
+        ...(options.source.header.startupProfile === undefined
+            ? {}
+            : { startupProfile: options.source.header.startupProfile }),
     });
 
     try {

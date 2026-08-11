@@ -125,8 +125,20 @@ export function dialogSearchNode(
     renderer: RenderContext,
     query: string,
     placeholder = "Search",
+    // A view that holds nothing to filter still draws the field, so moving on
+    // and off it does not shift the rest of the card. It parks no caret: a
+    // blinking cursor is what says a field takes typing.
+    live = true,
 ): TextRenderable {
     const typed = query.length > 0;
+    if (!live) {
+        return new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_MUTED)(placeholder)]),
+            width: "100%",
+            height: 2,
+            marginTop: 1,
+        });
+    }
     renderer.setCursorStyle({
         style: "block",
         blinking: true,
@@ -527,7 +539,7 @@ export function dialogOptionRow(
     // wiring rather than one per overlay. A row without handlers behaves
     // exactly as it did before.
     attachRowPointer(row, content);
-    addMarker(renderer, row, content.marker, accent);
+    addMarker(renderer, row, content.marker, TUI_ACCENT);
     // Only when there is leading text to draw: an empty text node still takes
     // a column, which would push every label one off the title above it.
     if (content.leading !== undefined && content.leading.length > 0) {
@@ -593,7 +605,7 @@ function cardRow(
         backgroundColor: TUI_PANEL,
     });
     attachRowPointer(card, content);
-    addMarker(renderer, card, content.marker, accent);
+    addMarker(renderer, card, content.marker, TUI_ACCENT);
     card.add(cardLine(renderer, background, accent, content.leading ?? "", [
         fg(label)(content.label),
         ...(content.description === undefined
@@ -613,7 +625,11 @@ function cardRow(
     return card;
 }
 
-/** The hanging mark, drawn in the padding to the left of the label column. */
+/**
+ * The hanging mark, drawn in the padding to the left of the label column. It
+ * sits outside the row's box, so it stays on the panel colour even while the
+ * row is highlighted and keeps the accent the rest of the gutter uses.
+ */
 function addMarker(
     renderer: RenderContext,
     row: BoxRenderable,

@@ -13,6 +13,7 @@ import type {
 import { isApprovalMode } from "../sdk/permissions.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
 import { parseHostCapabilities } from "./capabilities.ts";
+import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 
 // Bump this when attached command/update semantics change, even if older peers
 // could still parse the JSON shape. Exact matching keeps resident hosts and
@@ -60,6 +61,7 @@ export interface CreateAgentRequest {
     readonly workspace: string;
     readonly approval_mode?: string;
     readonly lifetime?: "ephemeral" | "durable";
+    readonly startup_profile?: StartupProfile;
 }
 
 export interface ResumeAgentRequest {
@@ -102,6 +104,7 @@ export interface RunOnceRequest {
     /** A pool entry, by its user-chosen name or its `provider/model` id. */
     readonly model?: string;
     readonly effort?: string;
+    readonly startup_profile?: StartupProfile;
 }
 
 export interface RunOnceFinishedResponse {
@@ -402,6 +405,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && (value.lifetime === undefined
             || value.lifetime === "ephemeral"
             || value.lifetime === "durable")
+        && (value.startup_profile === undefined
+            || isStartupProfile(value.startup_profile))
     ) {
         return {
             type: "create_agent",
@@ -412,6 +417,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.lifetime === undefined
                 ? {}
                 : { lifetime: value.lifetime }),
+            ...(value.startup_profile === undefined
+                ? {}
+                : { startup_profile: value.startup_profile }),
         };
     }
     if (
@@ -508,6 +516,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && value.workspace.length > 0
         && typeof value.prompt === "string"
         && value.prompt.trim().length > 0
+        && (value.startup_profile === undefined
+            || isStartupProfile(value.startup_profile))
         && (value.approval_mode === undefined
             || (typeof value.approval_mode === "string"
                 && value.approval_mode.length > 0))
@@ -529,6 +539,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.effort === undefined
                 ? {}
                 : { effort: value.effort as string }),
+            ...(value.startup_profile === undefined
+                ? {}
+                : { startup_profile: value.startup_profile }),
         };
     }
     if (

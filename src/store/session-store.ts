@@ -25,6 +25,10 @@ import {
     type PermissionGrant,
     type PermissionGrantProposal,
 } from "../engine/permissions.ts";
+import {
+    isStartupProfile,
+    type StartupProfile,
+} from "../startup-profile.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -37,6 +41,7 @@ export interface SessionHeader {
     readonly origin?: SessionOrigin;
     /** Session ID of the agent that spawned this one as a subagent. */
     readonly parentId?: string;
+    readonly startupProfile?: Exclude<StartupProfile, "default">;
 }
 
 export interface SessionOrigin {
@@ -186,8 +191,13 @@ export interface CreateSessionStoreOptions {
     readonly cwd: string;
     readonly origin?: SessionOrigin;
     readonly parentId?: string;
+    readonly startupProfile?: Exclude<StartupProfile, "default">;
     readonly now?: () => Date;
     readonly createId?: () => string;
+}
+
+export interface SessionCreationMetadata {
+    readonly startupProfile?: Exclude<StartupProfile, "default">;
 }
 
 export interface OpenSessionStoreOptions {
@@ -295,6 +305,9 @@ export class SessionStore {
             ...(options.parentId === undefined
                 ? {}
                 : { parentId: nonEmpty(options.parentId, "session parent ID") }),
+            ...(options.startupProfile === undefined
+                ? {}
+                : { startupProfile: options.startupProfile }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -972,6 +985,82 @@ export class SessionStore {
     }
 }
 
+export async function readSessionHeader(path: string): Promise<SessionHeader> {
+    return (await readSessionIndexMetadata(path)).header;
+}
+
+export interface SessionIndexMetadata {
+    readonly header: SessionHeader;
+    readonly title?: string;
+}
+
+export async function readSessionIndexMetadata(
+    path: string,
+): Promise<SessionIndexMetadata> {
+    const file = await open(path, "r");
+    try {
+        const buffer = Buffer.alloc(64 * 1_024);
+        let length = 0;
+        let newlineAt = -1;
+        while (length < buffer.length && newlineAt === -1) {
+            const { bytesRead } = await file.read(
+                buffer,
+                length,
+                buffer.length - length,
+                length,
+            );
+            if (bytesRead === 0) break;
+            length += bytesRead;
+            newlineAt = buffer.subarray(0, length).indexOf(0x0a);
+        }
+        if (newlineAt === -1) {
+            throw invalidSession(path, "session header exceeds 64 KiB");
+        }
+        const source = buffer.subarray(0, length).toString("utf8");
+        const lines = source.split("\n");
+        const header = parseHeader(path, lines.shift() ?? "");
+        let firstPrompt: string | undefined;
+        let name: string | null | undefined;
+        for (const line of lines.slice(0, -1)) {
+            let record: Record<string, unknown>;
+            try {
+                record = JSON.parse(line) as Record<string, unknown>;
+            } catch {
+                continue;
+            }
+            if (record.type === "session_name") {
+                if (typeof record.name === "string" || record.name === null) {
+                    name = record.name as string | null;
+                }
+                continue;
+            }
+            const message = record.message as Record<string, unknown> | undefined;
+            if (
+                firstPrompt === undefined
+                && record.type === "message"
+                && message?.role === "user"
+                && message.internal !== true
+                && Array.isArray(message.content)
+            ) {
+                const text = message.content.flatMap((part) => {
+                    const value = part as Record<string, unknown>;
+                    return value.type === "text" && typeof value.text === "string"
+                        ? [value.text]
+                        : [];
+                }).join(" ").replaceAll(/\s+/g, " ").trim();
+                if (text.length > 0) firstPrompt = text;
+            }
+        }
+        const title = name ?? firstPrompt;
+        return {
+            header,
+            ...(title === undefined ? {} : { title }),
+        };
+    } finally {
+        await file.close();
+    }
+}
+
 async function readDurableAttachment(
     path: string,
     id: string,
@@ -1436,6 +1525,9 @@ function parseHeader(path: string, line: string | undefined): SessionHeader {
         || (value.origin !== undefined && !isSessionOrigin(value.origin))
         || (value.parentId !== undefined
             && (typeof value.parentId !== "string" || value.parentId.length === 0))
+        || (value.startupProfile !== undefined
+            && (!isStartupProfile(value.startupProfile)
+                || value.startupProfile === "default"))
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }

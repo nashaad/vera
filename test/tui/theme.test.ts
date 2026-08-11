@@ -29,7 +29,9 @@ function terminalColors(): TerminalColors {
 test("TUI system theme uses terminal foreground and ANSI colors", () => {
     const theme = themeFromTerminal(terminalColors());
 
-    expect(theme.text).toBe("#eeeeee");
+    // Off the terminal's foreground, and a shade back from it: the transcript
+    // is read at length and the raw value is as bright as the palette goes.
+    expect(theme.text).toBe("#cdcdcd");
     expect(theme.background).toBe("#111111");
     expect(theme.accent).toBe("#00aaaa");
     expect(theme.notice).toBe("#aa5500");
@@ -81,7 +83,7 @@ test("midnight blue maps its editor and syntax palette to TUI roles", async () =
 
     expect(await resolveTuiTheme(renderer, "midnight-blue")).toEqual({
         accent: "#82AAFF",
-        text: "#EEFFFF",
+        text: "#c7d5d6",
         muted: "#546E7A",
         notice: "#F9D768",
         success: "#C3E88D",

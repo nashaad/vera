@@ -16,7 +16,7 @@ test("TUI status line shows host-reported model and reasoning", () => {
         capacity: 258_000,
         estimated: false,
     }, "/workspace")).toBe(
-        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx 64.5k/258k [██░░░░░░] 25%",
+        "gpt-5.6-sol · HIGH · ctx 64.5k/258k [██░░░░░░] 25% · auto\n/workspace",
     );
 });
 
@@ -25,7 +25,7 @@ test("pane status can own permissions without repeating them in details", () => 
         model: "qwen3:1.7b",
         reasoningEffort: "low",
     }, "ask", undefined, "/workspace", 0, undefined, false)).toBe(
-        "qwen3:1.7b · reasoning low · /workspace",
+        "qwen3:1.7b · LOW\n/workspace",
     );
 });
 
@@ -35,7 +35,7 @@ test("TUI status stands the coerced level beside the one asked for", () => {
         reasoningEffort: "medium",
         requestedReasoningEffort: "xhigh",
     }, "auto", undefined, "/workspace")).toBe(
-        "z-ai/glm-5.2 · reasoning medium (asked xhigh) · /workspace · auto",
+        "z-ai/glm-5.2 · MEDIUM (ASKED XHIGH) · auto\n/workspace",
     );
 });
 
@@ -44,7 +44,7 @@ test("TUI status drops the note once the host publishes no requested level", () 
         model: "z-ai/glm-5.2",
         reasoningEffort: "low",
     }, "auto", undefined, "/workspace")).toBe(
-        "z-ai/glm-5.2 · reasoning low · /workspace · auto",
+        "z-ai/glm-5.2 · LOW · auto\n/workspace",
     );
 });
 
@@ -57,7 +57,7 @@ test("TUI status marks a character-counted measurement as approximate", () => {
         capacity: 258_000,
         estimated: true,
     }, "/workspace")).toBe(
-        "gpt-5.6-sol · reasoning high · /workspace · auto · ctx ~64.5k/258k [██░░░░░░] 25%",
+        "gpt-5.6-sol · HIGH · ctx ~64.5k/258k [██░░░░░░] 25% · auto\n/workspace",
     );
 });
 
@@ -66,7 +66,7 @@ test("TUI status line shows host-reported reasoning off", () => {
         model: "gpt-5.6-sol",
         reasoningEffort: "off",
     }, "ask", undefined, "/workspace")).toBe(
-        "gpt-5.6-sol · reasoning off · /workspace · ask",
+        "gpt-5.6-sol · OFF · ask\n/workspace",
     );
 });
 
@@ -78,7 +78,7 @@ test("TUI status shows no context share before anything is measured", () => {
         reasoningEffort: "low",
         contextWindow: 131_072,
     }, "auto", undefined, "/workspace")).toBe(
-        "gemma4:26b · reasoning low · /workspace · auto",
+        "gemma4:26b · LOW · auto\n/workspace",
     );
 });
 
@@ -87,7 +87,7 @@ test("TUI status shows no context share for a model with no known window", () =>
         model: "gemma4:26b",
         reasoningEffort: "low",
     }, "auto", { tokens: 40_000, estimated: true }, "/workspace")).toBe(
-        "gemma4:26b · reasoning low · /workspace · auto",
+        "gemma4:26b · LOW · auto\n/workspace",
     );
 });
 
@@ -98,7 +98,7 @@ test("TUI status line identifies host-reported provider-default reasoning", () =
         undefined,
         "/workspace",
     )).toBe(
-        "gpt-5.6-sol · reasoning default · /workspace · FULL ACCESS · RED ZONE",
+        "gpt-5.6-sol · DEFAULT · FULL ACCESS · RED ZONE\n/workspace",
     );
 });
 
@@ -109,7 +109,7 @@ test("TUI status line prefixes the model with a compact provider label", () => {
         undefined,
         "/workspace",
     )).toBe(
-        "cerebras/gpt-5.6-sol · reasoning high · /workspace · auto",
+        "cerebras/gpt-5.6-sol · HIGH · auto\n/workspace",
     );
 });
 
@@ -120,7 +120,7 @@ test("TUI status line omits the provider prefix for an unrecognized provider id"
         undefined,
         "/workspace",
     )).toBe(
-        "gpt-5.6-sol · reasoning high · /workspace · auto",
+        "gpt-5.6-sol · HIGH · auto\n/workspace",
     );
 });
 
@@ -131,7 +131,7 @@ test("TUI status does not guess settings while the host query is pending", () =>
         undefined,
         "/workspace",
     )).toBe(
-        "loading · reasoning loading · /workspace · permissions loading",
+        "loading · LOADING · permissions loading\n/workspace",
     );
 });
 
@@ -143,7 +143,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         1,
     )).toBe(
-        "1 async subagent running · test · reasoning low · /workspace · ask",
+        "1 async subagent running · test · LOW · ask\n/workspace",
     );
     expect(renderTuiStatusDetailsLine(
         { model: "test", reasoningEffort: "low" },
@@ -152,7 +152,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         2,
     )).toBe(
-        "2 async subagents running · test · reasoning low · /workspace · ask",
+        "2 async subagents running · test · LOW · ask\n/workspace",
     );
 });
 

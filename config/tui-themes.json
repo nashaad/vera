@@ -2,7 +2,7 @@
   "themes": {
     "vera": {
       "accent": "#7AA2F7",
-      "text": "#D5DAE2",
+      "text": "#A9AFBB",
       "muted": "#5C6370",
       "notice": "#E0AF68",
       "success": "#B8B6D9",
@@ -18,7 +18,7 @@
       "panel": "#171B23", "element": "#2C2D31"
     },
     "orng": {
-      "accent": "#EC5B2B", "text": "#eeeeee", "muted": "#808080",
+      "accent": "#EC5B2B", "text": "#c6c6c6", "muted": "#808080",
       "notice": "#EC5B2B", "success": "#6ba1e6", "code": "#6ba1e6",
       "background": "#111111",
       "panel": "#181818", "element": "#222222"
@@ -30,7 +30,7 @@
       "panel": "#1e2132", "element": "#32364a"
     },
     "synthwave": {
-      "accent": "#36f9f6", "text": "#ffffff", "muted": "#848bbd",
+      "accent": "#36f9f6", "text": "#d8d7db", "muted": "#848bbd",
       "notice": "#fede5d", "success": "#72f1b8", "code": "#72f1b8",
       "background": "#262335",
       "panel": "#1e1a29", "element": "#2a2139"
@@ -48,7 +48,7 @@
       "panel": "#010409", "element": "#161b22"
     },
     "midnight-blue": {
-      "accent": "#82AAFF", "text": "#EEFFFF", "muted": "#546E7A",
+      "accent": "#82AAFF", "text": "#c7d5d6", "muted": "#546E7A",
       "notice": "#F9D768", "success": "#C3E88D", "code": "#9b92ea",
       "background": "#14171C",
       "panel": "#252933", "element": "#2C4069"

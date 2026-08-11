@@ -74,7 +74,9 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
 
     return {
         accent: paletteColor(colors, 6, VERA_TUI_THEME.accent),
-        text,
+        // Pulled off the terminal's foreground rather than taken raw: a white
+        // default is brighter than anything a transcript should be read in.
+        text: mixHex(background, text, 0.85),
         muted: mixHex(background, text, 0.55),
         notice: paletteColor(colors, 3, VERA_TUI_THEME.notice),
         success: paletteColor(colors, 2, VERA_TUI_THEME.success),

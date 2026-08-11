@@ -55,7 +55,7 @@ export class OpenRouterStreamDecoder {
         }
 
         this.responseModel ??= chunk.model;
-        this.usage = chunk.usage === undefined ? this.usage : openRouterUsage(chunk.usage);
+        this.usage = chunk.usage == null ? this.usage : openRouterUsage(chunk.usage);
 
         const choice = chunk.choices[0];
         if (choice === undefined) {

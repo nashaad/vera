@@ -232,6 +232,8 @@ export interface TuiSettingsPickerState {
     readonly loading?: boolean;
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
+    /** The caller has one confirmed pool change it can reverse. */
+    readonly canUndoPoolChange?: boolean;
     /**
      * The sections the user has closed, by heading. It rides on the pane so a
      * tab switch and back finds the list the way it was left, and it lasts as
@@ -345,6 +347,8 @@ export interface TuiSettingsPickerTransition {
      * always the list the host actually stored.
      */
     readonly poolToggle?: TuiPoolToggle;
+    /** The caller owns the confirmed change and applies its inverse. */
+    readonly undoPoolChange?: boolean;
     /** Same contract as `poolToggle`: reported, not applied here. */
     readonly poolVerify?: TuiPoolVerify;
     /** Same contract again: the pane asks for the prompt, it does not name. */
@@ -392,6 +396,8 @@ export interface TuiSettingsPickerView {
     tip?: string;
     /** What clicking a tab chip does, in the same terms as the ⇥ key. */
     onTab?: (tab: TuiModelPickerTab) => void;
+    /** Opens provider connection without changing which model tab is active. */
+    onConfigure?: () => void;
     update(state: TuiAnySettingsPickerState): void;
 }
 
@@ -554,6 +560,9 @@ export function syncTuiModelPicker(
         // answering an edit made inside this pane, not a fresh way in, so
         // adding a model must not turn escape into "close everything".
         ...(state.parent === undefined ? {} : { parent: state.parent }),
+        ...(state.canUndoPoolChange === true
+            ? { canUndoPoolChange: true }
+            : {}),
         selectedIndex: selectedIndex === -1
             ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
             : selectedIndex,
@@ -1253,6 +1262,14 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
+    if (
+        state.kind === "model"
+        && tuiBindingId("model_picker", key) === "undo_pool_change"
+    ) {
+        return state.canUndoPoolChange === true
+            ? { state, handled: true, undoPoolChange: true }
+            : unchanged(state, true);
+    }
     // A name belongs to a pool entry, so the key does nothing on a row the
     // user has not pooled.
     if (
@@ -1303,18 +1320,41 @@ export function handleTuiSettingsPickerKey(
     ) {
         return { state, handled: true, openProviders: true };
     }
-    // Tab cycles the views of the same list. Shift is tolerated rather than
-    // given its own direction: the cycle is short enough that forward always
-    // gets there.
+    // Tab walks the strip, which ends in Providers. Shift is tolerated rather
+    // than given its own direction: the strip is short enough that forward
+    // always gets there.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
         const cycle: readonly TuiModelPickerTab[] = ["pool", "all", "help"];
-        const tab: TuiModelPickerTab = cycle[
-            (cycle.indexOf(state.tab ?? "all") + 1) % cycle.length
-        ]!;
-        return { state: switchedModelTab(state, tab), handled: true };
+        const at = cycle.indexOf(state.tab ?? "all");
+        // Providers is the last stop, and it swaps what the card lists rather
+        // than what the model list shows, so the list under it wraps to the
+        // first tab. Both ways out of that pane then land on the start of the
+        // strip; parking the list on Help would send the next ⇥ straight back
+        // into the pane the user just left.
+        if (at === cycle.length - 1) {
+            return {
+                state: switchedModelTab(state, cycle[0]!),
+                handled: true,
+                openProviders: true,
+            };
+        }
+        return {
+            state: switchedModelTab(state, cycle[at + 1] ?? cycle[0]!),
+            handled: true,
+        };
+    }
+    // ⇥ off the connect pane and back onto the collections. It resumes the pane
+    // that opened it rather than a fixed tab: arriving by ^e from All models
+    // and leaving by ⇥ should not silently move the list somewhere else.
+    if (
+        state.kind === "provider"
+        && state.parent?.kind === "model"
+        && tuiBindingId("model_picker", key) === "switch_tab"
+    ) {
+        return { state: state.parent, handled: true };
     }
     // Fold and unfold everything, ahead of the modifier bail-out below because
     // both chords carry shift. Either one replaces whatever mix of open and
@@ -1552,6 +1592,7 @@ export function createTuiSettingsPickerView(
                 view.pointer,
                 view.tip,
                 view.onTab,
+                view.onConfigure,
             );
         },
     };
@@ -1601,8 +1642,7 @@ export function tuiPickerViewportRows(
 ): number {
     const rows = pickerMaxRows(
         renderer,
-        (state.kind === "model" ? MODEL_TAB_STRIP_HEIGHT : 0)
-            + (hasModelDetail(state) ? MODEL_DETAIL_LINES : 0)
+        (modelStripStop(state) === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
             + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
     );
     return state.kind === "model" && state.tab === "all"
@@ -1612,14 +1652,59 @@ export function tuiPickerViewportRows(
 
 
 /**
- * Whether the facts about the highlighted row are drawn above the list. Pool
- * only: it is a handful of models the user assembled on purpose, so there is
- * room over it for what one of them is, and the list below keeps the whole
- * width. All models is a catalog to scan, and its rows carry their own facts
- * in the column beside them.
+ * Whether the facts about the highlighted row are drawn beside the list.
+ *
+ * The pool only. It is a short list the user built, so there is room beside it
+ * and a reason to look: what a pooled model can do is why it is in the pool.
+ * All models is hundreds of rows long and is read by scanning names, which a
+ * half-width column turns into a list of clipped prefixes.
  */
 function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
-    return state.kind === "model" && state.tab === "pool";
+    return state.kind === "model" && (state.tab ?? "all") === "pool";
+}
+
+/** The narrowest the detail column is worth drawing at. */
+const MODEL_DETAIL_MIN_WIDTH = 26;
+
+/** The narrowest the list column may be squeezed to. */
+const MODEL_LIST_MIN_WIDTH = 28;
+
+/**
+ * The rule between the two columns, carried on every line of the detail column
+ * rather than drawn as a border: the card already has an edge, and a second
+ * frame inside it reads as two cards rather than one pane with two columns.
+ */
+const MODEL_DETAIL_RULE = "│  ";
+
+/** How far the rows hold off that rule. */
+const MODEL_LIST_RULE_GAP = 2;
+
+interface ModelPaneSplit {
+    readonly listWidth: number;
+    readonly detailWidth: number;
+}
+
+/**
+ * How the card's width divides between the list and the facts beside it, or
+ * nothing when the terminal cannot spare a second column and the list takes
+ * the whole width.
+ */
+function modelPaneSplit(
+    renderer: RenderContext,
+    state: TuiAnySettingsPickerState,
+): ModelPaneSplit | undefined {
+    if (!hasModelDetail(state)) {
+        return undefined;
+    }
+    const cardWidth = pickerCardWidth(renderer, state);
+    const listWidth = Math.max(
+        MODEL_LIST_MIN_WIDTH,
+        Math.floor(cardWidth * 0.5),
+    );
+    const detailWidth = cardWidth - listWidth - MODEL_DETAIL_RULE.length;
+    return detailWidth < MODEL_DETAIL_MIN_WIDTH
+        ? undefined
+        : { listWidth, detailWidth };
 }
 
 /**
@@ -1660,83 +1745,99 @@ type PickerDisplayRow =
 
 
 /**
- * The facts about the highlighted model, above the list rather than crammed
+ * The facts about the highlighted model, beside the list rather than crammed
  * into its row. It follows the cursor and takes no keys of its own: what a row
  * does is still what ⏎ and the footer's keys do.
  *
- * Its height is the same on every model. The facts only some models carry
- * would otherwise grow and shrink the block and walk the list up and down
- * under the cursor, so the left column is a fixed set and the optional ones
- * sit in a second column beside it.
+ * The column is as tall as the list next to it and every line carries the rule,
+ * so a model with more facts than its neighbour fills more of a column that was
+ * already there instead of moving anything.
  */
 function modelDetailNode(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
     width: number,
+    height: number,
 ): BoxRenderable {
     const pane = new BoxRenderable(renderer, {
-        width,
-        height: MODEL_DETAIL_LINES,
+        width: width + MODEL_DETAIL_RULE.length,
+        height,
         flexShrink: 0,
         flexDirection: "column",
     });
-    const line = (content: string | StyledText, tone?: string): void => {
+    let drawn = 0;
+    const line = (chunks: readonly TextChunk[] = []): void => {
+        if (drawn >= height) return;
+        drawn += 1;
         pane.add(new TextRenderable(renderer, {
-            content,
-            ...(tone === undefined ? {} : { fg: tone }),
-            width,
+            content: new StyledText([fg(TUI_ELEMENT)(MODEL_DETAIL_RULE), ...chunks]),
+            width: width + MODEL_DETAIL_RULE.length,
             height: 1,
         }));
     };
     const option = state.options[state.selectedIndex];
     const described = option !== undefined && option.section === undefined;
-    line(described
-        ? new StyledText([fg(TUI_TEXT)(clippedTo(option.label, width))])
-        : "");
-    line(
-        !described || option.provider === undefined
-            ? ""
-            : clippedTo(
+    if (described) {
+        line([fg(TUI_TEXT)(clippedTo(option.label, width))]);
+        line([
+            fg(TUI_MUTED)(clippedTo(
                 option.model === undefined || option.poolName === undefined
-                    ? option.provider
-                    : `${option.provider} · ${option.model}`,
+                    ? option.provider ?? ""
+                    : `${option.provider ?? ""} · ${option.model}`,
                 width,
-            ),
-        TUI_MUTED,
-    );
-    line("");
-    const facts = described ? modelDetailFacts(state, option) : [];
-    const split = Math.min(46, Math.max(24, Math.floor(width / 2)));
-    for (let row = 0; row < MODEL_DETAIL_FACT_ROWS; row += 1) {
-        line(new StyledText([
-            ...factChunks(facts[row], split),
-            ...factChunks(facts[row + MODEL_DETAIL_FACT_ROWS], width - split),
-        ]));
+            )),
+        ]);
+        line();
+        for (const fact of modelDetailFacts(state, option)) {
+            line(factChunks(fact, width));
+        }
+        line();
     }
-    line("");
-    // A rule under the facts, not a border around them: it is what says the
-    // block belongs to the row the cursor is on, without boxing a card that
-    // already sits inside one.
-    line("─".repeat(width), TUI_ELEMENT);
+    // What this collection is, said in the column that has room for it rather
+    // than on a line under the tabs. A sentence there would sit between the
+    // tabs and the rows it describes and push the list down for nothing.
+    for (const text of wrappedTo(modelPaneNote(state), width)) {
+        line([fg(TUI_MUTED)(text)]);
+    }
+    while (drawn < height) {
+        line();
+    }
     return pane;
 }
 
-/** One fact as a label column and its value, padded to its share of a line. */
+/** One fact as a label column and its value. */
 function factChunks(
-    fact: ModelDetailFact | undefined,
+    fact: ModelDetailFact,
     width: number,
 ): readonly TextChunk[] {
-    if (fact === undefined) {
-        return [fg(TUI_MUTED)(" ".repeat(width))];
-    }
     const [label, value, tone] = fact;
     const room = width - MODEL_DETAIL_LABEL_WIDTH;
     return [
         fg(TUI_MUTED)(label.padEnd(MODEL_DETAIL_LABEL_WIDTH)),
         fg(tone === "positive" ? TUI_SUCCESS : TUI_TEXT)(
-            clippedTo(value, room).padEnd(room),
+            clippedTo(value, room),
         ),
     ];
+}
+
+/** Word wrap for the one paragraph this pane draws. */
+function wrappedTo(text: string, width: number): readonly string[] {
+    const lines: string[] = [];
+    let line = "";
+    for (const word of text.split(" ")) {
+        if (line.length === 0) {
+            line = word;
+        } else if (line.length + 1 + word.length <= width) {
+            line = `${line} ${word}`;
+        } else {
+            lines.push(line);
+            line = word;
+        }
+    }
+    if (line.length > 0) {
+        lines.push(line);
+    }
+    return lines;
 }
 
 /**
@@ -1785,9 +1886,9 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     [""],
     ["Marks"],
     ["●", "the model this conversation is running."],
-    ["✓", "answered a live probe, so its abilities are known."],
-    ["unverified", "not probed yet. It still runs like any other."],
-    ["in pool", "already on your shortlist."],
+    ["✓", "on Pool: answered a live probe, so its abilities are known."],
+    ["in pool", "on All models: already on your shortlist."],
+    ["top pick", "a model Vera is built and tested against."],
     ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
     [""],
     ["Keys"],
@@ -1795,17 +1896,26 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["^s", "add the highlighted model to the pool, or remove it."],
     ["^n", "give a pooled model a short name of your own."],
     ["^⇧r", "probe a model and record what it can do."],
-    ["⇥", "move between these views. Search clears on the way."],
+    ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
-/** How many facts the left column holds; the rest go in the second column. */
-const MODEL_DETAIL_FACT_ROWS = 3;
-
 /**
- * A name, a source, a blank, the facts, a blank, and the rule under them. The
- * same on every model, so which facts one carries never moves the list.
+ * How many lines the facts column wants. The two columns run to whichever of
+ * them is taller, so a short list still leaves the facts beside it room to be
+ * read in full rather than clipping the last of them.
  */
-const MODEL_DETAIL_LINES = MODEL_DETAIL_FACT_ROWS + 5;
+function modelDetailHeight(
+    state: TuiAnySettingsPickerState,
+    width: number,
+): number {
+    const option = state.options[state.selectedIndex];
+    const described = option !== undefined && option.section === undefined;
+    // The name, the source, a blank, the facts, and a blank under them.
+    const facts = described
+        ? 3 + modelDetailFacts(state, option).length + 1
+        : 0;
+    return facts + wrappedTo(modelPaneNote(state), width).length;
+}
 
 /** How wide the block's own label column is, so its values line up. */
 const MODEL_DETAIL_LABEL_WIDTH = 12;
@@ -1857,16 +1967,26 @@ function renderListPickerRows(
     pointer?: DialogRowPointer,
     tip?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
+    onConfigure?: () => void,
 ): void {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
-    // No search field on the help page: there is nothing on it to filter, and
-    // an empty box that takes the cursor invites typing that goes nowhere.
-    const searchable = state.kind !== "extension" && tab !== "help";
+    const stripPane = modelStripPane(state);
+    const stop = modelStripStop(state);
+    // The help page keeps the field so that tabbing onto it does not lift the
+    // tabs and everything under them by three lines. It draws inert, without
+    // the caret, since this page holds nothing to filter.
+    const searchable = state.kind !== "extension";
     const header = dialogHeaderNode(
         renderer,
         pickerTitle(
             state.kind,
-            state.kind === "extension" ? state.title : undefined,
+            state.kind === "extension"
+                ? state.title
+                // The connect pane keeps the model pane's name while it draws
+                // inside it: one card that changes what it lists, not two.
+                : stop === "providers"
+                ? pickerTitle("model")
+                : undefined,
         ),
     );
     box.add(header);
@@ -1885,15 +2005,20 @@ function renderListPickerRows(
         subtitleLines = 1;
     }
     if (searchable) {
-        const search = dialogSearchNode(renderer, state.query);
+        const search = dialogSearchNode(
+            renderer,
+            state.query,
+            "Search",
+            tab !== "help",
+        );
         box.add(search);
         nodes.push(search);
     }
-    if (tab !== undefined) {
-        const strip = modelTabStripNode(renderer, tab, {
-            pool: modelTabRows(state.allOptions, "pool").length,
-            all: modelTabRows(state.allOptions, "all").length,
-        }, topPickNote(state), onTab);
+    if (stop !== undefined && stripPane !== undefined) {
+        const strip = modelTabStripNode(renderer, stop, {
+            pool: modelTabRows(stripPane.allOptions, "pool").length,
+            all: modelTabRows(stripPane.allOptions, "all").length,
+        }, onTab, onConfigure);
         box.add(strip);
         nodes.push(strip);
     }
@@ -1908,29 +2033,42 @@ function renderListPickerRows(
         );
         box.add(footer);
         nodes.push(footer);
-        // The chrome allowance covers a search field this page does not draw.
         box.height = MODEL_HELP_LINES.length + DIALOG_CHROME_HEIGHT
-            + MODEL_TAB_STRIP_HEIGHT - 3;
+            + MODEL_TAB_STRIP_HEIGHT;
         return;
     }
 
-    const detailed = hasModelDetail(state);
-    let detailLines = 0;
-    if (detailed) {
-        const detail = modelDetailNode(
-            renderer,
-            state,
-            pickerCardWidth(renderer, state),
-        );
-        box.add(detail);
-        nodes.push(detail);
-        detailLines = MODEL_DETAIL_LINES;
+    // The list and the facts about the highlighted row sit side by side, so the
+    // rows go into a column of their own rather than straight onto the card.
+    const split = modelPaneSplit(renderer, state);
+    const detailed = split !== undefined;
+    let body: BoxRenderable | undefined;
+    let listColumn = box;
+    if (split !== undefined) {
+        body = new BoxRenderable(renderer, {
+            width: "100%",
+            flexShrink: 0,
+            flexDirection: "row",
+        });
+        listColumn = new BoxRenderable(renderer, {
+            width: split.listWidth,
+            flexShrink: 0,
+            flexDirection: "column",
+            // The rows hold off the rule, so a right-aligned mark on one of
+            // them does not touch it.
+            paddingRight: MODEL_LIST_RULE_GAP,
+        });
+        body.add(listColumn);
+        box.add(body);
+        nodes.push(body);
     }
+    const rowWidth = split === undefined
+        ? pickerContentWidth(renderer, state)
+        : split.listWidth - MODEL_LIST_RULE_GAP;
 
     const availableRows = pickerMaxRows(
         renderer,
-        (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines
-            + detailLines,
+        (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines,
     );
     const rows = windowedDisplayRows(
         listDisplayRows(state),
@@ -1947,7 +2085,7 @@ function renderListPickerRows(
             width: "100%",
             height: 1,
         });
-        box.add(empty);
+        listColumn.add(empty);
         nodes.push(empty);
         lines = 1;
     }
@@ -2010,17 +2148,31 @@ function renderListPickerRows(
                 ...dialogRowPointer(pointer, row.index),
             }]
             : []
-    ), pickerContentWidth(renderer, state));
+    ), rowWidth);
     let optionNodeIndex = 0;
     rows.forEach((row, position) => {
         const node = row.kind === "group"
             ? dialogGroupHeaderNode(renderer, row.label, position > 0)
             : optionNodes[optionNodeIndex++]!;
         lines += row.kind === "group" ? (position > 0 ? 2 : 1) : 1;
-        box.add(node);
+        listColumn.add(node);
         nodes.push(node);
     });
-    lines += detailLines;
+    if (split !== undefined && body !== undefined) {
+        // The facts fill a column as tall as the list beside them, so a model
+        // that carries more of them never moves a row.
+        lines = Math.max(lines, modelDetailHeight(state, split.detailWidth));
+        listColumn.height = lines;
+        const detail = modelDetailNode(
+            renderer,
+            state,
+            split.detailWidth,
+            lines,
+        );
+        body.add(detail);
+        nodes.push(detail);
+        body.height = lines;
+    }
 
     // Above the hints, below the rows: the tip is about the pane, so it sits
     // with the pane's other standing text rather than floating over the list.
@@ -2046,14 +2198,47 @@ function renderListPickerRows(
     box.add(footer);
     nodes.push(footer);
     box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
-        + (tab === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
+        + (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
         + subtitleLines
         + (tip !== undefined && tip.length > 0 ? 2 : 0);
 }
 
-// The strip, its explanation, and the blank line under both.
-const MODEL_TAB_STRIP_HEIGHT = 3;
+// The strip and the blank line under it. What each collection is now sits in
+// the detail column, which has the room for it without pushing the list down.
+const MODEL_TAB_STRIP_HEIGHT = 2;
 const MODEL_ALL_MAX_ROWS = 28;
+
+/**
+ * Where the strip's highlight sits. The connect pane is a stop on it rather
+ * than a modal over it: it draws in the same card, under the same tabs, so
+ * ⇥ walks onto it and off it the way it walks between the collections.
+ */
+type ModelStripStop = TuiModelPickerTab | "providers";
+
+/**
+ * The model pane the strip belongs to, which is the pane itself on the three
+ * collections and the parent on the connect pane. Undefined on a pane that
+ * carries no strip, including a connect pane opened from anywhere else.
+ */
+function modelStripPane(
+    state: TuiAnySettingsPickerState,
+): TuiSettingsPickerState | undefined {
+    if (state.kind === "model") {
+        return state;
+    }
+    return state.kind === "provider" && state.parent?.kind === "model"
+        ? state.parent
+        : undefined;
+}
+
+function modelStripStop(
+    state: TuiAnySettingsPickerState,
+): ModelStripStop | undefined {
+    if (state.kind === "model") {
+        return state.tab ?? "all";
+    }
+    return modelStripPane(state) === undefined ? undefined : "providers";
+}
 
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Pool"],
@@ -2067,36 +2252,19 @@ const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     help: "What the marks and the keys in this pane mean.",
 };
 
-/**
- * The tabs, drawn as one line of labels with the active one accented, followed
- * by one line that explains the active collection. No borders or brackets: the
- * pane already has a card edge, and a second frame inside it reads as two panes
- * rather than two views of one list.
- */
-/**
- * What the Top picks section is, said while the cursor is in it. It replaces
- * the line that explains the tab rather than adding one of its own: a line
- * that appeared and disappeared under the cursor would move the list with it.
- */
-function topPickNote(state: TuiAnySettingsPickerState): string | undefined {
-    if (state.kind !== "model" || (state.tab ?? "all") !== "all") {
-        return undefined;
-    }
-    const option = state.options[state.selectedIndex];
-    if (option === undefined) {
-        return undefined;
-    }
-    return option.inTopPicks === true || option.section === TUI_TOP_PICKS_SECTION
-        ? "Vera's own picks: the models it is built and tested against."
-        : undefined;
+/** What the detail column says about the collection under the cursor. */
+function modelPaneNote(state: TuiAnySettingsPickerState): string {
+    const tab = state.kind === "model" ? state.tab ?? "all" : "all";
+    return MODEL_TAB_DESCRIPTIONS[tab];
 }
+
 
 function modelTabStripNode(
     renderer: RenderContext,
-    tab: TuiModelPickerTab,
+    tab: ModelStripStop,
     counts: Readonly<Partial<Record<TuiModelPickerTab, number>>>,
-    note?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
+    onConfigure?: () => void,
 ): BoxRenderable {
     const strip = new BoxRenderable(renderer, {
         width: "100%",
@@ -2145,11 +2313,30 @@ function modelTabStripNode(
             height: 1,
         }));
     });
+    // The last stop on the strip. It swaps what the card lists rather than
+    // what the model list shows, so it keeps a key of its own as well, but it
+    // highlights and answers to ⇥ like the chips before it.
+    const chord = tuiKeyHint("open_providers").split(" ")[0] ?? "";
+    const configure = new TextRenderable(renderer, {
+        content: new StyledText(
+            tab === "providers"
+                ? [fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(` Providers ${chord} `))]
+                : [fg(TUI_ACCENT)("Providers "), fg(TUI_MUTED)(chord)],
+        ),
+        flexShrink: 0,
+        height: 1,
+    });
+    if (onConfigure !== undefined) {
+        configure.onMouseDown = (event: MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onConfigure();
+        };
+    }
+    chips.add(configure);
     strip.add(chips);
     strip.add(new TextRenderable(renderer, {
-        content: new StyledText([
-            fg(TUI_MUTED)(`${DIALOG_GUTTER}${note ?? MODEL_TAB_DESCRIPTIONS[tab]}`),
-        ]),
+        content: "",
         width: "100%",
         height: MODEL_TAB_STRIP_HEIGHT - 1,
     }));
@@ -2219,6 +2406,7 @@ export function pickerFooter(
         return [
             "↑↓ move",
             selected?.connected === true ? "⏎ reconnect" : "⏎ connect",
+            ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
     }
@@ -2241,9 +2429,12 @@ export function pickerFooter(
             { text: "↑↓ ^d^u move", drop: 0 },
             { text: "⏎ select", drop: 0 },
             ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
+            ...(state.canUndoPoolChange === true
+                ? [{ text: tuiKeyHint("undo_pool_change"), drop: 1 }]
+                : []),
             ...(selected?.provider === undefined
                 ? []
-                : [{ text: tuiKeyHint("verify_model"), drop: 4 }]),
+                : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
             // Naming belongs to a pool entry, so the hint appears on the same
             // rows the key works on and nowhere else.
             ...(pool === undefined || selected === undefined
@@ -2258,6 +2449,8 @@ export function pickerFooter(
             selected?.section === undefined
                 ? { text: "⇧←→ fold all", drop: 5 }
                 : { text: "←→ ⇧←→ fold", drop: 1 },
+            // Sheds early, because the strip's own chip carries this chord and
+            // is on screen whatever the footer had room for.
             { text: tuiKeyHint("open_providers"), drop: 6 },
             { text: "⇥ tabs", drop: 3 },
             { text: "esc close", drop: 0 },
@@ -2523,18 +2716,22 @@ function optionMeta(
     if (option.images === true && !detailed) {
         separated({ text: "images", tone: "positive" });
     }
-    // An unverified row runs like any other. The word says only that no probe
-    // has established what the model can do yet; a probed pool row says so
-    // too, so verifying visibly changes the row.
     if (option.pooledRank !== undefined) {
-        // Whether a row is in the pool, not whether it has been probed: the
-        // catalog is where models are picked up, and a row with nothing in
-        // this column is simply one the pool does not hold.
-        separated(!detailed
-            ? { text: "in pool", tone: "positive" }
-            : option.unverified === true
-            ? { text: "unverified" }
-            : { text: "✓", tone: "positive" });
+        // On the Pool tab every row is pooled, so the column answers the other
+        // question: a probed row earns a mark and an unprobed one earns
+        // nothing. The word "unverified" on most of the rows at once says less
+        // than a mark on the few that have been probed, and what the highlighted
+        // row's own state is gets spelled out in the column beside the list.
+        // Elsewhere the pool is what the column is for: the catalog is where
+        // models are picked up, and a row with nothing here is one the pool
+        // does not hold.
+        if (state.tab === "pool") {
+            if (option.unverified !== true) {
+                separated({ text: "✓", tone: "positive" });
+            }
+        } else {
+            separated({ text: "in pool", tone: "positive" });
+        }
     }
     return parts.length === 0 ? undefined : parts;
 }

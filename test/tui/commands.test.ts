@@ -29,6 +29,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "open_permissions_picker" },
         { type: "open_preferences_list" },
         { type: "open_settings_menu" },
+        { type: "open_configure" },
         { type: "open_command_palette" },
         { type: "prefill_composer", text: "/rename " },
         { type: "open_theme_picker" },
@@ -65,6 +66,7 @@ test("every slash action has an explicit pane scope", () => {
             ["open_permissions_picker", "focused_agent"],
             ["open_preferences_list", "application"],
             ["open_settings_menu", "focused_agent"],
+            ["open_configure", "focused_agent"],
             ["open_command_palette", "application"],
             ["prefill_composer", "application"],
             ["open_theme_picker", "application"],
@@ -247,6 +249,9 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     });
     expect(registry.dispatch("/themes")).toEqual({
         type: "open_theme_picker",
+    });
+    expect(registry.dispatch("/configure")).toEqual({
+        type: "open_configure",
     });
     expect(registry.dispatch("/them")).toEqual({
         type: "open_theme_picker",

@@ -235,6 +235,9 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
         ? chunk.choices.map((choice) => {
             const record = choice as Record<string, unknown>;
             const delta = record.delta as Record<string, unknown> | undefined;
+            const reasoningContent = typeof delta?.reasoning_content === "string"
+                ? delta.reasoning_content
+                : undefined;
             return {
                 ...record,
                 ...(record.finish_reason === undefined
@@ -245,6 +248,10 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
                     : {
                         delta: {
                             ...delta,
+                            ...(reasoningContent === undefined
+                                || delta?.reasoning !== undefined
+                                ? {}
+                                : { reasoning: reasoningContent }),
                             ...(delta.tool_calls === undefined
                                 ? {}
                                 : { toolCalls: delta.tool_calls }),
@@ -253,11 +260,15 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
             };
         })
         : [];
-    const usage = chunk.usage as Record<string, unknown> | undefined;
+    // Pulled off the rest rather than overwritten: a provider that sends
+    // `"usage": null` would otherwise keep that null through the spread, and
+    // every reader downstream would have to guard the field itself.
+    const { usage: rawUsage, ...rest } = chunk;
+    const usage = rawUsage as Record<string, unknown> | null | undefined;
     return {
-        ...chunk,
+        ...rest,
         choices,
-        ...(usage === undefined
+        ...(usage == null
             ? {}
             : {
                 usage: {
