@@ -10,6 +10,7 @@ import {
     MIN_SIDEBAR_WIDTH,
     MIN_TRANSCRIPT_WIDTH,
     SIDEBAR_FOCUS_GREEN,
+    SIDEBAR_INACTIVE_GRAY,
 } from "../../clients/tui/sidebar.ts";
 
 test("the divider cannot be dragged past either side's floor", () => {
@@ -171,52 +172,55 @@ test("focus rail follows the active pane symmetrically", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
         expect(SIDEBAR_FOCUS_GREEN).toBe("#22c55e");
+        expect(SIDEBAR_INACTIVE_GRAY).toBe("#4b5563");
         expect(sidebar.isFocused()).toBe(false);
         await setup.flush();
-        expect(setup.captureCharFrame()).toContain("▁".repeat(75));
+        expect(setup.captureCharFrame()).toContain("━".repeat(75));
         sidebar.setFocused(true);
         await setup.flush();
         expect(sidebar.isFocused()).toBe(true);
         expect(setup.captureCharFrame()).toContain(
-            "▁".repeat(DEFAULT_SIDEBAR_WIDTH),
+            "━".repeat(DEFAULT_SIDEBAR_WIDTH),
         );
         sidebar.setFocused(false);
         await setup.flush();
         expect(sidebar.isFocused()).toBe(false);
-        expect(setup.captureCharFrame()).toContain("▁".repeat(75));
+        expect(setup.captureCharFrame()).toContain("━".repeat(75));
         sidebar.setFocused(true);
         await setup.flush();
         expect(sidebar.isFocused()).toBe(true);
         expect(setup.captureCharFrame()).toContain(
-            "▁".repeat(DEFAULT_SIDEBAR_WIDTH),
+            "━".repeat(DEFAULT_SIDEBAR_WIDTH),
         );
     } finally {
         setup.renderer.destroy();
     }
 });
 
-test("pane headers sit immediately above their focus rails", async () => {
+test("focus rails sit above transcripts and identity rows stay below", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
-        sidebar.setMainHeader("Vera · ask · idle");
-        sidebar.setHeader("sidekick · readonly · idle");
+        sidebar.setMainHeader("Vera · ask");
+        sidebar.setHeader("sidekick · readonly");
         await setup.flush();
         const lines = setup.captureCharFrame().split("\n");
         const mainHeader = lines.findIndex((line) =>
-            line.includes("Vera · ask · idle")
+            line.includes("Vera · ask")
         );
         const sideHeader = lines.findIndex((line) =>
-            line.includes("sidekick · readonly · idle")
+            line.includes("sidekick · readonly")
         );
         expect(mainHeader).toBeGreaterThanOrEqual(0);
         expect(sideHeader).toBe(mainHeader);
-        expect(lines[mainHeader + 1]).toContain("▁");
+        const focusRail = lines.findIndex((line) => line.includes("━"));
+        expect(focusRail).toBeGreaterThanOrEqual(0);
+        expect(focusRail).toBeLessThan(mainHeader);
     } finally {
         setup.renderer.destroy();
     }
 });
 
-test("an attached agent identity stays at the top of the sidebar", async () => {
+test("an attached agent identity updates in place", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
         sidebar.setHeader("agent-b · readonly");

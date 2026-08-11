@@ -17,6 +17,7 @@ export const MIN_TRANSCRIPT_WIDTH = 30;
 export const DEFAULT_SIDEBAR_WIDTH = 44;
 /** Pane focus is navigation chrome, so it stays recognizable across themes. */
 export const SIDEBAR_FOCUS_GREEN = "#22c55e";
+export const SIDEBAR_INACTIVE_GRAY = "#4b5563";
 /** The grab strip: one column, so it reads as an edge and not as a bar. */
 const DIVIDER_WIDTH = 1;
 
@@ -155,7 +156,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         onMouseUp: (event: MouseEvent) => {
             if (!dragging) return;
             dragging = false;
-            divider.backgroundColor = theme.handle;
+            divider.borderColor = theme.handle;
             event.stopPropagation();
             options.onWidthChanged?.(width);
         },
@@ -167,7 +168,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         height: "100%",
         flexShrink: 0,
         visible: false,
-        backgroundColor: theme.handle,
+        border: ["left"],
+        borderColor: theme.handle,
         onMouseDown: (event: MouseEvent) => {
             // Claimed before the transcript's selection sees it, or dragging
             // the divider would paint a selection across the transcript.
@@ -176,7 +178,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             dragging = true;
             // Lit while held, so a drag that runs past the strip still shows
             // what is being moved.
-            divider.backgroundColor = theme.handleActive;
+            divider.borderColor = theme.handleActive;
         },
     });
     const content = new ScrollBoxRenderable(renderer, {
@@ -247,10 +249,10 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
-    sidebarColumn.add(header);
     sidebarColumn.add(sidebarFocusRail);
     panel.add(content);
     sidebarColumn.add(panel);
+    sidebarColumn.add(header);
 
     const mainColumn = new BoxRenderable(renderer, {
         id: "main-column",
@@ -274,9 +276,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
-    mainColumn.add(mainHeader);
     mainColumn.add(mainFocusRail);
     mainColumn.add(options.transcript);
+    mainColumn.add(mainHeader);
     body.add(mainColumn);
     body.add(divider);
     body.add(sidebarColumn);
@@ -313,8 +315,14 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             0,
             renderer.terminalWidth - width - DIVIDER_WIDTH,
         );
-        mainFocusRail.content = focused ? "" : "▁".repeat(mainWidth);
-        sidebarFocusRail.content = focused ? "▁".repeat(width) : "";
+        mainFocusRail.content = (focused ? "─" : "━").repeat(mainWidth);
+        sidebarFocusRail.content = (focused ? "━" : "─").repeat(width);
+        mainFocusRail.fg = focused
+            ? SIDEBAR_INACTIVE_GRAY
+            : SIDEBAR_FOCUS_GREEN;
+        sidebarFocusRail.fg = focused
+            ? SIDEBAR_FOCUS_GREEN
+            : SIDEBAR_INACTIVE_GRAY;
     }
 
     function apply(): void {
@@ -322,7 +330,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         if (current === "main") focused = false;
         if (current !== "split") {
             dragging = false;
-            divider.backgroundColor = theme.handle;
+            divider.borderColor = theme.handle;
         }
         mainColumn.visible = current !== "sidebar";
         sidebarColumn.visible = current !== "main";
@@ -519,7 +527,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             syntaxStyle = nextSyntaxStyle;
             header.fg = theme.muted;
             mainHeader.fg = theme.muted;
-            divider.backgroundColor = dragging
+            divider.borderColor = dragging
                 ? theme.handleActive
                 : theme.handle;
             for (const block of painted) {

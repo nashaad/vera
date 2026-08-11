@@ -1,5 +1,3 @@
-import { TextRenderable } from "@opentui/core";
-
 const SIDEKICK = "sidekick";
 const PEER = "peer";
 const SIDE_CONVERSATION_BOUNDARY = `Side conversation boundary.
@@ -14,35 +12,6 @@ You are a separate, readonly side-conversation assistant. Answer questions and p
 export function activateClient(vera: any): void {
     const agents: Record<string, string | undefined> = {};
     let activeMention: string | undefined;
-    let activeMode: "btw" | "pair" | undefined;
-    let modeStatus: TextRenderable | undefined;
-    let requestModeRender: (() => void) | undefined;
-
-    function modeStatusText(): string {
-        const surface = vera.experimentalTui.agentSurface.current();
-        if (activeMode === undefined || surface === undefined) return "";
-        const layout = surface.layout === "secondary"
-            ? `${activeMode} only`
-            : surface.layout === "primary" ? "vera only" : "split";
-        const focus = surface.layout === "split"
-            ? surface.focused === "secondary"
-                ? "ctrl+g vera"
-                : `ctrl+g ${activeMention}`
-            : undefined;
-        return [
-            `${activeMode} mode`,
-            layout,
-            "ctrl+\\ layout",
-            ...(focus === undefined ? [] : [focus]),
-        ].join(" · ");
-    }
-
-    function renderModeStatus(): void {
-        if (modeStatus !== undefined) {
-            modeStatus.content = modeStatusText();
-        }
-        requestModeRender?.();
-    }
 
     function setAddressing(mention: string): void {
         vera.agents.declareExperimentalAddressing({
@@ -114,10 +83,8 @@ export function activateClient(vera: any): void {
             }, signal);
         }
         activeMention = mention;
-        activeMode = statusLabel;
         setAddressing(mention);
         offerVisibleMentions();
-        renderModeStatus();
         return agentId;
     }
 
@@ -179,32 +146,12 @@ export function activateClient(vera: any): void {
         "Open or message a tool-capable peer",
     );
 
-    vera.experimentalTui.mountRenderable({
-        id: "agent-mode",
-        slot: "transcript-top",
-        visible: () => activeMode !== undefined
-            && vera.experimentalTui.agentSurface.current() !== undefined,
-        create(context: any) {
-            requestModeRender = context.requestRender;
-            modeStatus = new TextRenderable(context.renderer, {
-                id: "btw-agent-mode",
-                content: modeStatusText(),
-                fg: context.theme.muted,
-                height: 1,
-                width: "100%",
-            });
-            return modeStatus;
-        },
-    });
-
     vera.keybindings.register({
         id: "cycle-agent-layout",
         description: "Cycle split and single-agent layouts",
         keys: ["ctrl+\\", "ctrl+/", "ctrl+_"],
         run() {
-            if (vera.experimentalTui.agentSurface.cycleLayout()) {
-                renderModeStatus();
-            }
+            vera.experimentalTui.agentSurface.cycleLayout();
         },
     });
     vera.keybindings.register({
@@ -212,9 +159,7 @@ export function activateClient(vera: any): void {
         description: "Switch focus between visible agents",
         keys: ["ctrl+g"],
         run() {
-            if (vera.experimentalTui.agentSurface.toggleFocus()) {
-                renderModeStatus();
-            }
+            vera.experimentalTui.agentSurface.toggleFocus();
         },
     });
 
@@ -222,10 +167,8 @@ export function activateClient(vera: any): void {
         agents[SIDEKICK] = undefined;
         agents[PEER] = undefined;
         activeMention = undefined;
-        activeMode = undefined;
         setAddressing(SIDEKICK);
         offerVisibleMentions();
-        renderModeStatus();
     });
 
     const restoredMention = vera.agents.visible().find(
@@ -235,7 +178,6 @@ export function activateClient(vera: any): void {
     )?.mention;
     if (restoredMention !== undefined) {
         activeMention = restoredMention;
-        activeMode = restoredMention === PEER ? "pair" : "btw";
     }
     setAddressing(activeMention ?? SIDEKICK);
     offerVisibleMentions();
