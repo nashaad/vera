@@ -63,9 +63,10 @@ for (const tool of registeredTools) {
 const toolRegistry = new Map(
     registeredTools.map((tool) => [tool.definition.name, tool] as const),
 );
+const hostToolNames = new Set(["skill_script"]);
 
 export function isBuiltInToolName(name: string): boolean {
-    return toolRegistry.has(name);
+    return toolRegistry.has(name) || hostToolNames.has(name);
 }
 
 function toolFor(

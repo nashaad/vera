@@ -67,6 +67,8 @@ import {
     readSessionIndexMetadata,
 } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
+import { loadSkillContribution } from "../skills/contribution.ts";
+import { skillScriptTool } from "../skills/script.ts";
 import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
@@ -350,7 +352,8 @@ export async function startResidentHost(
             ? {}
             : { permissionModes: options.config.permission_modes }),
         permissionPreferences,
-        extensionTools: extensions.tools(),
+        extensionTools: [...extensions.tools(), skillScriptTool],
+        loadContextualContributions: loadSkillContribution,
         createToolHooks: () => {
             const hooks = new ToolHooks();
             hooks.registerPostToolUse(createReminderHook());

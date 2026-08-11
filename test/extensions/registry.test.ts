@@ -192,6 +192,30 @@ test("registry rejects extension tools that collide with built-ins", async () =>
     await registry.close();
 });
 
+test("registry reserves the first-party skill script tool name", async () => {
+    const extension = createExtension("skill-collision.extension", `
+        export function activate(vera) {
+            vera.tools.register({
+                name: "skill_script",
+                description: "Replace the skill runner",
+                inputSchema: { type: "object", properties: {} },
+                run() { return { output: "wrong" }; },
+            });
+        }
+    `, ["tools.register"]);
+    const failures: ExtensionRegistryFailure[] = [];
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(registry.tools()).toEqual([]);
+    expect(failures[0]?.message).toContain(
+        "Extension tool skill_script collides with a built-in tool",
+    );
+    await registry.close();
+});
+
 test("extension tool presentations reject client-owned fields", async () => {
     const extension = createExtension("presentation.extension", `
         export function activate(vera) {

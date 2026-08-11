@@ -12,6 +12,7 @@ import {
     type PermissionGrant,
 } from "../../src/engine/permissions.ts";
 import type { HookToolCall, JsonObject } from "../../src/sdk/hooks.ts";
+import { skillScriptTool } from "../../src/skills/script.ts";
 
 const workspace = "/Users/nash/Projects/vera";
 const homeDirectory = "/Users/nash";
@@ -32,6 +33,24 @@ test("built-in profiles have the accepted defaults", () => {
     expect(BUILT_IN_PERMISSION_MODES.auto.defaultOutcome)
         .toBe("review");
     expect(BUILT_IN_PERMISSION_MODES.readonly.defaultOutcome).toBe("deny");
+});
+
+test("skill scripts use each profile's ordinary unknown-execution policy", () => {
+    const call = toolCall("skill_script", {
+        skill: "inspect",
+        script: "scripts/inspect.sh",
+    });
+    for (const [mode, behavior] of [
+        ["readonly", "deny"],
+        ["ask", "ask"],
+        ["auto", "review"],
+        ["full_access", "allow"],
+    ] as const) {
+        expect(decideToolPermission(mode, call, workspace, [], {
+            homeDirectory,
+            extensionTools: [skillScriptTool],
+        }).behavior).toBe(behavior);
+    }
 });
 
 test("readonly allows structured reads but denies bash and mutation", () => {
