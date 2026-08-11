@@ -1,4 +1,4 @@
-import { lstat, stat } from "node:fs/promises";
+import { lstat, stat, type FileHandle } from "node:fs/promises";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -234,7 +234,7 @@ async function loadIndex(
                 return undefined;
             }
             modifiedAt = details.mtimeMs;
-            bytes = await handle.readFile();
+            bytes = await readBoundedFile(handle, MEMORY_INDEX_MAX_BYTES);
         } finally {
             await handle.close();
         }
@@ -416,7 +416,7 @@ async function readTopic(
             if (index !== undefined && details.mtimeMs > index.modifiedAt) {
                 throw new Error("stale");
             }
-            bytes = await handle.readFile();
+            bytes = await readBoundedFile(handle, MEMORY_TOPIC_MAX_BYTES);
             if (bytes.byteLength > MEMORY_TOPIC_MAX_BYTES) {
                 throw new Error("oversized");
             }
@@ -447,6 +447,15 @@ async function readTopic(
         warnings.push(`memory topic ${topic.scope}/${topic.file} was not loaded: ${normalized}`);
         return undefined;
     }
+}
+
+async function readBoundedFile(
+    handle: FileHandle,
+    maxBytes: number,
+): Promise<Buffer> {
+    const buffer = Buffer.allocUnsafe(maxBytes + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead);
 }
 
 async function isDirectory(path: string): Promise<boolean> {
