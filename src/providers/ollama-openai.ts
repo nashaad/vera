@@ -260,11 +260,11 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
             };
         })
         : [];
-    const usage = chunk.usage as Record<string, unknown> | undefined;
+    const usage = chunk.usage as Record<string, unknown> | null | undefined;
     return {
         ...chunk,
         choices,
-        ...(usage === undefined
+        ...(usage == null
             ? {}
             : {
                 usage: {
