@@ -35,8 +35,41 @@ import type {
     PermissionPreference,
 } from "./permissions.ts";
 
-const FULL_USER_AUTHORITY_WARNING =
-    "If allowed, this command and its child processes run with your full user permissions.";
+/**
+ * What the approval is actually agreeing to. The line is the last thing read
+ * before allowing, so it names the authority the tool takes rather than the
+ * authority a shell takes: a fetch that warns about child processes teaches
+ * the reader to skip the warning.
+ */
+const AUTHORITY_WARNINGS: Readonly<Record<string, string>> = {
+    bash: "If allowed, this command and its child processes run with your"
+        + " full user permissions.",
+    write: "If allowed, Vera writes this file with your full user permissions,"
+        + " inside the workspace or outside it.",
+    edit: "If allowed, Vera changes this file with your full user permissions,"
+        + " inside the workspace or outside it.",
+    read: "If allowed, Vera reads this file with your full user permissions,"
+        + " inside the workspace or outside it.",
+    web_fetch: "If allowed, Vera requests this address from your machine, over"
+        + " your network.",
+    web_search: "If allowed, Vera sends this query to a search service from"
+        + " your machine.",
+    web_download: "If allowed, Vera requests this address from your machine"
+        + " and saves the file it returns to your computer.",
+};
+
+const DEFAULT_AUTHORITY_WARNING =
+    "If allowed, this runs with your full user permissions.";
+
+const BROWSER_AUTHORITY_WARNING =
+    "If allowed, Vera acts in your browser, in your signed-in sessions.";
+
+function authorityWarning(tool: string): string {
+    return AUTHORITY_WARNINGS[tool]
+        ?? (tool.startsWith("browser_")
+            ? BROWSER_AUTHORITY_WARNING
+            : DEFAULT_AUTHORITY_WARNING);
+}
 
 export interface ToolApprovalOptions {
     readonly timeoutMs: number;
@@ -353,7 +386,7 @@ export class InboundCommandRouter {
                 type: "tool_approval",
                 toolCall,
                 reason,
-                warning: FULL_USER_AUTHORITY_WARNING,
+                warning: authorityWarning(toolCall.name),
                 ...(options.sourceAgentId === undefined
                     ? {}
                     : { sourceAgentId: options.sourceAgentId }),

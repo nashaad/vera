@@ -1276,11 +1276,9 @@ export async function startTui(
         id: "status",
         content: READY_HINT,
         fg: TUI_MUTED,
+        width: "100%",
         height: 1,
         flexShrink: 0,
-        // On the last line of the place row rather than a line of its own: it
-        // is the shortest thing down there and the row has the room.
-        alignSelf: "flex-end",
     });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
@@ -1328,19 +1326,11 @@ export async function startTui(
         paddingRight: 4,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
-    // Where the session is on the left, what it is doing on the right, both
-    // under the frame they belong to.
-    const placeRow = new BoxRenderable(renderer, {
-        id: "place-row",
-        width: "100%",
-        height: "auto",
-        flexDirection: "row",
-    });
-    statusCard.flexGrow = 1;
-    statusCard.flexShrink = 1;
-    placeRow.add(statusCard);
-    placeRow.add(statusText);
-    statusBand.add(placeRow);
+    // Reserve the transient activity row separately from the branch row. If
+    // they share a flex row, starting a turn lets the activity hint displace
+    // the workspace and branch information we still need to see.
+    statusBand.add(statusText);
+    statusBand.add(statusCard);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -7699,7 +7689,7 @@ export async function startTui(
         // no gutter of its own: the card, its border lines, and whichever
         // status lines are showing above it.
         setComposerMargin(
-            cardRows,
+            cardRows + 1,
         );
         statusText.content = statusState.working
                 && statusNotice === undefined
