@@ -15,6 +15,7 @@ import {
     type Selection,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
 
 import {
@@ -782,6 +783,7 @@ export async function startTui(
     const pendingExtensionSettings = new Map<
         string,
         {
+            readonly target: TuiAgentClient;
             readonly resolve: (
                 result: VeraClientModelSettingsUpdateResult,
             ) => void;
@@ -792,6 +794,7 @@ export async function startTui(
     const extensionSettingsListeners = new Set<
         (settings: NonNullable<typeof state.modelSettings>) => void
     >();
+    const extensionAgentTarget = new AsyncLocalStorage<TuiAgentClient>();
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
     let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
@@ -894,6 +897,7 @@ export async function startTui(
         },
         onFailure(error, current) {
             if (current !== hostedSidebar.pane) return;
+            rejectPendingExtensionSettingsFor(current.client, error);
             sidebar.append("agent", `Connection failed: ${error.message}`);
             renderState();
         },
@@ -927,7 +931,7 @@ export async function startTui(
         layout: () => sidebar.layout(),
         isFocused: () => sidebar.isFocused(),
         cycleSidebarLayout: () => sidebar.cycleLayout(),
-        setSidebarFocused: (focused) => sidebar.setFocused(focused),
+        setSidebarFocused,
         focusComposer: () => composer.focus(),
         renderState,
         renderStatus,
@@ -936,7 +940,7 @@ export async function startTui(
     const startConfiguredClientExtensionHost =
         createTuiClientExtensionHostStarter({
             extensions: () => configuredClientExtensions,
-            currentModelSettings: () => state.modelSettings,
+            currentModelSettings: () => focusedAgentState().modelSettings,
             updateModelSettings: requestExtensionModelSettingsUpdate,
             subscribeModelSettings(listener) {
                 extensionSettingsListeners.add(listener);
@@ -966,6 +970,12 @@ export async function startTui(
             closeSidebar(extensionId) {
                 requireSidebarOwner(extensionId);
                 const attached = hostedSidebar.release(extensionId);
+                if (attached !== undefined) {
+                    rejectPendingExtensionSettingsFor(
+                        attached.client,
+                        new Error("The sidebar agent closed"),
+                    );
+                }
                 forgetPersistedAgentPane();
                 void attached?.detach().catch(() => attached.close());
                 clearSidebarEntryNodes();
@@ -1053,6 +1063,12 @@ export async function startTui(
                 commandPalette = undefined;
                 help = undefined;
                 const attached = hostedSidebar.release();
+                if (attached !== undefined) {
+                    rejectPendingExtensionSettingsFor(
+                        attached.client,
+                        new Error("The client extension host closed"),
+                    );
+                }
                 forgetPersistedAgentPane();
                 void attached?.detach().catch(() => attached.close());
                 clearSidebarEntryNodes();
@@ -1499,7 +1515,7 @@ export async function startTui(
                     ? `@${first} `
                     : `${composer.plainText} @${first} `,
             );
-            sidebar.setFocused(true);
+            setSidebarFocused(true);
             composer.focus();
             renderCommandSuggestions();
             renderState();
@@ -1509,6 +1525,8 @@ export async function startTui(
             renderJumpToBottom();
             renderSidebarJump();
             renderCommandSuggestions();
+            const settings = focusedAgentState().modelSettings;
+            if (settings !== undefined) notifyExtensionSettings(settings);
         },
     });
 
@@ -1528,6 +1546,13 @@ export async function startTui(
             switchToClient(next, undefined, { preserveSidebar: true });
             return;
         }
+        const previousSidebarAgent = hostedSidebar.pane;
+        if (previousSidebarAgent !== undefined) {
+            rejectPendingExtensionSettingsFor(
+                previousSidebarAgent.client,
+                new Error("The sidebar agent changed"),
+            );
+        }
         await hostedSidebar.adopt({
             extensionId,
             client: next,
@@ -1543,7 +1568,7 @@ export async function startTui(
                 sidebar.clear();
                 sidebar.setHeader(undefined);
                 sidebar.open();
-                sidebar.setFocused(true);
+                setSidebarFocused(true);
                 hostedSidebar.start();
                 requestAgentSettings(next);
                 renderState();
@@ -1570,6 +1595,12 @@ export async function startTui(
         return sidebar.isFocused() && hostedSidebar.pane !== undefined
             ? hostedSidebar.pane.state.state
             : state;
+    }
+
+    function setSidebarFocused(focused: boolean): void {
+        sidebar.setFocused(focused);
+        const settings = focusedAgentState().modelSettings;
+        if (settings !== undefined) notifyExtensionSettings(settings);
     }
 
     function focusedUiRequest(): UiRequestUpdate | undefined {
@@ -1795,7 +1826,7 @@ export async function startTui(
     ): void {
         if (pane !== hostedSidebar.pane) return;
         if (update.type === "ui_request") {
-            sidebar.setFocused(true);
+            setSidebarFocused(true);
         }
         if (update.type === "turn_finished") {
             pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
@@ -1810,8 +1841,16 @@ export async function startTui(
             }
         }
         if (update.type === "model_settings") {
+            settleExtensionModelSettings(update);
             requestedModelChanges.delete(update.requestId);
+            if (
+                sidebar.isFocused()
+                && pane.state.state.modelSettings !== undefined
+            ) {
+                notifyExtensionSettings(pane.state.state.modelSettings);
+            }
         } else if (update.type === "model_settings_rejected") {
+            settleExtensionModelSettings(update);
             const subject = requestedModelChanges.get(update.requestId);
             requestedModelChanges.delete(update.requestId);
             if (subject !== undefined) {
@@ -2768,9 +2807,12 @@ export async function startTui(
         if (extensionBinding !== undefined && !anyOverlayOpen()) {
             key.preventDefault();
             key.stopPropagation();
-            void clientExtensionRegistry!.invokeKeybinding(
-                extensionBinding.id,
-                client.workspace ?? process.cwd(),
+            const target = focusedAgentClient();
+            void extensionAgentTarget.run(target, () =>
+                clientExtensionRegistry!.invokeKeybinding(
+                    extensionBinding.id,
+                    client.workspace ?? process.cwd(),
+                )
             ).catch((error) => {
                 state = appendTuiNotice(
                     state,
@@ -3253,21 +3295,24 @@ export async function startTui(
             extensionCommandActivity = `running /${commandAction.command}`;
             renderStatus();
             const extensionSubmittedImages = [...pendingImages];
+            const extensionTarget = focusedAgentClient();
             const invocation = commandAction.origin === "host"
                 ? client.runExtensionCommand!(
                     commandAction.command,
                     commandAction.argumentsText,
                 )
                 : commandAction.origin === "client"
-                ? clientExtensionRegistry!.invokeCommand(
-                    commandAction.command,
-                    commandAction.argumentsText,
-                    client.workspace ?? process.cwd(),
-                    undefined,
-                    extensionSubmittedImages.length,
-                    extensionSubmittedImages.flatMap((image) =>
-                        image.path === undefined ? [] : [image.path]
-                    ),
+                ? extensionAgentTarget.run(extensionTarget, () =>
+                    clientExtensionRegistry!.invokeCommand(
+                        commandAction.command,
+                        commandAction.argumentsText,
+                        client.workspace ?? process.cwd(),
+                        undefined,
+                        extensionSubmittedImages.length,
+                        extensionSubmittedImages.flatMap((image) =>
+                            image.path === undefined ? [] : [image.path]
+                        ),
+                    )
                 )
                 : invokeDirectClientExtensionCommand(
                     directExtension!,
@@ -3949,7 +3994,7 @@ export async function startTui(
             return true;
         }
         if (route.kind === "focus") {
-            sidebar.setFocused(route.pane === "sidebar");
+            setSidebarFocused(route.pane === "sidebar");
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
@@ -4255,7 +4300,7 @@ export async function startTui(
                         // Requests must reveal the pane that owns them. A
                         // hidden question otherwise disables composer UI while
                         // looking like neither agent needs an answer.
-                        sidebar.setFocused(false);
+                        setSidebarFocused(false);
                         finishThoughtPhase();
                         phaseSince = undefined;
                         activity = update.request.type === "tool_approval"
@@ -4302,22 +4347,7 @@ export async function startTui(
                     update.type === "model_settings"
                     || update.type === "model_settings_rejected"
                 ) {
-                    const pending = pendingExtensionSettings.get(
-                        update.requestId,
-                    );
-                    if (pending !== undefined) {
-                        pendingExtensionSettings.delete(update.requestId);
-                        pending.removeAbortListener();
-                        pending.resolve(update.type === "model_settings"
-                            ? {
-                                status: "accepted",
-                                settings: update.settings,
-                            }
-                            : {
-                                status: "rejected",
-                                reason: update.reason,
-                            });
-                    }
+                    settleExtensionModelSettings(update);
                     const subject = requestedModelChanges.get(
                         update.requestId,
                     );
@@ -4358,14 +4388,9 @@ export async function startTui(
                 if (
                     update.type === "model_settings"
                     && state.modelSettings !== undefined
+                    && !sidebar.isFocused()
                 ) {
-                    for (const listener of extensionSettingsListeners) {
-                        try {
-                            listener(structuredClone(state.modelSettings));
-                        } catch {
-                            // One extension listener cannot stop client updates.
-                        }
-                    }
+                    notifyExtensionSettings(state.modelSettings);
                 }
                 if (
                     update.type === "model_settings"
@@ -4463,6 +4488,10 @@ export async function startTui(
                 renderCoalescer.request(update.type);
 
                 if (update.type === "agent_failed") {
+                    rejectPendingExtensionSettingsFor(
+                        client,
+                        new Error(update.detail),
+                    );
                     focusActiveSurface();
                     return;
                 }
@@ -4479,6 +4508,7 @@ export async function startTui(
             // A pump left behind by a switch fails on its closed connection.
             // That is the switch working, not the new session losing its host.
             if (generation === clientGeneration) {
+                rejectPendingExtensionSettingsFor(client, error);
                 reportConnectionError(error);
             }
         }
@@ -4496,9 +4526,11 @@ export async function startTui(
             return Promise.reject(signal.reason);
         }
         const requestId = randomUUID();
+        const target = extensionAgentTarget.getStore() ?? focusedAgentClient();
         return new Promise((resolve, reject) => {
             const onAbort = (): void => {
                 pendingExtensionSettings.delete(requestId);
+                requestedModelChanges.delete(requestId);
                 reject(signal.reason);
             };
             signal.addEventListener("abort", onAbort, { once: true });
@@ -4509,21 +4541,63 @@ export async function startTui(
             requestedModelChanges.set(requestId, subject);
             showStatusNotice(`model → ${describeModelPatch(patch)}`);
             pendingExtensionSettings.set(requestId, {
+                target,
                 resolve,
                 reject,
                 removeAbortListener: () =>
                     signal.removeEventListener("abort", onAbort),
             });
-            void client.send({
+            void target.send({
                 type: "update_model_settings",
                 requestId,
                 patch,
             }).catch((error) => {
                 pendingExtensionSettings.delete(requestId);
+                requestedModelChanges.delete(requestId);
                 signal.removeEventListener("abort", onAbort);
                 reject(error);
             });
         });
+    }
+
+    function settleExtensionModelSettings(
+        update: Extract<
+            AgentUpdate,
+            { type: "model_settings" | "model_settings_rejected" }
+        >,
+    ): void {
+        const pending = pendingExtensionSettings.get(update.requestId);
+        if (pending === undefined) return;
+        pendingExtensionSettings.delete(update.requestId);
+        pending.removeAbortListener();
+        pending.resolve(update.type === "model_settings"
+            ? { status: "accepted", settings: update.settings }
+            : { status: "rejected", reason: update.reason });
+    }
+
+    function rejectPendingExtensionSettingsFor(
+        target: TuiAgentClient,
+        reason: unknown,
+    ): void {
+        for (const [requestId, pending] of pendingExtensionSettings) {
+            if (pending.target !== target) continue;
+            pendingExtensionSettings.delete(requestId);
+            requestedModelChanges.delete(requestId);
+            pending.removeAbortListener();
+            pending.reject(reason);
+        }
+    }
+
+    function notifyExtensionSettings(
+        settings: NonNullable<typeof state.modelSettings>,
+    ): void {
+        for (const listener of extensionSettingsListeners) {
+            try {
+                listener(structuredClone(settings));
+            } catch {
+                // One extension listener cannot stop client updates.
+            }
+        }
     }
 
     function requireSidebarOwner(extensionId: string): void {
@@ -6286,6 +6360,10 @@ export async function startTui(
         for (const pending of [...pendingConsults.values()]) {
             pending.reject(new Error("The conversation changed"));
         }
+        rejectPendingExtensionSettingsFor(
+            previous,
+            new Error("The conversation changed"),
+        );
         client = next;
         setTuiWorkspaceRoot(next.workspace ?? process.cwd());
         void previous.detach().catch(() => previous.close());
@@ -6295,6 +6373,12 @@ export async function startTui(
         // let go of whatever else it was holding.
         if (options.preserveSidebar !== true) {
             const previousSidebarAgent = hostedSidebar.release();
+            if (previousSidebarAgent !== undefined) {
+                rejectPendingExtensionSettingsFor(
+                    previousSidebarAgent.client,
+                    new Error("The conversation changed"),
+                );
+            }
             void previousSidebarAgent?.detach().catch(() =>
                 previousSidebarAgent.close()
             );
@@ -6382,7 +6466,7 @@ export async function startTui(
             // The row for the session already on screen. Tearing down that
             // session's own transcript to put it back is a worse answer to
             // "this one" than simply leaving.
-            sidebar.setFocused(false);
+            setSidebarFocused(false);
             settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
