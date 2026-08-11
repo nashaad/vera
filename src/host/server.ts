@@ -577,7 +577,6 @@ function receiveConnection(
                 }
             } catch {
                 extensionRequests.delete(controller);
-                operationClosed();
                 void send({
                     type: "extension_command_failed",
                     request_id: message.request_id,
@@ -591,6 +590,7 @@ function receiveConnection(
                     && extensionRequestIds.has(message.request_id)
                 ).catch(() => socket.destroy()).finally(() => {
                     extensionRequestIds.delete(message.request_id);
+                    operationClosed();
                 });
                 return;
             }
