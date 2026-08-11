@@ -180,7 +180,9 @@ import {
     COMPOSER_PLACEHOLDER,
     createTuiComposer,
     createTuiComposerPanel,
-    TUI_COMPOSER_PANEL_ROWS,
+    TUI_COMPOSER_MAX_TEXT_ROWS,
+    TUI_COMPOSER_MIN_TEXT_ROWS,
+    tuiComposerPanelRows,
 } from "./composer.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { TuiBodyFocusController } from "./body-focus.ts";
@@ -1280,14 +1282,6 @@ export async function startTui(
         // is the shortest thing down there and the row has the room.
         alignSelf: "flex-end",
     });
-    const paneStatusText = new TextRenderable(renderer, {
-        id: "pane-status",
-        content: "",
-        fg: TUI_MUTED,
-        width: "100%",
-        height: 1,
-        visible: false,
-    });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
         content: "",
@@ -1347,7 +1341,6 @@ export async function startTui(
     placeRow.add(statusCard);
     placeRow.add(statusText);
     statusBand.add(placeRow);
-    statusBand.add(paneStatusText);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
@@ -1488,7 +1481,7 @@ export async function startTui(
     }
 
     function positionCommandSuggestions(): void {
-        commandSuggestionsBox.bottom = TUI_COMPOSER_PANEL_ROWS
+        commandSuggestionsBox.bottom = composerBox.height
             + composerMarginRows
             + experimentalTuiHost.bottomInsetRows()
             + (composerTipText.visible ? 1 : 0)
@@ -1529,6 +1522,27 @@ export async function startTui(
         status: composerStatusText,
         rule: composerRule,
     } = createTuiComposerPanel(renderer, composer);
+    let composerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
+    let requestedComposerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
+    function resizeComposer(requestedRows: number): void {
+        requestedComposerTextRows = requestedRows;
+        const terminalCap = Math.max(
+            TUI_COMPOSER_MIN_TEXT_ROWS,
+            Math.floor(renderer.height / 4),
+        );
+        const nextRows = Math.min(
+            requestedRows,
+            TUI_COMPOSER_MAX_TEXT_ROWS,
+            terminalCap,
+        );
+        if (nextRows === composerTextRows) return;
+        composerTextRows = nextRows;
+        composer.height = nextRows;
+        composerBox.height = tuiComposerPanelRows(nextRows);
+        positionCommandSuggestions();
+        renderer.requestRender();
+    }
+    composer.onTypedRowsChange = resizeComposer;
 
     const bodyFocus = new TuiBodyFocusController();
     // Everything the sidebar sits beside: the conversation and what hangs off
@@ -1955,9 +1969,9 @@ export async function startTui(
             }
         }
     }
-    upper.add(experimentalTuiHost.transcriptTop);
     upper.add(transcript);
     upper.add(experimentalTuiHost.transcriptBottom);
+    app.add(experimentalTuiHost.transcriptTop);
     app.add(sidebar.body);
     app.add(jumpToBottom);
     app.add(sidebarJump);
@@ -2154,6 +2168,7 @@ export async function startTui(
 
     renderer.on(CliRenderEvents.RESIZE, () => {
         sidebar.refit();
+        resizeComposer(requestedComposerTextRows);
         renderState();
     });
     renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
@@ -7111,7 +7126,6 @@ export async function startTui(
         sidebarJumpText.fg = theme.background;
         sidebarJumpText.bg = theme.accent;
         sidebarJump.backgroundColor = theme.accent;
-        paneStatusText.fg = theme.muted;
         modeToastText.fg = theme.text;
         modeToastText.bg = theme.panel;
         modeToast.backgroundColor = theme.panel;
@@ -7428,6 +7442,30 @@ export async function startTui(
         ]);
     }
 
+    function paneHeaderText(
+        name: string,
+        approvalMode: string | undefined,
+        paneActivity: string,
+        settings: TuiState["modelSettings"],
+        width: number,
+    ): string {
+        const left = `${name} · ${approvalMode ?? "loading"} · ${paneActivity}`;
+        const model = settings?.model;
+        const right = model === undefined
+            ? "model loading"
+            : settings?.provider === undefined
+            ? model
+            : `${settings.provider}/${model}`;
+        const contentWidth = Math.max(1, width - 4);
+        if (left.length + right.length + 3 <= contentWidth) {
+            return `  ${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
+        }
+        const rightRoom = Math.max(0, contentWidth - left.length - 3);
+        return rightRoom < 4
+            ? `  ${left.slice(0, contentWidth)}`
+            : `  ${left} · ${right.slice(0, rightRoom)}`;
+    }
+
     function renderStatus(): void {
         if (shuttingDown) {
             return;
@@ -7448,35 +7486,29 @@ export async function startTui(
             : hostedSidebar.pane?.state.pendingUiRequest === undefined
             ? "idle"
             : "waiting";
-        const mainPaneStatus = `Vera · ${state.approvalMode ?? "loading"} · ${mainPaneActivity}`;
-        const sidePaneStatus = hostedSidebar.pane === undefined
-            ? ""
-            : `${hostedSidebar.mention ?? hostedSidebar.pane.agentId} · ${hostedSidebar.pane.state.state.approvalMode ?? "loading"} · ${sidePaneActivity}`;
-        // Only when there are two panes to tell apart: an empty row still
-        // takes a line under the frame.
-        paneStatusText.visible = hostedSidebar.pane !== undefined
+        const sideState = hostedSidebar.pane?.state.state;
+        const paneHeadersVisible = hostedSidebar.pane !== undefined
             && !anyOverlayOpen();
-        paneStatusText.content = hostedSidebar.pane === undefined
-            ? ""
-            : layout === "split"
-            ? new StyledText([
-                fg(sidebar.isFocused() ? TUI_MUTED : TUI_ACCENT)(
-                    mainPaneStatus,
-                ),
-                fg(TUI_MUTED)("   |   "),
-                fg(sidebar.isFocused() ? TUI_ACCENT : TUI_MUTED)(
-                    sidePaneStatus,
-                ),
-            ])
-            : layout === "sidebar"
-            ? new StyledText([
-                fg(TUI_ACCENT)("› "),
-                fg(TUI_ACCENT)(sidePaneStatus),
-            ])
-            : new StyledText([
-                fg(TUI_ACCENT)("› "),
-                fg(TUI_ACCENT)(mainPaneStatus),
-            ]);
+        const sideWidth = sidebar.width();
+        const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
+        sidebar.setMainHeader(paneHeadersVisible
+            ? paneHeaderText(
+                "Vera",
+                state.approvalMode,
+                mainPaneActivity,
+                state.modelSettings,
+                layout === "split" ? mainWidth : renderer.width,
+            )
+            : undefined);
+        sidebar.setHeader(paneHeadersVisible && sideState !== undefined
+            ? paneHeaderText(
+                hostedSidebar.mention ?? hostedSidebar.pane!.agentId,
+                sideState.approvalMode,
+                sidePaneActivity,
+                sideState.modelSettings,
+                layout === "split" ? sideWidth : renderer.width,
+            )
+            : undefined);
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
             : `enter queue → ${hostedSidebar.mention ?? focusedSide.agentId}`
@@ -7696,7 +7728,7 @@ export async function startTui(
         // no gutter of its own: the card, its border lines, and whichever
         // status lines are showing above it.
         setComposerMargin(
-            cardRows + (paneStatusText.visible ? 1 : 0),
+            cardRows,
         );
         statusText.content = statusState.working
                 && statusNotice === undefined

@@ -77,6 +77,8 @@ export interface TuiSidebar {
     isFocused(): boolean;
     /** Persistent identity and permission text above the attached surface. */
     setHeader(text: string | undefined): void;
+    /** Persistent identity and permission text above the primary transcript. */
+    setMainHeader(text: string | undefined): void;
     open(): void;
     close(): void;
     append(label: string, text: string, speaker?: string): void;
@@ -126,6 +128,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     let layout: "main" | "split" | "sidebar" = "split";
     let focused = false;
     let headerText: string | undefined;
+    let mainHeaderText: string | undefined;
     let blocks = 0;
     const appended: TuiSidebarBlock[] = [];
     // The parts of each block that carry a colour. A block is built once and
@@ -234,11 +237,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         attributes: TextAttributes.BOLD,
         width: "100%",
         height: 1,
-        marginBottom: 1,
         visible: false,
     });
-    panel.add(header);
-    panel.add(content);
     const sidebarFocusRail = new TextRenderable(renderer, {
         id: "sidebar-focus-rail",
         width: "100%",
@@ -247,13 +247,24 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
-    sidebarColumn.add(panel);
+    sidebarColumn.add(header);
     sidebarColumn.add(sidebarFocusRail);
+    panel.add(content);
+    sidebarColumn.add(panel);
 
     const mainColumn = new BoxRenderable(renderer, {
         id: "main-column",
         flexGrow: 1,
         flexDirection: "column",
+    });
+    const mainHeader = new TextRenderable(renderer, {
+        id: "main-header",
+        content: "",
+        fg: theme.muted,
+        attributes: TextAttributes.BOLD,
+        width: "100%",
+        height: 1,
+        visible: false,
     });
     const mainFocusRail = new TextRenderable(renderer, {
         id: "main-focus-rail",
@@ -263,8 +274,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
-    mainColumn.add(options.transcript);
+    mainColumn.add(mainHeader);
     mainColumn.add(mainFocusRail);
+    mainColumn.add(options.transcript);
     body.add(mainColumn);
     body.add(divider);
     body.add(sidebarColumn);
@@ -408,6 +420,13 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             header.visible = text !== undefined && text.length > 0;
             options.onLayoutChanged?.();
         },
+        setMainHeader(text): void {
+            if (mainHeaderText === text) return;
+            mainHeaderText = text;
+            mainHeader.content = text ?? "";
+            mainHeader.visible = text !== undefined && text.length > 0;
+            options.onLayoutChanged?.();
+        },
         open(): void {
             open = true;
             layout = "split";
@@ -499,6 +518,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             theme = next;
             syntaxStyle = nextSyntaxStyle;
             header.fg = theme.muted;
+            mainHeader.fg = theme.muted;
             divider.backgroundColor = dragging
                 ? theme.handleActive
                 : theme.handle;

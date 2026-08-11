@@ -195,6 +195,27 @@ test("focus rail follows the active pane symmetrically", async () => {
     }
 });
 
+test("pane headers sit immediately above their focus rails", async () => {
+    const { setup, sidebar } = await openSidebar();
+    try {
+        sidebar.setMainHeader("Vera · ask · idle");
+        sidebar.setHeader("sidekick · readonly · idle");
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const mainHeader = lines.findIndex((line) =>
+            line.includes("Vera · ask · idle")
+        );
+        const sideHeader = lines.findIndex((line) =>
+            line.includes("sidekick · readonly · idle")
+        );
+        expect(mainHeader).toBeGreaterThanOrEqual(0);
+        expect(sideHeader).toBe(mainHeader);
+        expect(lines[mainHeader + 1]).toContain("▁");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("an attached agent identity stays at the top of the sidebar", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
