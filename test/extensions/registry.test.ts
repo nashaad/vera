@@ -383,6 +383,67 @@ test("the command hook adapter exchanges bounded JSON over an argv-only process"
     await registry.close();
 });
 
+test("the command hook adapter runs the repository checkout guard", async () => {
+    const script = join(
+        process.cwd(),
+        ".claude/hooks/guard-main-checkout.sh",
+    );
+    const registry = await startExtensionRegistry({
+        extensions: [{
+            path: join(process.cwd(), "examples/extensions/command-hooks"),
+            enabled: true,
+            config: {
+                hooks: [{
+                    phase: "pre_tool_use",
+                    protocol: "claude",
+                    argv: [script],
+                }],
+            },
+        }],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preToolUseHooks()) {
+        hooks.registerPreToolUse(hook);
+    }
+
+    const blocked = await hooks.runPreToolUse({
+        type: "pre_tool_use",
+        sessionId: "session-1",
+        workspace: "/Users/nash/Projects/vera",
+        toolCall: {
+            id: "switch-1",
+            name: "bash",
+            input: { command: "git switch feature" },
+        },
+    }, { timeoutMs: 1_500 });
+    expect(blocked.result).toMatchObject({
+        power: "block",
+        reason: expect.stringContaining("Use a linked worktree instead"),
+    });
+
+    const allowed = await hooks.runPreToolUse({
+        type: "pre_tool_use",
+        sessionId: "session-1",
+        workspace: "/Users/nash/Projects/vera",
+        toolCall: {
+            id: "status-1",
+            name: "bash",
+            input: { command: "git status --short" },
+        },
+    }, { timeoutMs: 1_500 });
+    expect(allowed.result).toEqual({ power: "observe" });
+
+    await registry.close();
+});
+
+test("Claude command-hook compatibility rejects unsupported responses", async () => {
+    expect(() => createCommandHook({
+        phase: "post_tool_use",
+        protocol: "claude",
+        argv: [process.execPath, "-e", "console.log('{}')"],
+    })).toThrow("support pre_tool_use only");
+});
+
 test("command hooks reject oversized input before spawning a process", async () => {
     const hook = createCommandHook({
         phase: "pre_tool_use",

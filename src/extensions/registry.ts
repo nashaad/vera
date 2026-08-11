@@ -880,6 +880,7 @@ function normalizeCommandHookSpec(
     return {
         phase: spec.phase,
         argv: [...(spec.argv ?? [])],
+        ...(spec.protocol === undefined ? {} : { protocol: spec.protocol }),
         ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
     };
 }
