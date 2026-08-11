@@ -15,6 +15,7 @@ import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
+    HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
     requestHostShutdownIfIdle,
 } from "../../src/host/protocol.ts";
@@ -186,6 +187,8 @@ afterEach(() => {
                 pid: server.identity.pid,
                 started_at: server.identity.started_at,
                 protocol_version: HOST_PROTOCOL_VERSION,
+                minimum_compatible_protocol_version:
+                    HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
             });
             connection.close();
         } finally {

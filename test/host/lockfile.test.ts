@@ -15,7 +15,10 @@ import {
     createHostLockfile,
     HostProtocolMismatchError,
 } from "../../src/host/lockfile.ts";
-import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
+import {
+    HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+    HOST_PROTOCOL_VERSION,
+} from "../../src/host/protocol.ts";
 
 const temporaryDirectories: string[] = [];
 const startedAt = "2026-07-17T12:00:00.000Z";
@@ -163,6 +166,92 @@ test("a live legacy host is incompatible rather than stale", async () => {
     );
 });
 
+test("a host inside the additive compatibility window stays reusable", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+    const reader = createTestLockfile(path, {
+        inspectSocket: async () => ({
+            pid: record.pid,
+            started_at: record.started_at,
+            protocol_version: HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+        }),
+    });
+    const tooOld = createTestLockfile(path, {
+        inspectSocket: async () => ({
+            pid: record.pid,
+            started_at: record.started_at,
+            protocol_version: HOST_MIN_COMPATIBLE_PROTOCOL_VERSION - 1,
+        }),
+    });
+
+    expect(await reader.read()).toEqual(record);
+    await expect(tooOld.read()).rejects.toBeInstanceOf(
+        HostProtocolMismatchError,
+    );
+});
+
+test("a newer host can advertise compatibility with this client", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+    const compatible = createTestLockfile(path, {
+        inspectSocket: async () => ({
+            pid: record.pid,
+            started_at: record.started_at,
+            protocol_version: HOST_PROTOCOL_VERSION + 1,
+            minimum_compatible_protocol_version:
+                HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+        }),
+    });
+    const unknown = createTestLockfile(path, {
+        inspectSocket: async () => ({
+            pid: record.pid,
+            started_at: record.started_at,
+            protocol_version: HOST_PROTOCOL_VERSION + 1,
+        }),
+    });
+
+    expect(await compatible.read()).toEqual(record);
+    await expect(unknown.read()).rejects.toBeInstanceOf(
+        HostProtocolMismatchError,
+    );
+});
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "reader reuses an older compatible identity over a real Unix socket",
+    async () => {
+        const path = temporaryLockPath();
+        const socketPath = join(path, "..", "..", "compatible.sock");
+        const server = createServer((socket) => {
+            socket.once("data", () => {
+                socket.end(`${JSON.stringify({
+                    type: "host_identity",
+                    pid: 101,
+                    started_at: startedAt,
+                    protocol_version:
+                        HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+                })}\n`);
+            });
+        });
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        const lockfile = createHostLockfile({
+            path,
+            socketPath,
+            pid: 101,
+            startedAt,
+        });
+
+        try {
+            const record = await lockfile.publish();
+            expect(await lockfile.read()).toEqual(record);
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    },
+);
+
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "reader recognizes a legacy identity over a real Unix socket",
     async () => {
@@ -284,6 +373,7 @@ interface TestLockfileOverrides {
         readonly pid: number;
         readonly started_at: string;
         readonly protocol_version?: number;
+        readonly minimum_compatible_protocol_version?: number;
     } | undefined>;
 }
 

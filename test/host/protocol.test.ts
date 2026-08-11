@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
     encodeHostResponse,
+    HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
     parseAttachedClientMessage,
     parseHostRequest,
@@ -259,10 +260,15 @@ test("host protocol parses identity requests and encodes responses", () => {
         pid: 101,
         started_at: "2026-07-17T12:00:00.000Z",
         protocol_version: HOST_PROTOCOL_VERSION,
+        minimum_compatible_protocol_version:
+            HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     })).toBe(
         '{"type":"host_identity","pid":101,'
         + '"started_at":"2026-07-17T12:00:00.000Z",'
-        + `"protocol_version":${HOST_PROTOCOL_VERSION}}\n`,
+        + `"protocol_version":${HOST_PROTOCOL_VERSION},`
+        + `"minimum_compatible_protocol_version":${
+            HOST_MIN_COMPATIBLE_PROTOCOL_VERSION
+        }}\n`,
     );
     expect(encodeHostResponse({
         type: "agent_list",

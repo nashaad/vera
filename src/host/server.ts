@@ -9,6 +9,7 @@ import {
     type HostLockRecord,
 } from "./lockfile.ts";
 import {
+    HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
     parseAttachedClientMessage,
     parseHostRequest,
@@ -606,6 +607,8 @@ function receiveConnection(
                 pid: identity.pid,
                 started_at: identity.started_at,
                 protocol_version: HOST_PROTOCOL_VERSION,
+                minimum_compatible_protocol_version:
+                    HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
