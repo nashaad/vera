@@ -260,9 +260,13 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
             };
         })
         : [];
-    const usage = chunk.usage as Record<string, unknown> | null | undefined;
+    // Pulled off the rest rather than overwritten: a provider that sends
+    // `"usage": null` would otherwise keep that null through the spread, and
+    // every reader downstream would have to guard the field itself.
+    const { usage: rawUsage, ...rest } = chunk;
+    const usage = rawUsage as Record<string, unknown> | null | undefined;
     return {
-        ...chunk,
+        ...rest,
         choices,
         ...(usage == null
             ? {}
