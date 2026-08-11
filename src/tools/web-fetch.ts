@@ -1,9 +1,10 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { Parser } from "htmlparser2";
+import { Readable } from "node:stream";
 import {
     Agent,
-    fetch as undiciFetch,
+    request as undiciRequest,
 } from "undici/index.js";
 
 import type { RegisteredTool, ToolOutput } from "./types.ts";
@@ -206,6 +207,9 @@ function injectedTransport(fetcher: Fetch): FetchTransport {
     };
 }
 
+/** Statuses the Response constructor refuses to pair with a body. */
+const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
+
 function pinnedTransport(): FetchTransport {
     const pinned = new Map<string, readonly ResolvedAddress[]>();
     const agent = new Agent({
@@ -230,12 +234,34 @@ function pinnedTransport(): FetchTransport {
     return {
         async request(url, init, addresses): Promise<Response> {
             pinned.set(unbracketed(url.hostname).toLowerCase(), addresses);
-            return await undiciFetch(url, {
+            // undici's `fetch` resolves its headers here but never yields a
+            // body chunk; its core `request` streams normally, and returns
+            // redirects unfollowed the way this loop expects.
+            const response = await undiciRequest(url, {
+                method: "GET",
                 headers: init.headers as Record<string, string>,
-                redirect: init.redirect,
                 signal: init.signal,
                 dispatcher: agent,
-            }) as unknown as Response;
+            });
+            const headers = new Headers();
+            for (const [name, value] of Object.entries(response.headers)) {
+                for (const one of Array.isArray(value) ? value : [value]) {
+                    if (one !== undefined) {
+                        headers.append(name, one);
+                    }
+                }
+            }
+            if (NULL_BODY_STATUSES.has(response.statusCode)) {
+                await response.body.dump();
+                return new Response(null, {
+                    status: response.statusCode,
+                    headers,
+                });
+            }
+            return new Response(
+                Readable.toWeb(response.body) as ReadableStream<Uint8Array>,
+                { status: response.statusCode, headers },
+            );
         },
         async close(): Promise<void> {
             await agent.close();
