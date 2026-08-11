@@ -240,3 +240,14 @@ test("a private-network PDF is still rejected before any parsing", async () => {
         async () => [{ address: "10.0.0.5", family: 4 as const }],
     )).rejects.toThrow("local and private-network");
 });
+
+test("a content type web_fetch cannot read points at web_download", async () => {
+    await expect(fetchReadablePage(
+        "https://example.com/archive.zip",
+        signal,
+        async () => new Response("bytes", {
+            headers: { "content-type": "application/zip" },
+        }),
+        publicAddress,
+    )).rejects.toThrow(/web_download to save this URL/);
+});
