@@ -1671,14 +1671,17 @@ async function executePreparedTool(
                     nextSignal,
                 );
         if (reviewCall === undefined) {
-            const approval = await state.inbound.requestToolApproval(
-                hookCall,
-                `${permission.reason} The automatic reviewer is unavailable.`,
-                { timeoutMs: TOOL_APPROVAL_TIMEOUT_MS, signal },
-            );
-            if (approval.behavior === "deny") {
-                return { result: deniedToolResult(toolCall, approval.reason) };
-            }
+            const reason =
+                "The automatic reviewer is unavailable, so the action did not run.";
+            state.events.emit({
+                type: "tool_review_decided",
+                toolCall: hookCall,
+                decision: "unavailable",
+                reason,
+                riskLevel: "high",
+                userAuthorization: "unknown",
+            });
+            return { result: deniedToolResult(toolCall, reason) };
         } else {
             const review = await reviewCall(
                 {
@@ -1714,22 +1717,9 @@ async function executePreparedTool(
                 };
             }
             if (review.decision === "unavailable") {
-                const approval = await state.inbound.requestToolApproval(
-                    hookCall,
-                    `${permission.reason} ${review.reason}`,
-                    {
-                        timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
-                        signal,
-                        ...(grantProposals.length === 0
-                            ? {}
-                            : { permissionGrants: grantProposals }),
-                    },
-                );
-                if (approval.behavior === "deny") {
-                    return {
-                        result: deniedToolResult(toolCall, approval.reason),
-                    };
-                }
+                return {
+                    result: deniedToolResult(toolCall, review.reason),
+                };
             } else {
                 breaker.record("allow");
             }

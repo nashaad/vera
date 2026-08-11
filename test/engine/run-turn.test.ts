@@ -1655,7 +1655,7 @@ test("a bounded effect result suppresses acknowledgement", async () => {
         state,
     );
     await receiveThroughTurnFinished(channel);
-    await turn;
+    const message = await turn;
 
     expect(acknowledgements).toBe(0);
     const result = state.messages.find((message) => message.role === "tool_result");
@@ -2880,7 +2880,7 @@ test("a reviewer denial goes back to the model, not to the user", async () => {
     expect(text).toContain("workaround");
 });
 
-test("an unavailable reviewer escalates to the attached user", async () => {
+test("an unavailable reviewer rejects the tool without asking the user", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state = reviewedTurnState(channel, events, async () => ({
@@ -2892,31 +2892,25 @@ test("an unavailable reviewer escalates to the attached user", async () => {
 
     channel.client.send({ type: "prompt", content: "go" });
     const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
-    let requestId = "";
+    const updates: string[] = [];
     while (true) {
         const update = await channel.client.receive();
-        if (update.type === "ui_request") {
-            requestId = update.requestId;
-            expect(update.request).toMatchObject({
-                type: "tool_approval",
-                reason: expect.stringContaining("timed out"),
-            });
+        updates.push(update.type);
+        if (update.type === "turn_finished") {
             break;
         }
     }
-    channel.client.send({
-        type: "ui_response",
-        requestId,
-        response: { type: "tool_approval", decision: "deny" },
-    });
-    await receiveThroughTurnFinished(channel);
-    await turn;
+    const message = await turn;
 
-    expect(requestId.length).toBeGreaterThan(0);
+    expect(updates).toContain("tool_review");
+    expect(updates).not.toContain("ui_request");
+    expect(updates).not.toContain("tool_started");
     expect(state.messages[2]).toMatchObject({
         role: "tool_result",
         isError: true,
     });
+    expect(JSON.stringify(state.messages[2])).toContain("timed out");
+    expect(JSON.stringify(message)).toContain("done");
 });
 
 test("repeated reviewer denials stop the turn", async () => {
@@ -2952,7 +2946,7 @@ test("repeated reviewer denials stop the turn", async () => {
     expect(state.messages.at(-1)).toBe(message);
 });
 
-test("auto still asks the user when no reviewer is configured", async () => {
+test("auto rejects without asking when no reviewer is configured", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state = reviewedTurnState(channel, events, undefined);
@@ -2960,23 +2954,26 @@ test("auto still asks the user when no reviewer is configured", async () => {
     channel.client.send({ type: "prompt", content: "go" });
     const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
 
-    let requestId = "";
+    const updates: string[] = [];
     while (true) {
         const update = await channel.client.receive();
-        if (update.type === "ui_request") {
-            requestId = update.requestId;
+        updates.push(update.type);
+        if (update.type === "turn_finished") {
             break;
         }
     }
-    channel.client.send({
-        type: "ui_response",
-        requestId,
-        response: { type: "tool_approval", decision: "deny" },
-    });
-    await receiveThroughTurnFinished(channel);
-    await turn;
+    const message = await turn;
 
-    expect(requestId.length).toBeGreaterThan(0);
+    expect(updates).toContain("tool_review");
+    expect(updates).not.toContain("ui_request");
+    expect(updates).not.toContain("tool_started");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+    });
+    expect(JSON.stringify(state.messages[2]))
+        .toContain("automatic reviewer is unavailable");
+    expect(JSON.stringify(message)).toContain("done");
 });
 
 function createTestEvents(sender: AgentUpdateSender): EngineEventBus {
