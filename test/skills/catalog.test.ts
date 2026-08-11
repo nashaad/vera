@@ -91,14 +91,27 @@ description: ${description}
 `);
 }
 
-test("the bundled consult skill is available as system scope", async () => {
+test("Vera ships no automatically enabled workflow skills", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
     const catalog = await loadSkillCatalog({
         projectRoot: join(root, "project"),
         userDirectory: join(root, "user"),
     });
 
-    const consult = findSkill(catalog, "consult");
-    expect(consult?.scope).toBe("system");
-    expect(consult?.instructions).toContain("exactly two sibling subagents");
+    expect(catalog.skills).toEqual([]);
+});
+
+test("copyable example skills are valid opt-in packages", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const catalog = await loadSkillCatalog({
+        projectRoot: join(root, "project"),
+        userDirectory: join(root, "user"),
+        systemDirectory: join(import.meta.dir, "../../examples/skills"),
+    });
+
+    expect(catalog.warnings).toEqual([]);
+    expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
+        "browser-research",
+        "consult",
+    ]);
 });
