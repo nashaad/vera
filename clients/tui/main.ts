@@ -379,7 +379,7 @@ import {
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
-const WORKING_HINT = `enter queue · esc stop · ${tuiKeyHint("interrupt")}`;
+const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 // The question overlay owns the choose/cancel hint now, so the status line only
 // carries the waiting phase and the global interrupt.
@@ -1276,9 +1276,17 @@ export async function startTui(
         id: "status",
         content: READY_HINT,
         fg: TUI_MUTED,
-        width: "100%",
+        height: 1,
+        flexGrow: 1,
+        flexShrink: 1,
+    });
+    const activityHintText = new TextRenderable(renderer, {
+        id: "activity-hint",
+        content: "",
+        fg: TUI_MUTED,
         height: 1,
         flexShrink: 0,
+        alignSelf: "flex-end",
     });
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
@@ -1347,7 +1355,15 @@ export async function startTui(
     statusCard.flexShrink = 1;
     placeRow.add(statusCard);
     placeRow.add(hostedModeText);
-    statusBand.add(statusText);
+    const activityRow = new BoxRenderable(renderer, {
+        id: "activity-row",
+        width: "100%",
+        height: 1,
+        flexDirection: "row",
+    });
+    activityRow.add(statusText);
+    activityRow.add(activityHintText);
+    statusBand.add(activityRow);
     statusBand.add(placeRow);
 
     // Read here rather than passed in: tips are a client-side display choice,
@@ -7124,6 +7140,7 @@ export async function startTui(
 
         placeholder.fg = theme.muted;
         backgroundStatusText.fg = theme.muted;
+        activityHintText.fg = theme.muted;
         hostedModeText.fg = theme.muted;
         app.backgroundColor = theme.background;
         quoteText.fg = theme.muted;
@@ -7509,8 +7526,7 @@ export async function startTui(
             : undefined);
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
-            : `enter queue → ${hostedSidebar.mention ?? focusedSide.agentId}`
-                + ` · esc stop ${hostedSidebar.mention ?? focusedSide.agentId}`
+            : `esc stop ${hostedSidebar.mention ?? focusedSide.agentId}`
                 + ` · ${tuiKeyHint("interrupt")}`;
         renderPendingQuote();
         renderHeldAddress();
@@ -7538,9 +7554,9 @@ export async function startTui(
                 && Date.parse(modelActivity.retryAt) > Date.now();
             lifecycleHint = waitingToRetry
                 ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
-                    + ` · ${focusedElapsed} · ${workingHint}`
+                    + ` · ${focusedElapsed}`
                 : `${modelActivity === undefined ? focusedActivity : "thinking"}`
-                    + ` · ${focusedElapsed} · ${workingHint}`;
+                    + ` · ${focusedElapsed}`;
         } else if (pendingImages.some((image) => image.id === undefined)) {
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
@@ -7580,11 +7596,23 @@ export async function startTui(
                         : `ctrl+g ${hostedSidebar.mention ?? hostedSidebar.pane.agentId}`]
                     : []),
             ].join(" · ");
-        hostedModeText.content = hostedModeStatus ?? "";
-        hostedModeText.visible = hostedModeStatus !== undefined;
+        hostedModeText.content = hostedModeStatus ?? READY_HINT;
+        hostedModeText.visible = true;
         const statusLine = statusNotice ?? lifecycleHint;
         statusText.visible = !(approvalView.box.visible
             || questionView.box.visible);
+        const quietActivity = statusNotice === undefined
+            && !statusState.working
+            && uiRequest === undefined
+            && lifecycleHint === READY_HINT;
+        const activityHint = statusState.working
+                && uiRequest === undefined
+                && !focusedAbort
+            ? workingHint
+            : "";
+        activityHintText.content = activityHint;
+        activityHintText.visible = statusText.visible
+            && activityHint.length > 0;
         // Pull on repaint: the renderer is handed the snapshot and answers
         // synchronously, or it does not answer at all. Nothing here waits on
         // an extension, and a renderer that fails leaves the built-in line.
@@ -7704,12 +7732,7 @@ export async function startTui(
         setComposerMargin(
             cardRows + 1,
         );
-        const quietHostedActivity = hostedModeStatus !== undefined
-            && statusNotice === undefined
-            && !statusState.working
-            && uiRequest === undefined
-            && lifecycleHint === READY_HINT;
-        statusText.content = quietHostedActivity
+        statusText.content = quietActivity
             ? ""
             : statusState.working
                 && statusNotice === undefined
