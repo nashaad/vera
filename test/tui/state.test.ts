@@ -458,7 +458,27 @@ test("TUI shows model failures when a turn finishes", () => {
     expect(state.working).toBe(false);
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
-        text: "Model error: Kimi only supports reasoning max",
+        text: "",
+        errorText: "Model error: Kimi only supports reasoning max",
+    });
+});
+
+test("TUI draws attachment failures as errors", () => {
+    const state = applyAgentUpdate(
+        beginTuiTurn(createTuiState(), "inspect image"),
+        {
+            type: "turn_finished",
+            error: "Image attachment unavailable: the selected model provider "
+                + "does not support image input",
+            seq: 1,
+        },
+    );
+
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "",
+        errorText: "Attachment error: the selected model provider does not "
+            + "support image input",
     });
 });
 
@@ -480,7 +500,8 @@ test("TUI stops working when the resident agent fails", () => {
     expect(state.queuedPrompts).toEqual([]);
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
-        text: "Agent error: Resident agent stopped unexpectedly",
+        text: "",
+        errorText: "Agent error: Resident agent stopped unexpectedly",
     });
 });
 
@@ -506,7 +527,8 @@ test("TUI connection failure stops work and clears unsendable prompts", () => {
     expect(entryLine(state.entries[1]!)).toBe("Ran");
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
-        text: "Connection error: Host sent a non-contiguous agent update sequence",
+        text: "",
+        errorText: "Connection error: Host sent a non-contiguous agent update sequence",
     });
 });
 

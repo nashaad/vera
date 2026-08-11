@@ -65,7 +65,7 @@ export function createTuiUserEntry(
             marginLeft: 2,
             // The chips read as their own row under the message rather than as
             // the last line of it.
-            marginTop: index === 0 ? 1 : 0,
+            marginTop: index === 0 && entry.text.length > 0 ? 1 : 0,
             flexDirection: "row",
             backgroundColor: TUI_ELEMENT,
         });
