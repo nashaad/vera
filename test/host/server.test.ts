@@ -11,8 +11,10 @@ import { join } from "node:path";
 
 import { createHostLockfile } from "../../src/host/lockfile.ts";
 import { connectHost } from "../../src/host/connection.ts";
+import { attachAgent } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
@@ -189,6 +191,143 @@ afterEach(() => {
             await expect(attached.receive()).rejects.toThrow();
         } finally {
             attached.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "replacement preserves schedule and extension terminal outcomes",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        let finishSchedule: (() => void) | undefined;
+        let finishExtension: (() => void) | undefined;
+        const scheduleStarted = Promise.withResolvers<void>();
+        const extensionStarted = Promise.withResolvers<void>();
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            canReplace: () => true,
+            runScheduleOperation: async () => {
+                scheduleStarted.resolve();
+                await new Promise<void>((resolve) => {
+                    finishSchedule = resolve;
+                });
+                return { schedule_id: "daily" };
+            },
+            listExtensionCommands: () => [{
+                name: "wait",
+                description: "Wait",
+                usage: "/wait",
+                source: "test.extension",
+            }],
+            runExtensionCommand: async () => {
+                extensionStarted.resolve();
+                await new Promise<void>((resolve) => {
+                    finishExtension = resolve;
+                });
+                return {
+                    version: 1,
+                    source: "test.extension/wait",
+                    body: { kind: "text", text: "done" },
+                };
+            },
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            await client.receive();
+            const scheduled = runScheduleOperationThroughHost(socketPath, {
+                action: "show",
+                id: "daily",
+            });
+            const extension = client.runExtensionCommand("wait", "");
+            await Promise.all([
+                scheduleStarted.promise,
+                extensionStarted.promise,
+            ]);
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION + 1,
+            )).toEqual({
+                type: "shutdown_for_replacement_refused",
+                reason: "busy",
+            });
+            finishSchedule?.();
+            expect(await scheduled).toEqual({ schedule_id: "daily" });
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION + 1,
+            )).toEqual({
+                type: "shutdown_for_replacement_refused",
+                reason: "busy",
+            });
+            finishExtension?.();
+            expect(await extension).toMatchObject({
+                body: { kind: "text", text: "done" },
+            });
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION + 1,
+            )).toMatchObject({
+                type: "shutdown_for_replacement_accepted",
+                pid: server.identity.pid,
+            });
+        } finally {
+            finishSchedule?.();
+            finishExtension?.();
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "replacement proceeds after an extension discovery failure is delivered",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const discoveryStarted = Promise.withResolvers<void>();
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            canReplace: () => true,
+            listExtensionCommands: () => {
+                discoveryStarted.resolve();
+                throw new Error("broken registry");
+            },
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            await client.receive();
+            const failed = client.runExtensionCommand("wait", "").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            await discoveryStarted.promise;
+            expect(await failed).toMatchObject({
+                message: "Extension commands are unavailable",
+                reason: "unavailable",
+            });
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION + 1,
+            )).toMatchObject({
+                type: "shutdown_for_replacement_accepted",
+                pid: server.identity.pid,
+            });
+        } finally {
+            client.close();
             agent.close();
             await server.close();
         }

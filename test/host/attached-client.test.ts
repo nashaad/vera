@@ -58,6 +58,33 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "an old client can attach to a capability-advertising host",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_AGENT_ATTACH_RESUME],
+            findAgent: () => agent,
+        });
+        const oldClient = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+        });
+        try {
+            expect(oldClient.capabilities).toEqual([]);
+            expect((await oldClient.receive()).type).toBe("history");
+        } finally {
+            oldClient.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "attached clients resume after their last accepted sequence",
     async () => {
         const directory = temporaryDirectory();
