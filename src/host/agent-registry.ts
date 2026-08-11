@@ -16,6 +16,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { EngineEventBus } from "../engine/events.ts";
 import type { InstructionRoot } from "../engine/memory.ts";
+import type { PromptContribution } from "../engine/prompt-contributions.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import {
     builtInPermissionMode,
@@ -312,6 +313,9 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly loadContextualContributions?: (
+        instructionRoot: InstructionRoot,
+    ) => Promise<readonly PromptContribution[]>;
     readonly disabledPromptContributions?: readonly string[];
     /** Builds each resident agent's tool hooks; absent means none. */
     readonly createToolHooks?: () => ToolHooks;
@@ -2169,6 +2173,13 @@ export class AgentRegistry {
                         disabledPromptContributions,
                 }),
             extensionTools,
+            ...(startupProfile !== "default"
+                || this.options.loadContextualContributions === undefined
+                ? {}
+                : {
+                    loadContextualContributions:
+                        this.options.loadContextualContributions,
+                }),
             offerTools: startupProfile !== "prompt_only",
             loadOptionalContext: startupProfile === "default",
             ...(store.header.startupProfile === undefined
@@ -2342,6 +2353,13 @@ export class AgentRegistry {
                     : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
                 extensionTools,
+                ...(startupProfile !== "default"
+                    || this.options.loadContextualContributions === undefined
+                    ? {}
+                    : {
+                        loadContextualContributions:
+                            this.options.loadContextualContributions,
+                    }),
                 offerTools: startupProfile !== "prompt_only",
                 loadOptionalContext: startupProfile === "default",
                 onInboundReady: (inbound) => {

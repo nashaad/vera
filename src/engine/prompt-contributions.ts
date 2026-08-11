@@ -8,7 +8,7 @@ export type PromptContributionTarget = "stable" | "contextual";
 
 export interface PromptContribution {
     readonly id: string;
-    readonly owner: "core";
+    readonly owner: string;
     readonly target: PromptContributionTarget;
     readonly title: string;
     readonly content: string;
@@ -16,7 +16,7 @@ export interface PromptContribution {
 
 export interface PromptContributionMetadata {
     readonly id: string;
-    readonly owner: "core";
+    readonly owner: string;
     readonly target: PromptContributionTarget;
     readonly order: number;
     readonly bytes: number;
@@ -32,6 +32,7 @@ export interface PromptContributionInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    readonly additionalContextualContributions?: readonly PromptContribution[];
 }
 
 export interface StablePromptContributionInput {
@@ -47,6 +48,7 @@ export interface ContextualPromptContributionInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    readonly additionalContributions?: readonly PromptContribution[];
 }
 
 interface StablePromptContributor {
@@ -208,7 +210,10 @@ export function collectBuiltInPromptContributions(
 ): readonly PromptContribution[] {
     return [
         ...collectStablePromptContributions(input),
-        ...collectContextualPromptContributions(input),
+        ...collectContextualPromptContributions({
+            ...input,
+            additionalContributions: input.additionalContextualContributions,
+        }),
     ];
 }
 
@@ -252,12 +257,41 @@ export function collectStablePromptContributions(
 export function collectContextualPromptContributions(
     input: ContextualPromptContributionInput,
 ): readonly PromptContribution[] {
-    return BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
+    const builtIn = BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
         contributor.target === "contextual"
             && !isDisabled(contributor.id, input.disabledContributions)
             ? collectContribution(contributor, contributor.contribute(input))
             : []
     );
+    const additional = input.additionalContributions ?? [];
+    validateAdditionalContributions(builtIn, additional);
+    return [
+        ...builtIn,
+        ...additional.filter((contribution) =>
+            !isDisabled(contribution.id, input.disabledContributions)
+        ),
+    ];
+}
+
+function validateAdditionalContributions(
+    builtIn: readonly PromptContribution[],
+    additional: readonly PromptContribution[],
+): void {
+    const ids = new Set(builtIn.map((contribution) => contribution.id));
+    for (const contribution of additional) {
+        if (
+            contribution.id.trim().length === 0
+            || contribution.owner.trim().length === 0
+            || contribution.title.trim().length === 0
+            || contribution.target !== "contextual"
+        ) {
+            throw new Error("Owner prompt contributions must be attributed contextual text");
+        }
+        if (ids.has(contribution.id)) {
+            throw new Error(`Duplicate prompt contribution id: ${contribution.id}`);
+        }
+        ids.add(contribution.id);
+    }
 }
 
 function isDisabled(
