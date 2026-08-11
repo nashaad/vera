@@ -236,6 +236,8 @@ export interface AttachFailedResponse {
     readonly type: "attach_failed";
     readonly agent_id: string;
     readonly reason: "not_found" | "unavailable";
+    readonly unavailable_reason?: "provider_unavailable";
+    readonly provider?: string;
 }
 
 export interface DetachedResponse {
@@ -262,6 +264,8 @@ export interface AgentStartFailedResponse {
      * field rather than the message of whatever was thrown.
      */
     readonly reason?: string;
+    readonly reason_code?: "provider_unavailable";
+    readonly provider?: string;
 }
 
 export interface AgentBranchedResponse {

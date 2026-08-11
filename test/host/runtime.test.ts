@@ -11,10 +11,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { connectHost } from "../../src/host/connection.ts";
-import { attachAgent } from "../../src/host/attached-client.ts";
+import {
+    AgentAttachError,
+    attachAgent,
+} from "../../src/host/attached-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
-import { resumeAgentThroughHost } from "../../src/host/agent-start-client.ts";
+import {
+    AgentStartError,
+    resumeAgentThroughHost,
+} from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import {
     HOST_PROTOCOL_VERSION,
@@ -664,6 +670,105 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                 seq: 0,
             });
             attached.detach();
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resume reports a stored provider this Vera build cannot use",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-stale-provider-"));
+        const workspace = await realpath(root);
+        const sessionDirectory = join(root, "sessions");
+        const sessionPath = join(sessionDirectory, "stale.jsonl");
+        const store = await SessionStore.create(sessionPath, {
+            sessionId: "stale-provider",
+            cwd: workspace,
+        });
+        await store.appendModelSettings({
+            provider: "retired-provider",
+            model: "old-model",
+        });
+        const failedPath = join(sessionDirectory, "failed.jsonl");
+        const failedStore = await SessionStore.create(failedPath, {
+            sessionId: "failed-stale-provider",
+            cwd: workspace,
+        });
+        await failedStore.appendModelSettings({
+            provider: "retired-provider",
+            model: "old-model",
+        });
+        await failedStore.appendAgentFailure(
+            "failure-1",
+            "Resident agent stopped unexpectedly",
+        );
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+        });
+        try {
+            let failure: unknown;
+            try {
+                await resumeAgentThroughHost(socketPath, sessionPath);
+            } catch (error) {
+                failure = error;
+            }
+            expect(failure).toBeInstanceOf(AgentStartError);
+            expect(failure).toMatchObject({
+                operation: "resume",
+                reasonCode: "provider_unavailable",
+                provider: "retired-provider",
+                message:
+                    "Session provider \"retired-provider\" is unavailable in this Vera build",
+            });
+            expect(host.registry.find("stale-provider")).toBeUndefined();
+
+            expect(await resumeAgentThroughHost(socketPath, failedPath)).toEqual({
+                id: "failed-stale-provider",
+                workspace,
+            });
+            const failed = await attachAgent({
+                socketPath,
+                agentId: "failed-stale-provider",
+            });
+            try {
+                expect(await failed.receive()).toMatchObject({ type: "history" });
+                expect(await failed.receive()).toMatchObject({
+                    type: "agent_failed",
+                    failureId: "failure-1",
+                });
+            } finally {
+                failed.close();
+            }
+
+            let attachFailure: unknown;
+            try {
+                await attachAgent({
+                    socketPath,
+                    agentId: "stale-provider",
+                });
+            } catch (error) {
+                attachFailure = error;
+            }
+            expect(attachFailure).toBeInstanceOf(AgentAttachError);
+            expect(attachFailure).toMatchObject({
+                reason: "unavailable",
+                reasonCode: "provider_unavailable",
+                provider: "retired-provider",
+            });
+            expect(host.registry.find("stale-provider")).toBeUndefined();
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });

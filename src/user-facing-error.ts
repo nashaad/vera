@@ -17,6 +17,13 @@ export class UserFacingError extends Error {
     }
 }
 
+export class ProviderUnavailableError extends UserFacingError {
+    constructor(readonly provider: string) {
+        super(`Session provider "${provider}" is unavailable in this Vera build`);
+        this.name = "ProviderUnavailableError";
+    }
+}
+
 /** The message to show, or nothing when the failure was not written for a user. */
 export function userFacingMessage(error: unknown): string | undefined {
     return error instanceof UserFacingError ? error.message : undefined;

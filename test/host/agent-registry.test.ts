@@ -1400,7 +1400,7 @@ test("a resumed agent restores its own provider, not the current global default"
     }
 });
 
-test("a resumed session with a stale provider fails on its first turn", async () => {
+test("a resumed session with a stale credential fails on its first turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-stale-provider-"));
     const sessionPath = join(root, "agent.jsonl");
     const id = `stale-provider-${process.pid}-${Date.now()}`;
@@ -1455,9 +1455,8 @@ test("a resumed session with a stale provider fails on its first turn", async ()
             updates.push(update);
             if (update.type === "turn_finished") break;
         }
-        const finished = updates.at(-1);
-        expect(finished?.type).toBe("turn_finished");
-        expect(finished).toMatchObject({
+        expect(updates.at(-1)).toMatchObject({
+            type: "turn_finished",
             outcome: "error",
             error: "provider credentials are no longer configured",
         });

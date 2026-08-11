@@ -42,7 +42,11 @@ import {
     type ExtensionCommandDescriptor,
 } from "../extensions/commands.ts";
 import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
-import { UserFacingError, userFacingMessage } from "../user-facing-error.ts";
+import {
+    ProviderUnavailableError,
+    UserFacingError,
+    userFacingMessage,
+} from "../user-facing-error.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
@@ -968,12 +972,18 @@ function receiveConnection(
         let agent: ResidentAgent | undefined;
         try {
             agent = await findAgent(request.agent_id);
-        } catch {
+        } catch (error) {
             finished = true;
             void send({
                 type: "attach_failed",
                 agent_id: request.agent_id,
                 reason: "unavailable",
+                ...(error instanceof ProviderUnavailableError
+                    ? {
+                        unavailable_reason: "provider_unavailable" as const,
+                        provider: error.provider,
+                    }
+                    : {}),
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
@@ -1133,9 +1143,21 @@ function receiveConnection(
         );
     }
 
-    function reasonOf(error: unknown): { readonly reason?: string } {
+    function reasonOf(error: unknown): {
+        readonly reason?: string;
+        readonly reason_code?: "provider_unavailable";
+        readonly provider?: string;
+    } {
         const reason = userFacingMessage(error);
-        return reason === undefined ? {} : { reason };
+        return {
+            ...(reason === undefined ? {} : { reason }),
+            ...(error instanceof ProviderUnavailableError
+                ? {
+                    reason_code: "provider_unavailable" as const,
+                    provider: error.provider,
+                }
+                : {}),
+        };
     }
 
     async function forwardAgentUpdates(
