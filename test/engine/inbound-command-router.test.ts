@@ -117,6 +117,24 @@ test("a user turn that drains a delivery cancels its queued wake", async () => {
     router.finishTurn();
 });
 
+test("the approval warning names the authority the tool takes", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    void router.requestToolApproval(
+        { id: "f1", name: "web_fetch", input: { url: "https://example.com" } },
+        "Permission mode ask requires ask: web.fetch.",
+        { timeoutMs: 1_000 },
+    );
+    const request = await channel.client.receive() as {
+        readonly request: { readonly warning: string };
+    };
+    expect(request.request.warning).not.toContain("child processes");
+    expect(request.request.warning).toContain("over your network");
+});
+
 test("the inbound router matches one approval response by request ID", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
