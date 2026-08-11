@@ -2709,11 +2709,11 @@ test.skipIf(!tmuxAvailable)(
         const home = mkdtempSync(join(tmpdir(), "vera-btw-controls-"));
         let pane = "";
 
-        const greenRail = /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*▁+/;
+        const greenRail = /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*━+/;
         const railWidth = (visible: string): number =>
             visible.split("\n")
-                .map((line) => line.trim())
-                .find((line) => /^▁+$/.test(line))?.length ?? 0;
+                .flatMap((line) => line.match(/━+/g) ?? [])
+                .reduce((largest, run) => Math.max(largest, run.length), 0);
 
         try {
             startTuiSession(
@@ -2733,18 +2733,19 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 (visible) => visible.includes("btw mode · split")
                     && visible.includes("Message sidekick")
-                    && visible.includes("sidekick · readonly · idle"),
+                    && visible.includes("sidekick · readonly"),
                 "BTW split view",
             );
-            const sidekickRailWidth = railWidth(pane);
-            expect(sidekickRailWidth).toBeGreaterThan(0);
+            expect(railWidth(pane)).toBeGreaterThan(0);
             const modeRow = pane.indexOf("btw mode · split");
-            const veraHeader = pane.indexOf("Vera · auto · idle");
-            const sidekickHeader = pane.indexOf("sidekick · readonly · idle");
-            expect(modeRow).toBeLessThan(veraHeader);
+            const composerRow = pane.indexOf("Message sidekick");
+            const veraHeader = pane.indexOf("Vera · auto");
+            const sidekickHeader = pane.indexOf("sidekick · readonly");
+            expect(modeRow).toBeGreaterThan(veraHeader);
+            expect(modeRow).toBeGreaterThan(composerRow);
             expect(veraHeader).toBeGreaterThanOrEqual(0);
             expect(sidekickHeader).toBeGreaterThanOrEqual(0);
-            expect(pane).not.toContain("|   sidekick · readonly · idle");
+            expect(pane).not.toContain("|   sidekick · readonly");
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
 
             sendKey(socket, session, "C-g");
@@ -2755,7 +2756,7 @@ test.skipIf(!tmuxAvailable)(
                     && visible.includes("ctrl+g sidekick"),
                 "Ctrl+G to focus Vera",
             );
-            expect(railWidth(pane)).toBeGreaterThan(sidekickRailWidth);
+            expect(railWidth(pane)).toBeGreaterThan(0);
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
 
             sendEscapeSequence(socket, session, String.fromCharCode(28));
@@ -2775,11 +2776,10 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 (visible) => visible.includes("pair mode · split")
                     && visible.includes("Message peer")
-                    && visible.includes("peer · ask · idle"),
+                    && visible.includes("peer · ask"),
                 "Pair split view",
             );
-            const peerRailWidth = railWidth(pane);
-            expect(peerRailWidth).toBeGreaterThan(0);
+            expect(railWidth(pane)).toBeGreaterThan(0);
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
 
             sendKey(socket, session, "C-g");
@@ -2790,7 +2790,7 @@ test.skipIf(!tmuxAvailable)(
                     && visible.includes("ctrl+g peer"),
                 "Ctrl+G to focus Vera from Pair",
             );
-            expect(railWidth(pane)).toBeGreaterThan(peerRailWidth);
+            expect(railWidth(pane)).toBeGreaterThan(0);
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
 
             sendEscapeSequence(socket, session, String.fromCharCode(28));

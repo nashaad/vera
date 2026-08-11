@@ -7445,25 +7445,24 @@ export async function startTui(
     function paneHeaderText(
         name: string,
         approvalMode: string | undefined,
-        paneActivity: string,
         settings: TuiState["modelSettings"],
         width: number,
     ): string {
-        const left = `${name} · ${approvalMode ?? "loading"} · ${paneActivity}`;
+        const left = `${name} · ${approvalMode ?? "loading"}`;
         const model = settings?.model;
         const right = model === undefined
             ? "model loading"
             : settings?.provider === undefined
             ? model
             : `${settings.provider}/${model}`;
-        const contentWidth = Math.max(1, width - 4);
+        const contentWidth = Math.max(1, width - 8);
         if (left.length + right.length + 3 <= contentWidth) {
-            return `  ${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
+            return `    ${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
         }
         const rightRoom = Math.max(0, contentWidth - left.length - 3);
         return rightRoom < 4
-            ? `  ${left.slice(0, contentWidth)}`
-            : `  ${left} · ${right.slice(0, rightRoom)}`;
+            ? `    ${left.slice(0, contentWidth)}`
+            : `    ${left} · ${right.slice(0, rightRoom)}`;
     }
 
     function renderStatus(): void {
@@ -7478,14 +7477,6 @@ export async function startTui(
         const focusedElapsed = focusedSide?.state.elapsedWorkingTime()
             ?? elapsedWorkingTime();
         const layout = sidebar.layout();
-        const mainPaneActivity = state.working
-            ? activity
-            : pendingUiRequest === undefined ? "idle" : "waiting";
-        const sidePaneActivity = hostedSidebar.pane?.state.state.working
-            ? hostedSidebar.pane.state.activity
-            : hostedSidebar.pane?.state.pendingUiRequest === undefined
-            ? "idle"
-            : "waiting";
         const sideState = hostedSidebar.pane?.state.state;
         const paneHeadersVisible = hostedSidebar.pane !== undefined
             && !anyOverlayOpen();
@@ -7495,7 +7486,6 @@ export async function startTui(
             ? paneHeaderText(
                 "Vera",
                 state.approvalMode,
-                mainPaneActivity,
                 state.modelSettings,
                 layout === "split" ? mainWidth : renderer.width,
             )
@@ -7504,7 +7494,6 @@ export async function startTui(
             ? paneHeaderText(
                 hostedSidebar.mention ?? hostedSidebar.pane!.agentId,
                 sideState.approvalMode,
-                sidePaneActivity,
                 sideState.modelSettings,
                 layout === "split" ? sideWidth : renderer.width,
             )
@@ -7570,8 +7559,25 @@ export async function startTui(
             && !statusState.working
             && uiRequest === undefined
             && lifecycleHint === READY_HINT;
+        const hostedModeStatus = hostedSidebar.pane === undefined
+            ? undefined
+            : [
+                focusedActivity,
+                `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} mode`,
+                sidebar.layout() === "split"
+                    ? "split"
+                    : sidebar.layout() === "sidebar"
+                    ? `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} only`
+                    : "vera only",
+                "ctrl+\\ layout",
+                ...(sidebar.layout() === "split"
+                    ? [sidebar.isFocused()
+                        ? "ctrl+g vera"
+                        : `ctrl+g ${hostedSidebar.mention ?? hostedSidebar.pane.agentId}`]
+                    : []),
+            ].join(" · ");
         const statusLine = quietAttachedPane
-            ? ""
+            ? hostedModeStatus ?? focusedActivity
             : statusNotice ?? lifecycleHint;
         statusText.visible = !(approvalView.box.visible
             || questionView.box.visible);
@@ -7614,45 +7620,10 @@ export async function startTui(
                             ),
                     ),
                 }]];
-        // What an extension has made true of this conversation, said where the
-        // rest of the conversation's state is said. The sidebar is a whole
-        // column that arrived without being asked for, so the key that takes
-        // it away is only offered while it is there.
-        const extensionOwnsAgentState = hostedSidebar.owner !== undefined
-            && clientExtensionRegistry?.experimentalHostedAgentAddressing(
-                hostedSidebar.owner,
-            ) !== undefined;
-        const extensionState = extensionOwnsAgentState ? [] : [
-            ...(hostedSidebar.pane === undefined
-                ? []
-                : [
-                    `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} mode`,
-                    sidebar.layout() === "split"
-                        ? "split"
-                        : sidebar.layout() === "sidebar"
-                        ? `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} only`
-                        : "vera only",
-                    "ctrl+\\ layout",
-                ]),
-            ...(hostedSidebar.pane !== undefined && sidebar.layout() === "split"
-                ? [sidebar.isFocused()
-                    ? "ctrl+g main"
-                    : `ctrl+g ${hostedSidebar.mention ?? hostedSidebar.pane.agentId}`]
-                : []),
-        ];
-        // Keep extension-owned state on its own row. The model/path/context
-        // line can already fill a narrow terminal; appending layout controls
-        // to it would leave the only proof of a changed layout clipped past
-        // the right edge.
-        const detailsRows = extensionState.length === 0
-            ? statusDetailsRows
-            : [
-                ...statusDetailsRows,
-                [{
-                    tone: "muted" as const,
-                    text: extensionState.join(" · "),
-                }],
-            ];
+        // Hosted-pane controls live in the bottom-right lifecycle line. A
+        // details row would put them above the composer and make opening a
+        // second pane rearrange unrelated chrome.
+        const detailsRows = statusDetailsRows;
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
