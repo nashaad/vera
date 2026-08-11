@@ -232,6 +232,8 @@ export interface TuiSettingsPickerState {
     readonly loading?: boolean;
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
+    /** The caller has one confirmed pool change it can reverse. */
+    readonly canUndoPoolChange?: boolean;
     /**
      * The sections the user has closed, by heading. It rides on the pane so a
      * tab switch and back finds the list the way it was left, and it lasts as
@@ -345,6 +347,8 @@ export interface TuiSettingsPickerTransition {
      * always the list the host actually stored.
      */
     readonly poolToggle?: TuiPoolToggle;
+    /** The caller owns the confirmed change and applies its inverse. */
+    readonly undoPoolChange?: boolean;
     /** Same contract as `poolToggle`: reported, not applied here. */
     readonly poolVerify?: TuiPoolVerify;
     /** Same contract again: the pane asks for the prompt, it does not name. */
@@ -556,6 +560,9 @@ export function syncTuiModelPicker(
         // answering an edit made inside this pane, not a fresh way in, so
         // adding a model must not turn escape into "close everything".
         ...(state.parent === undefined ? {} : { parent: state.parent }),
+        ...(state.canUndoPoolChange === true
+            ? { canUndoPoolChange: true }
+            : {}),
         selectedIndex: selectedIndex === -1
             ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
             : selectedIndex,
@@ -1254,6 +1261,14 @@ export function handleTuiSettingsPickerKey(
                 model: selected.model,
             },
         };
+    }
+    if (
+        state.kind === "model"
+        && tuiBindingId("model_picker", key) === "undo_pool_change"
+    ) {
+        return state.canUndoPoolChange === true
+            ? { state, handled: true, undoPoolChange: true }
+            : unchanged(state, true);
     }
     // A name belongs to a pool entry, so the key does nothing on a row the
     // user has not pooled.
@@ -2414,6 +2429,9 @@ export function pickerFooter(
             { text: "↑↓ ^d^u move", drop: 0 },
             { text: "⏎ select", drop: 0 },
             ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
+            ...(state.canUndoPoolChange === true
+                ? [{ text: tuiKeyHint("undo_pool_change"), drop: 1 }]
+                : []),
             ...(selected?.provider === undefined
                 ? []
                 : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
