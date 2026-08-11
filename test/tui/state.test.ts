@@ -9,6 +9,7 @@ import {
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
     beginTuiAdmission,
+    dropTuiAdmission,
     beginTuiTurn,
     createTuiState,
     tuiPoolListing,
@@ -730,7 +731,7 @@ test("failed admission verdicts carry the reason and invite a retry", () => {
         reason: "no tool calling",
         seq: 1,
     });
-    expect(state.entries[0]?.text)
+    expect((state.entries[0] as { errorText?: string })?.errorText)
         .toContain("Not added, incompatible: no tool calling");
     expect(state.admission?.settled).toBe(true);
 
@@ -745,7 +746,7 @@ test("failed admission verdicts carry the reason and invite a retry", () => {
         statusCode: 503,
         seq: 1,
     });
-    expect(retried.entries[0]?.text).toContain(
+    expect((retried.entries[0] as { errorText?: string })?.errorText).toContain(
         "Provider unavailable (HTTP 503): provider timeout. "
             + "Select the model again to retry.",
     );
@@ -1727,4 +1728,22 @@ test("TUI shows a compaction budget warning when the run starts", () => {
         text: "Compaction targets 90000 tokens, above trigger_tokens (5000).",
     });
     expect(quiet.entries).toEqual([]);
+});
+
+test("dropping an admission takes its checklist entry with it", () => {
+    let state = beginTuiAdmission(createTuiState(), "pool-3", "or/glm");
+    state = applyAgentUpdate(state, {
+        type: "pool_admission_result",
+        requestId: "pool-3",
+        provider: "or",
+        model: "glm",
+        verdict: "unavailable",
+        reason: "provider timeout",
+        seq: 1,
+    });
+    expect(state.entries.length).toBe(1);
+
+    const dropped = dropTuiAdmission(state, "pool-3");
+    expect(dropped.entries.length).toBe(0);
+    expect(dropped.admission).toBeUndefined();
 });
