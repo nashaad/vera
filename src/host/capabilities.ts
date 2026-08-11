@@ -6,11 +6,13 @@ export const HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES =
     "agent.branch-initial-messages.v1";
 export const HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS =
     "agent.branch-compaction-barriers.v1";
+export const HOST_CAPABILITY_AGENT_ATTACH_RESUME = "agent.attach-resume.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
+    HOST_CAPABILITY_AGENT_ATTACH_RESUME,
 ] as const;
 
 export function parseHostCapabilities(

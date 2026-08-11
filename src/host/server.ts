@@ -44,6 +44,7 @@ import { ExtensionOperationTimeoutError } from "../extensions/operation.ts";
 import { UserFacingError, userFacingMessage } from "../user-facing-error.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
 import {
+    HOST_CAPABILITY_AGENT_ATTACH_RESUME,
     HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -913,9 +914,24 @@ function receiveConnection(
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
+        if (request.after_seq !== undefined
+            && (!request.requested_capabilities?.includes(
+                HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+            )
+                || !capabilities.includes(
+                    HOST_CAPABILITY_AGENT_ATTACH_RESUME,
+                ))) {
+            finished = true;
+            void send({
+                type: "attach_failed",
+                agent_id: request.agent_id,
+                reason: "unavailable",
+            }).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
         let attached: AgentAttachment;
         try {
-            attached = agent.attach();
+            attached = agent.attach(request.after_seq);
         } catch {
             finished = true;
             void send({

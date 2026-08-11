@@ -146,9 +146,15 @@ export class ResidentAgent {
         };
     }
 
-    attach(): AgentAttachment {
+    attach(afterSequence?: number): AgentAttachment {
         if (this.isClosed) {
             throw new ResidentAgentClosedError();
+        }
+        if (afterSequence !== undefined
+            && (!Number.isSafeInteger(afterSequence)
+                || afterSequence < 0
+                || afterSequence > this.lastSequence)) {
+            throw new Error("Agent replay cursor is unavailable");
         }
 
         const outgoing = new AsyncQueue<AgentUpdate>();
@@ -162,9 +168,15 @@ export class ResidentAgent {
         let attached = true;
         this.issuedAttachmentIds.add(attachmentId);
         this.attachments.set(attachmentId, outgoing);
-        outgoing.push(clone(this.checkpoint));
+        if (afterSequence === undefined || afterSequence < this.checkpoint.seq) {
+            outgoing.push(clone(this.checkpoint));
+        }
         for (const update of this.updatesAfterCheckpoint) {
-            outgoing.push(clone(update));
+            if (afterSequence === undefined
+                || !("seq" in update)
+                || update.seq > afterSequence) {
+                outgoing.push(clone(update));
+            }
         }
         if (this.terminalFailure !== undefined) {
             outgoing.fail(new ResidentAgentClosedError());

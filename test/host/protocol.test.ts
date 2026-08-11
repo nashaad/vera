@@ -241,16 +241,21 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "attach",
         agent_id: "agent-1",
         requested_capabilities: ["agent.branch-options.v1"],
+        after_seq: 17,
     }))).toEqual({
         type: "attach",
         agent_id: "agent-1",
         requested_capabilities: ["agent.branch-options.v1"],
+        after_seq: 17,
     });
     expect(parseHostRequest(JSON.stringify({
         type: "attach",
         agent_id: "agent-1",
         requested_capabilities: ["not versioned"],
     }))).toBeUndefined();
+    expect(parseHostRequest(
+        '{"type":"attach","agent_id":"agent-1","after_seq":-1}',
+    )).toBeUndefined();
     expect(parseHostRequest('{"type":"attach","agent_id":""}'))
         .toBeUndefined();
     expect(parseHostRequest('{"type":"unknown"}')).toBeUndefined();
