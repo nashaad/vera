@@ -30,6 +30,8 @@ const IMAGE_CHIP_TYPE = "image-chip";
 
 const PASTE_SUMMARY_LINE_THRESHOLD = 3;
 const PASTE_SUMMARY_CHAR_THRESHOLD = 240;
+export const TUI_COMPOSER_MIN_TEXT_ROWS = 3;
+export const TUI_COMPOSER_MAX_TEXT_ROWS = 8;
 
 interface CollapsedPaste {
     readonly marker: string;
@@ -45,6 +47,8 @@ export class TuiComposer extends TextareaRenderable {
     private imageChipStyleId?: number;
     private imageChipTypeId?: number;
     onImagePathPaste?: (path: string) => void;
+    /** Typed edits may grow the shared composer; paste deliberately may not. */
+    onTypedRowsChange?: (rows: number) => void;
     /** A chip the user deleted, so its attachment can be dropped too. */
     onImageChipRemoved?: (requestId: string) => void;
 
@@ -145,7 +149,17 @@ export class TuiComposer extends TextareaRenderable {
         }
         const handled = super.handleKeyPress(key);
         this.syncImageChips();
+        if (handled) this.publishTypedRows();
         return handled;
+    }
+
+    private publishTypedRows(): void {
+        const explicitLines = this.plainText.split("\n").length;
+        this.onTypedRowsChange?.(Math.max(
+            TUI_COMPOSER_MIN_TEXT_ROWS,
+            explicitLines,
+            this.virtualLineCount,
+        ));
     }
 
     /**
@@ -288,6 +302,7 @@ export class TuiComposer extends TextareaRenderable {
         // completion and picker-driven text edits natural by placing it at
         // the end of the inserted value.
         this.cursorOffset = text.length;
+        this.onTypedRowsChange?.(TUI_COMPOSER_MIN_TEXT_ROWS);
     }
 }
 
@@ -302,7 +317,7 @@ export function createTuiComposer(
     const composer = new TuiComposer(renderer, {
         id: "composer",
         width: "100%",
-        height: 3,
+        height: TUI_COMPOSER_MIN_TEXT_ROWS,
         placeholder: COMPOSER_PLACEHOLDER,
         backgroundColor: TUI_BACKGROUND,
         focusedBackgroundColor: TUI_BACKGROUND,
@@ -329,7 +344,13 @@ export function createTuiComposer(
  * the composer measures from this rather than from a number of its own, which
  * is free to disagree with it.
  */
-export const TUI_COMPOSER_PANEL_ROWS = 7;
+export const TUI_COMPOSER_PANEL_ROWS = tuiComposerPanelRows(
+    TUI_COMPOSER_MIN_TEXT_ROWS,
+);
+
+export function tuiComposerPanelRows(textRows: number): number {
+    return textRows + 4;
+}
 
 export interface TuiComposerPanel {
     readonly panel: BoxRenderable;

@@ -181,7 +181,7 @@ export function activateClient(vera: any): void {
 
     vera.experimentalTui.mountRenderable({
         id: "agent-mode",
-        slot: "footer",
+        slot: "transcript-top",
         visible: () => activeMode !== undefined
             && vera.experimentalTui.agentSurface.current() !== undefined,
         create(context: any) {

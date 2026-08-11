@@ -5,6 +5,8 @@ import { createTestRenderer } from "@opentui/core/testing";
 import {
     createTuiComposer,
     createTuiComposerPanel,
+    TUI_COMPOSER_MIN_TEXT_ROWS,
+    tuiComposerPanelRows,
 } from "../../clients/tui/composer.ts";
 import { applyTuiTheme } from "../../clients/tui/state.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
@@ -106,6 +108,42 @@ test("TUI composer edits, pastes, submits, and survives resize", async () => {
 
         setup.mockInput.pressEnter();
         expect(submitted).toEqual(["first\npasted\nblock"]);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("typed lines grow the composer but pasted lines do not", async () => {
+    const setup = await createTestRenderer({
+        width: 40,
+        height: 16,
+        kittyKeyboard: true,
+    });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const rows: number[] = [];
+    composer.onTypedRowsChange = (next) => rows.push(next);
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        await setup.mockInput.typeText("one");
+        setup.mockInput.pressEnter({ shift: true });
+        await setup.mockInput.typeText("two");
+        setup.mockInput.pressEnter({ shift: true });
+        await setup.mockInput.typeText("three");
+        setup.mockInput.pressEnter({ shift: true });
+        await setup.mockInput.typeText("four");
+        await setup.flush();
+        expect(rows.at(-1)).toBe(4);
+
+        rows.length = 0;
+        await setup.mockInput.pasteBracketedText("\nfive\nsix\nseven");
+        await setup.flush();
+        expect(rows).toEqual([]);
+
+        composer.setComposerText("replacement\ntext");
+        expect(rows).toEqual([TUI_COMPOSER_MIN_TEXT_ROWS]);
+        expect(tuiComposerPanelRows(4)).toBe(8);
     } finally {
         setup.renderer.destroy();
     }

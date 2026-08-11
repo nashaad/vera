@@ -2738,6 +2738,13 @@ test.skipIf(!tmuxAvailable)(
             );
             const sidekickRailWidth = railWidth(pane);
             expect(sidekickRailWidth).toBeGreaterThan(0);
+            const modeRow = pane.indexOf("btw mode · split");
+            const veraHeader = pane.indexOf("Vera · auto · idle");
+            const sidekickHeader = pane.indexOf("sidekick · readonly · idle");
+            expect(modeRow).toBeLessThan(veraHeader);
+            expect(veraHeader).toBeGreaterThanOrEqual(0);
+            expect(sidekickHeader).toBeGreaterThanOrEqual(0);
+            expect(pane).not.toContain("|   sidekick · readonly · idle");
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
 
             sendKey(socket, session, "C-g");
@@ -2787,8 +2794,13 @@ test.skipIf(!tmuxAvailable)(
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(greenRail);
 
             sendEscapeSequence(socket, session, String.fromCharCode(28));
-            pane = await waitForVisiblePane(socket, session, "pair mode · pair only");
-            expect(pane).toContain("Message peer");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("pair mode · pair only")
+                    && visible.includes("Message peer"),
+                "Pair-only composer target",
+            );
             expect(railWidth(pane)).toBe(0);
         } catch (error) {
             pane = captureVisiblePane(socket, session);
