@@ -10,6 +10,9 @@ import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+/** A PDF carries its fonts and layout in the same file as its text, so the
+ * text-sized budget rejects documents that are ordinary to publish. */
+const MAX_PDF_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_CHARACTERS = 50_000;
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -45,10 +48,11 @@ export const webFetchTool: RegisteredTool = {
         name: "web_fetch",
         description: [
             "Fetch one public HTTP or HTTPS URL and return bounded readable",
-            "text. Use this instead of writing a script or invoking curl when",
-            "the page contents are needed. Local and private-network targets,",
-            "binary responses, oversized bodies, and slow requests are",
-            "rejected.",
+            "text. Handles HTML, plain text, JSON, XML, and PDF, extracting a",
+            "PDF's text automatically. Use this instead of writing a script or",
+            "invoking curl when the page contents are needed. Local and",
+            "private-network targets, other binary responses, oversized",
+            "bodies, and slow requests are rejected.",
         ].join(" "),
         inputSchema: {
             type: "object",
@@ -98,7 +102,8 @@ export async function fetchReadablePage(
                 headers: {
                     Accept:
                         "text/html,application/xhtml+xml,text/plain,"
-                        + "application/json;q=0.8,*/*;q=0.1",
+                        + "application/json;q=0.8,application/pdf;q=0.8,"
+                        + "*/*;q=0.1",
                     "User-Agent": "Vera/2 web_fetch",
                 },
                 redirect: "manual",
@@ -127,6 +132,17 @@ export async function fetchReadablePage(
             }
 
             const contentType = response.headers.get("content-type") ?? "";
+            if (isPdfContentType(contentType)) {
+                const bytes = await readBoundedBytes(
+                    response,
+                    MAX_PDF_RESPONSE_BYTES,
+                );
+                return formatReadablePage(
+                    current.href,
+                    await pdfText(bytes),
+                    contentType,
+                );
+            }
             if (!isReadableContentType(contentType)) {
                 await response.body?.cancel();
                 throw new Error(
@@ -303,8 +319,53 @@ function isRedirect(status: number): boolean {
         || status === 308;
 }
 
+function isPdfContentType(value: string): boolean {
+    return mimeOf(value) === "application/pdf";
+}
+
+/**
+ * The bytes come from an arbitrary public URL, so the parser gets no way to
+ * reach the network on the document's behalf and no font handling: extracting
+ * text needs neither, and a fetch driven by document contents would sidestep
+ * the address checks every other request here goes through.
+ */
+async function pdfText(bytes: Uint8Array): Promise<string> {
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    let document;
+    try {
+        document = await getDocumentProxy(bytes, {
+            verbosity: 0,
+            disableAutoFetch: true,
+            disableStream: true,
+            disableFontFace: true,
+        });
+    } catch {
+        throw new Error("web_fetch could not read that PDF");
+    }
+    try {
+        const { text } = await extractText(document, { mergePages: true });
+        const readable = (Array.isArray(text) ? text.join("\n") : text)
+            .replace(/[ \t]+/g, " ")
+            .replace(/ *\n */g, "\n")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+        if (readable.length === 0) {
+            throw new Error(
+                "web_fetch found no selectable text in that PDF; it is likely scanned images",
+            );
+        }
+        return readable;
+    } finally {
+        await Promise.resolve(document.cleanup()).catch(() => undefined);
+    }
+}
+
+function mimeOf(value: string): string {
+    return value.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+}
+
 function isReadableContentType(value: string): boolean {
-    const mime = value.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    const mime = mimeOf(value);
     return mime.length === 0
         || mime.startsWith("text/")
         || mime === "application/json"
@@ -314,18 +375,27 @@ function isReadableContentType(value: string): boolean {
 }
 
 async function readBoundedBody(response: Response): Promise<string> {
+    return new TextDecoder().decode(
+        await readBoundedBytes(response, MAX_RESPONSE_BYTES),
+    );
+}
+
+async function readBoundedBytes(
+    response: Response,
+    limit: number,
+): Promise<Uint8Array> {
     const declaredLength = Number(response.headers.get("content-length"));
     if (
         Number.isFinite(declaredLength)
-        && declaredLength > MAX_RESPONSE_BYTES
+        && declaredLength > limit
     ) {
         await response.body?.cancel();
         throw new Error(
-            `web_fetch response exceeds ${MAX_RESPONSE_BYTES} bytes`,
+            `web_fetch response exceeds ${limit} bytes`,
         );
     }
     if (response.body === null) {
-        return "";
+        return new Uint8Array(0);
     }
 
     const reader = response.body.getReader();
@@ -336,9 +406,9 @@ async function readBoundedBody(response: Response): Promise<string> {
             const next = await reader.read();
             if (next.done) break;
             total += next.value.byteLength;
-            if (total > MAX_RESPONSE_BYTES) {
+            if (total > limit) {
                 throw new Error(
-                    `web_fetch response exceeds ${MAX_RESPONSE_BYTES} bytes`,
+                    `web_fetch response exceeds ${limit} bytes`,
                 );
             }
             chunks.push(next.value);
@@ -353,7 +423,7 @@ async function readBoundedBody(response: Response): Promise<string> {
         bytes.set(chunk, offset);
         offset += chunk.byteLength;
     }
-    return new TextDecoder().decode(bytes);
+    return bytes;
 }
 
 function formatReadablePage(
