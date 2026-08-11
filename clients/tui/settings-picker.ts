@@ -2416,7 +2416,7 @@ export function pickerFooter(
             ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
             ...(selected?.provider === undefined
                 ? []
-                : [{ text: tuiKeyHint("verify_model"), drop: 4 }]),
+                : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
             // Naming belongs to a pool entry, so the hint appears on the same
             // rows the key works on and nowhere else.
             ...(pool === undefined || selected === undefined
