@@ -45,6 +45,8 @@ export interface VeraExtensionCommandHookSpec {
     readonly phase: "pre_tool_use" | "post_tool_use";
     /** Executable plus arguments; never interpreted by a shell. */
     readonly argv: readonly string[];
+    /** Wire format used on stdin/stdout. Defaults to Vera's native format. */
+    readonly protocol?: "vera" | "claude";
     readonly timeoutMs?: number;
 }
 
