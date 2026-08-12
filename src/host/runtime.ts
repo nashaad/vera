@@ -23,7 +23,6 @@ import type {
 } from "../model/catalog-shape.ts";
 import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
-import { modelFamilies } from "../model/models-dev-families.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
 import { createReviewLogger } from "../engine/review-log.ts";
 import {
@@ -1030,19 +1029,11 @@ export async function discoveredOpenRouterModels(
     // Every row travels, including the ones the picker folds away. The reduction
     // is a mark on the row so that revealing the rest is a keypress in the
     // client rather than another request to the host.
-    // Only fetched where it is asked for: the family map exists to guard
-    // version folding, so an unused fetch would be a network call for a
-    // question nobody put.
-    const families = config.model_picker_collapse_versions === true
-        ? await modelFamilies(
-            options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir },
-        )
-        : undefined;
     const hidden = reduceModels(catalog.models, {
         now: Math.floor(Date.now() / 1000),
-        ...(families === undefined
-            ? {}
-            : { collapseVersions: true, families }),
+        ...(config.model_picker_collapse_versions === true
+            ? { collapseVersions: true }
+            : {}),
         ...(config.model_picker_max_age_months === undefined
             ? {}
             : { maxAgeMonths: config.model_picker_max_age_months }),

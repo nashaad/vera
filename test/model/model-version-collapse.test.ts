@@ -6,20 +6,11 @@ import { versionChain } from "../../src/model/model-version-chain.ts";
 const NOW = 1_760_000_000;
 const DAY = 24 * 60 * 60;
 
-/** Every id here is in one family unless a test says otherwise. */
-function families(...ids: readonly string[]): ReadonlyMap<string, string> {
-    return new Map(ids.map((id) => [id, "one-line"]));
-}
-
-function collapse(
-    models: readonly { id: string; created?: number }[],
-    map = families(...models.map((model) => model.id)),
-) {
+function collapse(models: readonly { id: string; created?: number }[]) {
     return reduceModels(models, {
         now: NOW,
         maxAgeMonths: 0,
         collapseVersions: true,
-        families: map,
     });
 }
 
@@ -63,24 +54,11 @@ test("models that differ by size or job are not a chain", () => {
     expect(hidden.size).toBe(0);
 });
 
-test("a chain models.dev splits across families is left alone", () => {
-    const models = [
-        { id: "inclusionai/ling-2.6-flash", created: NOW - 90 * DAY },
-        { id: "inclusionai/ling-3.0-flash", created: NOW - 10 * DAY },
-    ];
-    const split = new Map([
-        ["inclusionai/ling-2.6-flash", "ling"],
-        ["inclusionai/ling-3.0-flash", "inkling"],
-    ]);
-    expect(collapse(models, split).size).toBe(0);
-    expect(collapse(models).size).toBe(1);
-});
-
-test("an id models.dev does not cover is not folded", () => {
+test("two vendors are never one chain, whatever the names suggest", () => {
     const hidden = collapse([
-        { id: "vendor/model-1", created: NOW - 90 * DAY },
-        { id: "vendor/model-2", created: NOW - 10 * DAY },
-    ], families("vendor/model-2"));
+        { id: "inclusionai/ling-3.0-flash", created: NOW - 10 * DAY },
+        { id: "thinkingmachines/inkling-3.0-flash", created: NOW - 90 * DAY },
+    ]);
     expect(hidden.size).toBe(0);
 });
 
@@ -100,10 +78,6 @@ test("a pooled or curated row wins its chain rather than folding it", () => {
         now: NOW,
         maxAgeMonths: 0,
         collapseVersions: true,
-        families: families(
-            "anthropic/claude-opus-4.8",
-            "anthropic/claude-opus-5",
-        ),
         keep: new Set(["anthropic/claude-opus-4.8"]),
     });
     expect(hidden.size).toBe(0);
