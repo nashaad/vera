@@ -436,6 +436,7 @@ export async function runHeadlessLoop(
     const protocol = createProtocolEncoder(
         endpoint,
         sessionAttachmentName(store),
+        () => store.projectedHarnessMessages(),
     );
     events.subscribe(protocol);
     // A caller that names no path gets no log. The host names one for every
@@ -461,6 +462,22 @@ export async function runHeadlessLoop(
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
     });
     inbound = new InboundCommandRouter(endpoint, events, {
+        appendHarnessMessage: async (text, tone) => {
+            await store.appendHarnessMessage(text, tone);
+            protocol.checkpoint(messages);
+        },
+        appendContext: async (contextMessages, harnessMessage) => {
+            for (const message of contextMessages) {
+                const hidden = { ...message, internal: true } as ModelMessage;
+                await store.appendMessage(hidden);
+                messages.push(hidden);
+            }
+            await store.appendHarnessMessage(
+                harnessMessage.text,
+                harnessMessage.tone,
+            );
+            protocol.checkpoint(messages);
+        },
         compactNow: async (turnActive) => {
             await compactOnRequest?.(turnActive);
         },

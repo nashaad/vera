@@ -29,6 +29,7 @@ import type {
     VeraClientModelAvailability,
     VeraClientReasoningLevel,
     VeraClientAgentCreateRequest,
+    VeraClientAgentContextSyncResult,
     VeraClientAgentOpenRequest,
     VeraClientAgentMessageRequest,
     VeraClientAgentRef,
@@ -179,7 +180,14 @@ export interface ClientExtensionConsultAdapter {
 }
 
 export interface ClientExtensionNoticeAdapter {
-    post(extensionId: string, text: string): void;
+    post(
+        extensionId: string,
+        text: string,
+        options?: {
+            readonly tone?: "primary" | "soft" | "error";
+            readonly replay?: boolean;
+        },
+    ): void;
 }
 
 export interface ClientExtensionTranscriptAdapter {
@@ -227,6 +235,11 @@ export interface ClientExtensionAgentsAdapter {
         request: VeraClientAgentOpenRequest,
         signal: AbortSignal,
     ): Promise<void>;
+    syncContext?(
+        extensionId: string,
+        agentId: string,
+        signal: AbortSignal,
+    ): Promise<VeraClientAgentContextSyncResult>;
     message(
         extensionId: string,
         request: VeraClientAgentMessageRequest,
@@ -1051,10 +1064,20 @@ async function activateClientExtension(
                     operationSignal,
                 ).then((result) => structuredClone(result));
             },
-            notice(text: string): void {
+            notice(
+                text: string,
+                noticeOptions?: {
+                    readonly tone?: "primary" | "soft" | "error";
+                    readonly replay?: boolean;
+                },
+            ): void {
                 requireAvailable();
                 requireCapability(CLIENT_NOTICE_CAPABILITY);
-                options.notice.post(options.id, validateNoticeText(text));
+                options.notice.post(
+                    options.id,
+                    validateNoticeText(text),
+                    validateNoticeOptions(noticeOptions),
+                );
             },
             transcript(block: VeraClientTranscriptBlock): void {
                 requireAvailable();
@@ -1138,6 +1161,21 @@ async function activateClientExtension(
                     validateAgentOpenRequest(request),
                     operationSignal,
                 );
+            },
+            syncContext(
+                agentId: string,
+                signal?: AbortSignal,
+            ): Promise<VeraClientAgentContextSyncResult> {
+                const operationSignal = signal
+                    ?? invocationSignal.getStore()
+                    ?? new AbortController().signal;
+                if (typeof agentId !== "string" || agentId.trim().length === 0) {
+                    throw new Error("Agent context sync requires an agent ID");
+                }
+                const syncContext = requireAgents().syncContext;
+                return syncContext === undefined
+                    ? Promise.resolve({ outcome: "not_found", turns: 0 })
+                    : syncContext(options.id, agentId, operationSignal);
             },
             message(
                 request: VeraClientAgentMessageRequest,
@@ -1948,6 +1986,30 @@ function validateNoticeText(text: string): string {
     return trimmed;
 }
 
+function validateNoticeOptions(
+    options: {
+        readonly tone?: "primary" | "soft" | "error";
+        readonly replay?: boolean;
+    } | undefined,
+): {
+    readonly tone?: "primary" | "soft" | "error";
+    readonly replay?: boolean;
+} | undefined {
+    if (options === undefined) return undefined;
+    if (
+        typeof options !== "object"
+        || options === null
+        || (options.tone !== undefined
+            && options.tone !== "primary"
+            && options.tone !== "soft"
+            && options.tone !== "error")
+        || (options.replay !== undefined && typeof options.replay !== "boolean")
+    ) {
+        throw new Error("Client extension notice options are invalid");
+    }
+    return { ...options };
+}
+
 function validateAgentPane(pane: unknown): "main" | "sidebar" {
     if (pane !== "main" && pane !== "sidebar") {
         throw new Error("Client extension agent pane must be main or sidebar");
@@ -1991,6 +2053,12 @@ function validateAgentCreateRequest(
     if (initialMessages.length > 0 && sourceAgentId === undefined) {
         throw new Error("Client extension initial messages require a branch source");
     }
+    if (
+        request?.hideInheritedMessages !== undefined
+        && typeof request.hideInheritedMessages !== "boolean"
+    ) {
+        throw new Error("Client extension inherited-message visibility is invalid");
+    }
     return {
         pane: validateAgentPane(request?.pane),
         ...(attachmentLifetime === undefined ? {} : { attachmentLifetime }),
@@ -2006,6 +2074,9 @@ function validateAgentCreateRequest(
             ? {}
             : { source: { type: "branch" as const, agentId: sourceAgentId } }),
         ...(initialMessages.length === 0 ? {} : { initialMessages }),
+        ...(request.hideInheritedMessages === true
+            ? { hideInheritedMessages: true }
+            : {}),
     };
 }
 

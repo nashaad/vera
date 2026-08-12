@@ -33,6 +33,30 @@ test("extension agents expose the current primary and sidebar snapshot", () => {
     ]);
 });
 
+test("a synchronized context result updates the visible side pane", async () => {
+    const synchronized: unknown[] = [];
+    const adapter = createTuiClientExtensionAgentsAdapter({
+        primary: () => ({
+            ...agent("main"),
+            supportsHostCapability: () => true,
+        }),
+        sidebar: () => undefined,
+        sidebarMention: () => undefined,
+        syncAgentContext: async () => ({ outcome: "synced", turns: 2 }),
+        contextSynchronized(agentId, turns) {
+            synchronized.push({ agentId, turns });
+        },
+        async adoptAgent() {},
+    });
+
+    await expect(adapter.syncContext!(
+        "extension",
+        "side",
+        new AbortController().signal,
+    )).resolves.toEqual({ outcome: "synced", turns: 2 });
+    expect(synchronized).toEqual([{ agentId: "side", turns: 2 }]);
+});
+
 test("extension agents create and open identified clients through one seam", async () => {
     const opened: string[] = [];
     const adapter = createTuiClientExtensionAgentsAdapter({
@@ -175,6 +199,28 @@ test("branch compaction barriers require their own negotiated capability", async
         }],
     }, new AbortController().signal)).rejects.toThrow(
         "does not support branch compaction barriers",
+    );
+});
+
+test("hidden inherited context requires synchronized-branch support", async () => {
+    const adapter = createTuiClientExtensionAgentsAdapter({
+        primary: () => ({
+            ...agent("main"),
+            supportsHostCapability: (capability) =>
+                capability === "agent.branch-options.v1",
+        }),
+        sidebar: () => undefined,
+        sidebarMention: () => undefined,
+        branchAgent: async () => agent("branch"),
+        async adoptAgent() {},
+    });
+
+    await expect(adapter.create("extension", {
+        pane: "sidebar",
+        source: { type: "branch", agentId: "main" },
+        hideInheritedMessages: true,
+    }, new AbortController().signal)).rejects.toThrow(
+        "does not support synchronized branch context",
     );
 });
 

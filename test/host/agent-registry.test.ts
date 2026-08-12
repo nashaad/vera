@@ -20,7 +20,10 @@ import type {
     TaskNotificationUpdate,
     ToolApprovalUiRequestUpdate,
 } from "../../src/engine/protocol.ts";
-import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
+import {
+    isToolApprovalUiRequestUpdate,
+    projectTranscript,
+} from "../../src/engine/protocol.ts";
 import {
     agentNameKey,
     parseAgentName,
@@ -782,6 +785,94 @@ test("the resident registry creates forked and cloned agents", async () => {
         expect(listed.get("fork")).toBe("source");
         expect(listed.get("clone")).toBe("source");
         expect(listed.get("source")).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a branch synchronizes completed source turns before its next request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-context-sync-"));
+    const requests: ModelRequest[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                requests.push(request);
+                return new FauxAdapter([
+                    textResponse(`answer ${requests.length}`),
+                ]).stream(request);
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const primary = await registry.create({
+            id: "primary",
+            workspace: root,
+            sessionPath: join(root, "primary.jsonl"),
+        });
+        const primaryClient = primary.attach();
+        await runPrompt(primaryClient, "P1");
+        await runPrompt(primaryClient, "P2", false);
+        await runPrompt(primaryClient, "P3", false);
+
+        const side = await registry.branch({
+            sourceId: "primary",
+            position: "at",
+            id: "side",
+            sessionPath: join(root, "side.jsonl"),
+            hideInheritedMessages: true,
+            initialMessages: [{
+                role: "user",
+                content: [{ type: "text", text: "side boundary" }],
+                internal: true,
+            }],
+        });
+        const sideClient = side!.agent.attach();
+        await runPrompt(sideClient, "S1");
+
+        await runPrompt(primaryClient, "P4", false);
+        await runPrompt(primaryClient, "P5", false);
+        expect(await registry.syncBranchContext("side")).toEqual({
+            status: "synced",
+            turns: 2,
+        });
+        expect(requests).toHaveLength(6);
+
+        await runPrompt(sideClient, "S2", false);
+        const sideStore = await SessionStore.open(join(root, "side.jsonl"));
+        expect(projectTranscript(
+            sideStore.messages(),
+            undefined,
+            sideStore.projectedHarnessMessages(),
+        )).toEqual([
+            { kind: "user", text: "S1" },
+            { kind: "assistant", text: "answer 4" },
+            { kind: "user", text: "S2" },
+            {
+                kind: "harness",
+                text: "Caught up with 2 new turns from the primary conversation.",
+                tone: "soft",
+            },
+            { kind: "assistant", text: "answer 7" },
+        ]);
+        const sideRequest = requests.at(-1)!;
+        const text = sideRequest.messages.flatMap((message) =>
+            message.content.flatMap((content) =>
+                content.type === "text" ? [content.text] : []
+            )
+        );
+        expect(text.filter((value) => /^P[1-5]$|^S[12]$/.test(value)))
+            .toEqual(["P1", "P2", "P3", "S1", "P4", "P5", "S2"]);
+        expect(text).not.toContain(
+            "Caught up with 2 new turns from the primary conversation.",
+        );
+        expect(await registry.syncBranchContext("side")).toEqual({
+            status: "unchanged",
+            turns: 0,
+        });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

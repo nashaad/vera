@@ -716,9 +716,8 @@ test.skipIf(!tmuxAvailable)(
                 "Model error: Model returned no visible response or structured tool call.",
             );
             expect(pane).toMatch(
-                /• Explored · \d+ lines  ctrl\+e details/,
+                /• Explored {2}Read package\.json {2}ctrl\+e details/,
             );
-            expect(pane).toContain("│ Read package.json");
 
             sendText(socket, session, "try again");
             sendKey(socket, session, "Enter");
@@ -1926,13 +1925,12 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "TOOL DETAILS COMPLETED",
             );
-            expect(pane).toContain("• Ran · 11 lines  ctrl+e details");
-            expect(pane).toContain("│ printf");
+            expect(pane).toContain("• Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
 
             sendKey(socket, session, "C-e");
             pane = await waitForVisiblePane(socket, session, "TOOL_DETAIL_09");
-            expect(pane).toContain("▾ Ran · 11 lines  ctrl+e details");
+            expect(pane).toContain("▾ Ran  printf");
             expect(pane).toContain("TOOL DETAILS COMPLETED");
 
             sendText(socket, session, "run one short action");
@@ -1941,7 +1939,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("SHORT_DETAIL");
 
             sendKey(socket, session, "C-e");
-            pane = await waitForVisiblePane(socket, session, "• Ran · 2 lines");
+            pane = await waitForVisiblePane(socket, session, "└ SHORT_DETAIL");
             // The compact block deliberately shows both what ran and its
             // short result; this command prints the same sentinel in each.
             expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
@@ -1994,9 +1992,8 @@ test.skipIf(!tmuxAvailable)(
             );
             // `env` prints as many lines as the machine has variables, so
             // the row is pinned by its command and its details hint.
-            expect(pane).toContain("• Ran · ");
+            expect(pane).toContain("• Ran  env AUTO_REVIEW=ran");
             expect(pane).toContain("ctrl+e details");
-            expect(pane).toContain("│ env AUTO_REVIEW=ran");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Permission required");
             expect(pane).not.toContain("Allow once");
@@ -2988,7 +2985,10 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Open or message a readonly sidekick",
             );
-            sendText(socket, session, "w inspect this");
+            sendText(socket, session, "w");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Message sidekick");
+            sendText(socket, session, "inspect this");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
                 socket,
@@ -3355,6 +3355,124 @@ test.skip(
         }
     },
     30_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "a sidekick catches up on the primary conversation before it answers",
+    async () => {
+        const socket = `vera-btw-context-${process.pid}-${randomUUID()}`;
+        const session = "btw-context";
+        const home = mkdtempSync(join(tmpdir(), "vera-btw-context-"));
+        const readyPath = join(home, "host-ready");
+        let pane = "";
+        mkdirSync(join(home, ".vera"), { recursive: true });
+        writeFileSync(join(home, ".vera", "config.json"), JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            extensions: [{
+                path: join(process.cwd(), "examples/extensions/btw"),
+                enabled: true,
+            }],
+        }));
+        const hostProcess = Bun.spawn([
+            process.execPath,
+            "run",
+            "test/support/tui-btw-context-resident-host.ts",
+        ], {
+            cwd: process.cwd(),
+            env: {
+                ...process.env,
+                HOME: home,
+                VERA_TEST_READY_PATH: readyPath,
+            },
+            stdout: "ignore",
+            stderr: "pipe",
+        });
+
+        const attach = (): void => {
+            runTmux(socket, [
+                "-f",
+                "/dev/null",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                "-x",
+                "120",
+                "-y",
+                "40",
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                    shellQuote(process.execPath)
+                } run clients/cli/main.ts attach btw-main`,
+            ]);
+        };
+        // The side pane is narrow, so the notice wraps: match its first line.
+        const caughtUp = "Caught up with 1 new turn from the";
+        const occurrences = (visible: string, needle: string): number =>
+            visible.split(needle).length - 1;
+
+        try {
+            await waitForFile(readyPath, hostProcess);
+            attach();
+            await waitForVisiblePane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "P1");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "SEEN:P1");
+
+            sendText(socket, session, "/btw");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "sidekick · readonly");
+            // Inherited history belongs to the model, not to the side pane.
+            expect(occurrences(pane, "SEEN:P1")).toBe(1);
+
+            sendText(socket, session, "S1");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "SEEN:P1,S1");
+            expect(pane).not.toContain(caughtUp);
+
+            sendKey(socket, session, "C-g");
+            await waitForVisiblePane(socket, session, "Message Vera");
+            sendText(socket, session, "P2");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "SEEN:P1,P2");
+
+            sendKey(socket, session, "C-g");
+            await waitForVisiblePane(socket, session, "Message sidekick");
+            sendText(socket, session, "S2");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "SEEN:P1,S1,P2,S2");
+            pane = await waitForVisiblePane(socket, session, caughtUp);
+            expect(occurrences(pane, caughtUp)).toBe(1);
+            expect(pane.indexOf(caughtUp)).toBeGreaterThan(pane.indexOf("S2"));
+            expect(pane.indexOf(caughtUp))
+                .toBeLessThan(pane.indexOf("SEEN:P1,S1,P2,S2"));
+            // The hidden boundary never reaches the pane or the answer.
+            expect(pane).not.toContain("side conversation");
+            expect(pane).not.toContain("inherited history");
+
+            // A side turn with nothing new on the primary neither repeats the
+            // notice nor loses it across the history rebuilds it causes.
+            sendText(socket, session, "S3");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "SEEN:P1,S1,P2,S2,S3");
+            expect(occurrences(pane, caughtUp)).toBe(1);
+            expect(pane.indexOf(caughtUp)).toBeLessThan(pane.indexOf("S3"));
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            if (hostProcess.exitCode === null) hostProcess.kill("SIGTERM");
+            await hostProcess.exited;
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    45_000,
 );
 
 test.skipIf(!tmuxAvailable)(

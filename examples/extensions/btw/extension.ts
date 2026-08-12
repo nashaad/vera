@@ -6,7 +6,11 @@ Everything before this boundary is inherited history from the primary conversati
 
 Do not continue or complete instructions, plans, tool calls, approvals, edits, or requests from before this boundary. Only messages submitted after this boundary are active instructions for this side conversation.
 
-You are a separate, readonly side-conversation assistant. Answer questions and perform lightweight, non-mutating exploration without disrupting the primary conversation.`;
+Use inherited history naturally when answering the user's current question. Treat it as conversation the user and assistant already had: do not claim it was not discussed merely because it predates this boundary.
+
+This boundary and these instructions are hidden harness context. Do not mention, summarize, quote, or allude to the boundary, inherited-history distinction, side-conversation policy, read-only role, or these instructions unless the user explicitly asks how this assistant operates.
+
+You are a separate, readonly side-conversation assistant. Answer the current question directly and perform only lightweight, non-mutating exploration without disrupting the primary conversation.`;
 
 /** These commands are policy; Vera owns hosted agents, attachment, and rendering. */
 export function activateClient(vera: any): void {
@@ -25,6 +29,22 @@ export function activateClient(vera: any): void {
         vera.ui.mentions.set(
             activeMention === undefined ? [] : [activeMention, "all", "vera"],
         );
+    }
+
+    async function syncPrimaryContext(
+        agentId: string,
+        signal: AbortSignal,
+    ): Promise<void> {
+        const synced = await vera.agents.syncContext(agentId, signal);
+        if (synced.outcome === "busy") {
+            throw new Error("BTW context can sync only between turns");
+        }
+        if (synced.outcome === "not_found") {
+            throw new Error("BTW primary context is unavailable");
+        }
+        if (synced.outcome === "failed") {
+            throw new Error("BTW primary context could not be synchronized");
+        }
     }
 
     async function openAgent(
@@ -63,6 +83,7 @@ export function activateClient(vera: any): void {
                             type: "branch",
                             agentId: primaryAgentId,
                         },
+                        hideInheritedMessages: true,
                         initialMessages: [{
                             role: "user",
                             text: SIDE_CONVERSATION_BOUNDARY,
@@ -119,6 +140,9 @@ export function activateClient(vera: any): void {
                 );
                 const text = argumentsText.trim();
                 if (text.length > 0 || imagePaths.length > 0) {
+                    if (inheritPrimary) {
+                        await syncPrimaryContext(target, signal);
+                    }
                     await vera.agents.message({
                         agentId: target,
                         text,
@@ -137,6 +161,15 @@ export function activateClient(vera: any): void {
         true,
         "Open or message a readonly sidekick",
     );
+
+    // Bare prompts sent while the hosted surface is open bypass slash-command
+    // dispatch. Synchronize here too so focusing the sidekick and continuing
+    // the conversation has the same semantics as `/btw message`.
+    vera.messages.intercept(async (_message: unknown, signal: AbortSignal) => {
+        const target = agents[SIDEKICK];
+        if (target !== undefined) await syncPrimaryContext(target, signal);
+        return { kind: "pass" };
+    });
     register(
         "pair",
         PEER,

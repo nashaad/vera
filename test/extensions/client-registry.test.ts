@@ -1916,12 +1916,12 @@ test("the quickslot cycle names the slot it lands on and steps over dead slots",
         ],
     ]]);
     const updates: unknown[] = [];
-    const notices: string[] = [];
+    const notices: unknown[] = [];
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
         notice: {
-            post(_extensionId, text) {
-                notices.push(text);
+            post(_extensionId, text, options) {
+                notices.push({ text, options });
             },
         },
         preferences: {
@@ -1985,7 +1985,10 @@ test("the quickslot cycle names the slot it lands on and steps over dead slots",
         model: "glm-5.2",
         reasoningEffort: "medium",
     }]);
-    expect(notices).toEqual(["quickslot 3: glm-5.2 · medium"]);
+    expect(notices).toEqual([{
+        text: "quickslot 3: glm-5.2 · medium",
+        options: { tone: "soft", replay: true },
+    }]);
     expect((preferences.get("vera.model-presets:slots") as unknown[])[1])
         .toEqual({
             provider: "openrouter",
