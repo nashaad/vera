@@ -109,6 +109,7 @@ import {
     type PermissionMode,
     type PermissionPredicate,
     type PermissionPreference,
+    type ToolPermissionDecision,
 } from "./permissions.ts";
 import {
     createRoutedToolReviewer,
@@ -1654,8 +1655,11 @@ async function executePreparedTool(
                 : { scratchDir: state.scratchDir }),
         },
     );
+    const scratchNote = scratchAlternativeNote(permission, state.scratchDir);
     if (permission.behavior === "deny") {
-        return { result: deniedToolResult(toolCall, permission.reason) };
+        return {
+            result: deniedToolResult(toolCall, permission.reason, scratchNote),
+        };
     }
     const grantProposals = permissionGrantProposals(permission);
     if (permission.behavior === "review") {
@@ -1739,7 +1743,9 @@ async function executePreparedTool(
             },
         );
         if (approval.behavior === "deny") {
-            return { result: deniedToolResult(toolCall, approval.reason) };
+            return {
+                result: deniedToolResult(toolCall, approval.reason, scratchNote),
+            };
         }
     }
 
@@ -2110,14 +2116,47 @@ async function commitMessage(
 function deniedToolResult(
     toolCall: ToolCallContent,
     reason: string,
+    note?: string,
 ): ToolResultMessage {
     return {
         role: "tool_result",
         toolCallId: toolCall.id,
         toolName: toolCall.name,
-        content: [{ type: "text", text: reason }],
+        content: [{
+            type: "text",
+            text: note === undefined ? reason : `${reason} ${note}`,
+        }],
         isError: true,
     };
+}
+
+/**
+ * A refused write outside the workspace has an unrefused neighbour, and the
+ * model only needs to hear about it when it hits the wall. Naming the scratch
+ * directory in the result keeps the alternative out of the standing prompt,
+ * where it would cost context on every turn that never sees a denial.
+ *
+ * Only for paths that are actually blocked and actually elsewhere: a refusal
+ * inside the scratch directory has no scratch alternative to offer.
+ */
+function scratchAlternativeNote(
+    decision: ToolPermissionDecision,
+    scratchDir: string | undefined,
+): string | undefined {
+    if (scratchDir === undefined) {
+        return undefined;
+    }
+    const blocked = decision.actions.some(({ action, outcome }) =>
+        outcome !== "allow"
+        && action.verb === "write"
+        && action.scope === "outside_workspace"
+        && action.path !== undefined
+    );
+    return blocked
+        ? `Writes inside the session scratch directory (${scratchDir}) `
+            + "need no approval, so you can prepare the finished file there "
+            + "and offer it rather than stopping."
+        : undefined;
 }
 
 /**

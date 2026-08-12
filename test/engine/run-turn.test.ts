@@ -3282,3 +3282,88 @@ test("a level the pool already forbids never reaches the provider", async () => 
         },
     });
 });
+
+function denialTurnState(
+    channel: ReturnType<typeof createInProcessChannel>,
+    scratchDir: string | undefined,
+): RunTurnState {
+    const events = createTestEvents(channel.engine);
+    return {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "readonly",
+        ...(scratchDir === undefined ? {} : { scratchDir }),
+    };
+}
+
+async function denialToolResultText(
+    command: string,
+    scratchDir: string | undefined,
+): Promise<string> {
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [
+            {
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: { command },
+            },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const finalResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "stopped" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const state = denialTurnState(channel, scratchDir);
+    channel.client.send({ type: "prompt", content: "write it" });
+    const turn = runTurn(
+        new FauxAdapter([toolCallResponse, finalResponse]),
+        "test",
+        state,
+    );
+    await expectUserPrompt(channel, "write it", 1);
+    await receiveThroughTurnFinished(channel);
+    await turn;
+    const result = state.messages[2];
+    if (result?.role !== "tool_result") {
+        throw new Error("Expected a tool result message");
+    }
+    const [block] = result.content;
+    return block?.type === "text" ? block.text : "";
+}
+
+test("a denied write outside the workspace names the scratch directory", async () => {
+    const text = await denialToolResultText(
+        "echo hi > /private/tmp/vera-denial-note.txt",
+        "/private/tmp/vera-scratch-note",
+    );
+    expect(text).toContain("/private/tmp/vera-scratch-note");
+});
+
+test("a denial with no scratch directory keeps the bare reason", async () => {
+    const text = await denialToolResultText(
+        "echo hi > /private/tmp/vera-denial-note.txt",
+        undefined,
+    );
+    expect(text).not.toContain("scratch directory");
+});
+
+test("a denied read outside the workspace is not offered the scratch directory", async () => {
+    const text = await denialToolResultText(
+        "cat /private/tmp/vera-denial-note.txt",
+        "/private/tmp/vera-scratch-note",
+    );
+    expect(text).not.toContain("/private/tmp/vera-scratch-note");
+});
