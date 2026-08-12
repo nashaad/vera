@@ -11,6 +11,7 @@ import {
 } from "@opentui/core";
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
+import type { ReductionReason } from "../../src/model/catalog-reduction.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
 import type {
@@ -150,7 +151,7 @@ export interface TuiSettingsPickerOption {
      * a concrete row already listed, and an old row is one the provider listed
      * long enough ago that the newer models have moved past it.
      */
-    readonly hiddenByDefault?: "batch" | "alias" | "old";
+    readonly hiddenByDefault?: ReductionReason;
     /** True on a model Vera's shipped curation recommends. */
     readonly recommended?: boolean;
     /**

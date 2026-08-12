@@ -11,8 +11,10 @@
  * missing, so a model with no date is kept.
  */
 
+import { versionChain } from "./model-version-chain.ts";
+
 /** Why a row is not shown by default. Absent means it is shown. */
-export type ReductionReason = "batch" | "alias" | "old";
+export type ReductionReason = "batch" | "alias" | "old" | "superseded";
 
 export interface ReducibleModel {
     readonly id: string;
@@ -34,6 +36,19 @@ export interface ReductionOptions {
      * overrule either.
      */
     readonly keep?: ReadonlySet<string>;
+    /**
+     * Fold a model away when a later version of the same model is listed. Off
+     * unless asked for: it is the only rule here that can hide a model on a
+     * reading of its name rather than on a fact about it.
+     */
+    readonly collapseVersions?: boolean;
+    /**
+     * Family per model id, from models.dev. A chain is folded only where this
+     * agrees that both ids are the same model line. An id the map does not
+     * cover is not folded, so a models.dev that is stale or unreachable makes
+     * the list longer and never wrong.
+     */
+    readonly families?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -72,7 +87,80 @@ export function reduceModels(
             hidden.set(model.id, reason);
         }
     }
+    if (options.collapseVersions === true) {
+        for (const id of supersededIds(models, options, hidden)) {
+            hidden.set(id, "superseded");
+        }
+    }
     return hidden;
+}
+
+/**
+ * Every model that a later version of itself has replaced.
+ *
+ * Ordering is by listing date, never by version number: `grok-4.20` reads as
+ * higher than `grok-4.6` on the digits and was listed four months earlier, so
+ * comparing versions would fold the newer model away. An undated model is not
+ * ordered against anything and so is never folded and never folds another.
+ */
+function supersededIds(
+    models: readonly ReducibleModel[],
+    options: ReductionOptions,
+    hidden: ReadonlyMap<string, ReductionReason>,
+): readonly string[] {
+    const chains = new Map<string, ReducibleModel[]>();
+    for (const model of models) {
+        // A row already folded, or held open by the pool or the curation, takes
+        // no part: it can neither replace another row nor be replaced, and
+        // letting it win its chain would fold the whole chain behind a row that
+        // is not on screen.
+        if (hidden.has(model.id) || options.keep?.has(model.id) === true
+            || model.created === undefined) {
+            continue;
+        }
+        const chain = versionChain(model.id);
+        if (chain === undefined) {
+            continue;
+        }
+        const members = chains.get(chain.stem);
+        if (members === undefined) {
+            chains.set(chain.stem, [model]);
+        } else {
+            members.push(model);
+        }
+    }
+
+    const superseded: string[] = [];
+    for (const members of chains.values()) {
+        if (members.length < 2 || !sameFamily(members, options.families)) {
+            continue;
+        }
+        const newest = members.reduce((left, right) =>
+            (right.created ?? 0) > (left.created ?? 0) ? right : left
+        );
+        for (const model of members) {
+            if (model.id !== newest.id) {
+                superseded.push(model.id);
+            }
+        }
+    }
+    return superseded;
+}
+
+/**
+ * Whether models.dev puts every member of a chain in one family. An id the map
+ * does not cover answers no, which leaves the chain unfolded.
+ */
+function sameFamily(
+    members: readonly ReducibleModel[],
+    families: ReadonlyMap<string, string> | undefined,
+): boolean {
+    if (families === undefined) {
+        return false;
+    }
+    const first = families.get(members[0]!.id);
+    return first !== undefined
+        && members.every((model) => families.get(model.id) === first);
 }
 
 function reductionReason(

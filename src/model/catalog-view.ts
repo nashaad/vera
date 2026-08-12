@@ -33,6 +33,7 @@ import {
 import { poolNameOf } from "./pool-names.ts";
 import { isSelectable, supportedEfforts } from "./pool-policy.ts";
 import type { SuggestedModel } from "./supported-models.ts";
+import type { ReductionReason } from "./catalog-reduction.ts";
 
 export interface AvailableModel {
     readonly provider: string;
@@ -44,7 +45,7 @@ export interface AvailableModel {
      * Why the picker folds this row away until the user reveals everything.
      * Absent means the row is shown.
      */
-    readonly hiddenByDefault?: "batch" | "alias" | "old";
+    readonly hiddenByDefault?: ReductionReason;
     /** Empty means the model has no reasoning control at all. */
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;

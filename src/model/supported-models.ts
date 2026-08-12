@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import type { ReasoningLevelId } from "./catalog-shape.ts";
 import type { ModelReasoningEffort } from "./types.ts";
+import type { ReductionReason } from "./catalog-reduction.ts";
 
 export interface SuggestedModel {
     readonly provider: string;
@@ -21,7 +22,7 @@ export interface SuggestedModel {
      * Absent means the row is shown. The row travels either way: hiding is the
      * client's default, not the host withholding a model.
      */
-    readonly hiddenByDefault?: "batch" | "alias" | "old";
+    readonly hiddenByDefault?: ReductionReason;
     /** True on a model Vera's shipped curation recommends. */
     readonly recommended?: boolean;
     /** The level the curation recommends it at. A note, not a gate. */
