@@ -977,6 +977,16 @@ function actionsForSimpleCommand(
     }
     const writeCommand = FILE_WRITE_COMMANDS[executable];
     if (writeCommand !== undefined) {
+        // A hidden argument moves the target without moving the operand:
+        // `cp $FLAGS notes.md` with `FLAGS=-t /elsewhere` writes outside while
+        // the last operand still resolves inside the workspace. Only a word
+        // that survives expansion can be trusted to name where the write goes.
+        if (command.hasNonLiteralWords) {
+            return [
+                { tool: "bash", verb: "unknown", executable },
+                ...redirects,
+            ];
+        }
         return [
             ...writeCommandActions(
                 writeCommand,
