@@ -190,7 +190,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         scrollY: true,
         contentOptions: {
             flexDirection: "column",
-            gap: 1,
+            gap: 0,
             paddingRight: 1,
         },
     });
@@ -354,6 +354,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             id: `sidebar-block-${number}`,
             width: "100%",
             flexDirection: "column",
+            // Blocks carry their own spacing: the scroll container has none,
+            // so caller-rendered entries keep the main transcript's rhythm.
+            marginTop: number > 1 ? 1 : 0,
         });
         // The label is drawn, not parsed: markdown would eat the brackets and
         // asterisks that model names and aliases are full of.

@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 
-import { bg, bold, fg, StyledText } from "@opentui/core";
+import { bg, bold, fg, italic, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
@@ -73,8 +73,12 @@ export interface TuiTextTranscriptEntry {
     readonly hidden?: boolean;
     /** How many logical output lines a folded tool header summarizes. */
     readonly detailLines?: number;
-    /** Bounded leading detail retained while a tool group is folded. */
+    /** The one summary line a folded tool group keeps. */
     readonly detailPreview?: string;
+    /** The call a folded group shows on its own header row. */
+    readonly command?: string;
+    /** Whether this header carries the detail-toggle hint. */
+    readonly hint?: boolean;
     /**
      * The `pool_add` request this checklist entry reports on. Progress updates
      * rewrite the entry in place rather than appending, so the checklist reads
@@ -87,6 +91,8 @@ export interface TuiTextTranscriptEntry {
      * with an empty `text`.
      */
     readonly errorText?: string;
+    /** Semantic emphasis for harness-authored transcript prose. */
+    readonly tone?: "primary" | "soft" | "error";
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -904,8 +910,16 @@ function substitutionEntry(
     };
 }
 
-export function appendTuiNotice(state: TuiState, message: string): TuiState {
-    return appendEntry(state, { kind: "notice", text: message });
+export function appendTuiNotice(
+    state: TuiState,
+    message: string,
+    tone?: "primary" | "soft" | "error",
+): TuiState {
+    return appendEntry(state, {
+        kind: "notice",
+        text: message,
+        ...(tone === undefined ? {} : { tone }),
+    });
 }
 
 /** A notice that is a failure, drawn in the error red every theme shares. */
@@ -1040,7 +1054,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ? new StyledText(header)
             : new StyledText([
                 ...header,
-                fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
+                ...(entry.hint === true
+                    ? [fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`)]
+                    : []),
                 ...(entry.detailPreview === undefined
                     ? []
                     : renderCompactToolPreview(entry.detailPreview)),
@@ -1073,7 +1089,15 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "notice" || entry.kind === "review") {
         if (entry.errorText === undefined) {
-            return new StyledText([fg(TUI_NOTICE)(entry.text)]);
+            const color = entry.tone === "soft"
+                ? TUI_MUTED
+                : entry.tone === "error"
+                ? TUI_ERROR
+                : TUI_NOTICE;
+            const text = fg(color)(entry.text);
+            return new StyledText([
+                entry.tone === "soft" ? italic(text) : text,
+            ]);
         }
         return new StyledText(entry.text === ""
             ? [fg(TUI_ERROR)(entry.errorText)]
@@ -1083,7 +1107,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ]);
     }
     if (entry.kind === "thought") {
-        const summary = fg(TUI_NOTICE)(entry.text);
+        // Latency is metadata about a turn, not the turn: it reads in the
+        // muted role so the accent stays free for what the eye should find.
+        const summary = fg(TUI_MUTED)(entry.text);
         if (entry.reasoning === undefined) {
             return new StyledText([summary]);
         }
@@ -1102,15 +1128,19 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
 }
 
 function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
-    const folded = /^([+-]) (.+?) · (\d+ lines?)$/.exec(entry.text);
+    const folded = /^([+-]) (.+)$/.exec(entry.text);
     if (folded === null) {
-        return [bold(fg(TUI_ACCENT)(entry.text))];
+        return [bold(fg(TUI_TEXT)(entry.text))];
     }
-    const [, marker, action, count] = folded;
+    const [, marker, action] = folded;
+    // The call reads on the header row, so a folded group is one sentence:
+    // what was done, and to what.
     return [
-        fg(TUI_ACCENT)(marker === "+" ? "• " : "▾ "),
-        bold(fg(TUI_ACCENT)(action ?? "")),
-        fg(TUI_MUTED)(` · ${count ?? ""}`),
+        fg(TUI_MUTED)(marker === "+" ? "• " : "▾ "),
+        bold(fg(TUI_TEXT)(action ?? "")),
+        ...(entry.command === undefined
+            ? []
+            : [fg(TUI_MUTED)(`  ${entry.command}`)]),
     ];
 }
 
@@ -1129,10 +1159,6 @@ function renderCompactToolPreview(preview: string): TextChunk[] {
             tone = "result";
             chunks.push(fg(TUI_MUTED)("  └ "));
             chunks.push(fg(TUI_MUTED)(line.slice(4)));
-            continue;
-        }
-        if (/^    \+ \d+ more lines?$/.test(line)) {
-            chunks.push(fg(TUI_ACCENT)(line));
             continue;
         }
         chunks.push(fg(tone === "call" ? TUI_TEXT : TUI_MUTED)(line));
@@ -1488,8 +1514,7 @@ export function formatAskUserResult(output: string): string {
 }
 
 const AUTO_FOLD_TOOL_LINES = 8;
-const COMPACT_TOOL_LINES = 5;
-const COMPACT_TOOL_LINE_CHARS = 120;
+const COMPACT_TOOL_LINE_CHARS = 96;
 
 /**
  * Completed tool groups stay compact when their content would dominate the
@@ -1501,6 +1526,8 @@ function applyToolDetailPreference(
     preference?: boolean,
 ): TuiTranscriptEntry[] {
     const next = [...entries];
+    // The detail toggle is taught once per transcript, not on every group.
+    let hintUsed = false;
     for (let headerIndex = 0; headerIndex < next.length; headerIndex += 1) {
         const header = next[headerIndex];
         if (header?.kind !== "tool_header") {
@@ -1532,28 +1559,32 @@ function applyToolDetailPreference(
             && detailLines > 0
             && (preference !== undefined || detailLines > AUTO_FOLD_TOOL_LINES);
         const expanded = preference === true;
-        const previewText = compactToolPreview(rows, detailLines);
-        const base = header.header ?? header.text.replace(
-            /^[+-] | · \d+ lines?$/g,
-            "",
-        );
+        const calls = toolCallLines(rows);
+        const summary = compactToolSummary(rows, calls);
+        const base = header.header ?? header.text.replace(/^[+-] /, "");
         const {
             detailLines: _detailLines,
             detailPreview: _detailPreview,
+            command: _command,
+            hint: _hint,
             expanded: _expanded,
             ...plainHeader
         } = header;
+        const hinted = foldable && !hintUsed;
+        if (hinted) hintUsed = true;
 
         next[headerIndex] = foldable
             ? {
                 ...plainHeader,
-                text: `${expanded ? "-" : "+"} ${base} · ${detailLines} ${
-                    detailLines === 1 ? "line" : "lines"
-                }`,
+                text: `${expanded ? "-" : "+"} ${base}`,
                 detailLines,
-                ...(expanded || previewText === undefined
+                ...(calls.length === 1 && calls[0] !== undefined
+                    ? { command: compactToolLine(calls[0]) }
+                    : {}),
+                ...(expanded || summary === undefined
                     ? {}
-                    : { detailPreview: previewText }),
+                    : { detailPreview: summary }),
+                ...(hinted ? { hint: true } : {}),
                 expanded,
             }
             : {
@@ -1574,33 +1605,33 @@ function applyToolDetailPreference(
     return next;
 }
 
-function compactToolPreview(
+/** The call lines in a group, which is what a folded group is about. */
+function toolCallLines(
     rows: readonly TuiTextTranscriptEntry[],
-    detailLines: number,
+): readonly string[] {
+    return rows
+        .filter((row) => row.prefix === "  │ ")
+        .map((row) => tuiToolRowText(row).split("\n")[0] ?? "")
+        .filter((line) => line.length > 0);
+}
+
+/**
+ * The single line a folded group keeps. Several calls summarize to what they
+ * touched; one call summarizes to the head of what it produced. Neither says
+ * how much was left out: the toggle is what shows the rest.
+ */
+function compactToolSummary(
+    rows: readonly TuiTextTranscriptEntry[],
+    calls: readonly string[],
 ): string | undefined {
-    const preview: string[] = [];
-    for (const row of rows) {
-        const lines = tuiToolRowText(row).split("\n");
-        for (let index = 0; index < lines.length; index += 1) {
-            if (preview.length === COMPACT_TOOL_LINES) {
-                break;
-            }
-            const prefix = index === 0 ? row.prefix ?? "" : "    ";
-            preview.push(`${prefix}${compactToolLine(lines[index] ?? "")}`);
-        }
-        if (preview.length === COMPACT_TOOL_LINES) {
-            break;
-        }
+    if (calls.length > 1) {
+        return `  └ ${compactToolLine(calls.join(", "))}`;
     }
-    if (preview.length === 0) {
-        return undefined;
-    }
-    const omitted = detailLines - preview.length;
-    if (omitted > 0) {
-        const unit = omitted === 1 ? "line" : "lines";
-        preview.push(`    + ${omitted} more ${unit}`);
-    }
-    return preview.join("\n");
+    const result = rows.find((row) => row.prefix === "  └ ");
+    const line = (result === undefined ? undefined : tuiToolRowText(result))
+        ?.split("\n")
+        .find((entry) => entry.trim().length > 0);
+    return line === undefined ? undefined : `  └ ${compactToolLine(line)}`;
 }
 
 function compactToolLine(line: string): string {
@@ -1656,6 +1687,9 @@ function toSingleTuiTranscriptEntry(
     }
     if (entry.kind === "empty") {
         return emptyTurnEntry();
+    }
+    if (entry.kind === "harness") {
+        return { kind: "notice", text: entry.text, tone: entry.tone };
     }
     return entry.kind === "user"
         ? userEntry(entry.text, entry.attachments)

@@ -3,6 +3,7 @@ import {
     branchAgentThroughHost,
     createAgentThroughHost,
     resumeAgentThroughHost,
+    syncAgentContextThroughHost,
 } from "../../src/host/agent-start-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import type { UserMessage } from "../../src/model/types.ts";
@@ -23,8 +24,13 @@ export interface ConfiguredTuiAgentClients {
         approvalMode?: string,
         lifetime?: "ephemeral" | "durable",
         initialMessages?: readonly UserMessage[],
+        hideInheritedMessages?: boolean,
         signal?: AbortSignal,
     ): Promise<TuiAgentClient>;
+    sync(agentId: string, signal?: AbortSignal): Promise<{
+        readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+        readonly turns: number;
+    }>;
     clone(agentId: string): Promise<TuiAgentClient>;
     fork(
         agentId: string,
@@ -56,6 +62,7 @@ export function createConfiguredTuiAgentClients(
             approvalMode,
             lifetime = "durable",
             initialMessages = [],
+            hideInheritedMessages = false,
             signal,
         ) {
             try {
@@ -64,7 +71,13 @@ export function createConfiguredTuiAgentClients(
                     sourceAgentId,
                     "at",
                     undefined,
-                    { approvalMode, lifetime, initialMessages, signal },
+                    {
+                        approvalMode,
+                        lifetime,
+                        initialMessages,
+                        hideInheritedMessages,
+                        signal,
+                    },
                 );
                 return attach(ready.id);
             } catch (error) {
@@ -73,6 +86,9 @@ export function createConfiguredTuiAgentClients(
                 }
                 throw error;
             }
+        },
+        sync(agentId, signal) {
+            return syncAgentContextThroughHost(socketPath(), agentId, signal);
         },
         async clone(agentId) {
             const ready = await branchAgentThroughHost(

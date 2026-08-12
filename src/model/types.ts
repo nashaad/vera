@@ -109,6 +109,8 @@ export function formatModelSubstitution(
 
 export interface AssistantMessage {
     readonly role: "assistant";
+    /** Model-visible context that clients must not render as local transcript. */
+    readonly internal?: boolean;
     readonly content: readonly AssistantContent[];
     readonly source: ModelSource;
     readonly usage: ModelUsage;
@@ -123,6 +125,8 @@ export interface AssistantMessage {
 
 export interface ToolResultMessage {
     readonly role: "tool_result";
+    /** Model-visible context that clients must not render as local transcript. */
+    readonly internal?: boolean;
     readonly toolCallId: string;
     readonly toolName: string;
     readonly content: readonly TextContent[];

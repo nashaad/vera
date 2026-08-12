@@ -141,6 +141,8 @@ export interface VeraClientAgentCreateRequest {
         readonly type: "branch";
         readonly agentId: string;
     };
+    /** Keep inherited context model-visible but out of this pane's transcript. */
+    readonly hideInheritedMessages?: boolean;
     /** Model context appended after a branch and before its first turn. */
     readonly initialMessages?: readonly {
         readonly role: "user";
@@ -162,6 +164,11 @@ export interface VeraClientAgentMessageRequest {
     readonly agentId: string;
     readonly text: string;
     readonly imagePaths?: readonly string[];
+}
+
+export interface VeraClientAgentContextSyncResult {
+    readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+    readonly turns: number;
 }
 
 /**
@@ -189,6 +196,10 @@ export interface VeraClientExtensionAgents {
         request: VeraClientAgentOpenRequest,
         signal?: AbortSignal,
     ): Promise<void>;
+    syncContext(
+        agentId: string,
+        signal?: AbortSignal,
+    ): Promise<VeraClientAgentContextSyncResult>;
     message(
         request: VeraClientAgentMessageRequest,
         signal?: AbortSignal,
@@ -419,7 +430,14 @@ export interface VeraClientExtensionUi {
      *
      * Capability: `client.ui.notice`.
      */
-    notice(text: string): void;
+    notice(
+        text: string,
+        options?: {
+            readonly tone?: "primary" | "soft" | "error";
+            /** Keep the line in transcript replay without adding model context. */
+            readonly replay?: boolean;
+        },
+    ): void;
     /**
      * Write a labeled block into the transcript, for text long enough that a
      * notice line would not carry it: another model's answer, a summary, a

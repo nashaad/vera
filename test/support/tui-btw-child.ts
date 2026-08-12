@@ -10,6 +10,8 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+    HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
+    HOST_CAPABILITY_HARNESS_MESSAGES,
 } from "../../src/host/capabilities.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
@@ -137,7 +139,9 @@ function session(
             return capability === HOST_CAPABILITY_AGENT_BRANCH_OPTIONS
                 || capability === HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES
                 || capability
-                    === HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS;
+                    === HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS
+                || capability === HOST_CAPABILITY_AGENT_CONTEXT_SYNC
+                || capability === HOST_CAPABILITY_HARNESS_MESSAGES;
         },
         async send(command): Promise<void> {
             if (command.type === "attach_image") {
@@ -236,6 +240,7 @@ await startTui({
         sidekickId = `side-${++nextSession}`;
         return session(sidekickId, "SIDEKICK", approvalMode);
     },
+    syncAgentContext: async () => ({ outcome: "unchanged", turns: 0 }),
     attachAgent: async (agentId) => {
         const client = sessions.get(agentId);
         if (client === undefined) throw new Error(`unknown agent ${agentId}`);

@@ -119,6 +119,60 @@ test("startup profile persists in the session header", async () => {
     expect((await SessionStore.open(path)).header.startupProfile).toBe("bare");
 });
 
+test("harness messages replay outside model history", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "harness.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "harness",
+        cwd: "/work/vera",
+    });
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+    });
+    await store.appendHarnessMessage("Model changed.", "soft");
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.messages()).toEqual([{
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+    }]);
+    expect(reopened.projectedHarnessMessages()).toEqual([{
+        afterMessage: 1,
+        text: "Model changed.",
+        tone: "soft",
+    }]);
+});
+
+test("a harness marker after synchronized context follows the next user message", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "context-harness.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "context-harness",
+        cwd: "/work/vera",
+    });
+    await store.appendMessage({
+        role: "assistant",
+        content: [{ type: "text", text: "inherited" }],
+        internal: true,
+        source: { provider: "test", api: "test", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    });
+    await store.appendHarnessMessage("Caught up.", "soft");
+    expect(store.projectedHarnessMessages()).toEqual([]);
+
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "follow up" }],
+    });
+    expect(store.projectedHarnessMessages()).toEqual([{
+        afterMessage: 2,
+        text: "Caught up.",
+        tone: "soft",
+    }]);
+});
+
 test("session index metadata finds a title without loading the store", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "sessions", "indexed.jsonl");

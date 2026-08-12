@@ -13,6 +13,7 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+    HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
 } from "../../src/host/capabilities.ts";
 import type { UserMessage } from "../../src/model/types.ts";
 
@@ -30,9 +31,18 @@ export interface TuiClientExtensionAgentsOptions {
         approvalMode: string | undefined,
         attachmentLifetime: "ephemeral" | "durable" | undefined,
         initialMessages: readonly UserMessage[],
+        hideInheritedMessages: boolean,
         signal: AbortSignal,
     ) => Promise<TuiAgentClient>;
     attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
+    syncAgentContext?: (
+        agentId: string,
+        signal?: AbortSignal,
+    ) => Promise<{
+        readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+        readonly turns: number;
+    }>;
+    contextSynchronized?(agentId: string, turns: number): void;
     /** Assumes ownership of client immediately, including on rejection. */
     adoptAgent(
         extensionId: string,
@@ -111,6 +121,16 @@ export function createTuiClientExtensionAgentsAdapter(
                     "Resident host does not support branch compaction barriers",
                 );
             }
+            if (
+                request.hideInheritedMessages === true
+                && !primary.supportsHostCapability?.(
+                    HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
+                )
+            ) {
+                throw new Error(
+                    "Resident host does not support synchronized branch context",
+                );
+            }
             const next = requireIdentifiedTuiAgentClient(await (
                 source === undefined
                     ? options.createAgent === undefined
@@ -136,6 +156,7 @@ export function createTuiClientExtensionAgentsAdapter(
                                     ? { compactionBarrier: true }
                                     : {}),
                             })),
+                            request.hideInheritedMessages === true,
                             signal,
                         )
             ));
@@ -177,6 +198,21 @@ export function createTuiClientExtensionAgentsAdapter(
                 request.statusLabel,
                 signal,
             );
+        },
+        async syncContext(_extensionId, agentId, signal) {
+            if (!options.primary().supportsHostCapability?.(
+                HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
+            )) {
+                return { outcome: "not_found", turns: 0 };
+            }
+            if (options.syncAgentContext === undefined) {
+                return { outcome: "not_found", turns: 0 };
+            }
+            const result = await options.syncAgentContext(agentId, signal);
+            if (result.outcome === "synced") {
+                options.contextSynchronized?.(agentId, result.turns);
+            }
+            return result;
         },
         async message(_extensionId, request, signal) {
             signal.throwIfAborted();

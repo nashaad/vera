@@ -34,6 +34,7 @@ import type {
     PermissionPredicate,
     PermissionPreference,
 } from "./permissions.ts";
+import type { ModelMessage } from "../model/types.ts";
 
 /**
  * What the approval is actually agreeing to. The line is the last thing read
@@ -155,6 +156,17 @@ interface QueuedDeliveryTurn extends QueuedTurnContext {
 type QueuedTurn = QueuedPrompt | QueuedDeliveryTurn;
 
 export interface InboundCommandRouterOptions {
+    readonly appendHarnessMessage?: (
+        text: string,
+        tone: "primary" | "soft" | "error",
+    ) => Promise<void>;
+    readonly appendContext?: (
+        messages: readonly ModelMessage[],
+        harnessMessage: {
+            readonly text: string;
+            readonly tone: "primary" | "soft" | "error";
+        },
+    ) => Promise<void>;
     readonly hasPendingDeliveryTurn?: () => boolean;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
@@ -263,6 +275,7 @@ export class InboundCommandRouter {
     private receiveFailed = false;
     private pendingPromptCount = 0;
     private deliveryTurnQueued = false;
+    private contextAppend: Promise<void> | undefined;
 
     constructor(
         endpoint: MessageChannel<AgentUpdate, EngineCommand>,
@@ -322,6 +335,35 @@ export class InboundCommandRouter {
             throw new Error("No turn is active");
         }
         this.activeTurn = undefined;
+    }
+
+    async appendContext(
+        messages: readonly ModelMessage[],
+        harnessMessage: {
+            readonly text: string;
+            readonly tone: "primary" | "soft" | "error";
+        },
+    ): Promise<boolean> {
+        if (
+            this.hasPendingTurn()
+            || this.contextAppend !== undefined
+            || this.options.appendContext === undefined
+        ) {
+            return false;
+        }
+        const append = this.options.appendContext(
+            structuredClone(messages),
+            { ...harnessMessage },
+        );
+        this.contextAppend = append;
+        try {
+            await append;
+            return true;
+        } finally {
+            if (this.contextAppend === append) {
+                this.contextAppend = undefined;
+            }
+        }
     }
 
     timelineBlocked(): boolean {
@@ -480,6 +522,7 @@ export class InboundCommandRouter {
                     continue;
                 }
                 if (command.type === "trigger_delivery_turn") {
+                    await this.contextAppend;
                     if (this.deliveryTurnQueued) {
                         continue;
                     }
@@ -506,6 +549,7 @@ export class InboundCommandRouter {
                     continue;
                 }
                 if (command.type === "prompt") {
+                    await this.contextAppend;
                     const settings = this.options.readModelSettings?.();
                     const approvalMode = this.options.readApprovalMode?.();
                     this.pendingPromptCount += 1;
@@ -523,6 +567,19 @@ export class InboundCommandRouter {
                             type: "prompt_queued",
                             content: command.content,
                         });
+                    }
+                    continue;
+                }
+
+                if (command.type === "append_harness_message") {
+                    try {
+                        await this.options.appendHarnessMessage?.(
+                            command.text,
+                            command.tone,
+                        );
+                    } catch {
+                        // The originating client already showed the line. A
+                        // persistence failure must not stop later commands.
                     }
                     continue;
                 }

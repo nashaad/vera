@@ -34,7 +34,11 @@ export async function exportSession(
             started_at: snapshot.header.timestamp,
             workspace: snapshot.header.cwd,
         },
-        transcript: projectTranscript(snapshot.messages),
+        transcript: projectTranscript(
+            snapshot.messages,
+            undefined,
+            snapshot.harnessMessages,
+        ),
         ...(snapshot.agentFailure === undefined
             ? {}
             : {
@@ -113,12 +117,13 @@ function markdownFence(content: string): string {
 function renderTranscriptText(
     entry: Extract<
         TranscriptEntry,
-        { kind: "user" | "assistant" | "model_substitution" }
+        { kind: "user" | "assistant" | "model_substitution" | "harness" }
     >,
 ): string {
     if (entry.kind === "model_substitution") {
         return formatModelSubstitution(entry.substitution);
     }
+    if (entry.kind === "harness") return entry.text;
     if (entry.kind !== "user" || entry.attachments === undefined) return entry.text;
     const images = entry.attachments.map(
         (attachment) => `[Image attachment: ${attachment.name ?? attachment.id}]`,
@@ -138,6 +143,9 @@ function transcriptHeading(entry: TranscriptEntry): string {
     }
     if (entry.kind === "model_substitution") {
         return "## Model substitution";
+    }
+    if (entry.kind === "harness") {
+        return "## Vera";
     }
     if (entry.kind === "presentation") {
         return "## Tool result";

@@ -174,7 +174,10 @@ export function activateClient(vera: any): void {
         // Said before the update goes out: shift+tab is a key with no other
         // surface, so without this a refusal is the first thing the user hears
         // about the slot the key landed on.
-        vera.ui.notice(`quickslot ${index + 1}: ${quickslotLabel(quickslot)}`);
+        vera.ui.notice(
+            `quickslot ${index + 1}: ${quickslotLabel(quickslot)}`,
+            { tone: "soft", replay: true },
+        );
         await vera.modelSettings.update({
             provider: target.provider,
             model: target.model,
