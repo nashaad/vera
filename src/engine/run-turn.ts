@@ -2153,9 +2153,10 @@ function scratchAlternativeNote(
         && action.path !== undefined
     );
     return blocked
-        ? `Writes inside the session scratch directory (${scratchDir}) `
-            + "need no approval, so you can prepare the finished file there "
-            + "and offer it rather than stopping."
+        ? "Write the finished file somewhere you can reach and offer it rather "
+            + "than stopping. The working directory is the first choice; if it "
+            + "is not a fit either, writes inside the session scratch "
+            + `directory (${scratchDir}) need no approval.`
         : undefined;
 }
 
