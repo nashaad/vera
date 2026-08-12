@@ -843,6 +843,70 @@ test("scratch directory writes are routine when the scratch dir is known", () =>
     }
 });
 
+test("commands that name a write target reach the scratch rescoping", () => {
+    const scratchDir = "/tmp/vera/session-1";
+    // A write is a write whichever way the shell spells it: these are routine
+    // in scratch for the same reason `echo hi > notes.txt` always was.
+    const routine = [
+        `echo hi > ${scratchDir}/notes.txt`,
+        `printf 'x' >> ${scratchDir}/append.txt`,
+        `cp ${workspace}/README.md ${scratchDir}/copy.md`,
+        `cp -r ${workspace}/src ${scratchDir}/src`,
+        `cp -- ${workspace}/README.md ${scratchDir}/copy.md`,
+        `touch ${scratchDir}/new.txt`,
+        `mkdir -p ${scratchDir}/a ${scratchDir}/b`,
+    ];
+    for (const command of routine) {
+        expect(decideToolPermission("ask", bash(command), workspace, [], {
+            homeDirectory,
+            scratchDir,
+        }).behavior).toBe("allow");
+    }
+    // `mv` names its destination too, but it destroys its source, so the
+    // delete half keeps it gated the way a bare `rm` is.
+    expect(decideToolPermission(
+        "ask",
+        bash(`mv ${scratchDir}/a.md ${scratchDir}/b.md`),
+        workspace,
+        [],
+        { homeDirectory, scratchDir },
+    ).behavior).toBe("ask");
+    expect(decideToolPermission(
+        "ask",
+        bash(`cp ${workspace}/README.md ${homeDirectory}/x.md`),
+        workspace,
+        [],
+        { homeDirectory, scratchDir },
+    ).behavior).not.toBe("allow");
+});
+
+test("a write command whose operands cannot be split stays unknown", () => {
+    const scratchDir = "/tmp/vera/session-1";
+    const opaque = [
+        // Flags that swallow the next word, so an operand may be a value.
+        `cp -t ${scratchDir} README.md`,
+        `cp --target-directory=${scratchDir} README.md`,
+        `touch -r README.md ${scratchDir}/a.txt`,
+        `mkdir -m 700 ${scratchDir}/sub`,
+        // Too few operands to name a destination.
+        `cp README.md`,
+        "touch",
+        // Not modelled at all: `sed -i` hides in-place editing behind a flag
+        // and `tee` writes every operand as well as stdout.
+        `sed -i '' 's/a/b/' ${scratchDir}/copy.md`,
+        `tee ${scratchDir}/out.txt < ${workspace}/README.md`,
+    ];
+    for (const command of opaque) {
+        expect(actions(command).map((action) => action.verb)).toEqual([
+            "unknown",
+        ]);
+        expect(decideToolPermission("ask", bash(command), workspace, [], {
+            homeDirectory,
+            scratchDir,
+        }).behavior).toBe("ask");
+    }
+});
+
 test("a path escaping the scratch directory keeps its outside scope", () => {
     const decision = decideToolPermission(
         "ask",

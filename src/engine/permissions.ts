@@ -975,6 +975,21 @@ function actionsForSimpleCommand(
             ...redirects,
         ];
     }
+    const writeCommand = FILE_WRITE_COMMANDS[executable];
+    if (writeCommand !== undefined) {
+        return [
+            ...writeCommandActions(
+                writeCommand,
+                words,
+                executableIndex,
+                executable,
+                workspace,
+                workingDirectory,
+                homeDirectory,
+            ),
+            ...redirects,
+        ];
+    }
     const readOnlyClassifier = READ_ONLY_COMMANDS[executable];
     if (
         readOnlyClassifier !== undefined
@@ -1156,6 +1171,120 @@ function rmActions(
             homeDirectory,
         )
     );
+}
+
+/**
+ * Commands that mutate a path named in their own arguments rather than through
+ * a redirect. `operands` says how the trailing words map to actions: `targets`
+ * writes every operand, `copy` reads all but the last and writes the last.
+ *
+ * `flagsWithValues` are the flags whose next word is a value, not a path.
+ * Seeing one means the parse cannot tell arguments from paths, so the command
+ * falls to `unknown` instead of guessing.
+ */
+const FILE_WRITE_COMMANDS: Record<string, WriteCommandSpec | undefined> = {
+    cp: { operands: "copy", flagsWithValues: ["-t", "--target-directory"] },
+    mv: {
+        operands: "copy",
+        consumesSources: true,
+        flagsWithValues: ["-t", "--target-directory"],
+    },
+    touch: {
+        operands: "targets",
+        flagsWithValues: ["-r", "-d", "-t", "--reference", "--date"],
+    },
+    mkdir: { operands: "targets", flagsWithValues: ["-m", "--mode"] },
+};
+
+type WriteCommandSpec = {
+    readonly operands: "targets" | "copy";
+    readonly consumesSources?: boolean;
+    readonly flagsWithValues: readonly string[];
+};
+
+function writeCommandActions(
+    spec: WriteCommandSpec,
+    words: readonly string[],
+    executableIndex: number,
+    executable: string,
+    workspace: string,
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): readonly PermissionAction[] {
+    const unknown = [{ tool: "bash", verb: "unknown", executable }] as const;
+    const operands = parseWriteCommandOperands(
+        words.slice(executableIndex + 1),
+        spec.flagsWithValues,
+    );
+    if (operands === undefined) {
+        return unknown;
+    }
+    const action = (verb: "read" | "write" | "delete", target: string) =>
+        verb === "read"
+            ? { tool: "bash", verb, executable } as const
+            : shellPathAction(
+                verb,
+                target,
+                executable,
+                workspace,
+                workingDirectory,
+                homeDirectory,
+            );
+    if (spec.operands === "targets") {
+        return operands.length === 0
+            ? unknown
+            : operands.map((target) => action("write", target));
+    }
+    // `cp`/`mv` write their last operand. When that operand is an existing
+    // directory the real target is one level deeper, which leaves the reported
+    // path a prefix of the written one: same scope, so the gate is right even
+    // though the displayed path is the parent.
+    const destination = operands.at(-1);
+    if (operands.length < 2 || destination === undefined) {
+        return unknown;
+    }
+    const sources = operands.slice(0, -1);
+    return [
+        ...sources.flatMap((source) =>
+            spec.consumesSources === true
+                ? [action("read", source), action("delete", source)]
+                : [action("read", source)]
+        ),
+        action("write", destination),
+    ];
+}
+
+/**
+ * Returns the operands, or `undefined` when a flag makes the split unreliable.
+ */
+function parseWriteCommandOperands(
+    words: readonly string[],
+    flagsWithValues: readonly string[],
+): readonly string[] | undefined {
+    const operands: string[] = [];
+    let optionsEnded = false;
+    for (const word of words) {
+        if (!optionsEnded && word === "--") {
+            optionsEnded = true;
+            continue;
+        }
+        if (!optionsEnded && word.startsWith("-") && word.length > 1) {
+            if (
+                flagsWithValues.some((flag) =>
+                    word === flag
+                    || word.startsWith(`${flag}=`)
+                    || (!flag.startsWith("--")
+                        && !word.startsWith("--")
+                        && word.includes(flag.slice(1)))
+                )
+            ) {
+                return undefined;
+            }
+            continue;
+        }
+        operands.push(word);
+    }
+    return operands;
 }
 
 /**
