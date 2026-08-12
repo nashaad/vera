@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { dirname, isAbsolute } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -254,6 +254,13 @@ export function loadVeraConfig(
         ?? (options.path === undefined
             ? defaultVeraExtensionDirectory()
             : join(dirname(path), "extensions"));
+    const override = extensionOverrideFromEnvironment();
+    if (override !== undefined) {
+        return {
+            ...config,
+            extensions: override,
+        };
+    }
     const extensions = mergeExtensionConfigs(
         discoverExtensionConfigs(extensionDirectory),
         config.extensions ?? [],
@@ -265,6 +272,29 @@ export function loadVeraConfig(
         ...config,
         extensions,
     };
+}
+
+/**
+ * `VERA_EXTENSIONS` replaces the whole extension list with a comma-separated
+ * set of directories, so a checkout can run its own extensions without editing
+ * the config. A spawned host inherits it, so client and host agree.
+ */
+function extensionOverrideFromEnvironment():
+    | readonly VeraExtensionConfig[]
+    | undefined
+{
+    const raw = process.env.VERA_EXTENSIONS;
+    if (raw === undefined) {
+        return undefined;
+    }
+    const paths = raw.split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+    return paths.map((path) => ({
+        path: resolve(path),
+        enabled: true,
+        config: {},
+    }));
 }
 
 export function updateVeraConfigDefaults(
