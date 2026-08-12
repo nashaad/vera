@@ -891,6 +891,10 @@ test("a write command whose operands cannot be split stays unknown", () => {
         // Too few operands to name a destination.
         `cp README.md`,
         "touch",
+        // A word that survives expansion can carry flags, so no operand can be
+        // trusted to name the destination.
+        `cp $FLAGS ${workspace}/README.md`,
+        `mkdir -p $FLAGS ${workspace}/sub`,
         // Not modelled at all: `sed -i` hides in-place editing behind a flag
         // and `tee` writes every operand as well as stdout.
         `sed -i '' 's/a/b/' ${scratchDir}/copy.md`,
