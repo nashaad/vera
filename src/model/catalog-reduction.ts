@@ -42,13 +42,6 @@ export interface ReductionOptions {
      * reading of its name rather than on a fact about it.
      */
     readonly collapseVersions?: boolean;
-    /**
-     * Family per model id, from models.dev. A chain is folded only where this
-     * agrees that both ids are the same model line. An id the map does not
-     * cover is not folded, so a models.dev that is stale or unreachable makes
-     * the list longer and never wrong.
-     */
-    readonly families?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -132,7 +125,7 @@ function supersededIds(
 
     const superseded: string[] = [];
     for (const members of chains.values()) {
-        if (members.length < 2 || !sameFamily(members, options.families)) {
+        if (members.length < 2) {
             continue;
         }
         const newest = members.reduce((left, right) =>
@@ -147,21 +140,6 @@ function supersededIds(
     return superseded;
 }
 
-/**
- * Whether models.dev puts every member of a chain in one family. An id the map
- * does not cover answers no, which leaves the chain unfolded.
- */
-function sameFamily(
-    members: readonly ReducibleModel[],
-    families: ReadonlyMap<string, string> | undefined,
-): boolean {
-    if (families === undefined) {
-        return false;
-    }
-    const first = families.get(members[0]!.id);
-    return first !== undefined
-        && members.every((model) => families.get(model.id) === first);
-}
 
 function reductionReason(
     model: ReducibleModel,
