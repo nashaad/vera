@@ -205,13 +205,20 @@ export interface OpenSessionStoreOptions {
     readonly createId?: () => string;
 }
 
+/** The stored identity and retained snapshot reported by an append. */
+export interface StoredMessage {
+    readonly id: string;
+    readonly message: ModelMessage;
+}
+
 export interface SessionMessageStore {
-    appendMessage(message: ModelMessage): Promise<unknown>;
+    appendMessage(message: ModelMessage): Promise<StoredMessage>;
 }
 
 export interface ReadonlySessionSnapshot {
     readonly header: SessionHeader;
     readonly messages: readonly ModelMessage[];
+    readonly messageIds: ReadonlyMap<ModelMessage, string>;
     readonly agentFailure?: SessionAgentFailureEntry;
 }
 
@@ -368,6 +375,18 @@ export class SessionStore {
 
     messages(): readonly ModelMessage[] {
         return this.activeEntries().map((entry) => entry.message);
+    }
+
+    /**
+     * Pairs each active message with its stored ID. Keyed by the same object
+     * `messages()` returns, so a projection built from either stays aligned.
+     */
+    activeMessageIds(): ReadonlyMap<ModelMessage, string> {
+        const ids = new Map<ModelMessage, string>();
+        for (const entry of this.activeEntries()) {
+            ids.set(entry.message, entry.id);
+        }
+        return ids;
     }
 
     activeHeadId(): string | null {
@@ -1089,12 +1108,11 @@ export async function readSessionSnapshot(
 ): Promise<ReadonlySessionSnapshot> {
     const source = await readFile(path, "utf8");
     const loaded = parseSessionFile(path, completeSessionSource(path, source));
+    const active = activeBranchEntries(loaded.messageEntries, loaded.leafId);
     return {
         header: loaded.header,
-        messages: activeBranchEntries(
-            loaded.messageEntries,
-            loaded.leafId,
-        ).map((entry) => entry.message),
+        messages: active.map((entry) => entry.message),
+        messageIds: new Map(active.map((entry) => [entry.message, entry.id])),
         ...(loaded.agentFailure === undefined
             ? {}
             : { agentFailure: { ...loaded.agentFailure } }),

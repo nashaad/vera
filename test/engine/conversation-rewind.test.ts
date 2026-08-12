@@ -13,6 +13,7 @@ import {
     createProtocolEncoder,
     projectTranscript,
     type AgentUpdate,
+    type HistoryUpdate,
 } from "../../src/engine/protocol.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -71,9 +72,16 @@ test("conversation rewind publishes active history without changing files", asyn
     expect(state.messages).toEqual([firstUser, firstAssistant]);
     expect(updates).toEqual([{
         type: "history",
-        entries: projectTranscript([firstUser, firstAssistant]),
+        entries: projectTranscript(
+            store.messages(),
+            undefined,
+            store.activeMessageIds(),
+        ),
         seq: 0,
     }]);
+    expect(
+        (updates[0] as HistoryUpdate).entries.map((entry) => entry.id),
+    ).toEqual(["message-1#0", "message-2#0"]);
     expect(readFileSync(workspaceFile)).toEqual(before);
     expect((await SessionStore.open(sessionPath)).messages()).toEqual([
         firstUser,

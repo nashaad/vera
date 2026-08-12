@@ -51,7 +51,10 @@ import {
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
-import type { SessionMessageStore } from "../../src/store/session-store.ts";
+import type {
+    SessionMessageStore,
+    StoredMessage,
+} from "../../src/store/session-store.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import { disabledContributionsForProfile } from "../../src/startup-profile.ts";
 
@@ -723,13 +726,14 @@ test("turn finished waits for the assistant message append", async () => {
         releaseAppend = resolve;
     });
     const store: SessionMessageStore = {
-        async appendMessage(message): Promise<void> {
+        async appendMessage(message): Promise<StoredMessage> {
             order.push(`append_started:${message.role}`);
             if (message.role === "assistant") {
                 signalAppendStarted();
                 await appendReleased;
             }
             order.push(`append_finished:${message.role}`);
+                    return { id: "stored-message", message };
         },
     };
     events.subscribe((event) => {
@@ -1477,10 +1481,11 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
         return { power: "observe" };
     });
     const store: SessionMessageStore = {
-        async appendMessage(message): Promise<void> {
+        async appendMessage(message): Promise<StoredMessage> {
             if (message.role === "tool_result") {
                 throw new Error("disk full");
             }
+                    return { id: "stored-message", message };
         },
     };
     const state: RunTurnState = {
@@ -1529,8 +1534,9 @@ test("an effect acknowledges only after its unchanged result is durable", async 
     const state: RunTurnState = {
         messages: [],
         store: {
-            async appendMessage(message): Promise<void> {
+            async appendMessage(message): Promise<StoredMessage> {
                 if (message.role === "tool_result") order.push("persisted");
+                            return { id: "stored-message", message };
             },
         },
         toolRuntime: new ToolRuntime(process.cwd()),
@@ -1580,10 +1586,11 @@ test("failed persistence and post-hook mutation both suppress acknowledgement", 
         const state: RunTurnState = {
             messages: [],
             store: {
-                async appendMessage(message): Promise<void> {
+                async appendMessage(message): Promise<StoredMessage> {
                     if (options.failCommit && message.role === "tool_result") {
                         throw new Error("disk full");
                     }
+                                    return { id: "stored-message", message };
                 },
             },
             toolRuntime: new ToolRuntime(process.cwd()),
@@ -1630,7 +1637,12 @@ test("a bounded effect result suppresses acknowledgement", async () => {
     let acknowledgements = 0;
     const state: RunTurnState = {
         messages: [],
-        store: { appendMessage: async () => undefined },
+        store: {
+            appendMessage: async (message) => ({
+                id: "stored-message",
+                message,
+            }),
+        },
         toolRuntime: new ToolRuntime(process.cwd()),
         inbound: new InboundCommandRouter(channel.engine, events),
         events,
@@ -1703,8 +1715,9 @@ test("an edit presentation is published only after its result is durable", async
         }
     });
     const store: SessionMessageStore = {
-        async appendMessage(message): Promise<void> {
+        async appendMessage(message): Promise<StoredMessage> {
             if (message.role === "tool_result") order.push("persisted");
+                    return { id: "stored-message", message };
         },
     };
     const state: RunTurnState = {
@@ -2943,7 +2956,7 @@ test("repeated reviewer denials stop the turn", async () => {
     expect(message.errorMessage).toContain("denied 3 actions in a row");
     // Persisted, not just emitted. A session that ends at the last denied
     // tool result cannot tell anyone why it stopped after a reconnect.
-    expect(state.messages.at(-1)).toBe(message);
+    expect(state.messages.at(-1)).toEqual(message);
 });
 
 test("auto rejects without asking when no reviewer is configured", async () => {

@@ -766,7 +766,7 @@ export async function runHeadlessLoop(
             loadContextualContributions: options.loadContextualContributions,
         }),
     };
-    protocol.checkpoint(state.messages);
+    protocol.checkpoint(state.messages, store.activeMessageIds());
 
     while (true) {
         const checkpointMessages = [...state.messages];
@@ -777,7 +777,7 @@ export async function runHeadlessLoop(
                 message !== checkpointMessages[index]
             )
         ) {
-            protocol.checkpoint(state.messages);
+            protocol.checkpoint(state.messages, store.activeMessageIds());
         }
     }
 }
@@ -1458,8 +1458,8 @@ async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
     }
     for (const delivery of inbox.pendingDeliveries()) {
         const message = deliveryMessage(delivery);
-        await inbox.appendDeliveryMessage(delivery.id, message);
-        state.messages.push(message);
+        const entry = await inbox.appendDeliveryMessage(delivery.id, message);
+        state.messages.push(entry.message);
     }
 }
 
@@ -2100,8 +2100,11 @@ async function commitMessage(
     state: RunTurnState,
     message: ModelMessage,
 ): Promise<void> {
-    await state.store.appendMessage(message);
-    state.messages.push(message);
+    const entry = await state.store.appendMessage(message);
+    // The store persists a snapshot, so the in-memory line tracks that snapshot
+    // rather than the caller's object. A resumed session already holds the
+    // stored copies, and transcript IDs are keyed off them.
+    state.messages.push(entry.message);
 }
 
 function deniedToolResult(

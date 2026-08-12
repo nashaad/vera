@@ -22,6 +22,6 @@ export async function rewindConversationBefore(
     const rewind = await state.store.rewindBefore(userMessageId);
     const activeMessages = state.store.messages();
     state.messages.splice(0, state.messages.length, ...activeMessages);
-    protocol.checkpoint(state.messages);
+    protocol.checkpoint(state.messages, state.store.activeMessageIds());
     return rewind;
 }

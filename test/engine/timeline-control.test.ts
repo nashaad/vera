@@ -121,8 +121,8 @@ test("timeline list, preview, and apply keep replies requester-owned", async () 
     expect(broadcasts).toEqual([{
         type: "history",
         entries: [
-            { kind: "user", text: "first request" },
-            { kind: "assistant", text: "first answer" },
+            { id: "message-1#0", kind: "user", text: "first request" },
+            { id: "message-2#0", kind: "assistant", text: "first answer" },
         ],
         seq: 0,
     }]);
