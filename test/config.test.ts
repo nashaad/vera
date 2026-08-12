@@ -438,6 +438,37 @@ test("Vera config rejects a model feed url that is not http", () => {
     }
 });
 
+test("Vera config keeps a model picker age cutoff and defaults it absent", () => {
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(loadVeraConfig({ path: bare }).model_picker_max_age_months)
+        .toBeUndefined();
+
+    const set = temporaryConfigPath();
+    writeFileSync(set, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        model_picker_max_age_months: 0,
+    }));
+    expect(loadVeraConfig({ path: set }).model_picker_max_age_months).toBe(0);
+});
+
+test("Vera config rejects a model picker age cutoff that is not a count", () => {
+    for (const months of ["6", -1, Number.NaN, null]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            model_picker_max_age_months: months,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
+});
+
 test("Vera config rejects malformed extension entries", () => {
     for (const extensions of [
         {},

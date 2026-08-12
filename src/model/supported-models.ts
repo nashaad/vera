@@ -10,6 +10,18 @@ export interface SuggestedModel {
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    /**
+     * When the provider first listed the model, in seconds since the epoch.
+     * Absent on a model nothing has dated, which the picker reads as a reason
+     * to show it rather than a reason to hide it.
+     */
+    readonly created?: number;
+    /**
+     * Why the picker folds this row away until the user asks for everything.
+     * Absent means the row is shown. The row travels either way: hiding is the
+     * client's default, not the host withholding a model.
+     */
+    readonly hiddenByDefault?: "batch" | "alias" | "old";
     /** True on a model Vera's shipped curation recommends. */
     readonly recommended?: boolean;
     /** The level the curation recommends it at. A note, not a gate. */

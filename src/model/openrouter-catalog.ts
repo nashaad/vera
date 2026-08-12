@@ -2,6 +2,7 @@ import {
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "./catalog-cache.ts";
+import { mergeCatalogReleaseDates } from "./catalog-release-dates.ts";
 import type {
     CatalogModel,
     ProviderCatalog,
@@ -61,7 +62,10 @@ export async function refreshOpenRouterCatalog(
         return cachedCatalog(cacheOptions);
     }
 
-    const catalog = normalizeOpenRouterModels(raw);
+    const fresh = normalizeOpenRouterModels(raw);
+    // Release dates accumulate rather than being refetched, so the snapshot
+    // Vera already holds is consulted even on a successful fetch.
+    const catalog = mergeCatalogReleaseDates(fresh, cachedCatalog(cacheOptions));
     if (catalog.models.length === 0) {
         // A reachable endpoint that answered with nothing usable is the same
         // situation as an unreachable one, and the remembered list is still
@@ -135,6 +139,15 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         && value.context_length > 0
         ? value.context_length
         : undefined;
+    // OpenRouter states this as seconds since the epoch. A listing without one,
+    // or with one Vera cannot read, yields no date rather than a made-up one:
+    // the reduction treats a missing date as "keep the model", so a guess here
+    // would hide a model on invented evidence.
+    const created = typeof value.created === "number"
+            && Number.isSafeInteger(value.created)
+            && value.created > 0
+        ? value.created
+        : undefined;
 
     return {
         id: value.id,
@@ -142,6 +155,7 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         ...(imageSupport === undefined ? {} : { image_support: imageSupport }),
         ...(description === undefined ? {} : { description }),
         ...(contextWindow === undefined ? {} : { context_window: contextWindow }),
+        ...(created === undefined ? {} : { created }),
         tool_support: true,
         levels: parameters.includes("reasoning")
                 || parameters.includes("reasoning_effort")

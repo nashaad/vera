@@ -249,6 +249,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^e providers",
     },
     {
+        id: "reveal_all_models",
+        keys: ["ctrl+a"],
+        scope: "model_picker",
+        description: "Show every model, including the folded ones",
+        hint: "^a show all",
+    },
+    {
         id: "switch_tab",
         keys: ["tab"],
         scope: "model_picker",

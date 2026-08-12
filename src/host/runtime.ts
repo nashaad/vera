@@ -22,6 +22,7 @@ import type {
     ReasoningLevel,
 } from "../model/catalog-shape.ts";
 import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
+import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
 import { createReviewLogger } from "../engine/review-log.ts";
 import {
@@ -1022,7 +1023,24 @@ export async function discoveredOpenRouterModels(
         return [];
     }
     const catalog = await refreshOpenRouterCatalog(options);
-    return catalog?.models.map((model) => ({
+    if (catalog === undefined) {
+        return [];
+    }
+    // Every row travels, including the ones the picker folds away. The reduction
+    // is a mark on the row so that revealing the rest is a keypress in the
+    // client rather than another request to the host.
+    const hidden = reduceModels(catalog.models, {
+        now: Math.floor(Date.now() / 1000),
+        ...(config.model_picker_max_age_months === undefined
+            ? {}
+            : { maxAgeMonths: config.model_picker_max_age_months }),
+        keep: new Set(
+            catalog.models
+                .filter((model) => model.recommended === true)
+                .map((model) => model.id),
+        ),
+    });
+    return catalog.models.map((model) => ({
         provider: "openrouter",
         model: model.id,
         label: model.label,
@@ -1030,7 +1048,11 @@ export async function discoveredOpenRouterModels(
         ...(model.context_window === undefined
             ? {}
             : { contextWindow: model.context_window }),
-    })) ?? [];
+        ...(model.created === undefined ? {} : { created: model.created }),
+        ...(hidden.has(model.id)
+            ? { hiddenByDefault: hidden.get(model.id) }
+            : {}),
+    }));
 }
 
 async function resumeOrFind(

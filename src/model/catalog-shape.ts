@@ -32,6 +32,21 @@ export interface CatalogModel {
     /** Lower sorts first. Absent sorts after everything present. */
     readonly order?: number;
     readonly context_window?: number;
+    /**
+     * When the provider first listed this model, in seconds since the epoch.
+     *
+     * A listing date, not a release date: a model that existed for a year
+     * before it reached this provider dates from the listing. Staleness is the
+     * question being asked, so the listing is the more useful of the two, but
+     * the two are not the same fact and this field does not claim to be the
+     * second one.
+     *
+     * A model cannot become newer than it already is, so this is resolved once
+     * for an id and then kept. `mergeCatalogReleaseDates` holds the first date
+     * seen against a later listing that disagrees, which happens when a model
+     * is delisted and relisted.
+     */
+    readonly created?: number;
     readonly tool_support?: boolean;
     /**
      * Whether the model accepts image input, as the provider's own listing
