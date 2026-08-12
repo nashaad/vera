@@ -469,6 +469,38 @@ test("Vera config rejects a model picker age cutoff that is not a count", () => 
     }
 });
 
+test("Vera config carries the version collapse switch, off when absent", () => {
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(loadVeraConfig({ path: bare }).model_picker_collapse_versions)
+        .toBeUndefined();
+
+    const set = temporaryConfigPath();
+    writeFileSync(set, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        model_picker_collapse_versions: true,
+    }));
+    expect(loadVeraConfig({ path: set }).model_picker_collapse_versions)
+        .toBe(true);
+});
+
+test("Vera config rejects a version collapse switch that is not a flag", () => {
+    for (const value of ["true", 1, null]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            model_picker_collapse_versions: value,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
+});
+
 test("Vera config rejects malformed extension entries", () => {
     for (const extensions of [
         {},

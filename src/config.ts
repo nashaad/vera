@@ -143,6 +143,16 @@ export interface VeraConfig {
      * everyone's behalf, so the number is a setting rather than a constant.
      */
     readonly model_picker_max_age_months?: number;
+    /**
+     * Fold a model out of the picker when a later version of the same model is
+     * listed, so that a line of releases shows as its current version.
+     *
+     * Off by default. Every other reduction rule reads a fact (a submission
+     * mode, an alias target, a listing date); this one reads a naming
+     * convention, and a naming convention that changes hides a model someone
+     * wanted. It stays opt-in until there is evidence it can be trusted on.
+     */
+    readonly model_picker_collapse_versions?: boolean;
 }
 
 /**
@@ -434,6 +444,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const tips = parseEventLog(config.tips);
     const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
     const maxAgeMonths = parseMaxAgeMonths(config.model_picker_max_age_months);
+    const collapseVersions = config.model_picker_collapse_versions;
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -455,6 +466,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
         || (config.model_picker_max_age_months !== undefined
             && maxAgeMonths === undefined)
+        || (collapseVersions !== undefined
+            && typeof collapseVersions !== "boolean")
         || (config.compaction !== undefined && compaction === undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
@@ -511,6 +524,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(maxAgeMonths === undefined
             ? {}
             : { model_picker_max_age_months: maxAgeMonths }),
+        ...(typeof collapseVersions === "boolean"
+            ? { model_picker_collapse_versions: collapseVersions }
+            : {}),
     };
 }
 
