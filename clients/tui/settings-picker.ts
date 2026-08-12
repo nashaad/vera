@@ -2339,7 +2339,7 @@ function modelTabStripNode(
         // models a collection holds is the first thing asked of a shortlist.
         // Help is a page, not a collection, so it carries no count.
         const count = counts[id];
-        const named = count === undefined ? label : `${label} ${count}`;
+        const named = count === undefined ? label : `${label} (${count})`;
         const text = index === 0 ? `${named} ` : ` ${named} `;
         const chip = new TextRenderable(renderer, {
             content: new StyledText([
@@ -2502,6 +2502,20 @@ export function pickerFooter(
             selected?.section === undefined
                 ? { text: "⇧←→ fold all", drop: 5 }
                 : { text: "←→ ⇧←→ fold", drop: 1 },
+            // Only where there is something folded to reveal, and it names the
+            // direction the key would take you rather than the state you are
+            // in, so the hint stays an instruction on both passes.
+            ...(hasFoldedRows(state)
+                ? [{
+                    text: state.revealAll === true
+                        ? tuiKeyHint("reveal_all_models").replace(
+                            "show all",
+                            "show fewer",
+                        )
+                        : tuiKeyHint("reveal_all_models"),
+                    drop: 4,
+                }]
+                : []),
             // Sheds early, because the strip's own chip carries this chord and
             // is on screen whatever the footer had room for.
             { text: tuiKeyHint("open_providers"), drop: 6 },
@@ -2510,6 +2524,19 @@ export function pickerFooter(
         ], width);
     }
     return "↑↓ move · ⏎ select · esc close";
+}
+
+/**
+ * Whether the pane is holding rows back, which is what makes the reveal key
+ * worth a slot in the footer. A pooled row is shown whatever its mark says, so
+ * it does not count as folded.
+ */
+function hasFoldedRows(state: TuiSettingsPickerState): boolean {
+    return state.allOptions.some((option) =>
+        option.hiddenByDefault !== undefined
+        && option.pooledRank === undefined
+        && option.unavailable !== true
+    );
 }
 
 function extensionPickerKeyLabel(

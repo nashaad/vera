@@ -1326,7 +1326,7 @@ test("the Help tab explains the pane in the pane", async () => {
         .filter((line) => line.length > 0);
     const title = lines.findIndex((line) => line.startsWith("Select model"));
     expect(lines[title + 1]).toBe("Search");
-    expect(lines[title + 2]).toStartWith("Pool 2");
+    expect(lines[title + 2]).toStartWith("Pool (2)");
     expect(frame).toContain("⇥ tabs · esc close");
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);
@@ -1845,7 +1845,7 @@ test("the connect pane opened from the model pane draws in the same card", async
     // strip the user tabbed along is still there to tab back on.
     expect(frame).toContain("Select model");
     expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(/Pool 2\s+All models \d+\s+Help\s+Providers \^e/);
+    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Help\s+Providers \^e/);
     expect(frame).toContain("⇥ tabs");
     expect(frame).toContain("OpenRouter");
 });
