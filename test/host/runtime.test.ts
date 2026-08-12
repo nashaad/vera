@@ -666,7 +666,11 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             const attached = first.attach();
             expect(await attached.receive()).toEqual({
                 type: "history",
-                entries: [{ kind: "user", text: "stored prompt" }],
+                entries: [{
+                    id: expect.any(String),
+                    kind: "user",
+                    text: "stored prompt",
+                }],
                 seq: 0,
             });
             attached.detach();

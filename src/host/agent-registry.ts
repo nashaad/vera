@@ -2173,6 +2173,7 @@ export class AgentRegistry {
                 entries: projectTranscript(
                     store.messages(),
                     sessionAttachmentName(store),
+                    store.activeMessageIds(),
                 ),
                 seq: 0,
             }, storedFailure.id, storedFailure.detail);

@@ -587,7 +587,7 @@ export async function runSubagent(
                 ? {}
                 : { modelFallback: options.modelFallback }),
         };
-        protocol.checkpoint(state.messages);
+        protocol.checkpoint(state.messages, store.activeMessageIds());
         channel.client.send({
             type: "prompt",
             content: options.description,

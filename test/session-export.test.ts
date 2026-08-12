@@ -43,8 +43,16 @@ test("session export is read-only and follows the active conversation branch", a
                 workspace: "/work/vera",
             },
             transcript: [
-                { kind: "user", text: "keep this prompt" },
-                { kind: "assistant", text: "Keep this reply." },
+                {
+                    id: expect.any(String),
+                    kind: "user",
+                    text: "keep this prompt",
+                },
+                {
+                    id: expect.any(String),
+                    kind: "assistant",
+                    text: "Keep this reply.",
+                },
             ],
         });
         expect(await readFile(path)).toEqual(before);
@@ -114,6 +122,7 @@ test("session export preserves a durable terminal model error", async () => {
 
         const json = JSON.parse(await exportSession(path, "json"));
         expect(json.transcript.at(-1)).toEqual({
+            id: expect.any(String),
             kind: "error",
             detail: "rate limited after retries",
         });

@@ -52,23 +52,27 @@ export interface AttachmentRef {
 export type AttachmentNameLookup = (id: string) => string | undefined;
 
 export interface UserTranscriptEntry {
+    readonly id?: string;
     readonly kind: "user";
     readonly text: string;
     readonly attachments?: readonly AttachmentRef[];
 }
 
 export interface AssistantTranscriptEntry {
+    readonly id?: string;
     readonly kind: "assistant";
     readonly text: string;
 }
 
 export interface ToolTranscriptEntry {
+    readonly id?: string;
     readonly kind: "tool";
     readonly tool: string;
     readonly args: Readonly<Record<string, unknown>>;
 }
 
 export interface ToolResultTranscriptEntry {
+    readonly id?: string;
     readonly kind: "tool_result";
     readonly tool: string;
     readonly output: string;
@@ -76,6 +80,7 @@ export interface ToolResultTranscriptEntry {
 }
 
 export interface ModelSubstitutionTranscriptEntry {
+    readonly id?: string;
     readonly kind: "model_substitution";
     readonly substitution: ModelSubstitution;
 }
@@ -86,11 +91,13 @@ export interface ModelSubstitutionTranscriptEntry {
 export { formatModelSubstitution } from "../model/types.ts";
 
 export interface PresentationTranscriptEntry {
+    readonly id?: string;
     readonly kind: "presentation";
     readonly presentation: ToolPresentation;
 }
 
 export interface ErrorTranscriptEntry {
+    readonly id?: string;
     readonly kind: "error";
     readonly detail?: string;
 }
@@ -100,9 +107,17 @@ export interface ErrorTranscriptEntry {
  * same in a transcript, so the absence is written down rather than left blank.
  */
 export interface EmptyTranscriptEntry {
+    readonly id?: string;
     readonly kind: "empty";
 }
 
+/**
+ * Every entry carries the ID of the stored message it was projected from,
+ * suffixed with its position among the entries that message produced, because
+ * one message can yield several rows. The field is absent when the projection
+ * source has no stored identity, such as a live checkpoint taken from an
+ * in-memory array in a test.
+ */
 export type TranscriptEntry =
     | UserTranscriptEntry
     | AssistantTranscriptEntry
@@ -751,7 +766,10 @@ export interface AgentUpdateSender {
 }
 
 export interface ProtocolEncoder extends EngineEventSubscriber {
-    checkpoint(messages: readonly ModelMessage[]): void;
+    checkpoint(
+        messages: readonly ModelMessage[],
+        messageIds?: MessageIdLookup,
+    ): void;
 }
 
 export function parseClientCommand(value: unknown): ClientCommand | undefined {
@@ -1497,7 +1515,10 @@ export function createProtocolEncoder(
     };
 
     return Object.assign(encode, {
-        checkpoint(messages: readonly ModelMessage[]): void {
+        checkpoint(
+            messages: readonly ModelMessage[],
+            messageIds?: MessageIdLookup,
+        ): void {
             const restored = latestMeasurement(
                 messages,
                 measuredModel,
@@ -1524,7 +1545,11 @@ export function createProtocolEncoder(
                     : restored;
             sender.send({
                 type: "history",
-                entries: projectTranscript(messages, attachmentName),
+                entries: projectTranscript(
+                    messages,
+                    attachmentName,
+                    messageIds,
+                ),
                 ...(context === undefined ? {} : { context }),
                 seq,
             });
@@ -1601,18 +1626,35 @@ export function isEmptyAssistantMessage(message: ModelMessage): boolean {
         );
 }
 
+/**
+ * Maps a projected message back to the ID of the stored record it came from.
+ * Keyed by object identity rather than position so a caller cannot silently
+ * misalign the two lists.
+ */
+export type MessageIdLookup = ReadonlyMap<ModelMessage, string>;
+
 export function projectTranscript(
     messages: readonly ModelMessage[],
     attachmentName?: AttachmentNameLookup,
+    messageIds?: MessageIdLookup,
 ): readonly TranscriptEntry[] {
     const entries: TranscriptEntry[] = [];
 
     for (const message of messages) {
+        const messageId = messageIds?.get(message);
+        let subIndex = 0;
+        const push = (entry: TranscriptEntry): void => {
+            entries.push(
+                messageId === undefined
+                    ? entry
+                    : { ...entry, id: `${messageId}#${subIndex++}` },
+            );
+        };
         if (message.role === "user") {
             if (message.internal === true) {
                 continue;
             }
-            entries.push({
+            push({
                 kind: "user",
                 text: textContent(message.content),
                 ...attachmentRefs(message.content, attachmentName),
@@ -1620,14 +1662,14 @@ export function projectTranscript(
             continue;
         }
         if (message.role === "tool_result") {
-            entries.push({
+            push({
                 kind: "tool_result",
                 tool: message.toolName,
                 output: textContent(message.content),
                 isError: message.isError,
             });
             if (message.presentation !== undefined) {
-                entries.push({
+                push({
                     kind: "presentation",
                     presentation: structuredClone(message.presentation),
                 });
@@ -1637,21 +1679,21 @@ export function projectTranscript(
         // Ahead of the message's own content: the substitution is the reason
         // this content came from where it did.
         for (const substitution of message.substitutions ?? []) {
-            entries.push({
+            push({
                 kind: "model_substitution",
                 substitution: { ...substitution },
             });
         }
         if (isEmptyAssistantMessage(message)) {
-            entries.push({ kind: "empty" });
+            push({ kind: "empty" });
             continue;
         }
         for (const content of message.content) {
             if (content.type === "text" && content.text.length > 0) {
-                entries.push({ kind: "assistant", text: content.text });
+                push({ kind: "assistant", text: content.text });
             }
             if (content.type === "tool_call") {
-                entries.push({
+                push({
                     kind: "tool",
                     tool: content.name,
                     args: structuredClone(content.input),
@@ -1660,7 +1702,7 @@ export function projectTranscript(
         }
         if (message.stopReason === "error") {
             const detail = terminalDetail(message);
-            entries.push({
+            push({
                 kind: "error",
                 ...(detail === undefined ? {} : { detail }),
             });

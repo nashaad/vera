@@ -34,7 +34,11 @@ export async function exportSession(
             started_at: snapshot.header.timestamp,
             workspace: snapshot.header.cwd,
         },
-        transcript: projectTranscript(snapshot.messages),
+        transcript: projectTranscript(
+            snapshot.messages,
+            undefined,
+            snapshot.messageIds,
+        ),
         ...(snapshot.agentFailure === undefined
             ? {}
             : {

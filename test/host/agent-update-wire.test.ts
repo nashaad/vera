@@ -696,3 +696,28 @@ test("host wire carries consult replies to the client that asked", () => {
         requestId: "consult-2",
     })).toBeUndefined();
 });
+
+test("a history entry carrying an ID survives a client that predates it", () => {
+    // The decoder is the compatibility boundary: an older client must neither
+    // reject the entry nor drop the field it does not know about.
+    const update = {
+        type: "history",
+        entries: [
+            { id: "message-1#0", kind: "user", text: "first request" },
+            { id: "message-1#1", kind: "assistant", text: "first answer" },
+        ],
+        seq: 0,
+    } as const;
+
+    expect(parseAgentUpdate(update)).toEqual(update);
+});
+
+test("a history entry without an ID still decodes", () => {
+    const update = {
+        type: "history",
+        entries: [{ kind: "user", text: "first request" }],
+        seq: 0,
+    } as const;
+
+    expect(parseAgentUpdate(update)).toEqual(update);
+});
