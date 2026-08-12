@@ -40,6 +40,11 @@ export interface AvailableModel {
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    /**
+     * Why the picker folds this row away until the user reveals everything.
+     * Absent means the row is shown.
+     */
+    readonly hiddenByDefault?: "batch" | "alias" | "old";
     /** Empty means the model has no reasoning control at all. */
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
@@ -121,6 +126,9 @@ export function availableModelsWithLevels(
             ...(model.contextWindow === undefined
                 ? {}
                 : { contextWindow: model.contextWindow }),
+            ...(model.hiddenByDefault === undefined
+                ? {}
+                : { hiddenByDefault: model.hiddenByDefault }),
             levels: catalogModel?.levels ?? [],
             ...(catalogModel?.default_level === undefined
                 ? {}

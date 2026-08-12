@@ -144,6 +144,13 @@ export interface TuiSettingsPickerOption {
     readonly images?: boolean;
     /** True on a pool row with no probe or rejection evidence behind it. */
     readonly unverified?: boolean;
+    /**
+     * Why this row is folded away until the user asks for everything. A batch
+     * row names a submission mode rather than a model, an alias row duplicates
+     * a concrete row already listed, and an old row is one the provider listed
+     * long enough ago that the newer models have moved past it.
+     */
+    readonly hiddenByDefault?: "batch" | "alias" | "old";
     /** True on a model Vera's shipped curation recommends. */
     readonly recommended?: boolean;
     /**
@@ -258,6 +265,12 @@ export interface TuiSettingsPickerState {
     readonly pendingModel?: TuiPendingModelChoice;
     /** Set only on a reviewer pane: which slot the chosen row fills. */
     readonly reviewerSlot?: TuiReviewerSlot;
+    /**
+     * Set on the model pane once the user has asked for the folded rows. Like
+     * `collapsed`, it lasts as long as the pane: wanting the whole catalog is
+     * a question about this visit rather than a setting to carry forward.
+     */
+    readonly revealAll?: boolean;
 }
 
 export interface TuiPendingModelChoice {
@@ -543,8 +556,15 @@ export function syncTuiModelPicker(
     const onTab = {
         ...rebuilt,
         tab,
+        ...(state.revealAll === true ? { revealAll: true } : {}),
         ...(collapsed.length === 0 ? {} : { collapsed }),
-        options: modelPickerOptions(rebuilt.allOptions, tab, collapsed, ""),
+        options: modelPickerOptions(
+            rebuilt.allOptions,
+            tab,
+            collapsed,
+            "",
+            state.revealAll === true,
+        ),
     };
     const options = state.query.length === 0
         ? onTab.options
@@ -1312,6 +1332,38 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
+    // The fold is a default, not a filter: this key is the whole reason the
+    // list can open short without the short list claiming the other models do
+    // not exist. It only ever adds rows, so it never needs an undo.
+    if (
+        state.kind === "model"
+        && tuiBindingId("model_picker", key) === "reveal_all_models"
+    ) {
+        const modelState = state as TuiSettingsPickerState;
+        const revealAll = modelState.revealAll !== true;
+        const options = modelPickerOptions(
+            modelState.allOptions,
+            modelState.tab ?? "all",
+            modelState.collapsed ?? [],
+            modelState.query,
+            revealAll,
+        );
+        const selectedValue = modelState.options[modelState.selectedIndex]
+            ?.value;
+        return {
+            state: {
+                ...modelState,
+                revealAll,
+                options,
+                selectedIndex: restoredCursor(
+                    options,
+                    selectedValue,
+                    modelState.initialModel,
+                ),
+            },
+            handled: true,
+        };
+    }
     // Also ahead of the modifier bail-out, and modified for the same reason as
     // ctrl+s above: every bare key on the model pane belongs to its search box.
     if (
@@ -1373,6 +1425,7 @@ export function handleTuiSettingsPickerKey(
             modelState.tab ?? "all",
             collapsed,
             modelState.query,
+            modelState.revealAll === true,
         );
         const selectedValue = modelState.options[modelState.selectedIndex]
             ?.value;
@@ -2851,6 +2904,7 @@ export function switchedModelTab(
         tab,
         state.collapsed ?? [],
         "",
+        state.revealAll === true,
     );
     return {
         ...state,
@@ -2915,6 +2969,7 @@ function searched(
             state.tab ?? "all",
             state.collapsed ?? [],
             query,
+            state.revealAll === true,
         );
     const next = { ...state, options, selectedIndex: 0, query };
     return {
@@ -2982,6 +3037,9 @@ function modelOptions(
             }`,
             provider: model.provider,
             model: model.model,
+            ...(model.hiddenByDefault === undefined
+                ? {}
+                : { hiddenByDefault: model.hiddenByDefault }),
             ...recommendationMarks(model),
             ...poolMarks(value),
         };
@@ -3062,12 +3120,19 @@ function recommendationMarks(model: {
 function modelTabRows(
     allOptions: readonly TuiSettingsPickerOption[],
     tab: TuiModelPickerTab,
+    revealAll = false,
 ): readonly TuiSettingsPickerOption[] {
     if (tab === "help") {
         return [];
     }
     if (tab === "all") {
-        return allOptions.filter((option) => option.unavailable !== true);
+        return allOptions.filter((option) =>
+            option.unavailable !== true
+            // A pooled row is the user's own choice and outranks the fold, the
+            // same way the curation does on the host side.
+            && (revealAll || option.hiddenByDefault === undefined
+                || option.pooledRank !== undefined)
+        );
     }
     return allOptions
         .filter((option) => option.pooledRank !== undefined)
@@ -3088,8 +3153,12 @@ function modelPickerOptions(
     tab: TuiModelPickerTab,
     collapsed: readonly string[],
     query: string,
+    revealAll = false,
 ): readonly TuiSettingsPickerOption[] {
-    const rows = modelTabRows(allOptions, tab);
+    // Search reaches a folded row whether or not the pane is revealed. Typing
+    // an id is naming a model outright, and a list that answers "no such
+    // model" to a model it holds is worse than a long list.
+    const rows = modelTabRows(allOptions, tab, revealAll || query !== "");
     const matched = query === "" ? rows : matching(rows, query);
     if (tab === "pool" && query === "") {
         return matched;
@@ -3098,18 +3167,42 @@ function modelPickerOptions(
         matched,
         query === "" ? collapsed : [],
         tab === "all",
+        groupTotals(allOptions, tab),
     );
+}
+
+/**
+ * How many rows each provider holds in total, folded ones included.
+ *
+ * A closed heading reads `openrouter (87 of 337)` rather than `(87)`, which is
+ * the difference between a list that is short and a list that is pretending
+ * the rest of the catalog is not there.
+ */
+function groupTotals(
+    allOptions: readonly TuiSettingsPickerOption[],
+    tab: TuiModelPickerTab,
+): ReadonlyMap<string, number> {
+    const totals = new Map<string, number>();
+    for (const row of modelTabRows(allOptions, tab, true)) {
+        const label = row.group ?? row.provider ?? "Other";
+        totals.set(label, (totals.get(label) ?? 0) + 1);
+    }
+    return totals;
 }
 
 function sectionHeader(
     label: string,
     rows: readonly TuiSettingsPickerOption[],
     collapsed: readonly string[],
+    total = rows.length,
 ): TuiSettingsPickerOption {
     const closed = collapsed.includes(label);
+    const count = total > rows.length
+        ? `${rows.length} of ${total}`
+        : `${rows.length}`;
     return {
         value: sectionValue(label),
-        label: closed ? `${label} (${rows.length})` : label,
+        label: closed ? `${label} (${count})` : label,
         description: "",
         section: label,
         ...(closed ? { sectionCollapsed: true } : {}),
@@ -3124,6 +3217,7 @@ function sectionedOptions(
     rows: readonly TuiSettingsPickerOption[],
     collapsed: readonly string[],
     topPicks: boolean,
+    totals: ReadonlyMap<string, number> = new Map(),
 ): readonly TuiSettingsPickerOption[] {
     const options: TuiSettingsPickerOption[] = [];
     const picks = topPicks
@@ -3150,7 +3244,9 @@ function sectionedOptions(
         existing.push(row);
     });
     providers.forEach((group, label) => {
-        options.push(sectionHeader(label, group, collapsed));
+        options.push(
+            sectionHeader(label, group, collapsed, totals.get(label) ?? group.length),
+        );
         if (!collapsed.includes(label)) {
             options.push(...group);
         }
@@ -3192,6 +3288,7 @@ function sectionLabels(
         state.tab ?? "all",
         [],
         state.query,
+        state.revealAll === true,
     ).flatMap((option) => option.section === undefined ? [] : [option.section]);
 }
 
@@ -3227,6 +3324,7 @@ function toggledSection(
         state.tab ?? "all",
         collapsed,
         state.query,
+        state.revealAll === true,
     );
     return {
         state: {

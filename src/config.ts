@@ -133,6 +133,16 @@ export interface VeraConfig {
      * the copy shipped with the build answers instead.
      */
     readonly model_feed_url?: string;
+    /**
+     * How old a model may be and still be listed in the picker by default,
+     * counted from when the provider first listed it. Absent means the built-in
+     * cutoff. `0` disables the age rule and lists every model whatever its age.
+     *
+     * A picker that hides most of a provider is making a judgement call about
+     * how fast the field moves, and that call is not Vera's to make on
+     * everyone's behalf, so the number is a setting rather than a constant.
+     */
+    readonly model_picker_max_age_months?: number;
 }
 
 /**
@@ -423,6 +433,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
     const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
+    const maxAgeMonths = parseMaxAgeMonths(config.model_picker_max_age_months);
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -442,6 +453,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || experimental === undefined
         || eventLog === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
+        || (config.model_picker_max_age_months !== undefined
+            && maxAgeMonths === undefined)
         || (config.compaction !== undefined && compaction === undefined)
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
@@ -495,6 +508,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
         ...(modelFeedUrl === undefined ? {} : { model_feed_url: modelFeedUrl }),
+        ...(maxAgeMonths === undefined
+            ? {}
+            : { model_picker_max_age_months: maxAgeMonths }),
     };
 }
 
@@ -515,6 +531,12 @@ function parseModelFeedUrl(value: unknown): string | undefined {
     }
     return parsed.protocol === "http:" || parsed.protocol === "https:"
         ? trimmed
+        : undefined;
+}
+
+function parseMaxAgeMonths(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0
+        ? value
         : undefined;
 }
 

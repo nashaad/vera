@@ -20,6 +20,7 @@ interface SourceModel {
     readonly description?: string;
     readonly order?: number;
     readonly context_window?: number;
+    readonly created?: number;
     readonly tool_support?: boolean;
     readonly default_level?: string;
     readonly levels?: readonly ReasoningLevel[];
@@ -169,6 +170,7 @@ function parseModel(value: unknown): SourceModel | undefined {
         || !optionalType(model.description, "string")
         || !optionalType(model.order, "number")
         || !optionalType(model.context_window, "number")
+        || !optionalType(model.created, "number")
         || !optionalType(model.tool_support, "boolean")
         || !optionalType(model.default_level, "string")
         || (model.levels !== undefined
