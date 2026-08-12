@@ -89,6 +89,14 @@ export interface SessionPermissionsEntry {
     readonly mode: ApprovalMode;
 }
 
+export interface SessionHarnessMessageEntry {
+    readonly type: "harness_message";
+    readonly timestamp: string;
+    readonly afterMessageId: string | null;
+    readonly text: string;
+    readonly tone: "primary" | "soft" | "error";
+}
+
 export interface SessionNameEntry {
     readonly type: "session_name";
     readonly timestamp: string;
@@ -219,6 +227,11 @@ export interface ReadonlySessionSnapshot {
     readonly header: SessionHeader;
     readonly messages: readonly ModelMessage[];
     readonly messageIds: ReadonlyMap<ModelMessage, string>;
+    readonly harnessMessages: readonly {
+        readonly afterMessage: number;
+        readonly text: string;
+        readonly tone: "primary" | "soft" | "error";
+    }[];
     readonly agentFailure?: SessionAgentFailureEntry;
 }
 
@@ -238,6 +251,7 @@ interface LoadedSessionFile {
     readonly legacyDeliveryMessageIds: Map<string, string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
+    readonly harnessMessageEntries: SessionHarnessMessageEntry[];
     readonly nameEntries: SessionNameEntry[];
     readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
     readonly permissionGrantRevocationEntries:
@@ -260,6 +274,7 @@ export class SessionStore {
     private readonly legacyDeliveryMessageIds: Map<string, string>;
     private readonly modelSettingsEntries: SessionModelSettingsEntry[];
     private readonly permissionsEntries: SessionPermissionsEntry[];
+    private readonly harnessMessageEntries: SessionHarnessMessageEntry[];
     private readonly nameEntries: SessionNameEntry[];
     private readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
     private readonly permissionGrantRevocationEntries:
@@ -283,6 +298,7 @@ export class SessionStore {
         this.legacyDeliveryMessageIds = loaded.legacyDeliveryMessageIds;
         this.modelSettingsEntries = loaded.modelSettingsEntries;
         this.permissionsEntries = loaded.permissionsEntries;
+        this.harnessMessageEntries = loaded.harnessMessageEntries;
         this.nameEntries = loaded.nameEntries;
         this.permissionGrantEntries = loaded.permissionGrantEntries;
         this.permissionGrantRevocationEntries =
@@ -337,6 +353,7 @@ export class SessionStore {
                 legacyDeliveryMessageIds: new Map(),
                 modelSettingsEntries: [],
                 permissionsEntries: [],
+                harnessMessageEntries: [],
                 nameEntries: [],
                 permissionGrantEntries: [],
                 permissionGrantRevocationEntries: [],
@@ -518,6 +535,30 @@ export class SessionStore {
             () => undefined,
         );
         return result;
+    }
+
+    appendHarnessMessage(
+        text: string,
+        tone: "primary" | "soft" | "error",
+    ): Promise<SessionHarnessMessageEntry> {
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitHarnessMessage(text, tone);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    projectedHarnessMessages(): readonly {
+        readonly afterMessage: number;
+        readonly text: string;
+        readonly tone: "primary" | "soft" | "error";
+    }[] {
+        const active = this.activeEntries();
+        return projectHarnessMessages(this.harnessMessageEntries, active);
     }
 
     appendName(name: string | null): Promise<SessionNameEntry> {
@@ -749,6 +790,26 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.modelSettingsEntries.push(entry);
+        return entry;
+    }
+
+    private async commitHarnessMessage(
+        requestedText: string,
+        tone: "primary" | "soft" | "error",
+    ): Promise<SessionHarnessMessageEntry> {
+        const text = requestedText.trim();
+        if (text.length === 0) {
+            throw new Error("Cannot append an empty harness message");
+        }
+        const entry: SessionHarnessMessageEntry = {
+            type: "harness_message",
+            timestamp: this.now().toISOString(),
+            afterMessageId: this.leafId,
+            text,
+            tone,
+        };
+        await this.appendRecord(entry);
+        this.harnessMessageEntries.push(entry);
         return entry;
     }
 
@@ -1113,10 +1174,44 @@ export async function readSessionSnapshot(
         header: loaded.header,
         messages: active.map((entry) => entry.message),
         messageIds: new Map(active.map((entry) => [entry.message, entry.id])),
+        harnessMessages: projectHarnessMessages(
+            loaded.harnessMessageEntries,
+            active,
+        ),
         ...(loaded.agentFailure === undefined
             ? {}
             : { agentFailure: { ...loaded.agentFailure } }),
     };
+}
+
+function projectHarnessMessages(
+    entries: readonly SessionHarnessMessageEntry[],
+    active: readonly SessionMessageEntry[],
+): readonly {
+    readonly afterMessage: number;
+    readonly text: string;
+    readonly tone: "primary" | "soft" | "error";
+}[] {
+    return entries.flatMap((entry) => {
+        let afterMessage = entry.afterMessageId === null
+            ? 0
+            : active.findIndex((message) => message.id === entry.afterMessageId) + 1;
+        if (
+            afterMessage > 0
+            && active[afterMessage - 1]?.message.internal === true
+        ) {
+            const nextVisibleUser = active.findIndex((message, index) =>
+                index >= afterMessage
+                && message.message.role === "user"
+                && message.message.internal !== true
+            );
+            if (nextVisibleUser < 0) return [];
+            afterMessage = nextVisibleUser + 1;
+        }
+        return afterMessage === 0 && entry.afterMessageId !== null
+            ? []
+            : [{ afterMessage, text: entry.text, tone: entry.tone }];
+    });
 }
 
 async function removeUnterminatedTail(
@@ -1158,6 +1253,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
     const legacyDeliveryMessageIds = new Map<string, string>();
     const modelSettingsEntries: SessionModelSettingsEntry[] = [];
     const permissionsEntries: SessionPermissionsEntry[] = [];
+    const harnessMessageEntries: SessionHarnessMessageEntry[] = [];
     const nameEntries: SessionNameEntry[] = [];
     const permissionGrantEntries: SessionPermissionGrantsEntry[] = [];
     const permissionGrantRevocationEntries:
@@ -1311,6 +1407,12 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
             );
             continue;
         }
+        if (value.type === "harness_message") {
+            harnessMessageEntries.push(
+                parseHarnessMessageEntry(path, lineNumber, value),
+            );
+            continue;
+        }
         if (value.type === "session_name") {
             nameEntries.push(
                 parseSessionNameEntry(path, lineNumber, value),
@@ -1413,6 +1515,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         legacyDeliveryMessageIds,
         modelSettingsEntries,
         permissionsEntries,
+        harnessMessageEntries,
         nameEntries,
         permissionGrantEntries,
         permissionGrantRevocationEntries,
@@ -1421,6 +1524,30 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         agentFailure,
         leafId,
     };
+}
+
+function parseHarnessMessageEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionHarnessMessageEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || Number.isNaN(Date.parse(value.timestamp))
+        || (value.afterMessageId !== null
+            && typeof value.afterMessageId !== "string")
+        || typeof value.text !== "string"
+        || value.text.trim().length === 0
+        || (value.tone !== "primary"
+            && value.tone !== "soft"
+            && value.tone !== "error")
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid harness message entry`,
+        );
+    }
+    return value as unknown as SessionHarnessMessageEntry;
 }
 
 function parseAgentFailureEntry(
@@ -2119,7 +2246,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
             );
     }
     if (message.role === "tool_result") {
-        return typeof message.toolCallId === "string"
+        return (message.internal === undefined
+            || typeof message.internal === "boolean")
+            && typeof message.toolCallId === "string"
             && typeof message.toolName === "string"
             && typeof message.isError === "boolean"
             && (message.presentation === undefined
@@ -2129,7 +2258,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
     if (message.role !== "assistant") {
         return false;
     }
-    return isModelSource(message.source)
+    return (message.internal === undefined
+        || typeof message.internal === "boolean")
+        && isModelSource(message.source)
         && isModelUsage(message.usage)
         && isModelStopReason(message.stopReason)
         && (message.errorMessage === undefined

@@ -53,6 +53,7 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS,
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
+    HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     negotiateHostCapabilities,
     parseHostCapabilities,
 } from "./capabilities.ts";
@@ -100,6 +101,10 @@ export interface StartHostServerOptions {
     ) => Promise<BranchedRegisteredAgent | undefined>;
     readonly discardBranch?: (agentId: string) => Promise<void>;
     readonly commitBranch?: (agentId: string) => boolean;
+    readonly syncAgentContext?: (agentId: string) => Promise<{
+        readonly status: "synced" | "unchanged" | "busy" | "not_found";
+        readonly turns: number;
+    }>;
     readonly trashSession?: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
@@ -279,6 +284,10 @@ export async function startHostServer(
             options.branchAgent ?? (() => Promise.resolve(undefined)),
             options.discardBranch ?? (() => Promise.resolve()),
             options.commitBranch ?? (() => false),
+            options.syncAgentContext ?? (() => Promise.resolve({
+                status: "not_found" as const,
+                turns: 0,
+            })),
             options.trashSession ?? (() => Promise.resolve("not_found")),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
@@ -364,6 +373,10 @@ function receiveConnection(
     ) => Promise<BranchedRegisteredAgent | undefined>,
     discardBranch: (agentId: string) => Promise<void>,
     commitBranch: (agentId: string) => boolean,
+    syncAgentContext: (agentId: string) => Promise<{
+        readonly status: "synced" | "unchanged" | "busy" | "not_found";
+        readonly turns: number;
+    }>,
     trashSession: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
@@ -769,7 +782,8 @@ function receiveConnection(
             finished = true;
             const hasOptions = request.approval_mode !== undefined
                 || request.lifetime === "ephemeral"
-                || (request.initial_messages?.length ?? 0) > 0;
+                || (request.initial_messages?.length ?? 0) > 0
+                || request.hide_inherited_messages === true;
             const requiresCommit = request.lifetime === "ephemeral";
             if (
                 hasOptions
@@ -786,6 +800,16 @@ function receiveConnection(
                 && !capabilities.includes(
                     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
                 )
+            ) {
+                void send({
+                    type: "agent_branch_failed",
+                    reason: "unsupported_options",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            if (
+                request.hide_inherited_messages === true
+                && !capabilities.includes(HOST_CAPABILITY_AGENT_CONTEXT_SYNC)
             ) {
                 void send({
                     type: "agent_branch_failed",
@@ -824,6 +848,9 @@ function receiveConnection(
                 ...(request.initial_messages === undefined
                     ? {}
                     : { initialMessages: request.initial_messages }),
+                ...(request.hide_inherited_messages === true
+                    ? { hideInheritedMessages: true }
+                    : {}),
                 signal: branchAbort.signal,
                 ...(requiresCommit ? { deferPublication: true } : {}),
             }).then(
@@ -851,6 +878,23 @@ function receiveConnection(
                 discardPendingBranch();
                 socket.destroy();
             });
+            return;
+        }
+        if (request?.type === "sync_agent_context") {
+            clearTimeout(deadline);
+            finished = true;
+            void syncAgentContext(request.agent_id).then(
+                (result) => send({
+                    type: "agent_context_synced",
+                    outcome: result.status,
+                    turns: result.turns,
+                }),
+                () => send({
+                    type: "agent_context_synced",
+                    outcome: "failed",
+                    turns: 0,
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "commit_agent_branch") {

@@ -482,6 +482,7 @@ export async function startResidentHost(
                 await registry.trashSession(agentId);
             },
             commitBranch: (agentId) => registry.commitBranch(agentId),
+            syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
             trashSession: (targetId) => registry.trashSession(targetId),
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),

@@ -54,7 +54,13 @@ export interface StartTuiClientExtensionHostOptions {
     readonly appendTranscript: (
         block: VeraClientTranscriptBlock,
     ) => void;
-    readonly postNotice: (text: string) => void;
+    readonly postNotice: (
+        text: string,
+        options?: {
+            readonly tone?: "primary" | "soft" | "error";
+            readonly replay?: boolean;
+        },
+    ) => void;
     readonly commandRegistry: TuiCommandRegistry;
     readonly signal?: AbortSignal;
     readonly onFailure: (failure: ClientExtensionRegistryFailure) => void;
@@ -83,7 +89,7 @@ export interface TuiClientExtensionHostBindings {
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
     readonly readThread: () => readonly VeraClientThreadTurn[];
     readonly appendTranscript: (block: VeraClientTranscriptBlock) => void;
-    readonly postNotice: (text: string) => void;
+    readonly postNotice: StartTuiClientExtensionHostOptions["postNotice"];
     readonly commandRegistry: TuiCommandRegistry;
     readonly onFailure: (
         failure: ClientExtensionRegistryFailure,
@@ -261,8 +267,8 @@ export async function startTuiClientExtensionHost(
             },
         },
         notice: {
-            post(_extensionId, text) {
-                options.postNotice(text);
+            post(_extensionId, text, noticeOptions) {
+                options.postNotice(text, noticeOptions);
             },
         },
         reservedCommandNames:

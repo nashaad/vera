@@ -214,3 +214,27 @@ The versioned JSON includes the system prompt, model-visible messages, and
 offered tools. It may contain project files, prompts, tool results, and private
 reasoning from earlier messages. Treat it as sensitive local data. It is not the
 provider-specific wire payload.
+
+## Run one checkout's extensions
+
+`VERA_EXTENSIONS` replaces the configured extension list with a comma-separated
+set of directories, so a checkout can run its own extensions without editing
+config. A spawned host inherits it, so client and host agree on the list.
+
+```sh
+VERA_EXTENSIONS=examples/extensions/btw vera
+```
+
+The resident host is a singleton, so a host already running with a different
+list has to stop first. `scripts/vera-extensions.sh` does both steps:
+
+```sh
+scripts/vera-extensions.sh examples/extensions/btw
+```
+
+List several directories to load several extensions, and pass anything after
+`--` through to the TUI:
+
+```sh
+scripts/vera-extensions.sh examples/extensions/btw extensions/quickslot -- --resume
+```

@@ -52,17 +52,16 @@ test("assistant Markdown remains streaming until turn completion", async () => {
     }
 });
 
-test("a final answer can begin with a pane-width section rule", async () => {
+test("an answer that follows no work carries no section rule", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
     const syntaxStyle = SyntaxStyle.fromStyles({});
     const node = createTuiMarkdownEntry(
         setup.renderer,
-        "separated-assistant",
+        "plain-assistant",
         { kind: "assistant", text: "Final answer" },
         syntaxStyle,
         "#ffffff",
         0,
-        true,
     );
     setup.renderer.root.add(node!);
 
@@ -72,7 +71,7 @@ test("a final answer can begin with a pane-width section rule", async () => {
         await setup.flush();
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Final answer");
-        expect(frame).toContain("─".repeat(40));
+        expect(frame).not.toContain("─".repeat(10));
     } finally {
         node?.destroy();
         syntaxStyle.destroy();

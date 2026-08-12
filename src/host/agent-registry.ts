@@ -111,7 +111,10 @@ import {
     SessionStore,
 } from "../store/session-store.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
-import { createSessionBranch } from "../store/session-branch.ts";
+import {
+    copySessionMessageAttachments,
+    createSessionBranch,
+} from "../store/session-branch.ts";
 import {
     disabledContributionsForProfile,
     storedStartupProfile,
@@ -402,6 +405,8 @@ export interface BranchRegisteredAgentOptions {
     readonly approvalMode?: ApprovalMode;
     /** Model-visible messages appended only to the new branch before it starts. */
     readonly initialMessages?: readonly UserMessage[];
+    /** Keep inherited model context out of the branch's local transcript. */
+    readonly hideInheritedMessages?: boolean;
     readonly signal?: AbortSignal;
     /** Keep the branch out of public lookup until `commitBranch` publishes it. */
     readonly deferPublication?: boolean;
@@ -819,6 +824,8 @@ interface RegisteredAgentEntry {
     requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;
     inbound?: InboundCommandRouter;
+    /** Last source entry incorporated after this branch was created. */
+    syncedSourceEntryId?: string | null;
     inbox?: InboxDeliverySession;
     run: Promise<void>;
     completed: boolean;
@@ -1157,6 +1164,9 @@ export class AgentRegistry {
                 ...(options.entryId === undefined
                     ? {}
                     : { entryId: options.entryId }),
+                ...(options.hideInheritedMessages === true
+                    ? { hideInheritedMessages: true }
+                    : {}),
             });
             options.signal?.throwIfAborted();
             await created.store.appendApprovalMode(approvalMode);
@@ -1283,6 +1293,75 @@ export class AgentRegistry {
         entry.pendingPublication = false;
         this.notifyRosterChanged();
         return true;
+    }
+
+    async syncBranchContext(
+        targetId: string,
+    ): Promise<{
+        readonly status: "synced" | "unchanged" | "busy" | "not_found";
+        readonly turns: number;
+    }> {
+        const target = this.agents.get(targetId);
+        const sourceId = target?.store.header.origin?.sessionId;
+        const source = sourceId === undefined
+            ? undefined
+            : this.agents.get(sourceId);
+        if (target === undefined || source === undefined) {
+            return { status: "not_found", turns: 0 };
+        }
+        if (
+            target.agent.closed
+            || target.agent.failed
+            || source.agent.closed
+            || source.agent.failed
+            || target.agent.status !== "idle"
+            || source.agent.status !== "idle"
+            || target.inbound === undefined
+        ) {
+            return { status: "busy", turns: 0 };
+        }
+        const active = source.store.activeEntries();
+        const lastCompletedIndex = active.findLastIndex((entry) =>
+            entry.message.role === "assistant"
+        );
+        if (lastCompletedIndex < 0) {
+            return { status: "unchanged", turns: 0 };
+        }
+        const completed = active.slice(0, lastCompletedIndex + 1);
+        const cursor = target.syncedSourceEntryId
+            ?? target.store.header.origin?.entryId
+            ?? null;
+        const cursorIndex = cursor === null
+            ? -1
+            : completed.findIndex((entry) => entry.id === cursor);
+        if (cursor !== null && cursorIndex < 0) {
+            return { status: "not_found", turns: 0 };
+        }
+        const additions = completed.slice(cursorIndex + 1);
+        const turns = additions.filter((entry) =>
+            entry.message.role === "user"
+            && entry.message.internal !== true
+        ).length;
+        if (additions.length === 0 || turns === 0) {
+            return { status: "unchanged", turns: 0 };
+        }
+        await copySessionMessageAttachments(
+            source.store,
+            target.store,
+            additions.map((entry) => entry.message),
+        );
+        const appended = await target.inbound.appendContext(
+            additions.map((entry) => entry.message),
+            {
+                text: `Caught up with ${turns} new ${turns === 1 ? "turn" : "turns"} from the primary conversation.`,
+                tone: "soft",
+            },
+        );
+        if (!appended) {
+            return { status: "busy", turns: 0 };
+        }
+        target.syncedSourceEntryId = additions.at(-1)!.id;
+        return { status: "synced", turns };
     }
 
     /** The identity name a live session posts under, `undefined` when gone. */
@@ -2161,6 +2240,9 @@ export class AgentRegistry {
             pendingAsyncTurns: 0,
             pendingCompletionDeliveries: 0,
             completionSequence: 0,
+            ...(store.header.origin === undefined
+                ? {}
+                : { syncedSourceEntryId: store.header.origin.entryId }),
             ...(storedFailure === undefined
                 ? {}
                 : { failure: new Error(storedFailure.detail) }),
@@ -2174,6 +2256,7 @@ export class AgentRegistry {
                     store.messages(),
                     sessionAttachmentName(store),
                     store.activeMessageIds(),
+                    store.projectedHarnessMessages(),
                 ),
                 seq: 0,
             }, storedFailure.id, storedFailure.detail);
