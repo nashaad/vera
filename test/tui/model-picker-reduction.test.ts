@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import {
     handleTuiSettingsPickerKey,
+    pickerFooter,
     startTuiSettingsPicker,
 } from "../../clients/tui/settings-picker.ts";
 
@@ -103,4 +104,28 @@ test("a closed heading counts what it is hiding", () => {
         option.section === "openrouter"
     );
     expect(heading?.label).toBe("openrouter (1 of 3)");
+});
+
+test("the footer names the reveal key, and names it as an instruction", () => {
+    const opened = picker();
+    expect(pickerFooter(opened)).toContain("^a show all");
+
+    const revealed = handleTuiSettingsPickerKey(opened, {
+        name: "a",
+        ctrl: true,
+    });
+    expect(pickerFooter(revealed.state!)).toContain("^a show fewer");
+});
+
+test("a pane with nothing folded does not offer to reveal", () => {
+    const open = startTuiSettingsPicker(
+        "model",
+        "anthropic/claude-opus-5",
+        "high",
+        "auto",
+        [MODELS[0]!],
+        "default",
+        "openrouter",
+    );
+    expect(pickerFooter(open)).not.toContain("^a");
 });
