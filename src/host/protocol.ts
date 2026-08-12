@@ -90,11 +90,23 @@ export interface BranchAgentRequest {
         readonly internal?: boolean;
         readonly compactionBarrier?: boolean;
     }[];
+    readonly hide_inherited_messages?: boolean;
 }
 
 export interface CommitAgentBranchRequest {
     readonly type: "commit_agent_branch";
     readonly agent_id: string;
+}
+
+export interface SyncAgentContextRequest {
+    readonly type: "sync_agent_context";
+    readonly agent_id: string;
+}
+
+export interface AgentContextSyncedResponse {
+    readonly type: "agent_context_synced";
+    readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+    readonly turns: number;
 }
 
 /**
@@ -363,6 +375,7 @@ export type HostRequest =
     | ResumeAgentRequest
     | BranchAgentRequest
     | CommitAgentBranchRequest
+    | SyncAgentContextRequest
     | TrashSessionRequest
     | RenameSessionRequest
     | RunOnceRequest
@@ -382,6 +395,7 @@ export type HostResponse =
     | AgentBranchedResponse
     | AgentBranchCommittedResponse
     | AgentBranchFailedResponse
+    | AgentContextSyncedResponse
     | SessionTrashedResponse
     | SessionTrashRejectedResponse
     | SessionRenamedResponse
@@ -480,6 +494,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             || value.lifetime === "ephemeral"
             || value.lifetime === "durable")
         && isBranchInitialMessages(value.initial_messages)
+        && (value.hide_inherited_messages === undefined
+            || typeof value.hide_inherited_messages === "boolean")
     ) {
         if (value.position === "at") {
             return {
@@ -495,6 +511,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 ...(value.initial_messages === undefined
                     ? {}
                     : { initial_messages: value.initial_messages }),
+                ...(value.hide_inherited_messages === true
+                    ? { hide_inherited_messages: true }
+                    : {}),
             };
         }
         return {
@@ -511,6 +530,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(value.initial_messages === undefined
                 ? {}
                 : { initial_messages: value.initial_messages }),
+            ...(value.hide_inherited_messages === true
+                ? { hide_inherited_messages: true }
+                : {}),
         };
     }
     if (
@@ -519,6 +541,13 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         && value.agent_id.length > 0
     ) {
         return { type: "commit_agent_branch", agent_id: value.agent_id };
+    }
+    if (
+        value?.type === "sync_agent_context"
+        && typeof value.agent_id === "string"
+        && value.agent_id.length > 0
+    ) {
+        return { type: "sync_agent_context", agent_id: value.agent_id };
     }
     if (
         value?.type === "trash_session"

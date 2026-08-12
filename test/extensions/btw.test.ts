@@ -11,6 +11,7 @@ async function start(visible: readonly {
     mention?: string;
 }[] = [{ agentId: "main", pane: "main" }]) {
     const calls: unknown[] = [];
+    const syncs: string[] = [];
     let mentions: readonly string[] = [];
     let created = 0;
     const mounted: any[] = [];
@@ -85,6 +86,10 @@ async function start(visible: readonly {
             async open(extensionId, request) {
                 calls.push({ operation: "open", extensionId, request });
             },
+            async syncContext(_extensionId, agentId) {
+                syncs.push(agentId);
+                return { outcome: "unchanged" as const, turns: 0 };
+            },
             async message(extensionId, request) {
                 calls.push({ operation: "message", extensionId, request });
             },
@@ -93,6 +98,7 @@ async function start(visible: readonly {
     return {
         registry,
         calls,
+        syncs,
         mentions: () => mentions,
         mounted,
         rawMounted,
@@ -116,6 +122,7 @@ test("bare btw creates and opens a readonly hosted sidekick", async () => {
             attachmentLifetime: "ephemeral",
             statusLabel: "btw",
             source: { type: "branch", agentId: "main" },
+            hideInheritedMessages: true,
             initialMessages: [{
                 role: "user",
                 text: expect.stringContaining("reference context only"),
@@ -176,6 +183,21 @@ test("btw text sends the text to the hosted sidekick", async () => {
         extensionId: "vera.btw",
         request: { agentId: "side-1", text: "inspect this" },
     });
+    expect(harness.syncs).toEqual(["side-1"]);
+    await harness.registry.close();
+});
+
+test("a bare hosted follow-up synchronizes the btw sidekick", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "first", "/workspace");
+    harness.syncs.length = 0;
+
+    expect(await harness.registry.interceptMessage({
+        text: "follow up",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.syncs).toEqual(["side-1"]);
     await harness.registry.close();
 });
 

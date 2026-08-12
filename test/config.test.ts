@@ -341,6 +341,42 @@ test("global discovery does not follow child symlinks", () => {
     expect(loadVeraConfig({ path }).extensions).toBeUndefined();
 });
 
+test("VERA_EXTENSIONS replaces the configured extension list", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const extensionDirectory = join(root, "extensions");
+    const discovered = join(extensionDirectory, "web-search");
+    mkdirSync(discovered, { recursive: true });
+    writeFileSync(join(discovered, "vera.extension.json"), "{}");
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+        extensions: [{ path: "/tmp/session-graph" }],
+    }));
+
+    const previous = process.env.VERA_EXTENSIONS;
+    process.env.VERA_EXTENSIONS = ` ${root}/side , , ${root}/other `;
+    try {
+        expect(loadVeraConfig({ path, extensionDirectory }).extensions)
+            .toEqual([{
+                path: join(root, "side"),
+                enabled: true,
+                config: {},
+            }, {
+                path: join(root, "other"),
+                enabled: true,
+                config: {},
+            }]);
+    } finally {
+        if (previous === undefined) {
+            delete process.env.VERA_EXTENSIONS;
+        } else {
+            process.env.VERA_EXTENSIONS = previous;
+        }
+    }
+});
+
 test("Vera config reads the experimental inbox flag and defaults it off", () => {
     const bare = temporaryConfigPath();
     writeFileSync(bare, JSON.stringify({

@@ -111,6 +111,13 @@ export interface EmptyTranscriptEntry {
     readonly kind: "empty";
 }
 
+export interface HarnessTranscriptEntry {
+    readonly id?: string;
+    readonly kind: "harness";
+    readonly text: string;
+    readonly tone: "primary" | "soft" | "error";
+}
+
 /**
  * Every entry carries the ID of the stored message it was projected from,
  * suffixed with its position among the entries that message produced, because
@@ -126,12 +133,19 @@ export type TranscriptEntry =
     | PresentationTranscriptEntry
     | ModelSubstitutionTranscriptEntry
     | ErrorTranscriptEntry
-    | EmptyTranscriptEntry;
+    | EmptyTranscriptEntry
+    | HarnessTranscriptEntry;
 
 export interface PromptCommand {
     readonly type: "prompt";
     readonly content: string;
     readonly attachmentIds?: readonly string[];
+}
+
+export interface AppendHarnessMessageCommand {
+    readonly type: "append_harness_message";
+    readonly text: string;
+    readonly tone: "primary" | "soft" | "error";
 }
 
 /**
@@ -330,6 +344,7 @@ export type TimelineCommand =
 
 export type ClientCommand =
     | PromptCommand
+    | AppendHarnessMessageCommand
     | AttachImageCommand
     | AbortCommand
     | UiResponseCommand
@@ -790,6 +805,19 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                 : { attachmentIds: [...command.attachmentIds] }),
         };
     }
+    if (
+        command.type === "append_harness_message"
+        && isNonEmptyString(command.text)
+        && (command.tone === "primary"
+            || command.tone === "soft"
+            || command.tone === "error")
+    ) {
+        return {
+            type: "append_harness_message",
+            text: command.text.trim(),
+            tone: command.tone,
+        };
+    }
     if (command.type === "abort") {
         return { type: "abort" };
     }
@@ -1135,6 +1163,11 @@ function isModelReasoningEffort(
 export function createProtocolEncoder(
     sender: AgentUpdateSender,
     attachmentName?: AttachmentNameLookup,
+    harnessMessages: () => readonly {
+        readonly afterMessage: number;
+        readonly text: string;
+        readonly tone: "primary" | "soft" | "error";
+    }[] = () => [],
 ): ProtocolEncoder {
     let seq = 0;
     let measuredCapacity: number | undefined;
@@ -1549,6 +1582,7 @@ export function createProtocolEncoder(
                     messages,
                     attachmentName,
                     messageIds,
+                    harnessMessages(),
                 ),
                 ...(context === undefined ? {} : { context }),
                 seq,
@@ -1637,10 +1671,28 @@ export function projectTranscript(
     messages: readonly ModelMessage[],
     attachmentName?: AttachmentNameLookup,
     messageIds?: MessageIdLookup,
+    harnessMessages: readonly {
+        readonly afterMessage: number;
+        readonly text: string;
+        readonly tone: "primary" | "soft" | "error";
+    }[] = [],
 ): readonly TranscriptEntry[] {
     const entries: TranscriptEntry[] = [];
+    const appendHarnessMessages = (afterMessage: number): void => {
+        for (const message of harnessMessages) {
+            if (message.afterMessage === afterMessage) {
+                entries.push({
+                    kind: "harness",
+                    text: message.text,
+                    tone: message.tone,
+                });
+            }
+        }
+    };
 
-    for (const message of messages) {
+    appendHarnessMessages(0);
+    for (let index = 0; index < messages.length; index += 1) {
+        const message = messages[index]!;
         const messageId = messageIds?.get(message);
         let subIndex = 0;
         const push = (entry: TranscriptEntry): void => {
@@ -1650,15 +1702,17 @@ export function projectTranscript(
                     : { ...entry, id: `${messageId}#${subIndex++}` },
             );
         };
+        if (message.internal === true) {
+            appendHarnessMessages(index + 1);
+            continue;
+        }
         if (message.role === "user") {
-            if (message.internal === true) {
-                continue;
-            }
             push({
                 kind: "user",
                 text: textContent(message.content),
                 ...attachmentRefs(message.content, attachmentName),
             });
+            appendHarnessMessages(index + 1);
             continue;
         }
         if (message.role === "tool_result") {
@@ -1674,6 +1728,7 @@ export function projectTranscript(
                     presentation: structuredClone(message.presentation),
                 });
             }
+            appendHarnessMessages(index + 1);
             continue;
         }
         // Ahead of the message's own content: the substitution is the reason
@@ -1686,6 +1741,7 @@ export function projectTranscript(
         }
         if (isEmptyAssistantMessage(message)) {
             push({ kind: "empty" });
+            appendHarnessMessages(index + 1);
             continue;
         }
         for (const content of message.content) {
@@ -1707,6 +1763,7 @@ export function projectTranscript(
                 ...(detail === undefined ? {} : { detail }),
             });
         }
+        appendHarnessMessages(index + 1);
     }
 
     return entries;

@@ -13,6 +13,7 @@ export interface CreateSessionBranchOptions {
     readonly sessionId: string;
     readonly position: "before" | "at";
     readonly entryId?: string;
+    readonly hideInheritedMessages?: boolean;
 }
 
 export interface CreatedSessionBranch {
@@ -46,7 +47,7 @@ export async function createSessionBranch(
         if (modelSettings !== undefined) {
             await destination.appendModelSettings(modelSettings);
         }
-        await copyAttachments(
+        await copySessionMessageAttachments(
             options.source,
             destination,
             [
@@ -57,7 +58,9 @@ export async function createSessionBranch(
             ],
         );
         for (const entry of selection.entries) {
-            await destination.appendMessage(entry.message);
+            await destination.appendMessage(options.hideInheritedMessages === true
+                ? { ...entry.message, internal: true } as ModelMessage
+                : entry.message);
         }
         return {
             store: destination,
@@ -111,7 +114,7 @@ function selectBranch(
     };
 }
 
-async function copyAttachments(
+export async function copySessionMessageAttachments(
     source: SessionStore,
     destination: SessionStore,
     messages: readonly ModelMessage[],

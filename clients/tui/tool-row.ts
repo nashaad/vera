@@ -4,7 +4,6 @@ import type { RenderContext } from "@opentui/core";
 import type { TuiTextTranscriptEntry } from "./state.ts";
 import {
     renderTuiEntry,
-    TUI_ACCENT,
     TUI_MUTED,
     TUI_TEXT,
     tuiToolRowText,
@@ -87,7 +86,6 @@ function createCompactPreviewRow(
         flexDirection: "row",
     });
     const prefixed = /^(  [│└] )(.*)$/.exec(line);
-    const omission = /^    \+ \d+ more lines?$/.test(line);
     const gutter = new TextRenderable(parent.ctx, {
         id: `${id}-gutter`,
         width: 4,
@@ -99,9 +97,7 @@ function createCompactPreviewRow(
     const text = new TextRenderable(parent.ctx, {
         id: `${id}-text`,
         content: prefixed?.[2] ?? line.slice(4),
-        fg: omission
-            ? TUI_ACCENT
-            : prefixed?.[1] === "  │ " ? TUI_TEXT : TUI_MUTED,
+        fg: prefixed?.[1] === "  │ " ? TUI_TEXT : TUI_MUTED,
         flexGrow: 1,
         wrapMode: "word",
         selectable: true,

@@ -81,6 +81,46 @@ export function resumeAgentThroughHost(
     });
 }
 
+export async function syncAgentContextThroughHost(
+    socketPath: string,
+    agentId: string,
+    signal?: AbortSignal,
+): Promise<{
+    readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+    readonly turns: number;
+}> {
+    const connection = await connectHost({
+        socketPath,
+        ...(signal === undefined ? {} : { signal }),
+    });
+    const abort = (): void => connection.close();
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+        signal?.throwIfAborted();
+        await connection.send({ type: "sync_agent_context", agent_id: agentId });
+        const response = asRecord(await connection.receive());
+        if (
+            response?.type !== "agent_context_synced"
+            || (response.outcome !== "synced"
+                && response.outcome !== "unchanged"
+                && response.outcome !== "busy"
+                && response.outcome !== "not_found"
+                && response.outcome !== "failed")
+            || !Number.isSafeInteger(response.turns)
+            || (response.turns as number) < 0
+        ) {
+            throw new Error("Host returned an invalid context sync response");
+        }
+        return {
+            outcome: response.outcome,
+            turns: response.turns as number,
+        };
+    } finally {
+        signal?.removeEventListener("abort", abort);
+        connection.close();
+    }
+}
+
 export async function branchAgentThroughHost(
     socketPath: string,
     sourceAgentId: string,
@@ -90,6 +130,7 @@ export async function branchAgentThroughHost(
         readonly approvalMode?: string;
         readonly lifetime?: "ephemeral" | "durable";
         readonly initialMessages?: readonly UserMessage[];
+        readonly hideInheritedMessages?: boolean;
         readonly signal?: AbortSignal;
     } = {},
 ): Promise<BranchedAgent> {
@@ -117,6 +158,9 @@ export async function branchAgentThroughHost(
                 || options.initialMessages.length === 0
                 ? {}
                 : { initial_messages: options.initialMessages }),
+            ...(options.hideInheritedMessages === true
+                ? { hide_inherited_messages: true }
+                : {}),
         });
         const response = asRecord(await connection.receive());
         if (response?.type === "agent_branch_failed") {

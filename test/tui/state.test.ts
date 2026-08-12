@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { StyledText } from "@opentui/core";
+import { TextAttributes, type StyledText } from "@opentui/core";
 
 import {
     appendTuiExtensionBlock,
@@ -60,6 +60,28 @@ test("what an extension injected is not drawn, and survives a rebuild", () => {
         seq: 2,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("hi @all");
+});
+
+test("soft harness prose stays visible when history is rebuilt", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{
+            kind: "harness",
+            text: "Caught up with 2 new turns.",
+            tone: "soft",
+        }],
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notice",
+        text: "Caught up with 2 new turns.",
+        tone: "soft",
+    }]);
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe("Caught up with 2 new turns.");
+    expect(renderTuiEntry(state.entries[0]!).chunks[0]?.attributes)
+        .toBe(TextAttributes.ITALIC);
 });
 
 test("ask_user completion is semantic in live and replayed transcripts", () => {
@@ -909,7 +931,7 @@ test("a pathological tool argument is still bounded", () => {
     expect(state.entries.at(-1)?.text).toBe(`${"x".repeat(1999)}…`);
 });
 
-test("a folded tool preview bounds each visible line", () => {
+test("a folded tool header bounds the command it shows", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "tool_started",
         tool: "bash",
@@ -925,10 +947,8 @@ test("a folded tool preview bounds each visible line", () => {
 
     const header = state.entries[0];
     expect(header?.kind).toBe("tool_header");
-    expect(header?.kind === "tool_header"
-        ? header.detailPreview?.split("\n")[0]
-        : undefined)
-        .toBe(`  │ ${"x".repeat(119)}…`);
+    expect(header?.kind === "tool_header" ? header.command : undefined)
+        .toBe(`${"x".repeat(95)}…`);
 });
 
 test("a long completed tool group folds and the detail toggle reopens it", () => {
@@ -950,27 +970,16 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     expect(state.entries[0]).toMatchObject({
         kind: "tool_header",
-        text: "+ Explored · 11 lines",
+        text: "+ Explored",
+        command: "List /workspace",
         detailLines: 11,
-        detailPreview: [
-            "  │ List /workspace",
-            "  └ file-0",
-            "    file-1",
-            "    file-2",
-            "    file-3",
-            "    + 6 more lines",
-        ].join("\n"),
+        detailPreview: "  └ file-0",
         expanded: false,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
         .toBe([
-            "• Explored · 11 lines  ctrl+e details",
-            "  │ List /workspace",
+            "• Explored  List /workspace  ctrl+e details",
             "  └ file-0",
-            "    file-1",
-            "    file-2",
-            "    file-3",
-            "    + 6 more lines",
         ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
@@ -978,7 +987,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     state = toggleTuiToolDetails(state);
     expect(state.entries[0]).toMatchObject({
-        text: "- Explored · 11 lines",
+        text: "- Explored",
         expanded: true,
     });
     expect(state.entries[0]).not.toHaveProperty("detailPreview");
@@ -988,7 +997,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     state = toggleTuiToolDetails(state);
     expect(state.entries[0]).toMatchObject({
-        text: "+ Explored · 11 lines",
+        text: "+ Explored",
         expanded: false,
     });
     expect(state.entries.slice(1).every((entry) =>
@@ -999,16 +1008,20 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 test("a folded tool header uses a quiet bullet and an expanded one a chevron", () => {
     expect(plainText(renderTuiEntry({
         kind: "tool_header",
-        text: "+ Ran · 9 lines",
+        text: "+ Ran",
+        command: "pwd",
         detailLines: 9,
         expanded: false,
-    }))).toBe("• Ran · 9 lines  ctrl+e details");
+        hint: true,
+    }))).toBe("• Ran  pwd  ctrl+e details");
     expect(plainText(renderTuiEntry({
         kind: "tool_header",
-        text: "- Ran · 9 lines",
+        text: "- Ran",
+        command: "pwd",
         detailLines: 9,
         expanded: true,
-    }))).toBe("▾ Ran · 9 lines  ctrl+e details");
+        hint: true,
+    }))).toBe("▾ Ran  pwd  ctrl+e details");
 });
 
 test("the first detail toggle hides completed activity that is currently visible", () => {
@@ -1044,7 +1057,10 @@ test("the first detail toggle hides completed activity that is currently visible
         .toBe(true);
     expect(state.entries.filter((entry) => entry.kind === "tool_header")
         .map((entry) => entry.text))
-        .toEqual(["+ Explored · 1 line", "+ Ran · 1 line"]);
+        .toEqual(["+ Explored", "+ Ran"]);
+    expect(state.entries.filter((entry) => entry.kind === "tool_header")
+        .map((entry) => entry.kind === "tool_header" ? entry.hint : undefined))
+        .toEqual([true, undefined]);
 });
 
 test("a run of tool calls hangs off the first one", () => {

@@ -88,6 +88,7 @@ import {
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import { HOST_CAPABILITY_HARNESS_MESSAGES } from "../../src/host/capabilities.ts";
 import {
     findOrStartResidentHost,
     hostEntrypointMismatchNotice,
@@ -378,6 +379,7 @@ import {
     createTuiMarkdownEntry,
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
+import { createTuiGutterEntry, tuiGutterContent } from "./gutter.ts";
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
@@ -399,7 +401,11 @@ const POINTER_HOVER_DELAY_MS = 25;
 /** Rows the composer, the status band and a little transcript need. */
 const SUGGESTIONS_RESERVED_ROWS = 12;
 
-function assistantFollowsWork(
+/**
+ * Whether an answer closes a stretch of tool work. Thoughts and notices do not
+ * count: a rule that fires on every turn stops marking anything.
+ */
+function assistantFollowsTools(
     entries: readonly TuiTranscriptEntry[],
     index: number,
 ): boolean {
@@ -407,17 +413,9 @@ function assistantFollowsWork(
     for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
         const kind = entries[cursor]?.kind;
         if (kind === "user" || kind === "assistant") return false;
-        if (
-            kind === "tool"
-            || kind === "tool_header"
-            || kind === "thinking"
-            || kind === "thought"
-            || kind === "review"
-            || kind === "notice"
-            || kind === "extension_label"
-            || kind === "substitution"
-            || kind === "diff"
-        ) return true;
+        if (kind === "tool" || kind === "tool_header" || kind === "diff") {
+            return true;
+        }
     }
     return false;
 }
@@ -458,8 +456,16 @@ export interface TuiDependencies {
         approvalMode?: string,
         lifetime?: "ephemeral" | "durable",
         initialMessages?: readonly UserMessage[],
+        hideInheritedMessages?: boolean,
         signal?: AbortSignal,
     ) => Promise<TuiAgentClient>;
+    readonly syncAgentContext?: (
+        agentId: string,
+        signal?: AbortSignal,
+    ) => Promise<{
+        readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+        readonly turns: number;
+    }>;
     readonly attachAgent?: (agentId: string) => Promise<TuiAgentClient>;
     readonly cloneSession?: (agentId: string) => Promise<TuiAgentClient>;
     readonly forkSession?: (
@@ -630,6 +636,7 @@ export async function startConfiguredTui(
                 attach((await createAgentThroughHost(host.socket_path, workspace)).id),
             createAgent: agentClients.create,
             branchAgent: agentClients.branch,
+            syncAgentContext: agentClients.sync,
             attachAgent: agentClients.attach,
             cloneSession: agentClients.clone,
             forkSession: agentClients.fork,
@@ -922,6 +929,9 @@ export async function startTui(
     const hostedSidebar = new TuiHostedSidebarAgent({
         onUpdate(update, current) {
             handleSidebarAgentUpdate(update, current);
+            if (update.type === "user_prompt") {
+                appendPendingSidebarContextNotice(current);
+            }
             renderSidebarAgent(current);
             if (
                 update.type === "ui_request"
@@ -937,6 +947,22 @@ export async function startTui(
             renderState();
         },
     });
+    let pendingSidebarContextNotice: {
+        readonly agentId: string;
+        readonly text: string;
+    } | undefined;
+    function appendPendingSidebarContextNotice(
+        side: TuiAgentPane<IdentifiedTuiAgentClient>,
+    ): void {
+        const notice = pendingSidebarContextNotice;
+        if (notice?.agentId !== side.agentId) return;
+        side.state.state = appendTuiNotice(
+            side.state.state,
+            notice.text,
+            "soft",
+        );
+        pendingSidebarContextNotice = undefined;
+    }
     let submitAfterImageAttachment = false;
     let pendingImages: Array<{
         requestId: string;
@@ -1034,6 +1060,15 @@ export async function startTui(
                 sidebarMention: () => hostedSidebar.mention,
                 createAgent: dependencies.createAgent,
                 branchAgent: dependencies.branchAgent,
+            syncAgentContext: dependencies.syncAgentContext,
+            contextSynchronized(agentId, turns) {
+                const side = hostedSidebar.pane;
+                if (side === undefined || side.agentId !== agentId) return;
+                const text = `Caught up with ${turns} new ${
+                    turns === 1 ? "turn" : "turns"
+                } from the primary conversation.`;
+                pendingSidebarContextNotice = { agentId, text };
+            },
                 attachAgent: dependencies.attachAgent,
                 adoptAgent: (
                     extensionId,
@@ -1074,9 +1109,21 @@ export async function startTui(
                 state = appendTuiExtensionBlock(state, block.label, block.text);
                 renderState();
             },
-            postNotice(text) {
-                state = appendTuiNotice(state, text);
+            postNotice(text, noticeOptions) {
+                state = appendTuiNotice(state, text, noticeOptions?.tone);
                 renderState();
+                if (
+                    noticeOptions?.replay === true
+                    && client.supportsHostCapability?.(
+                        HOST_CAPABILITY_HARNESS_MESSAGES,
+                    ) === true
+                ) {
+                    void client.send({
+                        type: "append_harness_message",
+                        text,
+                        tone: noticeOptions.tone ?? "primary",
+                    });
+                }
             },
             commandRegistry,
             onFailure(failure, failureSink) {
@@ -1649,7 +1696,6 @@ export async function startTui(
             renderState();
         },
         onLayoutChanged: () => {
-            reflowTranscriptSeparators();
             renderJumpToBottom();
             renderSidebarJump();
             renderCommandSuggestions();
@@ -1796,38 +1842,6 @@ export async function startTui(
         );
     }
 
-    /** Rebuild width-sensitive rules after either pane changes geometry. */
-    function reflowTranscriptSeparators(): void {
-        state.entries.forEach((entry, index) => {
-            const node = entryNodes[index];
-            if (
-                node instanceof MarkdownRenderable
-                && assistantFollowsWork(state.entries, index)
-            ) {
-                node.content = tuiMarkdownEntryContent(
-                    entry,
-                    true,
-                    mainTranscriptWidth(),
-                );
-            }
-        });
-        const side = hostedSidebar.pane;
-        if (side === undefined) return;
-        side.state.state.entries.forEach((entry, index) => {
-            const node = sidebarEntryNodes[index];
-            if (
-                node instanceof MarkdownRenderable
-                && assistantFollowsWork(side.state.state.entries, index)
-            ) {
-                node.content = tuiMarkdownEntryContent(
-                    entry,
-                    true,
-                    sidebarTranscriptWidth(),
-                );
-            }
-        });
-    }
-
     function rememberOpenPaneGroup(): void {
         hostedPanePersistence.remember({
             mainAgentId: client.agentId,
@@ -1841,6 +1855,64 @@ export async function startTui(
 
     function forgetPersistedAgentPane(mainAgentId = client.agentId): void {
         hostedPanePersistence.forget(mainAgentId);
+    }
+
+    /**
+     * One rendered transcript block: the entry's own renderable, wrapped in
+     * the marker column unless it draws its own chrome edge to edge.
+     */
+    function createTuiEntryNode(
+        id: string,
+        entry: TuiTranscriptEntry,
+        marginTop: number,
+        separated: boolean,
+    ): TextRenderable | MarkdownRenderable | BoxRenderable {
+        const inner = entry.kind === "user" ? marginTop : 0;
+        const markdownNode = entry.kind === "diff"
+            ? undefined
+            : createTuiMarkdownEntry(
+                renderer,
+                id,
+                entry,
+                markdownStyle,
+                TUI_TEXT,
+                inner,
+            );
+        const node = entry.kind === "tool"
+            ? createTuiToolRow(renderer, id, entry, inner)
+            : entry.kind === "tool_header"
+            ? createTuiToolHeader(renderer, id, entry, inner)
+            : entry.kind === "user"
+            ? createTuiUserEntry(renderer, id, entry, inner)
+            : entry.kind === "diff"
+            ? createTuiDiff(
+                renderer,
+                id,
+                tuiDisplayPath(entry.path),
+                entry.patch,
+                markdownStyle,
+                inner,
+            )
+            : markdownNode ?? new TextRenderable(renderer, {
+                id,
+                content: renderTuiEntry(entry),
+                width: "100%",
+                wrapMode: "word",
+                selectable: true,
+                marginTop: inner,
+            });
+        // The user band is chrome that owns its full width, so it keeps the
+        // left edge rather than being pushed off the marker column.
+        return entry.kind === "user"
+            ? node
+            : createTuiGutterEntry(
+                renderer,
+                id,
+                entry,
+                node,
+                marginTop,
+                separated,
+            );
     }
 
     function renderSidebarAgent(
@@ -1859,22 +1931,15 @@ export async function startTui(
         sidebarEntryNodeKinds.splice(retained);
 
         entries.forEach((entry, index) => {
-            const existing = sidebarEntryNodes[index];
-            if (existing !== undefined) {
-                existing.visible = entry.kind !== "tool" || entry.hidden !== true;
+            const wrapper = sidebarEntryNodes[index];
+            if (wrapper !== undefined) {
+                wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
+                const existing = tuiGutterContent(wrapper);
                 if (
                     existing instanceof MarkdownRenderable
-                    && existing.content !== tuiMarkdownEntryContent(
-                        entry,
-                        assistantFollowsWork(entries, index),
-                        sidebarTranscriptWidth(),
-                    )
+                    && existing.content !== tuiMarkdownEntryContent(entry)
                 ) {
-                    existing.content = tuiMarkdownEntryContent(
-                        entry,
-                        assistantFollowsWork(entries, index),
-                        sidebarTranscriptWidth(),
-                    );
+                    existing.content = tuiMarkdownEntryContent(entry);
                 } else if (
                     entry.kind === "tool"
                     && existing instanceof BoxRenderable
@@ -1898,43 +1963,12 @@ export async function startTui(
             }
 
             const id = `sidebar-entry-${++sidebarEntryGeneration}`;
-            const marginTop = tuiEntryMarginTop(entries, index);
-            const separatedAssistant = assistantFollowsWork(entries, index);
-            const markdownNode = entry.kind === "diff"
-                ? undefined
-                : createTuiMarkdownEntry(
-                    renderer,
-                    id,
-                    entry,
-                    markdownStyle,
-                    TUI_TEXT,
-                    marginTop,
-                    separatedAssistant,
-                    sidebarTranscriptWidth(),
-                );
-            const node = entry.kind === "tool"
-                ? createTuiToolRow(renderer, id, entry, marginTop)
-                : entry.kind === "tool_header"
-                ? createTuiToolHeader(renderer, id, entry, marginTop)
-                : entry.kind === "user"
-                ? createTuiUserEntry(renderer, id, entry, marginTop)
-                : entry.kind === "diff"
-                ? createTuiDiff(
-                    renderer,
-                    id,
-                    tuiDisplayPath(entry.path),
-                    entry.patch,
-                    markdownStyle,
-                    marginTop,
-                )
-                : markdownNode ?? new TextRenderable(renderer, {
-                    id,
-                    content: renderTuiEntry(entry),
-                    width: "100%",
-                    wrapMode: "word",
-                    selectable: true,
-                    marginTop,
-                });
+            const node = createTuiEntryNode(
+                id,
+                entry,
+                tuiEntryMarginTop(entries, index),
+                assistantFollowsTools(entries, index),
+            );
             node.visible = entry.kind !== "tool" || entry.hidden !== true;
             sidebarEntryNodes.push(node);
             sidebarEntryNodeKinds.push(entry.kind);
@@ -3162,14 +3196,6 @@ export async function startTui(
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
         }
-        if (
-            interceptedText === undefined
-            && !prompt.startsWith("/")
-            && hostedSidebar.pane !== undefined
-            && routeVisibleAgentPrompt(prompt)
-        ) {
-            return;
-        }
         // Typing is the signal the tip has been read or ignored. The next one
         // is picked in the gap after this turn, not now.
         composerTip = undefined;
@@ -3185,6 +3211,13 @@ export async function startTui(
             && clientExtensionRegistry?.hasMessageInterceptors() === true
         ) {
             offerMessageToExtensions(prompt);
+            return;
+        }
+        if (
+            !prompt.startsWith("/")
+            && hostedSidebar.pane !== undefined
+            && routeVisibleAgentPrompt(prompt)
+        ) {
             return;
         }
 
@@ -5569,23 +5602,16 @@ export async function startTui(
         }
 
         state.entries.forEach((entry, index) => {
-            const existing = entryNodes[index];
-            if (existing) {
-                existing.visible = entry.kind !== "tool"
+            const wrapper = entryNodes[index];
+            if (wrapper) {
+                wrapper.visible = entry.kind !== "tool"
                     || entry.hidden !== true;
+                const existing = tuiGutterContent(wrapper);
                 if (
                     existing instanceof MarkdownRenderable &&
-                    existing.content !== tuiMarkdownEntryContent(
-                        entry,
-                        assistantFollowsWork(state.entries, index),
-                        mainTranscriptWidth(),
-                    )
+                    existing.content !== tuiMarkdownEntryContent(entry)
                 ) {
-                    existing.content = tuiMarkdownEntryContent(
-                        entry,
-                        assistantFollowsWork(state.entries, index),
-                        mainTranscriptWidth(),
-                    );
+                    existing.content = tuiMarkdownEntryContent(entry);
                 }
                 if (entry.kind === "tool" && existing instanceof BoxRenderable) {
                     updateTuiToolRow(existing, entry);
@@ -5612,61 +5638,12 @@ export async function startTui(
                 return;
             }
 
-            const marginTop = tuiEntryMarginTop(state.entries, index);
-            const separatedAssistant = assistantFollowsWork(
-                state.entries,
-                index,
+            const node = createTuiEntryNode(
+                `entry-${index}`,
+                entry,
+                tuiEntryMarginTop(state.entries, index),
+                assistantFollowsTools(state.entries, index),
             );
-            const markdownNode = entry.kind === "diff"
-                ? undefined
-                : createTuiMarkdownEntry(
-                    renderer,
-                    `entry-${index}`,
-                    entry,
-                    markdownStyle,
-                    TUI_TEXT,
-                    marginTop,
-                    separatedAssistant,
-                    mainTranscriptWidth(),
-                );
-            const node = entry.kind === "tool"
-                ? createTuiToolRow(
-                    renderer,
-                    `entry-${index}`,
-                    entry,
-                    marginTop,
-                )
-                : entry.kind === "tool_header"
-                ? createTuiToolHeader(
-                    renderer,
-                    `entry-${index}`,
-                    entry,
-                    marginTop,
-                )
-                : entry.kind === "user"
-                ? createTuiUserEntry(
-                    renderer,
-                    `entry-${index}`,
-                    entry,
-                    marginTop,
-                )
-                : entry.kind === "diff"
-                ? createTuiDiff(
-                    renderer,
-                    `entry-${index}`,
-                    tuiDisplayPath(entry.path),
-                    entry.patch,
-                    markdownStyle,
-                    marginTop,
-                )
-                : markdownNode ?? new TextRenderable(renderer, {
-                    id: `entry-${index}`,
-                    content: renderTuiEntry(entry),
-                    width: "100%",
-                    wrapMode: "word",
-                    selectable: true,
-                    marginTop,
-                });
             entryNodes.push(node);
             entryNodeKinds.push(entry.kind);
             node.visible = entry.kind !== "tool" || entry.hidden !== true;

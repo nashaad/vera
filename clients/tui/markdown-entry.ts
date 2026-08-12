@@ -6,14 +6,8 @@ import {
 
 import type { TuiTranscriptEntry } from "./state.ts";
 
-export function tuiMarkdownEntryContent(
-    entry: TuiTranscriptEntry,
-    separated = false,
-    _width = 80,
-): string {
-    return separated
-        ? `---\n\n${entry.text}`
-        : entry.text;
+export function tuiMarkdownEntryContent(entry: TuiTranscriptEntry): string {
+    return entry.text;
 }
 
 export function createTuiMarkdownEntry(
@@ -23,8 +17,6 @@ export function createTuiMarkdownEntry(
     syntaxStyle: SyntaxStyle,
     foreground: string,
     marginTop: number,
-    separated = false,
-    separatorWidth = renderer.terminalWidth,
 ): MarkdownRenderable | undefined {
     if (entry.kind !== "assistant" && entry.kind !== "notification") {
         return undefined;
@@ -32,11 +24,7 @@ export function createTuiMarkdownEntry(
 
     return new MarkdownRenderable(renderer, {
         id,
-        content: tuiMarkdownEntryContent(
-            entry,
-            separated,
-            separatorWidth,
-        ),
+        content: tuiMarkdownEntryContent(entry),
         syntaxStyle,
         fg: foreground,
         streaming: entry.kind === "assistant",
