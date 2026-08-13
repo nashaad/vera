@@ -1241,7 +1241,7 @@ export async function startTui(
             gap: 0,
             paddingTop: 0,
             paddingBottom: 1,
-            paddingLeft: 2,
+            paddingLeft: 0,
             paddingRight: 2,
         },
     });
@@ -5399,10 +5399,10 @@ export async function startTui(
         composerTipText.content = composerTip === undefined
             ? new StyledText([])
             // Text nodes lay their content out from column zero, so the
-            // indent the transcript rows share is written in rather than set
-            // as padding.
+            // optical indent beside the composer is written in rather than
+            // set as padding.
             : new StyledText([
-                fg(TUI_ACCENT)("  Tip "),
+                fg(TUI_ACCENT)("   Tip "),
                 fg(TUI_MUTED)(composerTip),
             ]);
         composerTipText.visible = composerTip !== undefined

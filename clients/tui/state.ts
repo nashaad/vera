@@ -75,6 +75,8 @@ export interface TuiTextTranscriptEntry {
     readonly detailLines?: number;
     /** The one summary line a folded tool group keeps. */
     readonly detailPreview?: string;
+    /** Whether a short folded preview shares the header row. */
+    readonly inlineDetailPreview?: boolean;
     /** The call a folded group shows on its own header row. */
     readonly command?: string;
     /** Whether this header carries the detail-toggle hint. */
@@ -1050,14 +1052,21 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "tool_header") {
         const header = renderToolHeader(entry);
+        const inlinePreview = entry.inlineDetailPreview === true
+            ? entry.detailPreview
+            : undefined;
         return entry.detailLines === undefined
             ? new StyledText(header)
             : new StyledText([
                 ...header,
+                ...(inlinePreview === undefined
+                    ? []
+                    : renderInlineToolPreview(inlinePreview)),
                 ...(entry.hint === true
                     ? [fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`)]
                     : []),
                 ...(entry.detailPreview === undefined
+                    || inlinePreview !== undefined
                     ? []
                     : renderCompactToolPreview(entry.detailPreview)),
             ]);
@@ -1136,7 +1145,9 @@ function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
     // The call reads on the header row, so a folded group is one sentence:
     // what was done, and to what.
     return [
-        fg(TUI_MUTED)(marker === "+" ? "• " : "▾ "),
+        // A collapsed group keeps the fold-marker slot for alignment without
+        // adding another dot to an already indented activity row.
+        fg(TUI_MUTED)(marker === "+" ? "  " : "▾ "),
         bold(fg(TUI_TEXT)(action ?? "")),
         ...(entry.command === undefined
             ? []
@@ -1166,6 +1177,11 @@ function renderCompactToolPreview(preview: string): TextChunk[] {
     return chunks;
 }
 
+function renderInlineToolPreview(preview: string): TextChunk[] {
+    const text = preview.startsWith("  └ ") ? preview.slice(4) : preview;
+    return [fg(TUI_MUTED)(`  └ ${text}`)];
+}
+
 /** A row's text, carrying the count when the same call repeated. */
 export function tuiToolRowText(entry: TuiTextTranscriptEntry): string {
     const repeat = entry.repeat ?? 1;
@@ -1180,9 +1196,26 @@ export function tuiEntryMarginTop(
         return 0;
     }
 
-    // Rows inside a group sit flush under their header. Everything else, the
-    // header included, opens with one blank line.
-    return entries[index]?.kind === "tool" ? 0 : 1;
+    const current = entries[index];
+    const previous = entries[index - 1];
+    // Rows inside a group sit flush under their header. A new header also
+    // continues directly from the activity row that preceded it, so changing
+    // tool verbs does not break one run into a stack of spaced blocks.
+    if (current?.kind === "tool") return 0;
+    if (
+        current?.kind === "tool_header"
+        && (
+            previous?.kind === "thought"
+            || previous?.kind === "thinking"
+            || previous?.kind === "tool"
+            || previous?.kind === "tool_header"
+            || previous?.kind === "review"
+            || previous?.kind === "diff"
+        )
+    ) {
+        return 0;
+    }
+    return 1;
 }
 
 const TOOL_SUMMARY_LIMIT = 2000;
@@ -1513,13 +1546,13 @@ export function formatAskUserResult(output: string): string {
     return bounded(output);
 }
 
-const AUTO_FOLD_TOOL_LINES = 8;
 const COMPACT_TOOL_LINE_CHARS = 96;
+const INLINE_TOOL_PREVIEW_CHARS = 24;
 
 /**
- * Completed tool groups stay compact when their content would dominate the
- * transcript. An explicit detail choice applies to every completed group;
- * active work always remains visible so the user can see what is happening.
+ * Completed tool groups with a result share one compact shape. An explicit
+ * detail choice applies to every completed group; active work always remains
+ * visible so the user can see what is happening.
  */
 function applyToolDetailPreference(
     entries: readonly TuiTranscriptEntry[],
@@ -1552,12 +1585,13 @@ function applyToolDetailPreference(
         const active = header.active === true || rows.some((entry) =>
             entry.kind === "tool" && entry.active === true
         );
+        const hasResult = rows.some((entry) => entry.result === true);
         const detailLines = rows.reduce((total, entry) =>
             total + entry.text.split("\n").length, 0
         );
         const foldable = !active
             && detailLines > 0
-            && (preference !== undefined || detailLines > AUTO_FOLD_TOOL_LINES);
+            && (hasResult || preference !== undefined);
         const expanded = preference === true;
         const calls = toolCallLines(rows);
         const summary = compactToolSummary(rows, calls);
@@ -1565,6 +1599,7 @@ function applyToolDetailPreference(
         const {
             detailLines: _detailLines,
             detailPreview: _detailPreview,
+            inlineDetailPreview: _inlineDetailPreview,
             command: _command,
             hint: _hint,
             expanded: _expanded,
@@ -1578,12 +1613,17 @@ function applyToolDetailPreference(
                 ...plainHeader,
                 text: `${expanded ? "-" : "+"} ${base}`,
                 detailLines,
-                ...(calls.length === 1 && calls[0] !== undefined
+                ...(!expanded && calls.length === 1 && calls[0] !== undefined
                     ? { command: compactToolLine(calls[0]) }
                     : {}),
                 ...(expanded || summary === undefined
                     ? {}
-                    : { detailPreview: summary }),
+                    : {
+                        detailPreview: summary,
+                        ...(inlineToolPreview(summary, rows, calls)
+                            ? { inlineDetailPreview: true }
+                            : {}),
+                    }),
                 ...(hinted ? { hint: true } : {}),
                 expanded,
             }
@@ -1639,6 +1679,25 @@ function compactToolLine(line: string): string {
     return characters.length > COMPACT_TOOL_LINE_CHARS
         ? `${characters.slice(0, COMPACT_TOOL_LINE_CHARS - 1).join("")}…`
         : line;
+}
+
+function inlineToolPreview(
+    preview: string,
+    rows: readonly TuiTextTranscriptEntry[],
+    calls: readonly string[],
+): boolean {
+    const match = /^  └ ([^\n]+)$/.exec(preview);
+    if (
+        match?.[1] === undefined
+        || Array.from(match[1]).length > INLINE_TOOL_PREVIEW_CHARS
+    ) {
+        return false;
+    }
+    if (calls.length > 1) {
+        return true;
+    }
+    const result = rows.find((row) => row.prefix === "  └ ");
+    return result !== undefined && !tuiToolRowText(result).includes("\n");
 }
 
 function settleToolEntries(
@@ -1943,12 +2002,16 @@ function comparableEntryText(entry: TuiTranscriptEntry | undefined): string {
     if (entry === undefined) {
         return "";
     }
-    if (entry.kind !== "tool_header" || entry.active !== true) {
+    if (entry.kind !== "tool_header") {
         return entry.text;
     }
+    const text = entry.text.replace(/^[+-] /, "");
+    if (entry.active !== true) {
+        return text;
+    }
     const completed = Object.entries(LIVE_TOOL_HEADERS)
-        .find(([, live]) => live === entry.text)?.[0];
-    return completed === undefined ? entry.text : toolHeader(completed, false);
+        .find(([, live]) => live === text)?.[0];
+    return completed === undefined ? text : toolHeader(completed, false);
 }
 
 function entryAttachments(
