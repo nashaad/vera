@@ -124,6 +124,10 @@ export interface StartHostServerOptions {
     readonly canShutdown?: () => boolean;
     readonly canReplace?: () => boolean;
     readonly onShutdownAccepted?: () => void | Promise<void>;
+    readonly onAgentStartFailure?: (
+        operation: "create" | "resume",
+        error: unknown,
+    ) => void;
 }
 
 export interface HostServer {
@@ -305,6 +309,7 @@ export async function startHostServer(
             operationOpened,
             notifyShutdownAccepted,
             options.onRosterChanged ?? (() => () => undefined),
+            options.onAgentStartFailure ?? (() => undefined),
         );
     });
     try {
@@ -403,6 +408,10 @@ function receiveConnection(
     operationOpened: () => () => void,
     notifyShutdownAccepted: () => void,
     onRosterChanged: (listener: () => void) => () => void,
+    onAgentStartFailure: (
+        operation: "create" | "resume",
+        error: unknown,
+    ) => void,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
@@ -1173,17 +1182,25 @@ function receiveConnection(
                 agent_id: agent.id,
                 workspace: agent.workspace,
             }).then(() => socket.end(), () => socket.destroy()),
-            (error: unknown) => send({
-                type: "agent_start_failed",
-                operation,
-                // A missing credential is the common failure here, and its
-                // message already names the provider and the way to fix it.
-                // Anything else stays generic.
-                ...reasonOf(error),
-            }).then(
-                () => socket.end(),
-                () => socket.destroy(),
-            ),
+            (error: unknown) => {
+                if (userFacingMessage(error) === undefined) {
+                    try {
+                        onAgentStartFailure(operation, error);
+                    } catch {
+                        // Diagnostics cannot replace the startup outcome.
+                    }
+                }
+                return send({
+                    type: "agent_start_failed",
+                    operation,
+                    // Only messages explicitly written for a person cross the
+                    // socket. Internal detail stays in the host diagnostic log.
+                    ...reasonOf(error),
+                }).then(
+                    () => socket.end(),
+                    () => socket.destroy(),
+                );
+            },
         );
     }
 

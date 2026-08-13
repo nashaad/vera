@@ -594,10 +594,18 @@ afterEach(() => {
     async () => {
         const directory = temporaryHostDirectory();
         const socketPath = join(directory, "host.sock");
+        const failures: Array<{
+            readonly operation: "create" | "resume";
+            readonly error: unknown;
+        }> = [];
+        const failure = new Error("private failure");
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
-            createAgent: () => Promise.reject(new Error("private failure")),
+            createAgent: () => Promise.reject(failure),
+            onAgentStartFailure: (operation, error) => {
+                failures.push({ operation, error });
+            },
         });
         const connection = await connectHost({ socketPath });
         try {
@@ -609,6 +617,10 @@ afterEach(() => {
                 type: "agent_start_failed",
                 operation: "create",
             });
+            expect(failures).toEqual([{
+                operation: "create",
+                error: failure,
+            }]);
         } finally {
             connection.close();
             await server.close();
