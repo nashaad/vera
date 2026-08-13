@@ -9,6 +9,7 @@ import {
     renderTuiCommandSuggestions,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
+    tuiSuggestionGaps,
     tuiSuggestionWindow,
     tuiCommandSuggestionsText,
     tuiCommandScope,
@@ -86,10 +87,17 @@ test("every slash action has an explicit pane scope", () => {
         ]);
 });
 
+// The catalog says what a command is; where it came from is the registry's to
+// know, so the listed form carries a group the catalog entry does not.
+const LISTED_BUILTINS = BUILTIN_COMMANDS.map((command) => ({
+    ...command,
+    group: "built in",
+}));
+
 test("built-in TUI commands match the public command catalog", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
-    expect(registry.registeredCommands()).toEqual(BUILTIN_COMMANDS);
+    expect(registry.registeredCommands()).toEqual(LISTED_BUILTINS);
     for (const command of BUILTIN_COMMANDS) {
         expect(registry.dispatch(`/${command.name}`)).toBeDefined();
     }
@@ -148,11 +156,41 @@ test("the fork command opens the prompt picker", () => {
     });
 });
 
+test("the unfiltered slash list names each group once, in a left column", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    registerExtensionTuiCommands(registry, [{
+        name: "hello",
+        description: "Say hello",
+        usage: "/hello",
+        source: "test.extension",
+    }]);
+    const commands = registry.suggestions("/");
+
+    const grouped = tuiCommandSuggestionsText(
+        renderTuiCommandSuggestions(commands, -1, undefined, 0, true),
+    );
+    expect(grouped).toContain("built in    /rewind");
+    expect(grouped).toContain("            /fork");
+    expect(grouped).toContain("extensions  /hello");
+    // Extension commands sort after the built-ins whatever order they
+    // registered in, and the gap is what separates the two runs.
+    expect(grouped).toContain("\n\n  extensions  /hello");
+    expect(tuiSuggestionGaps(commands, true)).toBe(1);
+
+    // A half-typed name is one flat run: no column, no gaps.
+    const flat = tuiCommandSuggestionsText(
+        renderTuiCommandSuggestions(commands, -1, undefined, 0, false),
+    );
+    expect(flat).toContain("  /rewind");
+    expect(flat).not.toContain("built in");
+    expect(tuiSuggestionGaps(commands, false)).toBe(0);
+});
+
 test("typing slash exposes the built-in rewind command", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
-    expect(registry.suggestions("/")).toEqual(BUILTIN_COMMANDS);
-    expect(registry.suggestions("/rew")).toEqual([BUILTIN_COMMANDS[0]]);
+    expect(registry.suggestions("/")).toEqual(LISTED_BUILTINS);
+    expect(registry.suggestions("/rew")).toEqual([LISTED_BUILTINS[0]]);
     expect(registry.suggestions("/unknown")).toEqual([]);
     expect(registry.suggestions("message /rew")).toEqual([]);
     expect(registry.suggestions("/rewind now")).toEqual([]);
@@ -319,6 +357,7 @@ test("extension commands join discovery and dispatch as plain actions", () => {
         name: "hello",
         description: "Say hello",
         usage: "/hello [name]",
+        group: "extensions",
     }]);
     expect(registry.dispatch("/hello Nash")).toEqual({
         type: "run_extension",

@@ -172,6 +172,7 @@ import {
     registerExtensionTuiCommands,
     renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
+    tuiSuggestionGaps,
     tuiSuggestionWindow,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
@@ -7367,17 +7368,26 @@ export async function startTui(
         // The transcript, the composer and the status rows all want the same
         // screen. What is left over is what the list may take, and it never
         // takes so much that its own bottom row is off the pane.
+        // The unfiltered list is grouped by where each command came from; a
+        // half-typed name is one flat run, where the group column would be
+        // dead width and the gaps would separate nothing.
+        const grouped = composer.plainText === "/";
         const window = tuiSuggestionWindow(
             suggestions.length,
             selected,
             Math.max(
                 3,
                 renderer.height - SUGGESTIONS_RESERVED_ROWS
-                    - extensionBottomRows,
+                    - extensionBottomRows
+                    - tuiSuggestionGaps(suggestions, grouped),
             ),
         );
+        const visible = suggestions.slice(
+            window.start,
+            window.start + window.rows,
+        );
         commandSuggestionsText.content = renderTuiCommandSuggestions(
-            suggestions.slice(window.start, window.start + window.rows),
+            visible,
             selected < 0 ? -1 : selected - window.start,
             // Less the box's own horizontal padding, or the last word of a
             // just-too-long row wraps anyway.
@@ -7385,9 +7395,11 @@ export async function startTui(
                 ? renderer.width - 2
                 : undefined,
             window.hidden,
+            grouped,
         );
         commandSuggestionsBox.height = suggestions.length > 0
-            ? window.rows + (window.hidden > 0 ? 1 : 0)
+            ? window.rows + tuiSuggestionGaps(visible, grouped)
+                + (window.hidden > 0 ? 1 : 0)
             : 1;
         commandSuggestionsBox.visible = suggestions.length > 0
             && overlaysClearOfSuggestions();
