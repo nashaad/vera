@@ -7,6 +7,7 @@ import {
 } from "@opentui/core";
 
 import {
+    TUI_ELEMENT,
     TUI_ERROR,
     TUI_MUTED,
     type TuiTranscriptEntry,
@@ -92,7 +93,7 @@ export function createTuiGutterEntry(
     column.add(new TextRenderable(renderer, {
         id: `${id}-rule`,
         content: "─".repeat(200),
-        fg: TUI_MUTED,
+        fg: TUI_ELEMENT,
         width: "100%",
         wrapMode: "none",
         marginLeft: TUI_GUTTER_WIDTH,

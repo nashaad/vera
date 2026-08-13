@@ -1198,12 +1198,20 @@ export function tuiEntryMarginTop(
 
     const current = entries[index];
     const previous = entries[index - 1];
-    // Rows inside a group sit flush under their header. A tool header also
-    // continues directly from the thought that introduced the work.
+    // Rows inside a group sit flush under their header. A new header also
+    // continues directly from the activity row that preceded it, so changing
+    // tool verbs does not break one run into a stack of spaced blocks.
     if (current?.kind === "tool") return 0;
     if (
         current?.kind === "tool_header"
-        && (previous?.kind === "thought" || previous?.kind === "thinking")
+        && (
+            previous?.kind === "thought"
+            || previous?.kind === "thinking"
+            || previous?.kind === "tool"
+            || previous?.kind === "tool_header"
+            || previous?.kind === "review"
+            || previous?.kind === "diff"
+        )
     ) {
         return 0;
     }

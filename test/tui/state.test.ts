@@ -1228,12 +1228,20 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
         { kind: "user", text: "inspect" },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
-        { kind: "tool", header: "Ran", prefix: "    ", text: "ls" },
+        { kind: "tool_header", header: "Explored", text: "Explored" },
+        {
+            kind: "tool",
+            header: "Explored",
+            prefix: "  └ ",
+            text: "Read note.txt",
+        },
+        { kind: "tool_header", header: "Ran", text: "Ran" },
+        { kind: "tool", header: "Ran", prefix: "  └ ", text: "ls" },
         { kind: "assistant", text: "Done." },
     ] as const;
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
-        .toEqual([0, 1, 0, 0, 1]);
+        .toEqual([0, 1, 0, 0, 0, 0, 0, 1]);
 });
 
 test("a tool header follows its thought without a spacer row", () => {
