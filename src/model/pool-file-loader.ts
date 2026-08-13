@@ -24,6 +24,7 @@ import {
     issueSeverity,
     parsePoolFileText,
 } from "./pool-file.ts";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 export type PoolScope = "user" | "project";
 
@@ -82,7 +83,7 @@ export function userPoolFilePath(): string {
     if (process.env.NODE_ENV === "test") {
         return join(tmpdir(), "vera-test-pool", `${process.pid}.json`);
     }
-    return join(homedir(), ".vera", "pool.json");
+    return join(veraProfileDirectory(), "pool.json");
 }
 
 export function projectPoolFilePath(projectRoot: string): string {

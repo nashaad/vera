@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
 import type { PostToolUseHook } from "../sdk/hooks.ts";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 /**
  * A reminder rule: when a file-writing tool call's path matches `match`, the
@@ -26,7 +27,7 @@ const DEFAULT_COOLDOWN_MINUTES = 10;
 const FILE_WRITING_TOOLS = new Set(["write", "edit"]);
 
 export function defaultReminderRulesPath(): string {
-    return join(homedir(), ".vera", "extensions", "reminders", "rules.toml");
+    return join(veraProfileDirectory(), "extensions", "reminders", "rules.toml");
 }
 
 /**

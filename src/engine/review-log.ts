@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 export type ReviewLogTier = "single" | "fast" | "strong";
 
@@ -44,7 +45,7 @@ export interface ReviewLogEntry {
 export type ReviewLog = (entry: ReviewLogEntry) => void;
 
 export function defaultReviewLogPath(): string {
-    return join(homedir(), ".vera", "logs", "reviewer.jsonl");
+    return join(veraRuntimeDirectory(), "logs", "reviewer.jsonl");
 }
 
 export interface ReviewLoggerOptions {

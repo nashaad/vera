@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { veraRuntimeDirectory } from "../../src/profile-paths.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -42,9 +43,9 @@ const host = await startResidentHost({
         approval_mode: "auto",
     },
     createAdapter: () => respondingAdapter("PAIR"),
-    sessionDirectory: join(home, ".vera", "sessions"),
-    eventLogDirectory: join(home, ".vera", "events"),
-    inboxPath: join(home, ".vera", "inbox.db"),
+    sessionDirectory: join(veraRuntimeDirectory(), "sessions"),
+    eventLogDirectory: join(veraRuntimeDirectory(), "events"),
+    inboxPath: join(veraRuntimeDirectory(), "inbox.db"),
 });
 
 await host.registry.create({ id: "pair-main", workspace: process.cwd() });

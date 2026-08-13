@@ -12,6 +12,7 @@ import {
     type DiskQuickslots,
     type Quickslots,
 } from "./quickslots.ts";
+import { veraProfileDirectory } from "../../src/profile-paths.ts";
 
 // Every client preference shares one file and one writer. A second module doing
 // its own read-modify-write here would drop whatever the other had just saved,
@@ -51,7 +52,7 @@ export interface TuiPersistedAgentPane {
 }
 
 export function tuiThemePreferencePath(): string {
-    return join(homedir(), ".vera", "tui.json");
+    return join(veraProfileDirectory(), "tui.json");
 }
 
 export function loadTuiThemePreference(
