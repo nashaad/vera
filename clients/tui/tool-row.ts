@@ -1,6 +1,12 @@
-import { BoxRenderable, TextRenderable } from "@opentui/core";
+import {
+    BoxRenderable,
+    fg,
+    StyledText,
+    TextRenderable,
+} from "@opentui/core";
 import type { RenderContext } from "@opentui/core";
 
+import { tuiKeyHint } from "./keymap.ts";
 import type { TuiTextTranscriptEntry } from "./state.ts";
 import {
     renderTuiEntry,
@@ -16,7 +22,11 @@ const rowGutter = new WeakMap<
 >();
 const headerParts = new WeakMap<
     BoxRenderable,
-    { header: TextRenderable; preview: BoxRenderable[] }
+    {
+        header: TextRenderable;
+        hint: TextRenderable;
+        preview: BoxRenderable[];
+    }
 >();
 const CONNECTOR_BORDER = {
     topLeft: "│",
@@ -40,10 +50,19 @@ export function updateTuiToolHeader(
     if (parts === undefined) return;
     parts.header.content = renderTuiEntry({
         ...entry,
-        detailPreview: undefined,
+        hint: false,
+        ...(entry.inlineDetailPreview === true
+            ? {}
+            : { detailPreview: undefined }),
     });
+    parts.hint.content = entry.hint === true
+        ? new StyledText([
+            fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
+        ])
+        : "";
     for (const row of parts.preview) row.destroy();
     parts.preview.length = 0;
+    if (entry.inlineDetailPreview === true) return;
     for (const line of entry.detailPreview?.split("\n") ?? []) {
         const row = createCompactPreviewRow(node, line);
         parts.preview.push(row);
@@ -63,14 +82,27 @@ export function createTuiToolHeader(
         flexDirection: "column",
         marginTop,
     });
+    const line = new BoxRenderable(renderer, {
+        id: `${id}-line`,
+        width: "100%",
+        flexDirection: "row",
+    });
     const header = new TextRenderable(renderer, {
         id: `${id}-header`,
-        width: "100%",
-        wrapMode: "word",
+        flexGrow: 1,
+        wrapMode: "none",
+        truncate: true,
         selectable: true,
     });
-    headerParts.set(node, { header, preview: [] });
-    node.add(header);
+    const hint = new TextRenderable(renderer, {
+        id: `${id}-hint`,
+        flexShrink: 0,
+        selectable: true,
+    });
+    headerParts.set(node, { header, hint, preview: [] });
+    line.add(header);
+    line.add(hint);
+    node.add(line);
     updateTuiToolHeader(node, entry);
     return node;
 }
@@ -99,7 +131,8 @@ function createCompactPreviewRow(
         content: prefixed?.[2] ?? line.slice(4),
         fg: prefixed?.[1] === "  │ " ? TUI_TEXT : TUI_MUTED,
         flexGrow: 1,
-        wrapMode: "word",
+        wrapMode: "none",
+        truncate: true,
         selectable: true,
     });
     row.add(gutter);

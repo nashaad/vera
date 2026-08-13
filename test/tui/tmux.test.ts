@@ -716,7 +716,7 @@ test.skipIf(!tmuxAvailable)(
                 "Model error: Model returned no visible response or structured tool call.",
             );
             expect(pane).toMatch(
-                /• Explored {2}Read package\.json {2}ctrl\+e details/,
+                /Explored {2}Read package\.json\s+ctrl\+e details/,
             );
 
             sendText(socket, session, "try again");
@@ -1925,23 +1925,32 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "TOOL DETAILS COMPLETED",
             );
-            expect(pane).toContain("• Ran  printf");
+            expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
+            expect(pane).toMatch(/^○ Thought: 0\.0s\n {4}Ran/m);
+            expect(pane).toMatch(/^ {2}─{20}/m);
+            expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
+            expect(pane).toMatch(/^ {3}Tip /m);
+            expect(pane).toMatch(/^ {2}╭─{20}/m);
 
             sendKey(socket, session, "C-e");
             pane = await waitForVisiblePane(socket, session, "TOOL_DETAIL_09");
-            expect(pane).toContain("▾ Ran  printf");
+            expect(pane).toMatch(/▾ Ran\s+ctrl\+e details/);
             expect(pane).toContain("TOOL DETAILS COMPLETED");
+
+            sendKey(socket, session, "C-e");
+            pane = await waitForVisiblePane(socket, session, "Ran  printf");
 
             sendText(socket, session, "run one short action");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "SHORT TOOL COMPLETED");
-            expect(pane).toContain("SHORT_DETAIL");
+            expect(pane).toMatch(/Ran {2}printf 'SHORT_DETAIL/);
+            expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
 
             sendKey(socket, session, "C-e");
             pane = await waitForVisiblePane(socket, session, "└ SHORT_DETAIL");
-            // The compact block deliberately shows both what ran and its
-            // short result; this command prints the same sentinel in each.
+            // Expanded details deliberately show both what ran and its short
+            // result; this command prints the same sentinel in each.
             expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
             expect(pane).toContain("SHORT TOOL COMPLETED");
         } catch (error) {
@@ -1992,7 +2001,7 @@ test.skipIf(!tmuxAvailable)(
             );
             // `env` prints as many lines as the machine has variables, so
             // the row is pinned by its command and its details hint.
-            expect(pane).toContain("• Ran  env AUTO_REVIEW=ran");
+            expect(pane).toContain("Ran  env AUTO_REVIEW=ran");
             expect(pane).toContain("ctrl+e details");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Permission required");

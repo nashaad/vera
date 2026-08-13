@@ -1,12 +1,13 @@
 import {
     BoxRenderable,
+    TextAttributes,
     TextRenderable,
     type CliRenderer,
     type Renderable,
 } from "@opentui/core";
 
 import {
-    TUI_ACCENT,
+    TUI_ELEMENT,
     TUI_ERROR,
     TUI_MUTED,
     type TuiTranscriptEntry,
@@ -24,9 +25,17 @@ const contentNodes = new WeakMap<Renderable, Renderable>();
  */
 function entryMarker(
     entry: TuiTranscriptEntry,
-): { readonly glyph: string; readonly color: string } {
+): {
+    readonly glyph: string;
+    readonly color: string;
+    readonly attributes?: number;
+} {
     if (entry.kind === "assistant" || entry.kind === "notification") {
-        return { glyph: "●", color: TUI_ACCENT };
+        return {
+            glyph: "•",
+            color: TUI_MUTED,
+            attributes: TextAttributes.BOLD,
+        };
     }
     if (entry.kind === "notice" || entry.kind === "review") {
         return {
@@ -65,6 +74,7 @@ export function createTuiGutterEntry(
         id: `${id}-marker`,
         content: marker.glyph,
         fg: marker.color,
+        attributes: marker.attributes,
         width: TUI_GUTTER_WIDTH,
         flexShrink: 0,
     }));
@@ -83,7 +93,7 @@ export function createTuiGutterEntry(
     column.add(new TextRenderable(renderer, {
         id: `${id}-rule`,
         content: "─".repeat(200),
-        fg: TUI_MUTED,
+        fg: TUI_ELEMENT,
         width: "100%",
         wrapMode: "none",
         marginLeft: TUI_GUTTER_WIDTH,
