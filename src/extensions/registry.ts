@@ -4,6 +4,7 @@ import type { VeraExtensionConfig } from "../config.ts";
 import type {
     ToolPresentation,
 } from "../model/types.ts";
+import { extensionStorage } from "./storage.ts";
 import type {
     VeraExtensionApi,
     VeraExtensionCommandHandler,
@@ -342,6 +343,7 @@ async function activateExtension(
     let activationSettled = false;
     const api: VeraExtensionApi = Object.freeze({
         config: structuredClone(config),
+        storage: extensionStorage(loaded.manifest.id),
         commands: Object.freeze({
             register(spec: VeraExtensionCommandSpec): void {
                 if (phase !== "activating") {

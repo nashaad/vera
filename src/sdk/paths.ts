@@ -6,5 +6,5 @@
 export {
     veraProfileDirectory,
     veraRuntimeDirectory,
-    veraUserDirectory,
+    veraMachineDirectory,
 } from "../profile-paths.ts";
