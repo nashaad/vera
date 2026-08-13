@@ -30,6 +30,7 @@ import {
 } from "./pool-file.ts";
 import { userPoolFilePath } from "./pool-file-loader.ts";
 import { addPoolModel, recordLearned } from "./pool-file-store.ts";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 export interface PoolMigrationOptions {
     /** Overrides `~/.vera/config.json`. */
@@ -46,7 +47,7 @@ export interface PoolMigrationOutcome {
 }
 
 export function defaultConfigPath(): string {
-    return join(homedir(), ".vera", "config.json");
+    return join(veraProfileDirectory(), "config.json");
 }
 
 export function migrateConfigPool(

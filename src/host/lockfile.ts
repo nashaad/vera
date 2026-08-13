@@ -16,6 +16,7 @@ import {
     requestHostIdentity,
     type HostIdentity,
 } from "./protocol.ts";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 export const HOST_LOCK_SCHEMA_VERSION = 2;
 
@@ -66,11 +67,11 @@ export class HostProtocolMismatchError extends Error {
 }
 
 export function defaultHostLockPath(): string {
-    return join(homedir(), ".vera", "host.json");
+    return join(veraRuntimeDirectory(), "host.json");
 }
 
 export function defaultHostSocketPath(): string {
-    return join(homedir(), ".vera", "host.sock");
+    return join(veraRuntimeDirectory(), "host.sock");
 }
 
 export function createHostLockfile(

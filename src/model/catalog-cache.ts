@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ProviderCatalog } from "./catalog-shape.ts";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 export interface ProviderCatalogCacheOptions {
     readonly cacheDir?: string;
@@ -22,7 +23,7 @@ export interface ProviderCatalogCacheOptions {
  * here and the loader in `catalog.ts`.
  */
 export function providerCatalogCacheDir(): string {
-    return join(homedir(), ".vera", "cache");
+    return join(veraRuntimeDirectory(), "cache");
 }
 
 export function providerCatalogCachePath(

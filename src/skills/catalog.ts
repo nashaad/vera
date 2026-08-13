@@ -9,6 +9,7 @@ import {
     loadSkillPackage,
     type LoadedSkillPackage,
 } from "./package.ts";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 export type SkillScope = "system" | "user" | "project";
 
@@ -32,7 +33,7 @@ export function bundledSkillDirectory(): string {
 }
 
 export function defaultUserSkillDirectory(): string {
-    return join(homedir(), ".vera", "skills");
+    return join(veraProfileDirectory(), "skills");
 }
 
 export function projectSkillDirectory(projectRoot: string): string {
