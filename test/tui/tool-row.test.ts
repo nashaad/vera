@@ -7,7 +7,7 @@ import {
     updateTuiToolRow,
 } from "../../clients/tui/tool-row.ts";
 
-test("a compact tool preview hangs wrapped text under its gutter", async () => {
+test("a compact tool preview stays to one row per summary", async () => {
     const setup = await createTestRenderer({ width: 28, height: 8 });
     setup.renderer.root.add(createTuiToolHeader(
         setup.renderer,
@@ -29,10 +29,38 @@ test("a compact tool preview hangs wrapped text under its gutter", async () => {
         const rows = setup.captureCharFrame().split("\n");
         const first = rows.findIndex((row) => row.includes("│ ask_user"));
         expect(first).toBeGreaterThan(-1);
-        expect(rows[first]).toContain("│ ask_user a much longer");
-        expect(rows[first + 1]?.startsWith("    ")).toBe(true);
-        expect(rows[first + 1]?.trim()).toBe("question that wraps");
-        expect(rows[first + 2]).toContain("└ answer");
+        expect(rows[first]).toContain("│ ask_user");
+        expect(rows[first + 1]).toContain("└ answer");
+        expect(rows[first + 2]?.trim()).toBe("");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a short result stays inline while the detail hint remains visible", async () => {
+    const setup = await createTestRenderer({ width: 52, height: 4 });
+    setup.renderer.root.add(createTuiToolHeader(
+        setup.renderer,
+        "entry-inline-preview",
+        {
+            kind: "tool_header",
+            text: "+ Ran",
+            command: "test -f config.json",
+            detailLines: 2,
+            detailPreview: "  └ config-ok",
+            inlineDetailPreview: true,
+            hint: true,
+        },
+        0,
+    ));
+
+    try {
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        expect(rows[0]).toContain("  Ran  test -f");
+        expect(rows[0]).toContain("└ config-ok");
+        expect(rows[0]).toContain("ctrl+e details");
+        expect(rows[1]?.trim()).toBe("");
     } finally {
         setup.renderer.destroy();
     }

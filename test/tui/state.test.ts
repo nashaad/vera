@@ -978,7 +978,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
         .toBe([
-            "• Explored  List /workspace  ctrl+e details",
+            "  Explored  List /workspace  ctrl+e details",
             "  └ file-0",
         ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
@@ -991,6 +991,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
         expanded: true,
     });
     expect(state.entries[0]).not.toHaveProperty("detailPreview");
+    expect(state.entries[0]).not.toHaveProperty("command");
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === undefined
     )).toBe(true);
@@ -1025,19 +1026,17 @@ test("a short completed tool group uses the same compact header", () => {
         command: "Edit /workspace/note.txt",
         detailLines: 2,
         detailPreview: "  └ ok",
+        inlineDetailPreview: true,
         expanded: false,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe([
-            "• Edited  Edit /workspace/note.txt  ctrl+e details",
-            "  └ ok",
-        ].join("\n"));
+        .toBe("  Edited  Edit /workspace/note.txt  └ ok  ctrl+e details");
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
     )).toBe(true);
 });
 
-test("a folded tool header uses a quiet bullet and an expanded one a chevron", () => {
+test("a folded tool header reserves a blank marker and an expanded one uses a chevron", () => {
     expect(plainText(renderTuiEntry({
         kind: "tool_header",
         text: "+ Ran",
@@ -1045,7 +1044,7 @@ test("a folded tool header uses a quiet bullet and an expanded one a chevron", (
         detailLines: 9,
         expanded: false,
         hint: true,
-    }))).toBe("• Ran  pwd  ctrl+e details");
+    }))).toBe("  Ran  pwd  ctrl+e details");
     expect(plainText(renderTuiEntry({
         kind: "tool_header",
         text: "- Ran",

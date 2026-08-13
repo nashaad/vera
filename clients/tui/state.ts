@@ -75,6 +75,8 @@ export interface TuiTextTranscriptEntry {
     readonly detailLines?: number;
     /** The one summary line a folded tool group keeps. */
     readonly detailPreview?: string;
+    /** Whether a short folded preview shares the header row. */
+    readonly inlineDetailPreview?: boolean;
     /** The call a folded group shows on its own header row. */
     readonly command?: string;
     /** Whether this header carries the detail-toggle hint. */
@@ -1050,14 +1052,21 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "tool_header") {
         const header = renderToolHeader(entry);
+        const inlinePreview = entry.inlineDetailPreview === true
+            ? entry.detailPreview
+            : undefined;
         return entry.detailLines === undefined
             ? new StyledText(header)
             : new StyledText([
                 ...header,
+                ...(inlinePreview === undefined
+                    ? []
+                    : renderInlineToolPreview(inlinePreview)),
                 ...(entry.hint === true
                     ? [fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`)]
                     : []),
                 ...(entry.detailPreview === undefined
+                    || inlinePreview !== undefined
                     ? []
                     : renderCompactToolPreview(entry.detailPreview)),
             ]);
@@ -1136,7 +1145,9 @@ function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
     // The call reads on the header row, so a folded group is one sentence:
     // what was done, and to what.
     return [
-        fg(TUI_MUTED)(marker === "+" ? "• " : "▾ "),
+        // A collapsed group keeps the fold-marker slot for alignment without
+        // adding another dot to an already indented activity row.
+        fg(TUI_MUTED)(marker === "+" ? "  " : "▾ "),
         bold(fg(TUI_TEXT)(action ?? "")),
         ...(entry.command === undefined
             ? []
@@ -1164,6 +1175,11 @@ function renderCompactToolPreview(preview: string): TextChunk[] {
         chunks.push(fg(tone === "call" ? TUI_TEXT : TUI_MUTED)(line));
     }
     return chunks;
+}
+
+function renderInlineToolPreview(preview: string): TextChunk[] {
+    const text = preview.startsWith("  └ ") ? preview.slice(4) : preview;
+    return [fg(TUI_MUTED)(`  └ ${text}`)];
 }
 
 /** A row's text, carrying the count when the same call repeated. */
@@ -1514,6 +1530,7 @@ export function formatAskUserResult(output: string): string {
 }
 
 const COMPACT_TOOL_LINE_CHARS = 96;
+const INLINE_TOOL_PREVIEW_CHARS = 24;
 
 /**
  * Completed tool groups with a result share one compact shape. An explicit
@@ -1565,6 +1582,7 @@ function applyToolDetailPreference(
         const {
             detailLines: _detailLines,
             detailPreview: _detailPreview,
+            inlineDetailPreview: _inlineDetailPreview,
             command: _command,
             hint: _hint,
             expanded: _expanded,
@@ -1578,12 +1596,17 @@ function applyToolDetailPreference(
                 ...plainHeader,
                 text: `${expanded ? "-" : "+"} ${base}`,
                 detailLines,
-                ...(calls.length === 1 && calls[0] !== undefined
+                ...(!expanded && calls.length === 1 && calls[0] !== undefined
                     ? { command: compactToolLine(calls[0]) }
                     : {}),
                 ...(expanded || summary === undefined
                     ? {}
-                    : { detailPreview: summary }),
+                    : {
+                        detailPreview: summary,
+                        ...(inlineToolPreview(summary, rows, calls)
+                            ? { inlineDetailPreview: true }
+                            : {}),
+                    }),
                 ...(hinted ? { hint: true } : {}),
                 expanded,
             }
@@ -1639,6 +1662,25 @@ function compactToolLine(line: string): string {
     return characters.length > COMPACT_TOOL_LINE_CHARS
         ? `${characters.slice(0, COMPACT_TOOL_LINE_CHARS - 1).join("")}…`
         : line;
+}
+
+function inlineToolPreview(
+    preview: string,
+    rows: readonly TuiTextTranscriptEntry[],
+    calls: readonly string[],
+): boolean {
+    const match = /^  └ ([^\n]+)$/.exec(preview);
+    if (
+        match?.[1] === undefined
+        || Array.from(match[1]).length > INLINE_TOOL_PREVIEW_CHARS
+    ) {
+        return false;
+    }
+    if (calls.length > 1) {
+        return true;
+    }
+    const result = rows.find((row) => row.prefix === "  └ ");
+    return result !== undefined && !tuiToolRowText(result).includes("\n");
 }
 
 function settleToolEntries(
