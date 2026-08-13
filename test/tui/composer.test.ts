@@ -45,6 +45,32 @@ test("clicking composer padding focuses the textarea", async () => {
     }
 });
 
+test("composer panel applies configurable geometry and boundary color", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 10 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const { panel, rule } = createTuiComposerPanel(setup.renderer, composer, {
+        marginHorizontal: 4,
+        paddingHorizontal: 2,
+        boundaryColor: "#334455",
+    });
+    setup.renderer.root.add(panel);
+
+    try {
+        await setup.flush();
+        expect(panel.screenX).toBe(4);
+        expect(panel.width).toBe(32);
+        expect(composer.screenX).toBe(7);
+        expect(panel.borderColor.toInts()).toEqual(
+            RGBA.fromHex("#334455").toInts(),
+        );
+        expect(rule.borderColor.toInts()).toEqual(
+            RGBA.fromHex("#334455").toInts(),
+        );
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("TUI status sits below the composer with a bottom gutter", async () => {
     const setup = await createTestRenderer({ width: 40, height: 12 });
     const composer = createTuiComposer(setup.renderer, () => {});

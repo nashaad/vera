@@ -1968,6 +1968,109 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "persisted TUI appearance config controls transcript and composer layout",
+    async () => {
+        const socket = `vera-appearance-${process.pid}-${randomUUID()}`;
+        const session = "appearance";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-appearance-"));
+        const configDirectory = join(home, ".vera");
+        let pane = "";
+
+        mkdirSync(configDirectory, { recursive: true });
+        writeFileSync(join(configDirectory, "config.json"), JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            tui: {
+                transcript: {
+                    padding_left: 2,
+                    padding_right: 3,
+                    activity_indent: 3,
+                    message_spacing: 1,
+                    tool_group_spacing: 1,
+                    separator_spacing_before: 1,
+                    separator_spacing_after: 1,
+                    separator_color: "#112233",
+                },
+                composer: {
+                    margin_horizontal: 4,
+                    padding_horizontal: 2,
+                    tip_indent: 5,
+                    boundary_color: "#334455",
+                },
+            },
+        }));
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-tool-details-child.ts",
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "show configured layout");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "TOOL DETAILS COMPLETED",
+            );
+
+            expect(pane).toMatch(/^ {7}Ran/m);
+            expect(pane).toMatch(/^ {5}─{20}/m);
+            expect(pane).toMatch(/^ {2}• {2}TOOL DETAILS COMPLETED$/m);
+            expect(pane).toMatch(/^ {5}Tip /m);
+            expect(pane).toMatch(/^ {4}╭─{20}/m);
+
+            const lines = pane.split("\n");
+            const rule = lines.findIndex((line) => /^ {5}─{20}/.test(line));
+            const answer = lines.findIndex((line) =>
+                line.includes("TOOL DETAILS COMPLETED")
+            );
+            expect(rule).toBeGreaterThan(0);
+            expect(lines[rule - 2]?.trim()).not.toBe("");
+            expect(lines[rule - 1]?.trim()).toBe("");
+            expect(lines[rule + 1]?.trim()).toBe("");
+            expect(answer).toBe(rule + 2);
+
+            const styled = captureVisiblePaneWithStyles(socket, session);
+            // tmux's default 256-color terminal maps the requested RGB values
+            // to their nearest palette entries in the captured pane.
+            expect(styled).toMatch(/\x1b\[38;5;235m─/);
+            expect(styled).toMatch(/\x1b\[38;5;238m╭/);
+
+            runTmux(socket, [
+                "resize-window",
+                "-t",
+                session,
+                "-x",
+                "20",
+                "-y",
+                "34",
+            ]);
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => /^ {3}╭─{10}/m.test(current),
+                "composer fitted to a narrow terminal",
+            );
+            expect(pane).toMatch(/^ {3}╭─{10}/m);
+            expect(pane).toMatch(/^ {3}│Message/m);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "auto reviews a boundary crossing without asking the user",
     async () => {
         const socket = `vera-auto-review-${process.pid}-${randomUUID()}`;
