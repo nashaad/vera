@@ -13,10 +13,22 @@ import { tuiKeyHint } from "./keymap.ts";
 /** What a command's first argument names, so the composer can complete it. */
 export type TuiCommandArgumentKind = "model" | "mention";
 
+/**
+ * Where a slash command came from, which is the only grouping the list needs:
+ * nothing is filed by hand, nothing goes stale, and it answers the question
+ * that actually gets asked, which is whether the thing just installed showed
+ * up.
+ */
+export const TUI_SLASH_GROUPS = ["built in", "extensions", "skills"] as const;
+
+export type TuiSlashGroup = (typeof TUI_SLASH_GROUPS)[number];
+
 export interface TuiCommandCatalogEntry {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
+    /** Absent on the definitions themselves; the registry fills it in. */
+    readonly group?: TuiSlashGroup;
     readonly arguments?: TuiCommandArgumentKind;
 }
 
@@ -465,6 +477,9 @@ export class TuiCommandRegistry {
             name: command.name,
             description: command.description,
             usage: command.usage,
+            group: command.prefixPriority === "extension"
+                ? "extensions" as const
+                : "built in" as const,
             ...(command.arguments === undefined
                 ? {}
                 : { arguments: command.arguments }),
@@ -491,8 +506,13 @@ export class TuiCommandRegistry {
             return [];
         }
         const prefix = text.slice(1);
-        return this.registeredCommands().filter((command) =>
+        const matching = this.registeredCommands().filter((command) =>
             command.name.startsWith(prefix)
+        );
+        // Registration order is an implementation detail. Within a group the
+        // commands keep it, since that is the order they are defined in.
+        return TUI_SLASH_GROUPS.flatMap((group) =>
+            matching.filter((command) => slashGroup(command) === group)
         );
     }
 
@@ -709,31 +729,73 @@ export function tuiSuggestionWindow(
     };
 }
 
+/**
+ * The width of the group column, wide enough for every group name so each
+ * command starts on the same column whichever group it is in.
+ */
+const SLASH_GROUP_WIDTH = Math.max(
+    0,
+    ...TUI_SLASH_GROUPS.map((group) => group.length),
+) + 2;
+
+/**
+ * The blank lines a grouped list spends separating its groups, which the box
+ * has to know about because it is sized in lines rather than in commands.
+ */
+function slashGroup(command: TuiCommandCatalogEntry): TuiSlashGroup {
+    return command.group ?? "built in";
+}
+
+export function tuiSuggestionGaps(
+    commands: readonly TuiCommandCatalogEntry[],
+    grouped: boolean,
+): number {
+    return !grouped ? 0 : commands.filter((command, index) =>
+        index > 0
+        && commands[index - 1] !== undefined
+        && slashGroup(commands[index - 1]!) !== slashGroup(command)
+    ).length;
+}
+
 export function renderTuiCommandSuggestions(
     commands: readonly TuiCommandCatalogEntry[],
     selectedIndex = -1,
     maxWidth?: number,
     hidden = 0,
+    grouped = false,
 ): StyledText {
     const chunks: TextChunk[] = [];
     const commandWidth = Math.max(
         0,
         ...commands.map((command) => command.name.length),
     );
+    const gutter = grouped ? SLASH_GROUP_WIDTH : 0;
     // Each row stays one row: a description that would wrap is cut with an
     // ellipsis instead, because a wrapped row breaks the one-line-per-command
     // height the box is sized by.
     const descriptionWidth = maxWidth === undefined
         ? Number.POSITIVE_INFINITY
-        : Math.max(1, maxWidth - (2 + 1 + commandWidth + 2));
+        : Math.max(1, maxWidth - (2 + gutter + 1 + commandWidth + 2));
     commands.forEach((command, index) => {
         const active = index === selectedIndex;
+        const previous = commands[index - 1];
+        const opensGroup = grouped
+            && (previous === undefined
+                || slashGroup(previous) !== slashGroup(command));
         if (index > 0) {
-            chunks.push(fg(TUI_MUTED)("\n"));
+            chunks.push(fg(TUI_MUTED)(opensGroup ? "\n\n" : "\n"));
         }
         // Quiet selection: a chevron marker plus an accent command name, the
         // lightest device that marks the row without a loud full-width bar.
         chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
+        // Printed once, on the group's first row. The gap below it and the
+        // word reappearing at the left margin are the whole separator: no
+        // heading row, which is the scarce axis, and no rule.
+        if (grouped) {
+            chunks.push(fg(TUI_MUTED)(
+                (opensGroup ? slashGroup(command) : "").padEnd(gutter),
+            ));
+        }
         chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(
             `/${command.name.padEnd(commandWidth)}`,
         ));
