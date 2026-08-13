@@ -1984,7 +1984,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toMatch(/· ask +│$/m);
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
-            expect(pane).toMatch(/^○ Thought: 0\.0s\n {4}Ran/m);
+            expect(pane).toMatch(/^• Thought: 0\.0s\n {4}Ran/m);
             expect(pane).toMatch(/^ {2}─{20}/m);
             expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
             expect(pane).toMatch(/^ {3}Tip /m);
