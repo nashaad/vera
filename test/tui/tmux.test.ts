@@ -716,7 +716,7 @@ test.skipIf(!tmuxAvailable)(
                 "Model error: Model returned no visible response or structured tool call.",
             );
             expect(pane).toMatch(
-                /• Explored {2}Read package\.json {2}ctrl\+e details/,
+                /Explored {2}Read package\.json\s+ctrl\+e details/,
             );
 
             sendText(socket, session, "try again");
@@ -1925,21 +1925,21 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "TOOL DETAILS COMPLETED",
             );
-            expect(pane).toContain("• Ran  printf");
+            expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
 
             sendKey(socket, session, "C-e");
             pane = await waitForVisiblePane(socket, session, "TOOL_DETAIL_09");
-            expect(pane).toContain("▾ Ran  printf");
+            expect(pane).toMatch(/▾ Ran\s+ctrl\+e details/);
             expect(pane).toContain("TOOL DETAILS COMPLETED");
 
             sendKey(socket, session, "C-e");
-            pane = await waitForVisiblePane(socket, session, "• Ran  printf");
+            pane = await waitForVisiblePane(socket, session, "Ran  printf");
 
             sendText(socket, session, "run one short action");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "SHORT TOOL COMPLETED");
-            expect(pane).toMatch(/• Ran {2}printf 'SHORT_DETAIL/);
+            expect(pane).toMatch(/Ran {2}printf 'SHORT_DETAIL/);
             expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
 
             sendKey(socket, session, "C-e");
@@ -1996,7 +1996,7 @@ test.skipIf(!tmuxAvailable)(
             );
             // `env` prints as many lines as the machine has variables, so
             // the row is pinned by its command and its details hint.
-            expect(pane).toContain("• Ran  env AUTO_REVIEW=ran");
+            expect(pane).toContain("Ran  env AUTO_REVIEW=ran");
             expect(pane).toContain("ctrl+e details");
             expect(pane).toContain("auto");
             expect(pane).not.toContain("Permission required");

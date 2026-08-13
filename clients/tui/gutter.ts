@@ -1,5 +1,6 @@
 import {
     BoxRenderable,
+    TextAttributes,
     TextRenderable,
     type CliRenderer,
     type Renderable,
@@ -8,7 +9,6 @@ import {
 import {
     TUI_ERROR,
     TUI_MUTED,
-    TUI_TEXT,
     type TuiTranscriptEntry,
 } from "./state.ts";
 
@@ -24,9 +24,17 @@ const contentNodes = new WeakMap<Renderable, Renderable>();
  */
 function entryMarker(
     entry: TuiTranscriptEntry,
-): { readonly glyph: string; readonly color: string } {
+): {
+    readonly glyph: string;
+    readonly color: string;
+    readonly attributes?: number;
+} {
     if (entry.kind === "assistant" || entry.kind === "notification") {
-        return { glyph: "•", color: TUI_TEXT };
+        return {
+            glyph: "•",
+            color: TUI_MUTED,
+            attributes: TextAttributes.BOLD,
+        };
     }
     if (entry.kind === "notice" || entry.kind === "review") {
         return {
@@ -65,6 +73,7 @@ export function createTuiGutterEntry(
         id: `${id}-marker`,
         content: marker.glyph,
         fg: marker.color,
+        attributes: marker.attributes,
         width: TUI_GUTTER_WIDTH,
         flexShrink: 0,
     }));

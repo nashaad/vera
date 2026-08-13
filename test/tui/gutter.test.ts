@@ -1,9 +1,13 @@
 import { expect, test } from "bun:test";
-import { parseColor, TextRenderable } from "@opentui/core";
+import {
+    parseColor,
+    TextAttributes,
+    TextRenderable,
+} from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import { createTuiGutterEntry } from "../../clients/tui/gutter.ts";
-import { TUI_TEXT } from "../../clients/tui/state.ts";
+import { TUI_MUTED } from "../../clients/tui/state.ts";
 
 async function frameFor(ruled: boolean): Promise<string> {
     const setup = await createTestRenderer({ width: 30, height: 6 });
@@ -45,7 +49,7 @@ test("an unruled block draws no rule", async () => {
     expect(await frameFor(false)).not.toContain("──────────");
 });
 
-test("the assistant marker is a text-colored small bullet", async () => {
+test("the assistant marker is a muted weighted bullet", async () => {
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
         id: "content",
@@ -66,8 +70,10 @@ test("the assistant marker is a text-colored small bullet", async () => {
         expect(marker instanceof TextRenderable ? marker.plainText : undefined)
             .toBe("•");
         expect(marker instanceof TextRenderable
-            ? marker.fg.equals(parseColor(TUI_TEXT))
+            ? marker.fg.equals(parseColor(TUI_MUTED))
             : false).toBe(true);
+        expect(marker instanceof TextRenderable ? marker.attributes : undefined)
+            .toBe(TextAttributes.BOLD);
     } finally {
         setup.renderer.destroy();
     }
