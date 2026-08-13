@@ -21,7 +21,7 @@ export const DEFAULT_TUI_APPEARANCE: TuiAppearance = {
     activityIndent: 2,
     messageSpacing: 1,
     toolGroupSpacing: 0,
-    separatorSpacingBefore: 0,
+    separatorSpacingBefore: 1,
     separatorSpacingAfter: 1,
     composerMarginHorizontal: 2,
     composerPaddingHorizontal: 1,
