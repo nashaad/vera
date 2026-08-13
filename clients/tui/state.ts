@@ -1108,11 +1108,15 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
                 entry.tone === "soft" ? italic(text) : text,
             ]);
         }
+        const error = [
+            bold(fg(TUI_ERROR)("# ")),
+            fg(TUI_MUTED)(entry.errorText),
+        ];
         return new StyledText(entry.text === ""
-            ? [fg(TUI_ERROR)(entry.errorText)]
+            ? error
             : [
                 fg(TUI_NOTICE)(`${entry.text}\n`),
-                fg(TUI_ERROR)(entry.errorText),
+                ...error,
             ]);
     }
     if (entry.kind === "thought") {
@@ -1211,7 +1215,8 @@ export function tuiEntryMarginTop(
     const previous = entries[index - 1];
     // Rows inside a group sit flush under their header. A new header also
     // continues directly from the activity row that preceded it, so changing
-    // tool verbs does not break one run into a stack of spaced blocks.
+    // tool verbs does not break one run into a stack of spaced blocks. A diff
+    // is a rendered block, so the next header falls through to message spacing.
     if (current?.kind === "tool") return 0;
     if (
         current?.kind === "tool_header"
@@ -1221,7 +1226,6 @@ export function tuiEntryMarginTop(
             || previous?.kind === "tool"
             || previous?.kind === "tool_header"
             || previous?.kind === "review"
-            || previous?.kind === "diff"
         )
     ) {
         return spacing.toolGroup;

@@ -659,6 +659,9 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Connection error: Host sent a non-contiguous agent update sequence",
             );
+            expect(pane).toMatch(
+                /^ {2}# Connection error: Host sent a non-contiguous agent update sequence$/m,
+            );
             expect(pane).toContain("disconnected · /reconnect host");
             expect(pane).not.toContain("working…");
             expect(pane).not.toContain("stopping");
@@ -1988,6 +1991,7 @@ test.skipIf(!tmuxAvailable)(
                     activity_indent: 3,
                     message_spacing: 1,
                     tool_group_spacing: 1,
+                    separator_visible: false,
                     separator_spacing_before: 1,
                     separator_spacing_after: 1,
                     separator_color: "#112233",
@@ -2008,7 +2012,12 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-tool-details-child.ts",
             );
-            await waitForVisiblePane(socket, session, "Start a conversation");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Start a conversation",
+            );
+            expect(pane).toMatch(/^ {5}Start a conversation with Vera\.$/m);
             sendText(socket, session, "show configured layout");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
@@ -2019,26 +2028,22 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toMatch(/· ask +│$/m);
 
             expect(pane).toMatch(/^ {7}Ran/m);
-            expect(pane).toMatch(/^ {5}─{20}/m);
+            expect(pane).not.toMatch(/^ {5}─{20}/m);
             expect(pane).toMatch(/^ {2}• {2}TOOL DETAILS COMPLETED$/m);
             expect(pane).toMatch(/^ {5}Tip /m);
             expect(pane).toMatch(/^ {4}╭─{20}/m);
 
             const lines = pane.split("\n");
-            const rule = lines.findIndex((line) => /^ {5}─{20}/.test(line));
             const answer = lines.findIndex((line) =>
                 line.includes("TOOL DETAILS COMPLETED")
             );
-            expect(rule).toBeGreaterThan(0);
-            expect(lines[rule - 2]?.trim()).not.toBe("");
-            expect(lines[rule - 1]?.trim()).toBe("");
-            expect(lines[rule + 1]?.trim()).toBe("");
-            expect(answer).toBe(rule + 2);
+            expect(answer).toBeGreaterThan(2);
+            expect(lines[answer - 1]?.trim()).toBe("");
+            expect(lines[answer - 2]?.trim()).toBe("");
 
             const styled = captureVisiblePaneWithStyles(socket, session);
             // tmux's default 256-color terminal maps the requested RGB values
             // to their nearest palette entries in the captured pane.
-            expect(styled).toMatch(/\x1b\[38;5;235m─/);
             expect(styled).toMatch(/\x1b\[38;5;238m╭/);
 
             runTmux(socket, [

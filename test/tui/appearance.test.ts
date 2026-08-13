@@ -20,6 +20,7 @@ test("TUI appearance resolves JSON overrides and derives tip alignment", () => {
             activity_indent: 3,
             message_spacing: 2,
             tool_group_spacing: 1,
+            separator_visible: false,
             separator_spacing_before: 1,
             separator_spacing_after: 2,
             separator_color: "#181818",
@@ -37,6 +38,7 @@ test("TUI appearance resolves JSON overrides and derives tip alignment", () => {
         activityIndent: 3,
         messageSpacing: 2,
         toolGroupSpacing: 1,
+        separatorVisible: false,
         separatorSpacingBefore: 1,
         separatorSpacingAfter: 2,
         transcriptSeparatorColor: "#181818",
@@ -62,7 +64,7 @@ test("composer geometry fits narrow terminals without changing configured intent
     expect(fitTuiAppearance(appearance, 100)).toEqual(appearance);
     expect(fitTuiAppearance(appearance, 30)).toMatchObject({
         transcriptPaddingLeft: 0,
-        transcriptPaddingRight: 2,
+        transcriptPaddingRight: 0,
         composerMarginHorizontal: 8,
         composerPaddingHorizontal: 0,
         composerTipIndent: 9,

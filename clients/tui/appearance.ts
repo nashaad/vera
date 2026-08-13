@@ -6,6 +6,7 @@ export interface TuiAppearance {
     readonly activityIndent: number;
     readonly messageSpacing: number;
     readonly toolGroupSpacing: number;
+    readonly separatorVisible: boolean;
     readonly separatorSpacingBefore: number;
     readonly separatorSpacingAfter: number;
     readonly transcriptSeparatorColor?: string;
@@ -17,10 +18,11 @@ export interface TuiAppearance {
 
 export const DEFAULT_TUI_APPEARANCE: TuiAppearance = {
     transcriptPaddingLeft: 0,
-    transcriptPaddingRight: 2,
+    transcriptPaddingRight: 0,
     activityIndent: 2,
     messageSpacing: 1,
     toolGroupSpacing: 0,
+    separatorVisible: true,
     separatorSpacingBefore: 1,
     separatorSpacingAfter: 1,
     composerMarginHorizontal: 2,
@@ -47,6 +49,8 @@ export function resolveTuiAppearance(
             ?? DEFAULT_TUI_APPEARANCE.messageSpacing,
         toolGroupSpacing: config?.transcript?.tool_group_spacing
             ?? DEFAULT_TUI_APPEARANCE.toolGroupSpacing,
+        separatorVisible: config?.transcript?.separator_visible
+            ?? DEFAULT_TUI_APPEARANCE.separatorVisible,
         separatorSpacingBefore: config?.transcript?.separator_spacing_before
             ?? DEFAULT_TUI_APPEARANCE.separatorSpacingBefore,
         separatorSpacingAfter: config?.transcript?.separator_spacing_after

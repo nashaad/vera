@@ -7,7 +7,11 @@ import {
 import { createTestRenderer } from "@opentui/core/testing";
 
 import { createTuiGutterEntry } from "../../clients/tui/gutter.ts";
-import { TUI_ELEMENT, TUI_MUTED } from "../../clients/tui/state.ts";
+import {
+    renderTuiEntry,
+    TUI_ELEMENT,
+    TUI_MUTED,
+} from "../../clients/tui/state.ts";
 
 async function frameFor(ruled: boolean): Promise<string> {
     const setup = await createTestRenderer({ width: 30, height: 6 });
@@ -80,6 +84,38 @@ test("an unruled block draws no rule", async () => {
     expect(await frameFor(false)).not.toContain("──────────");
 });
 
+test("the separator can be hidden while keeping its spacing", async () => {
+    const setup = await createTestRenderer({ width: 30, height: 8 });
+    const content = new TextRenderable(setup.renderer, {
+        id: "content",
+        content: "Final answer",
+    });
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "answer",
+        { kind: "assistant", text: "Final answer" },
+        content,
+        0,
+        true,
+        {
+            separatorVisible: false,
+            separatorSpacingBefore: 1,
+            separatorSpacingAfter: 2,
+        },
+    );
+    setup.renderer.root.add(node);
+
+    try {
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const answer = lines.findIndex((line) => line.includes("Final answer"));
+        expect(node.findDescendantById("answer-rule")).toBeUndefined();
+        expect(answer).toBe(3);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("the separator is a quiet element-colored hairline", async () => {
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
@@ -132,6 +168,40 @@ test("the assistant marker is a muted weighted bullet", async () => {
             : false).toBe(true);
         expect(marker instanceof TextRenderable ? marker.attributes : undefined)
             .toBe(TextAttributes.BOLD);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a runtime failure uses the indented activity gutter", async () => {
+    const setup = await createTestRenderer({ width: 70, height: 4 });
+    const entry = {
+        kind: "notice" as const,
+        text: "",
+        errorText: "Agent error: Resident agent stopped unexpectedly",
+    };
+    const content = new TextRenderable(setup.renderer, {
+        id: "content",
+        content: renderTuiEntry(entry),
+    });
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "failure",
+        entry,
+        content,
+        0,
+    );
+    setup.renderer.root.add(node);
+
+    try {
+        await setup.flush();
+        const marker = node.findDescendantById("failure-marker");
+        expect(marker).toBeInstanceOf(TextRenderable);
+        expect(marker instanceof TextRenderable ? marker.plainText : undefined)
+            .toBe(" ");
+        expect(setup.captureCharFrame()).toMatch(
+            /^ {2}# Agent error: Resident agent stopped unexpectedly/m,
+        );
     } finally {
         setup.renderer.destroy();
     }
