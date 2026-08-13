@@ -219,8 +219,13 @@ function metaLength(meta: DialogMeta): number {
 export interface DialogRowContent {
     readonly label: string;
     // Fixed gutter text before the label (a current-choice dot, a choice
-    // number). Accent-toned unless the row is active.
+    // number, a group name). Accent-toned unless the row is active, or muted
+    // when the gutter names something the eye should pass over.
     readonly leading?: string;
+    readonly leadingTone?: "accent" | "muted";
+    // A blank line above the row, for lists that separate runs of rows with a
+    // gap rather than a heading.
+    readonly spaced?: boolean;
     // A one- or two-cell mark that hangs in the card's left padding: the dot on
     // the choice in effect, a section's fold arrow, a provider's tick. It sits
     // outside the flow, so a list where only one row is marked still starts
@@ -534,6 +539,7 @@ export function dialogOptionRow(
         height: content.wrap ? "auto" : 1,
         flexDirection: "row",
         backgroundColor: background,
+        ...(content.spaced === true ? { marginTop: 1 } : {}),
     });
     // Every dialog row in the TUI is built here, so pointer support is one
     // wiring rather than one per overlay. A row without handlers behaves
@@ -544,7 +550,11 @@ export function dialogOptionRow(
     // a column, which would push every label one off the title above it.
     if (content.leading !== undefined && content.leading.length > 0) {
         row.add(new TextRenderable(renderer, {
-            content: new StyledText([fg(accent)(content.leading)]),
+            content: new StyledText([
+                fg(content.leadingTone === "muted" ? detail : accent)(
+                    content.leading,
+                ),
+            ]),
             bg: background,
             flexShrink: 0,
         }));

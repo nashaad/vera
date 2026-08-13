@@ -273,8 +273,7 @@ test.skipIf(!tmuxAvailable)(
             // The composer stays behind the overlay, and its frame carries the
             // row that says what the session is answering as.
             expect(pane).toContain("test · HIGH");
-            expect(pane).toContain("Settings");
-            expect(pane).toContain("Switch model");
+            expect(pane).toContain("settings    Switch model");
             expect(pane).not.toContain("Rewind the active conversation");
             sendText(socket, session, "switch model");
             pane = await waitForVisiblePane(socket, session, "switch model");
@@ -496,7 +495,9 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Say hello from an extension",
             );
-            expect(pane).toContain("Extensions");
+            // Searching flattens the list into one ranked run, so the group
+            // column goes away and its width returns to the descriptions.
+            expect(pane).not.toContain("extensions ");
             expect(pane).toContain("hello");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
