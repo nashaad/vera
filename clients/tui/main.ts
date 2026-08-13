@@ -401,25 +401,6 @@ const POINTER_HOVER_DELAY_MS = 25;
 /** Rows the composer, the status band and a little transcript need. */
 const SUGGESTIONS_RESERVED_ROWS = 12;
 
-/**
- * Whether an answer closes a stretch of tool work. Thoughts and notices do not
- * count: a rule that fires on every turn stops marking anything.
- */
-function assistantFollowsTools(
-    entries: readonly TuiTranscriptEntry[],
-    index: number,
-): boolean {
-    if (entries[index]?.kind !== "assistant") return false;
-    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-        const kind = entries[cursor]?.kind;
-        if (kind === "user" || kind === "assistant") return false;
-        if (kind === "tool" || kind === "tool_header" || kind === "diff") {
-            return true;
-        }
-    }
-    return false;
-}
-
 function truncateFooterLine(text: string, width: number): string {
     const characters = Array.from(text);
     const limit = Math.max(1, width);
@@ -1865,7 +1846,6 @@ export async function startTui(
         id: string,
         entry: TuiTranscriptEntry,
         marginTop: number,
-        separated: boolean,
     ): TextRenderable | MarkdownRenderable | BoxRenderable {
         const inner = entry.kind === "user" ? marginTop : 0;
         const markdownNode = entry.kind === "diff"
@@ -1911,7 +1891,6 @@ export async function startTui(
                 entry,
                 node,
                 marginTop,
-                separated,
             );
     }
 
@@ -1967,7 +1946,6 @@ export async function startTui(
                 id,
                 entry,
                 tuiEntryMarginTop(entries, index),
-                assistantFollowsTools(entries, index),
             );
             node.visible = entry.kind !== "tool" || entry.hidden !== true;
             sidebarEntryNodes.push(node);
@@ -5642,7 +5620,6 @@ export async function startTui(
                 `entry-${index}`,
                 entry,
                 tuiEntryMarginTop(state.entries, index),
-                assistantFollowsTools(state.entries, index),
             );
             entryNodes.push(node);
             entryNodeKinds.push(entry.kind);

@@ -1927,6 +1927,7 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
+            expect(pane).not.toMatch(/^ {4}─{20}/m);
 
             sendKey(socket, session, "C-e");
             pane = await waitForVisiblePane(socket, session, "TOOL_DETAIL_09");
