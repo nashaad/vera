@@ -4,6 +4,7 @@ import {
     mkdir,
     open,
     readFile,
+    rm,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -335,13 +336,22 @@ export class SessionStore {
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-        const file = await open(path, "wx", 0o600);
+        let created = false;
         try {
-            await file.chmod(0o600);
-            await file.writeFile(jsonLine(header), "utf8");
-            await file.sync();
-        } finally {
-            await file.close();
+            const file = await open(path, "wx", 0o600);
+            created = true;
+            try {
+                await file.chmod(0o600);
+                await file.writeFile(jsonLine(header), "utf8");
+                await file.sync();
+            } finally {
+                await file.close();
+            }
+        } catch (error) {
+            if (created) {
+                await rm(path, { force: true }).catch(() => {});
+            }
+            throw error;
         }
 
         return new SessionStore(

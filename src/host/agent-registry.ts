@@ -695,6 +695,20 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+async function resolveAgentWorkspace(workspace: string): Promise<string> {
+    try {
+        return await realpath(workspace);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") {
+            throw new UserFacingError(
+                `Session workspace is unavailable: ${workspace}`,
+            );
+        }
+        throw error;
+    }
+}
+
 function peerReadReceipt(
     readerId: string,
     senderId: string,
@@ -1038,12 +1052,14 @@ export class AgentRegistry {
     ): Promise<ResidentAgent> {
         const id = options.id ?? randomUUID();
         this.reserveId(id);
+        let createdPath: string | undefined;
+        let ephemeralDirectory: string | undefined;
         try {
-            const workspace = await realpath(options.workspace);
+            const workspace = await resolveAgentWorkspace(options.workspace);
             const startupProfile = storedStartupProfile(
                 options.startupProfile ?? "default",
             );
-            const ephemeralDirectory = options.ephemeral === true
+            ephemeralDirectory = options.ephemeral === true
                 ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
                 : undefined;
             const store = await SessionStore.create(
@@ -1064,6 +1080,7 @@ export class AgentRegistry {
                         : { parentId: inherited.parentId }),
                 },
             );
+            createdPath = store.path;
             if (inherited !== undefined) {
                 await store.appendApprovalMode(inherited.approvalMode);
                 if (inherited.modelSettings !== undefined) {
@@ -1079,6 +1096,15 @@ export class AgentRegistry {
                 clientPromptRefusal,
                 options.ephemeral === true,
             );
+        } catch (error) {
+            await this.closeAgent(id).catch(() => {});
+            if (ephemeralDirectory !== undefined) {
+                await rm(ephemeralDirectory, { recursive: true, force: true })
+                    .catch(() => {});
+            } else if (createdPath !== undefined) {
+                await rm(createdPath, { force: true }).catch(() => {});
+            }
+            throw error;
         } finally {
             this.startingIds.delete(id);
         }
