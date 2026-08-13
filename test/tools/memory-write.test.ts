@@ -21,7 +21,12 @@ if (process.env[ISOLATED] === undefined) {
         const home = await mkdtemp(join(tmpdir(), "vera-memory-home-"));
         try {
             const child = Bun.spawn(["bun", "test", import.meta.path], {
-                env: { ...process.env, HOME: home, [ISOLATED]: home },
+                env: {
+                    ...process.env,
+                    HOME: home,
+                    VERA_HOME: join(home, ".vera"),
+                    [ISOLATED]: home,
+                },
                 stdout: "pipe",
                 stderr: "pipe",
             });

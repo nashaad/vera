@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 /**
  * Deliberately separate from `workspaceKey`. Event logs shard per checkout, so
@@ -20,7 +21,7 @@ export const MEMORY_INDEX_WARN_BYTES = 4 * 1024;
 export const MEMORY_TOPIC_MAX_BYTES = 32 * 1024;
 
 export function memoryRoot(): string {
-    return join(homedir(), ".vera", "memory");
+    return join(veraProfileDirectory(), "memory");
 }
 
 export function userMemoryDir(): string {

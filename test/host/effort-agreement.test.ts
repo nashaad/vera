@@ -12,16 +12,21 @@ import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const GLM = "z-ai/glm-5.2";
+const KIMI = "moonshotai/kimi-k3";
 
-function pooledGlm(levelIds: readonly string[]): PooledModel {
+function pooled(model: string, label: string, levelIds: readonly string[]): PooledModel {
     return {
         provider: "openrouter",
-        model: GLM,
-        label: "GLM 5.2",
+        model,
+        label,
         available: true,
         verified: true,
         levels: levelIds.map((id) => ({ id, label: id })),
     };
+}
+
+function pooledGlm(levelIds: readonly string[]): PooledModel {
+    return pooled(GLM, "GLM 5.2", levelIds);
 }
 
 /**
@@ -97,9 +102,13 @@ test("an unnamed level resolves the same way across the layers", async () => {
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         provider: "openrouter",
-        model: "moonshotai/kimi-k3",
+        model: KIMI,
         reasoningEffort: "high",
         approvalMode: "auto",
+        readPool: () => [
+            pooled(KIMI, "Kimi K3", ["max", "high", "medium", "low"]),
+            pooledGlm(["max", "high", "medium", "low"]),
+        ],
     });
 
     try {
