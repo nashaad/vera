@@ -14,7 +14,7 @@ import {
     veraProfileDirectory,
     veraProfileName,
     veraRuntimeDirectory,
-    veraUserDirectory,
+    veraMachineDirectory,
 } from "../src/profile-paths.ts";
 
 const home = "/home/nash";
@@ -35,8 +35,8 @@ test("one selector resolves both the profile root and its runtime", () => {
 });
 
 test("credentials sit outside every profile", () => {
-    expect(veraUserDirectory(home)).toBe(join(home, ".vera", "user"));
-    expect(veraUserDirectory(home))
+    expect(veraMachineDirectory(home)).toBe(join(home, ".vera", "machine"));
+    expect(veraMachineDirectory(home))
         .not.toContain(veraProfileDirectory({}, home));
 });
 
@@ -66,13 +66,24 @@ test("the old flat layout is refused rather than read as empty", () => {
         assertProfileLayout(root);
     } catch (error) {
         expect((error as Error).message).toContain("auth.json, sessions");
-        expect((error as Error).message).toContain(veraUserDirectory(root));
+        expect((error as Error).message).toContain(veraMachineDirectory(root));
+    }
+});
+
+test("the old machine-tier name is refused with the rename to run", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera", "user"), { recursive: true });
+    expect(() => assertProfileLayout(root)).toThrow(VeraProfileError);
+    try {
+        assertProfileLayout(root);
+    } catch (error) {
+        expect((error as Error).message).toContain(veraMachineDirectory(root));
     }
 });
 
 test("a tiered home is accepted", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
-    mkdirSync(join(root, ".vera", "user"), { recursive: true });
+    mkdirSync(join(root, ".vera", "machine"), { recursive: true });
     mkdirSync(join(root, ".vera", "profiles", "default"), { recursive: true });
     expect(legacyLayoutEntries(root)).toEqual([]);
     expect(() => assertProfileLayout(root)).not.toThrow();
@@ -80,7 +91,7 @@ test("a tiered home is accepted", () => {
 
 test("state written outside the tiers is named", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
-    mkdirSync(join(root, ".vera", "user"), { recursive: true });
+    mkdirSync(join(root, ".vera", "machine"), { recursive: true });
     mkdirSync(join(root, ".vera", "profiles", "default"), { recursive: true });
     expect(unrecognisedHomeEntries(root)).toEqual([]);
 
