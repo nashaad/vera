@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 /** Why a request was kept. */
 export type FailedRequestOutcome = "provider_error" | "empty_response";
@@ -38,7 +39,7 @@ export const DEFAULT_MAX_CAPTURES_PER_SESSION = 5;
 export const DEFAULT_MAX_CAPTURE_BYTES = 256 * 1024;
 
 export function defaultCaptureDirectory(): string {
-    return join(homedir(), ".vera", "logs", "captures");
+    return join(veraRuntimeDirectory(), "logs", "captures");
 }
 
 /**

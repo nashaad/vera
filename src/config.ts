@@ -36,6 +36,7 @@ import {
     discoverExtensionConfigs,
     mergeExtensionConfigs,
 } from "./extensions/discovery.ts";
+import { veraProfileDirectory } from "./profile-paths.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -227,7 +228,7 @@ export interface VeraConfigDefaultsPatch {
 }
 
 export function defaultVeraConfigPath(): string {
-    return join(homedir(), ".vera", "config.json");
+    return join(veraProfileDirectory(), "config.json");
 }
 
 /**

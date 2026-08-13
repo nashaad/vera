@@ -20,7 +20,7 @@ interface DetachedHostResult {
     "the first client starts a detached host that survives and accepts attach",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-detached-host-"));
-        const veraDirectory = join(home, ".vera");
+        const veraDirectory = join(home, ".vera", "profiles", "default");
         let hostPid: number | undefined;
         await mkdir(veraDirectory, { recursive: true });
         await writeFile(join(veraDirectory, "config.json"), `${JSON.stringify({
@@ -39,6 +39,7 @@ interface DetachedHostResult {
                 env: {
                     ...process.env,
                     HOME: home,
+                    VERA_HOME: join(home, ".vera"),
                     OPENROUTER_API_KEY: "test-only-key",
                 },
                 stdout: "pipe",
@@ -63,7 +64,7 @@ interface DetachedHostResult {
             await client.detach();
 
             const lock = JSON.parse(
-                await readFile(join(veraDirectory, "host.json"), "utf8"),
+                await readFile(join(veraDirectory, "runtime", "host.json"), "utf8"),
             ) as HostLockRecord;
             expect(lock).toEqual(result.host);
             expect(lock.entrypoint?.endsWith("clients/host/main.ts"))

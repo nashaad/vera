@@ -12,6 +12,7 @@ import {
     type ModelStream,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { veraRuntimeDirectory } from "../../src/profile-paths.ts";
 
 const readyPath = process.env.VERA_TEST_READY_PATH;
 if (readyPath === undefined || readyPath.length === 0) {
@@ -124,9 +125,9 @@ const host = await startResidentHost({
         experimental: { inbox: true },
     },
     createAdapter: () => adapters.shift() ?? new FauxAdapter([]),
-    sessionDirectory: join(home, ".vera", "sessions"),
-    eventLogDirectory: join(home, ".vera", "events"),
-    inboxPath: join(home, ".vera", "inbox.db"),
+    sessionDirectory: join(veraRuntimeDirectory(), "sessions"),
+    eventLogDirectory: join(veraRuntimeDirectory(), "events"),
+    inboxPath: join(veraRuntimeDirectory(), "inbox.db"),
 });
 
 await host.registry.create({ id: "left", workspace: process.cwd() });

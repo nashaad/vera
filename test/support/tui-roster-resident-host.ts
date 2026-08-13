@@ -12,6 +12,7 @@ import {
     type ModelStream,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { veraRuntimeDirectory } from "../../src/profile-paths.ts";
 
 const readyPath = process.env.VERA_TEST_READY_PATH;
 const manifestPath = process.env.VERA_TEST_MANIFEST_PATH;
@@ -82,8 +83,8 @@ const host = await startResidentHost({
         approval_mode: "auto",
     },
     createAdapter: () => new RosterEchoAdapter(),
-    sessionDirectory: join(home, ".vera", "sessions"),
-    eventLogDirectory: join(home, ".vera", "events"),
+    sessionDirectory: join(veraRuntimeDirectory(), "sessions"),
+    eventLogDirectory: join(veraRuntimeDirectory(), "events"),
 });
 
 await host.registry.create({ id: "roster-caller", workspace: process.cwd() });

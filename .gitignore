@@ -148,3 +148,5 @@ vera-one-archived/
 .worktrees/
 .DS_Store
 .vera/
+.vera-test-home/
+!.env.test

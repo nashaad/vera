@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { ConsumerRegistry } from "./consumers.ts";
 import type { Inbox, InboxEntry } from "../store/inbox.ts";
 import { SOURCE_GAP_KIND } from "../watch/source.ts";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 const PEER_MESSAGE_KIND = "peer.message";
 
@@ -514,7 +515,7 @@ function fileStamp(path: string): string | null {
 }
 
 export function defaultSpawnConsentPath(): string {
-    return join(homedir(), ".vera", "spawn-consent.json");
+    return join(veraProfileDirectory(), "spawn-consent.json");
 }
 
 /**

@@ -993,6 +993,14 @@ test("accepted settings become defaults for new agents in the live host", async 
         model: "first-model",
         reasoningEffort: "low",
         approvalMode: "auto",
+        readPool: () => [{
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            label: "GLM 5.2",
+            available: true,
+            verified: true,
+            levels: ["max", "high", "medium", "low"].map((id) => ({ id, label: id })),
+        }],
     });
 
     try {
@@ -1144,6 +1152,14 @@ test("switching models settles an unsupported effort on a middle level", async (
         model: "first-model",
         reasoningEffort: "medium",
         approvalMode: "auto",
+        readPool: () => [{
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            label: "Kimi K3",
+            available: true,
+            verified: true,
+            levels: ["max", "high", "medium", "low"].map((id) => ({ id, label: id })),
+        }],
     });
 
     try {
