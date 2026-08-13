@@ -1925,6 +1925,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "TOOL DETAILS COMPLETED",
             );
+            expect(pane).toMatch(/· ask +│$/m);
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
             expect(pane).toMatch(/^○ Thought: 0\.0s\n {4}Ran/m);
@@ -2015,6 +2016,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "TOOL DETAILS COMPLETED",
             );
+            expect(pane).toMatch(/· ask +│$/m);
 
             expect(pane).toMatch(/^ {7}Ran/m);
             expect(pane).toMatch(/^ {5}─{20}/m);

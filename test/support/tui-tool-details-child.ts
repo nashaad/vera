@@ -63,7 +63,7 @@ void runHeadlessLoop(
     new FauxAdapter(responses),
     "test",
     "off",
-    { approvalMode: "full_access" },
+    { approvalMode: "ask" },
 );
 const client: TuiAgentClient = {
     async send(command): Promise<void> {
