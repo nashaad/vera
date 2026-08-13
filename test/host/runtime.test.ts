@@ -19,6 +19,7 @@ import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-clien
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
     AgentStartError,
+    createAgentThroughHost,
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
@@ -36,6 +37,40 @@ import {
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a removed workspace reaches the startup client as the reason",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-missing-cwd-"));
+        const missing = join(root, "removed-worktree");
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+        try {
+            await expect(createAgentThroughHost(socketPath, missing))
+                .rejects.toMatchObject({
+                    name: AgentStartError.name,
+                    operation: "create",
+                    message: `Session workspace is unavailable: ${missing}`,
+                });
+            expect(await listAgentsThroughHost(socketPath)).toEqual([]);
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "an accepted idle shutdown closes that exact resident host",
