@@ -55,6 +55,76 @@ test("the optional load tolerates absence but not damage", () => {
         .toBe("anthropic/example-model");
 });
 
+test("Vera config carries client-owned TUI appearance settings", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tui: {
+            transcript: {
+                padding_left: 1,
+                padding_right: 3,
+                activity_indent: 4,
+                message_spacing: 2,
+                tool_group_spacing: 1,
+                separator_spacing_before: 0,
+                separator_spacing_after: 2,
+                separator_color: "#191919",
+            },
+            composer: {
+                margin_horizontal: 3,
+                padding_horizontal: 2,
+                tip_indent: 4,
+                boundary_color: "#303030",
+            },
+        },
+    }));
+
+    expect(loadVeraConfig({ path }).tui).toEqual({
+        transcript: {
+            padding_left: 1,
+            padding_right: 3,
+            activity_indent: 4,
+            message_spacing: 2,
+            tool_group_spacing: 1,
+            separator_spacing_before: 0,
+            separator_spacing_after: 2,
+            separator_color: "#191919",
+        },
+        composer: {
+            margin_horizontal: 3,
+            padding_horizontal: 2,
+            tip_indent: 4,
+            boundary_color: "#303030",
+        },
+    });
+});
+
+test("Vera config rejects malformed TUI appearance settings", () => {
+    const invalid = [
+        { transcript: [] },
+        { transcript: { padding_left: -1 } },
+        { transcript: { activity_indent: 0 } },
+        { transcript: { message_spacing: 1.5 } },
+        { transcript: { separator_spacing_before: -1 } },
+        { transcript: { separator_spacing_after: 6 } },
+        { transcript: { separator_color: "dim" } },
+        { composer: { margin_horizontal: 21 } },
+        { composer: { padding_horizontal: -1 } },
+        { composer: { tip_indent: "3" } },
+        { composer: { boundary_color: "#1234" } },
+    ];
+    for (const tui of invalid) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            tui,
+        }));
+        expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");
+    }
+});
+
 test("Vera config carries a subagent default model", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
