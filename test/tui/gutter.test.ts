@@ -12,6 +12,7 @@ import {
     TUI_ELEMENT,
     TUI_MUTED,
 } from "../../clients/tui/state.ts";
+import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 
 async function frameFor(ruled: boolean): Promise<string> {
     const setup = await createTestRenderer({ width: 30, height: 6 });
@@ -178,7 +179,10 @@ test("a runtime failure uses the indented activity gutter", async () => {
     const entry = {
         kind: "notice" as const,
         text: "",
-        errorText: "Agent error: Resident agent stopped unexpectedly",
+        diagnostic: resolveTuiDiagnostic(
+            "resident_agent_stopped",
+            "Resident agent stopped unexpectedly",
+        ),
     };
     const content = new TextRenderable(setup.renderer, {
         id: "content",
@@ -200,7 +204,7 @@ test("a runtime failure uses the indented activity gutter", async () => {
         expect(marker instanceof TextRenderable ? marker.plainText : undefined)
             .toBe(" ");
         expect(setup.captureCharFrame()).toMatch(
-            /^ {2}# Agent error: Resident agent stopped unexpectedly/m,
+            /^ {2}× stopped  Resident agent stopped unexpectedly/m,
         );
     } finally {
         setup.renderer.destroy();

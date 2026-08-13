@@ -5,6 +5,7 @@
       "text": "#A9AFBB",
       "muted": "#5C6370",
       "notice": "#E0AF68",
+      "danger": "#FF5F56",
       "success": "#B8B6D9",
       "code": "#B8B6D9",
       "background": "#0F1016",
@@ -13,49 +14,49 @@
     },
     "muted-blue": {
       "accent": "#02A2FF", "text": "#02A2FF", "muted": "#175B8B",
-      "notice": "#FEFC59", "success": "#A7E3A1", "code": "#74C0FF",
+      "notice": "#FEFC59", "danger": "#FF6B6B", "success": "#A7E3A1", "code": "#74C0FF",
       "background": "#0F1117",
       "panel": "#171B23", "element": "#2C2D31"
     },
     "orng": {
       "accent": "#EC5B2B", "text": "#c6c6c6", "muted": "#808080",
-      "notice": "#EC5B2B", "success": "#6ba1e6", "code": "#6ba1e6",
+      "notice": "#EC5B2B", "danger": "#FF5F56", "success": "#6ba1e6", "code": "#6ba1e6",
       "background": "#111111",
       "panel": "#181818", "element": "#222222"
     },
     "palenight": {
       "accent": "#82aaff", "text": "#a6accd", "muted": "#676e95",
-      "notice": "#ffcb6b", "success": "#c3e88d", "code": "#c3e88d",
+      "notice": "#ffcb6b", "danger": "#ff5370", "success": "#c3e88d", "code": "#c3e88d",
       "background": "#292d3e",
       "panel": "#1e2132", "element": "#32364a"
     },
     "synthwave": {
       "accent": "#36f9f6", "text": "#d8d7db", "muted": "#848bbd",
-      "notice": "#fede5d", "success": "#72f1b8", "code": "#72f1b8",
+      "notice": "#fede5d", "danger": "#fe4450", "success": "#72f1b8", "code": "#72f1b8",
       "background": "#262335",
       "panel": "#1e1a29", "element": "#2a2139"
     },
     "nightowl": {
       "accent": "#82AAFF", "text": "#d6deeb", "muted": "#5f7e97",
-      "notice": "#ecc48d", "success": "#c5e478", "code": "#c5e478",
+      "notice": "#ecc48d", "danger": "#EF5350", "success": "#c5e478", "code": "#c5e478",
       "background": "#011627",
       "panel": "#0b253a", "element": "#0b253a"
     },
     "github": {
       "accent": "#58a6ff", "text": "#c9d1d9", "muted": "#8b949e",
-      "notice": "#e3b341", "success": "#3fb950", "code": "#3fb950",
+      "notice": "#e3b341", "danger": "#f85149", "success": "#3fb950", "code": "#3fb950",
       "background": "#0d1117",
       "panel": "#010409", "element": "#161b22"
     },
     "midnight-blue": {
       "accent": "#82AAFF", "text": "#c7d5d6", "muted": "#546E7A",
-      "notice": "#F9D768", "success": "#C3E88D", "code": "#9b92ea",
+      "notice": "#F9D768", "danger": "#FF5370", "success": "#C3E88D", "code": "#9b92ea",
       "background": "#14171C",
       "panel": "#252933", "element": "#2C4069"
     },
     "midnight-blue-ii": {
       "accent": "#F9D768", "text": "#B2CCD6", "muted": "#65737E",
-      "notice": "#F37D3B", "success": "#C3E88D", "code": "#82AAFF",
+      "notice": "#F37D3B", "danger": "#FF5370", "success": "#C3E88D", "code": "#82AAFF",
       "background": "#14171C",
       "panel": "#283246", "element": "#222F47"
     }

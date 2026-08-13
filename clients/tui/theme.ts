@@ -18,6 +18,7 @@ export interface TuiTheme {
     readonly text: string;
     readonly muted: string;
     readonly notice: string;
+    readonly danger: string;
     readonly success: string;
     readonly code: string;
     readonly background: string;
@@ -79,6 +80,7 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
         text: mixHex(background, text, 0.85),
         muted: mixHex(background, text, 0.55),
         notice: paletteColor(colors, 3, VERA_TUI_THEME.notice),
+        danger: paletteColor(colors, 1, VERA_TUI_THEME.danger),
         success: paletteColor(colors, 2, VERA_TUI_THEME.success),
         code: paletteColor(colors, 2, VERA_TUI_THEME.code),
         background,

@@ -24,6 +24,11 @@ import type {
 import type { TuiTheme } from "./theme.ts";
 import type { ModelSubstitution } from "../../src/model/types.ts";
 import { tuiKeyHint } from "./keymap.ts";
+import {
+    resolveTuiDiagnostic,
+    type TuiDiagnostic,
+    type TuiDiagnosticCode,
+} from "./diagnostic-severity.ts";
 
 /** Marks the rows where the turn ran on something other than what was asked. */
 const SUBSTITUTION_MARKER = "\u21c4";
@@ -63,7 +68,7 @@ export interface TuiTextTranscriptEntry {
     readonly dimmedPrefix?: number;
     /** The gutter drawn left of a tool row, in its own column. */
     readonly prefix?: string;
-    /** How many times in a row the same call was made. */
+    /** How many times in a row the same call or diagnostic occurred. */
     readonly repeat?: number;
     /** The reasoning a `thought` summary folds away. */
     readonly reasoning?: string;
@@ -87,12 +92,8 @@ export interface TuiTextTranscriptEntry {
      * as one live surface instead of one line per state change.
      */
     readonly admission?: string;
-    /**
-     * The failure this entry ends on, drawn in the error red rather than the
-     * entry's own tone. A notice that is nothing but a failure carries this
-     * with an empty `text`.
-     */
-    readonly errorText?: string;
+    /** A client/runtime event whose code fixes its severity and presentation. */
+    readonly diagnostic?: TuiDiagnostic;
     /** Semantic emphasis for harness-authored transcript prose. */
     readonly tone?: "primary" | "soft" | "error";
 }
@@ -193,22 +194,18 @@ export let TUI_ACCENT = VERA_TUI_THEME.accent;
 export let TUI_TEXT = VERA_TUI_THEME.text;
 export let TUI_MUTED = VERA_TUI_THEME.muted;
 export let TUI_NOTICE = VERA_TUI_THEME.notice;
+export let TUI_DANGER = VERA_TUI_THEME.danger;
 export let TUI_SUCCESS = VERA_TUI_THEME.success;
 export let TUI_BACKGROUND = VERA_TUI_THEME.background;
 export let TUI_PANEL = VERA_TUI_THEME.panel;
 export let TUI_ELEMENT = VERA_TUI_THEME.element;
-
-/**
- * Failure red, held outside the palette. Every theme paints notices in its own
- * tone, and a failure that borrows that tone reads as one more notice.
- */
-export const TUI_ERROR = "#ff5f56";
 
 export function applyTuiTheme(theme: TuiTheme): void {
     TUI_ACCENT = theme.accent;
     TUI_TEXT = theme.text;
     TUI_MUTED = theme.muted;
     TUI_NOTICE = theme.notice;
+    TUI_DANGER = theme.danger;
     TUI_SUCCESS = theme.success;
     TUI_BACKGROUND = theme.background;
     TUI_PANEL = theme.panel;
@@ -315,13 +312,15 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                     + ` ${update.reason}`,
             });
         }
-        return appendEntry(state, {
-            kind: "notice",
-            text: update.decision === "deny"
-                ? `Reviewer denied ${update.tool}`
-                    + ` (${update.riskLevel} risk): ${update.reason}`
-                : `Reviewer unavailable for ${update.tool}: ${update.reason}`,
-        });
+        const message = update.decision === "deny"
+            ? `Reviewer denied ${update.tool}`
+                + ` (${update.riskLevel} risk): ${update.reason}`
+            : `Reviewer unavailable for ${update.tool}: ${update.reason}`;
+        return appendTuiDiagnostic(
+            state,
+            update.decision === "deny" ? "permission_denied" : "unknown",
+            message,
+        );
     }
     if (update.type === "tool_finished") {
         return {
@@ -352,17 +351,18 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ?? (update.outcome === "error" ? "Model request failed"
                 : update.outcome === "aborted" ? "Turn aborted"
                 : undefined);
-        return error === undefined
-            ? finished
-            : appendTuiError(
-                finished,
-                error.startsWith("Image attachment unavailable:")
-                    ? `Attachment error: ${error.slice("Image attachment unavailable:".length).trim()}`
-                    : `Model error: ${error}`,
-            );
+        if (error === undefined) return finished;
+        const attachment = error.startsWith("Image attachment unavailable:");
+        return appendTuiDiagnostic(
+            finished,
+            attachment ? "attachment_failed" : "model_request_failed",
+            attachment
+                ? `Attachment error: ${error.slice("Image attachment unavailable:".length).trim()}`
+                : `Model error: ${error}`,
+        );
     }
     if (update.type === "agent_failed") {
-        return appendTuiError({
+        return appendTuiDiagnostic({
             ...state,
             entries: applyToolDetailPreference(
                 settleToolEntries(state.entries),
@@ -371,7 +371,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             working: false,
             queuedPrompts: [],
             modelActivity: undefined,
-        }, `Agent error: ${update.detail}`);
+        }, "resident_agent_stopped", update.detail);
     }
     if (update.type === "status") {
         return {
@@ -784,7 +784,7 @@ export function tuiAdmissionVerdictLine(
 
 function admissionChecklistParts(
     admission: TuiAdmissionState,
-): { readonly text: string; readonly errorText?: string } {
+): { readonly text: string; readonly diagnostic?: TuiDiagnostic } {
     const text = [
         admission.verdict === undefined
             ? `Verifying ${admission.subject}…`
@@ -800,9 +800,12 @@ function admissionChecklistParts(
     }
     return {
         text,
-        errorText: admission.verdict === "unavailable"
-            ? `${verdict}. Select the model again to retry.`
-            : verdict,
+        diagnostic: resolveTuiDiagnostic(
+            "unknown",
+            admission.verdict === "unavailable"
+                ? `${verdict}. Select the model again to retry.`
+                : verdict,
+        ),
     };
 }
 
@@ -924,9 +927,37 @@ export function appendTuiNotice(
     });
 }
 
-/** A notice that is a failure, drawn in the error red every theme shares. */
+export function appendTuiDiagnostic(
+    state: TuiState,
+    code: TuiDiagnosticCode,
+    message: string,
+): TuiState {
+    const previous = state.entries.at(-1);
+    if (
+        previous?.kind === "notice"
+        && previous.text === ""
+        && previous.diagnostic?.code === code
+        && previous.diagnostic.message === message
+    ) {
+        return {
+            ...state,
+            entries: state.entries.map((entry, index) =>
+                index === state.entries.length - 1
+                    ? { ...previous, repeat: (previous.repeat ?? 1) + 1 }
+                    : entry
+            ),
+        };
+    }
+    return appendEntry(state, {
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(code, message),
+    });
+}
+
+/** Transitional entry point while generic client failures receive codes. */
 export function appendTuiError(state: TuiState, message: string): TuiState {
-    return appendEntry(state, { kind: "notice", text: "", errorText: message });
+    return appendTuiDiagnostic(state, "unknown", message);
 }
 
 /**
@@ -945,7 +976,7 @@ export function appendTuiExtensionBlock(
 }
 
 export function failTuiConnection(state: TuiState, message: string): TuiState {
-    return appendTuiError({
+    return appendTuiDiagnostic({
         ...state,
         entries: applyToolDetailPreference(
             settleToolEntries(state.entries),
@@ -953,7 +984,7 @@ export function failTuiConnection(state: TuiState, message: string): TuiState {
         ),
         working: false,
         queuedPrompts: [],
-    }, `Connection error: ${message}`);
+    }, "connection_failed", `Connection error: ${message}`);
 }
 
 export function appendTuiThought(state: TuiState, seconds: number): TuiState {
@@ -1097,26 +1128,23 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
     if (entry.kind === "notice" || entry.kind === "review") {
-        if (entry.errorText === undefined) {
+        if (entry.diagnostic === undefined) {
             const color = entry.tone === "soft"
                 ? TUI_MUTED
                 : entry.tone === "error"
-                ? TUI_ERROR
+                ? TUI_DANGER
                 : TUI_NOTICE;
             const text = fg(color)(entry.text);
             return new StyledText([
                 entry.tone === "soft" ? italic(text) : text,
             ]);
         }
-        const error = [
-            bold(fg(TUI_ERROR)("# ")),
-            fg(TUI_MUTED)(entry.errorText),
-        ];
+        const diagnostic = renderTuiDiagnostic(entry.diagnostic, entry.repeat);
         return new StyledText(entry.text === ""
-            ? error
+            ? diagnostic
             : [
                 fg(TUI_NOTICE)(`${entry.text}\n`),
-                ...error,
+                ...diagnostic,
             ]);
     }
     if (entry.kind === "thought") {
@@ -1138,6 +1166,28 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             : new StyledText([summary, hint]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
+}
+
+function renderTuiDiagnostic(
+    diagnostic: TuiDiagnostic,
+    repeat = 1,
+): TextChunk[] {
+    const message = repeat > 1
+        ? `${diagnostic.message} (×${repeat})`
+        : diagnostic.message;
+    if (diagnostic.severity === "notice") {
+        return [fg(TUI_MUTED)(message)];
+    }
+    if (diagnostic.severity === "fatal") {
+        return [
+            fg(TUI_DANGER)(`× ${diagnostic.state}  `),
+            fg(TUI_TEXT)(message),
+        ];
+    }
+    return [
+        fg(TUI_DANGER)("× "),
+        fg(TUI_TEXT)(message),
+    ];
 }
 
 function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
@@ -1213,6 +1263,14 @@ export function tuiEntryMarginTop(
 
     const current = entries[index];
     const previous = entries[index - 1];
+    if (current?.kind !== "diff" && current?.diagnostic !== undefined) {
+        if (current.diagnostic.severity === "fatal") {
+            return Math.max(1, spacing.message);
+        }
+        if (previous?.kind !== "diff" && previous?.diagnostic !== undefined) {
+            return 0;
+        }
+    }
     // Rows inside a group sit flush under their header. A new header also
     // continues directly from the activity row that preceded it, so changing
     // tool verbs does not break one run into a stack of spaced blocks. A diff
@@ -1750,7 +1808,11 @@ function toSingleTuiTranscriptEntry(
     if (entry.kind === "error") {
         return {
             kind: "notice",
-            text: `Model error: ${entry.detail ?? "Model request failed"}`,
+            text: "",
+            diagnostic: resolveTuiDiagnostic(
+                "model_request_failed",
+                `Model error: ${entry.detail ?? "Model request failed"}`,
+            ),
         };
     }
     if (entry.kind === "presentation") {
