@@ -12,9 +12,10 @@ import {
 
 import type { VeraExtensionConfig } from "../config.ts";
 import { EXTENSION_MANIFEST_FILENAME } from "./manifest.ts";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 export function defaultVeraExtensionDirectory(): string {
-    return join(homedir(), ".vera", "extensions");
+    return join(veraProfileDirectory(), "extensions");
 }
 
 export function discoverExtensionConfigs(

@@ -8,6 +8,7 @@ import type {
     ScheduleDefinition,
     ScheduleRun,
 } from "./types.ts";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 export const SCHEDULE_SCHEMA_VERSION = 1;
 
@@ -248,7 +249,7 @@ export class ScheduleStore {
 }
 
 export function defaultSchedulePath(): string {
-    return join(homedir(), ".vera", "schedules.db");
+    return join(veraRuntimeDirectory(), "schedules.db");
 }
 
 function scheduleFromRow(row: ScheduleRow): ScheduleDefinition {
