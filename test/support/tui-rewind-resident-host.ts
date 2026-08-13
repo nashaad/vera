@@ -8,6 +8,7 @@ import {
     type AssistantMessage,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { veraRuntimeDirectory } from "../../src/profile-paths.ts";
 
 const readyPath = process.env.VERA_TEST_READY_PATH;
 if (readyPath === undefined || readyPath.length === 0) {
@@ -26,8 +27,8 @@ const host = await startResidentHost({
         response("FIRST ANSWER"),
         response("SECOND ANSWER"),
     ]),
-    sessionDirectory: join(home, ".vera", "sessions"),
-    eventLogDirectory: join(home, ".vera", "events"),
+    sessionDirectory: join(veraRuntimeDirectory(), "sessions"),
+    eventLogDirectory: join(veraRuntimeDirectory(), "events"),
 });
 
 await host.registry.create({

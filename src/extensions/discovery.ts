@@ -35,7 +35,7 @@ export function discoverExtensionConfigs(
     }
 
     return entries
-        .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+        .filter((entry) => entry.isDirectory())
         .sort((left, right) => left.name.localeCompare(right.name))
         .map((entry) => resolve(directory, entry.name))
         .filter((path) =>
