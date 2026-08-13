@@ -1985,9 +1985,9 @@ test.skipIf(!tmuxAvailable)(
                     padding_left: 2,
                     padding_right: 3,
                     activity_indent: 3,
-                    message_spacing: 2,
+                    message_spacing: 1,
                     tool_group_spacing: 1,
-                    separator_spacing_before: 0,
+                    separator_spacing_before: 1,
                     separator_spacing_after: 1,
                     separator_color: "#112233",
                 },
@@ -2028,7 +2028,8 @@ test.skipIf(!tmuxAvailable)(
                 line.includes("TOOL DETAILS COMPLETED")
             );
             expect(rule).toBeGreaterThan(0);
-            expect(lines[rule - 1]?.trim()).not.toBe("");
+            expect(lines[rule - 2]?.trim()).not.toBe("");
+            expect(lines[rule - 1]?.trim()).toBe("");
             expect(lines[rule + 1]?.trim()).toBe("");
             expect(answer).toBe(rule + 2);
 

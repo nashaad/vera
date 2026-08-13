@@ -97,7 +97,7 @@ export function createTuiGutterEntry(
         id: `${id}-ruled`,
         width: "100%",
         flexDirection: "column",
-        marginTop: appearance.separatorSpacingBefore ?? 0,
+        marginTop: appearance.separatorSpacingBefore ?? 1,
     });
     column.add(new TextRenderable(renderer, {
         id: `${id}-rule`,

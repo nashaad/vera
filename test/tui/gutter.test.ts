@@ -42,7 +42,7 @@ test("a rule takes its own row and leaves the marker beside the answer", async (
     expect(rule).toBeGreaterThanOrEqual(0);
     expect(answer).toBeGreaterThan(rule);
     expect(answer - rule).toBe(2);
-    expect(rule).toBe(0);
+    expect(rule).toBe(1);
     expect(lines[rule]).not.toContain("•");
     expect(lines[answer]).toContain("•");
 });
