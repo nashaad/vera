@@ -341,7 +341,7 @@ test("TUI tool headers are bold and change tense when work finishes", () => {
 
     expect(state.entries.map(entryLine)).toEqual([
         "run it",
-        "Ran",
+        "+ Ran",
         "  │ bun test",
         "  └ (no output)",
     ]);
@@ -1000,6 +1000,38 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
         text: "+ Explored",
         expanded: false,
     });
+    expect(state.entries.slice(1).every((entry) =>
+        entry.kind === "tool" && entry.hidden === true
+    )).toBe(true);
+});
+
+test("a short completed tool group uses the same compact header", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "edit",
+        args: { path: "/workspace/note.txt" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "edit",
+        output: "ok",
+        seq: 2,
+    });
+
+    expect(state.entries[0]).toMatchObject({
+        kind: "tool_header",
+        text: "+ Edited",
+        command: "Edit /workspace/note.txt",
+        detailLines: 2,
+        detailPreview: "  └ ok",
+        expanded: false,
+    });
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe([
+            "• Edited  Edit /workspace/note.txt  ctrl+e details",
+            "  └ ok",
+        ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
     )).toBe(true);

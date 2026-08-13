@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { TextRenderable } from "@opentui/core";
+import { parseColor, TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import { createTuiGutterEntry } from "../../clients/tui/gutter.ts";
+import { TUI_TEXT } from "../../clients/tui/state.ts";
 
 async function frameFor(ruled: boolean): Promise<string> {
     const setup = await createTestRenderer({ width: 30, height: 6 });
@@ -36,10 +37,38 @@ test("a rule takes its own row and leaves the marker beside the answer", async (
 
     expect(rule).toBeGreaterThanOrEqual(0);
     expect(answer).toBeGreaterThan(rule);
-    expect(lines[rule]).not.toContain("●");
-    expect(lines[answer]).toContain("●");
+    expect(lines[rule]).not.toContain("•");
+    expect(lines[answer]).toContain("•");
 });
 
 test("an unruled block draws no rule", async () => {
     expect(await frameFor(false)).not.toContain("──────────");
+});
+
+test("the assistant marker is a text-colored small bullet", async () => {
+    const setup = await createTestRenderer({ width: 30, height: 6 });
+    const content = new TextRenderable(setup.renderer, {
+        id: "content",
+        content: "Final answer",
+    });
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "answer",
+        { kind: "assistant", text: "Final answer" },
+        content,
+        0,
+    );
+    setup.renderer.root.add(node);
+
+    try {
+        const marker = node.findDescendantById("answer-marker");
+        expect(marker).toBeInstanceOf(TextRenderable);
+        expect(marker instanceof TextRenderable ? marker.plainText : undefined)
+            .toBe("•");
+        expect(marker instanceof TextRenderable
+            ? marker.fg.equals(parseColor(TUI_TEXT))
+            : false).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
 });
