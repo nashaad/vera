@@ -1,6 +1,7 @@
 import {
     BoxRenderable,
     DiffRenderable,
+    pathToFiletype,
     SyntaxStyle,
     TextRenderable,
     type RenderContext,
@@ -67,37 +68,5 @@ export function createTuiDiff(
 }
 
 export function tuiDiffFiletype(path: string): string | undefined {
-    const name = path.toLowerCase().split("/").at(-1) ?? path.toLowerCase();
-    if (name === "dockerfile") return "dockerfile";
-    if (name === "makefile") return "make";
-    const extension = name.includes(".") ? name.split(".").at(-1) : undefined;
-    return extension === undefined ? undefined : FILETYPES[extension];
+    return pathToFiletype(path);
 }
-
-const FILETYPES: Readonly<Record<string, string>> = {
-    bash: "bash",
-    c: "c",
-    cc: "cpp",
-    cpp: "cpp",
-    css: "css",
-    go: "go",
-    h: "c",
-    hpp: "cpp",
-    html: "html",
-    java: "java",
-    js: "typescript",
-    json: "json",
-    jsx: "typescript",
-    lua: "lua",
-    md: "markdown",
-    py: "python",
-    rb: "ruby",
-    rs: "rust",
-    sh: "bash",
-    sql: "sql",
-    ts: "typescript",
-    tsx: "typescript",
-    yaml: "yaml",
-    yml: "yaml",
-    zsh: "bash",
-};

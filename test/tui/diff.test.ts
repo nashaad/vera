@@ -10,8 +10,11 @@ import { tuiDiffBackgroundColors } from "../../clients/tui/theme.ts";
 
 test("diff file types cover common source paths", () => {
     expect(tuiDiffFiletype("src/index.ts")).toBe("typescript");
-    expect(tuiDiffFiletype("component.jsx")).toBe("typescript");
+    expect(tuiDiffFiletype("component.jsx")).toBe("javascriptreact");
+    expect(tuiDiffFiletype("component.tsx")).toBe("typescriptreact");
     expect(tuiDiffFiletype("scripts/release.py")).toBe("python");
+    expect(tuiDiffFiletype("cmd/server.go")).toBe("go");
+    expect(tuiDiffFiletype("src/Main.kt")).toBe("kotlin");
     expect(tuiDiffFiletype("README")).toBeUndefined();
 });
 
