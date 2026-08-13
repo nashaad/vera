@@ -37,6 +37,8 @@ test("TUI system theme uses terminal foreground and ANSI colors", () => {
     expect(theme.notice).toBe("#aa5500");
     expect(theme.danger).toBe("#aa0000");
     expect(theme.success).toBe("#00aa00");
+    expect(theme.diffAdded).toBe("#00aa00");
+    expect(theme.diffRemoved).toBe("#aa0000");
     expect(theme.code).toBe("#00aa00");
     expect(theme.panel).not.toBe(VERA_TUI_THEME.panel);
 });
@@ -89,6 +91,8 @@ test("midnight blue maps its editor and syntax palette to TUI roles", async () =
         notice: "#F9D768",
         danger: "#FF5370",
         success: "#C3E88D",
+        diffAdded: "#79A85B",
+        diffRemoved: "#B94A5E",
         code: "#9b92ea",
         background: "#14171C",
         panel: "#252933",
@@ -106,6 +110,8 @@ test("Midnight Blue II remixes the source palette around its gold accent", async
         notice: "#F37D3B",
         danger: "#FF5370",
         success: "#C3E88D",
+        diffAdded: "#79A85B",
+        diffRemoved: "#B94A5E",
         code: "#82AAFF",
         background: "#14171C",
         panel: "#283246",
@@ -124,6 +130,8 @@ test("muted blue uses Codex transcript, inline code, and detail colors", async (
         notice: "#FEFC59",
         danger: "#FF6B6B",
         success: "#A7E3A1",
+        diffAdded: "#4F9A62",
+        diffRemoved: "#B95151",
         code: "#74C0FF",
         background: "#0F1117",
         panel: "#171B23",
