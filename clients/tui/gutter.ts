@@ -6,9 +6,9 @@ import {
 } from "@opentui/core";
 
 import {
-    TUI_ACCENT,
     TUI_ERROR,
     TUI_MUTED,
+    TUI_TEXT,
     type TuiTranscriptEntry,
 } from "./state.ts";
 
@@ -26,7 +26,7 @@ function entryMarker(
     entry: TuiTranscriptEntry,
 ): { readonly glyph: string; readonly color: string } {
     if (entry.kind === "assistant" || entry.kind === "notification") {
-        return { glyph: "●", color: TUI_ACCENT };
+        return { glyph: "•", color: TUI_TEXT };
     }
     if (entry.kind === "notice" || entry.kind === "review") {
         return {

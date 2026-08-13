@@ -1513,13 +1513,12 @@ export function formatAskUserResult(output: string): string {
     return bounded(output);
 }
 
-const AUTO_FOLD_TOOL_LINES = 8;
 const COMPACT_TOOL_LINE_CHARS = 96;
 
 /**
- * Completed tool groups stay compact when their content would dominate the
- * transcript. An explicit detail choice applies to every completed group;
- * active work always remains visible so the user can see what is happening.
+ * Completed tool groups with a result share one compact shape. An explicit
+ * detail choice applies to every completed group; active work always remains
+ * visible so the user can see what is happening.
  */
 function applyToolDetailPreference(
     entries: readonly TuiTranscriptEntry[],
@@ -1552,12 +1551,13 @@ function applyToolDetailPreference(
         const active = header.active === true || rows.some((entry) =>
             entry.kind === "tool" && entry.active === true
         );
+        const hasResult = rows.some((entry) => entry.result === true);
         const detailLines = rows.reduce((total, entry) =>
             total + entry.text.split("\n").length, 0
         );
         const foldable = !active
             && detailLines > 0
-            && (preference !== undefined || detailLines > AUTO_FOLD_TOOL_LINES);
+            && (hasResult || preference !== undefined);
         const expanded = preference === true;
         const calls = toolCallLines(rows);
         const summary = compactToolSummary(rows, calls);
@@ -1943,12 +1943,16 @@ function comparableEntryText(entry: TuiTranscriptEntry | undefined): string {
     if (entry === undefined) {
         return "";
     }
-    if (entry.kind !== "tool_header" || entry.active !== true) {
+    if (entry.kind !== "tool_header") {
         return entry.text;
     }
+    const text = entry.text.replace(/^[+-] /, "");
+    if (entry.active !== true) {
+        return text;
+    }
     const completed = Object.entries(LIVE_TOOL_HEADERS)
-        .find(([, live]) => live === entry.text)?.[0];
-    return completed === undefined ? entry.text : toolHeader(completed, false);
+        .find(([, live]) => live === text)?.[0];
+    return completed === undefined ? text : toolHeader(completed, false);
 }
 
 function entryAttachments(

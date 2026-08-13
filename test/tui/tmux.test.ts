@@ -1933,15 +1933,19 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("▾ Ran  printf");
             expect(pane).toContain("TOOL DETAILS COMPLETED");
 
+            sendKey(socket, session, "C-e");
+            pane = await waitForVisiblePane(socket, session, "• Ran  printf");
+
             sendText(socket, session, "run one short action");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "SHORT TOOL COMPLETED");
-            expect(pane).toContain("SHORT_DETAIL");
+            expect(pane).toMatch(/• Ran {2}printf 'SHORT_DETAIL/);
+            expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
 
             sendKey(socket, session, "C-e");
             pane = await waitForVisiblePane(socket, session, "└ SHORT_DETAIL");
-            // The compact block deliberately shows both what ran and its
-            // short result; this command prints the same sentinel in each.
+            // Expanded details deliberately show both what ran and its short
+            // result; this command prints the same sentinel in each.
             expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
             expect(pane).toContain("SHORT TOOL COMPLETED");
         } catch (error) {
