@@ -29,6 +29,7 @@ import {
     isStartupProfile,
     type StartupProfile,
 } from "../startup-profile.ts";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -1161,7 +1162,7 @@ export function defaultSessionPath(sessionId: string): string {
 }
 
 export function defaultSessionDirectory(): string {
-    return join(homedir(), ".vera", "sessions");
+    return join(veraRuntimeDirectory(), "sessions");
 }
 
 export async function readSessionSnapshot(

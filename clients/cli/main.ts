@@ -31,6 +31,12 @@ import {
 } from "../../src/session-export.ts";
 import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts";
 import { workspaceKey } from "../../src/workspace-key.ts";
+import {
+    assertProfileLayout,
+    VERA_PROFILE_ENV,
+    VeraProfileError,
+    veraProfileName,
+} from "../../src/profile-paths.ts";
 import { relativeTime } from "../../src/relative-time.ts";import { supportedLevels } from "../../src/model/effort-ladder.ts";
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
 import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
@@ -442,12 +448,32 @@ function parseExportRequest(
     return undefined;
 }
 
+/**
+ * Consumed before dispatch so every path lookup downstream sees one profile,
+ * including the ones reached through module-level defaults.
+ */
+export function applyProfileFlag(
+    args: readonly string[],
+    env: NodeJS.ProcessEnv = process.env,
+): readonly string[] {
+    const index = args.indexOf("--profile");
+    if (index === -1) return args;
+    const name = args[index + 1];
+    if (name === undefined || name.startsWith("-")) {
+        throw new VeraProfileError("--profile needs a name, as in --profile dogfood");
+    }
+    env[VERA_PROFILE_ENV] = name;
+    return [...args.slice(0, index), ...args.slice(index + 2)];
+}
+
 export async function runCliMain(
     args: readonly string[],
     dependencies: CliDependencies = {},
 ): Promise<number> {
     try {
-        return await runCli(args, dependencies);
+        const remaining = applyProfileFlag(args);
+        veraProfileName();
+        return await runCli(remaining, dependencies);
     } catch (error) {
         const output = dependencies.stderr ?? stderr;
         output.write(`${renderCliFailure(error)}\n`);
@@ -456,6 +482,9 @@ export async function runCliMain(
 }
 
 export function renderCliFailure(error: unknown): string {
+    if (error instanceof VeraProfileError) {
+        return error.message;
+    }
     if (error instanceof HostProtocolMismatchError) {
         return `Vera host upgrade required: ${error.message}\n`
             + "Close the older Vera client and retry, or run 'vera host stop'.";
@@ -687,5 +716,16 @@ async function confirmResidentHostStop(): Promise<boolean> {
 }
 
 if (import.meta.main) {
-    process.exitCode = await runCliMain(process.argv.slice(2));
+    let layoutError: unknown;
+    try {
+        assertProfileLayout();
+    } catch (error) {
+        layoutError = error;
+    }
+    if (layoutError !== undefined) {
+        stderr.write(`${renderCliFailure(layoutError)}\n`);
+        process.exitCode = 1;
+    } else {
+        process.exitCode = await runCliMain(process.argv.slice(2));
+    }
 }

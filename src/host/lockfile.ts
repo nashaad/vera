@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
     chmod,
     mkdir,
@@ -7,7 +7,7 @@ import {
     rename,
     unlink,
 } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import {
@@ -16,6 +16,7 @@ import {
     requestHostIdentity,
     type HostIdentity,
 } from "./protocol.ts";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 export const HOST_LOCK_SCHEMA_VERSION = 2;
 
@@ -66,11 +67,18 @@ export class HostProtocolMismatchError extends Error {
 }
 
 export function defaultHostLockPath(): string {
-    return join(homedir(), ".vera", "host.json");
+    return join(veraRuntimeDirectory(), "host.json");
 }
 
+/** A unix socket path is capped near 104 bytes on macOS and 108 on Linux. */
+const SOCKET_PATH_LIMIT = 100;
+
 export function defaultHostSocketPath(): string {
-    return join(homedir(), ".vera", "host.sock");
+    const runtime = veraRuntimeDirectory();
+    const preferred = join(runtime, "host.sock");
+    if (Buffer.byteLength(preferred) <= SOCKET_PATH_LIMIT) return preferred;
+    const digest = createHash("sha256").update(runtime).digest("hex").slice(0, 16);
+    return join(tmpdir(), `vera-${digest}`, "host.sock");
 }
 
 export function createHostLockfile(

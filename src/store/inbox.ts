@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 /**
  * One durable inbox per Vera host: an append-only log of entries plus one
@@ -428,7 +429,7 @@ function readPredicate(
 }
 
 export function defaultInboxPath(): string {
-    return join(homedir(), ".vera", "inbox.db");
+    return join(veraRuntimeDirectory(), "inbox.db");
 }
 
 export function inboxEnabled(config: InboxFeatureConfig): boolean {

@@ -25,6 +25,7 @@ import type {
     PermissionActionDecision,
     PermissionPredicate,
 } from "./permissions.ts";
+import { veraProfileDirectory } from "../profile-paths.ts";
 
 export interface PermissionPreference {
     readonly id: string;
@@ -33,7 +34,7 @@ export interface PermissionPreference {
 }
 
 export function defaultPermissionPreferencesPath(): string {
-    return join(homedir(), ".vera", "preferences.json");
+    return join(veraProfileDirectory(), "preferences.json");
 }
 
 export function isPermissionPreference(
