@@ -17,7 +17,6 @@ import {
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER,
     dialogFooterNode,
-    dialogGroupHeaderNode,
     dialogHeaderNode,
     dialogOptionRows,
     dialogRowPointer,
@@ -165,13 +164,17 @@ export function createTuiCommandPaletteView(
                 node.destroy();
             }
             nodes = [];
-            const header = dialogHeaderNode(renderer, "Commands");
+            const header = dialogHeaderNode(
+                renderer,
+                "Commands",
+                `${counter(state)} · esc`,
+            );
             const search = dialogSearchNode(renderer, state.query);
             box.add(header);
             box.add(search);
             nodes.push(header, search);
 
-            const rows = windowedRows(renderer, displayRows(state), state.selectedIndex);
+            const rows = state.commands.length === 0 ? [] : windowedRows(renderer, state);
             let lines = 0;
             if (rows.length === 0) {
                 const empty = new TextRenderable(renderer, {
@@ -184,27 +187,25 @@ export function createTuiCommandPaletteView(
                 nodes.push(empty);
                 lines = 1;
             }
-            const commandContents = rows.flatMap((row) =>
-                row.kind === "command"
-                    ? [{
-                        label: row.command.label,
-                        description: row.command.description.length === 0
-                            ? undefined
-                            : row.command.description,
-                        meta: rowMeta(row.command),
-                        active: row.index === state.selectedIndex,
-                        current: false,
-                        ...dialogRowPointer(view.pointer, row.index),
-                    }]
-                    : []
+            const commandNodes = dialogOptionRows(
+                renderer,
+                rows.map((row) => ({
+                    ...(row.gutter === undefined
+                        ? {}
+                        : { leading: row.gutter, leadingTone: "muted" as const }),
+                    spaced: row.spaced,
+                    label: row.command.label,
+                    description: row.command.description.length === 0
+                        ? undefined
+                        : row.command.description,
+                    meta: rowMeta(row.command),
+                    active: row.index === state.selectedIndex,
+                    current: false,
+                    ...dialogRowPointer(view.pointer, row.index),
+                })),
             );
-            const commandNodes = dialogOptionRows(renderer, commandContents);
-            let commandNodeIndex = 0;
-            rows.forEach((row, position) => {
-                const node = row.kind === "group"
-                    ? dialogGroupHeaderNode(renderer, row.label, position > 0)
-                    : commandNodes[commandNodeIndex++]!;
-                lines += row.kind === "group" && position > 0 ? 2 : 1;
+            commandNodes.forEach((node, position) => {
+                lines += rows[position]!.spaced ? 2 : 1;
                 box.add(node);
                 nodes.push(node);
             });
@@ -265,36 +266,72 @@ function rowMeta(command: TuiPaletteEntry): string | undefined {
     return command.slashName === undefined ? undefined : `/${command.slashName}`;
 }
 
-type PaletteDisplayRow =
-    | { readonly kind: "group"; readonly label: string }
-    | {
-        readonly kind: "command";
-        readonly command: TuiPaletteEntry;
-        readonly index: number;
-    };
-
-function displayRows(
-    state: TuiCommandPaletteState,
-): readonly PaletteDisplayRow[] {
-    const rows: PaletteDisplayRow[] = [];
-    state.commands.forEach((command, index) => {
-        if (state.commands[index - 1]?.group !== command.group) {
-            rows.push({ kind: "group", label: command.group });
-        }
-        rows.push({ kind: "command", command, index });
-    });
-    return rows;
+/**
+ * The cursor and the row count, so "is there more than I can see" is answered
+ * without spending a row on a scrollbar.
+ */
+function counter(state: TuiCommandPaletteState): string {
+    return state.commands.length === 0
+        ? "0"
+        : `${state.selectedIndex + 1}/${state.commands.length}`;
 }
 
+interface PaletteDisplayRow {
+    readonly command: TuiPaletteEntry;
+    readonly index: number;
+    // The group name, on the first visible row of its group and nowhere else,
+    // padded so every label starts on the same column. Undefined while
+    // searching, where the list is one flat run and the column is dead width.
+    readonly gutter?: string;
+    readonly spaced: boolean;
+}
+
+/**
+ * Groups are a column rather than a heading: the name is printed once at the
+ * left of the group's first row and the gap below it does the separating.
+ * Rows are the scarce axis in an overlay this tall and columns are not.
+ */
+function displayRows(
+    commands: readonly TuiPaletteEntry[],
+    offset: number,
+    grouping: boolean,
+): readonly PaletteDisplayRow[] {
+    const width = Math.max(
+        0,
+        ...TUI_PALETTE_GROUPS.map((group) => group.length),
+    ) + 2;
+    return commands.map((command, position) => {
+        const first = commands[position - 1]?.group !== command.group;
+        return {
+            command,
+            index: offset + position,
+            ...(grouping
+                ? {
+                    gutter: (first ? command.group.toLowerCase() : "")
+                        .padEnd(width),
+                }
+                : {}),
+            spaced: grouping && first && position > 0,
+        };
+    });
+}
+
+/**
+ * The window is taken over the commands rather than over the rendered rows, so
+ * a group whose heading has scrolled off still names itself on the first row
+ * left visible.
+ */
 function windowedRows(
     renderer: RenderContext,
-    rows: readonly PaletteDisplayRow[],
-    selectedIndex: number,
+    state: TuiCommandPaletteState,
 ): readonly PaletteDisplayRow[] {
-    const cursor = rows.findIndex((row) =>
-        row.kind === "command" && row.index === selectedIndex
+    const window = listWindowSlice(
+        state.commands,
+        state.selectedIndex,
+        paletteMaxRows(renderer),
     );
-    return listWindowSlice(rows, cursor, paletteMaxRows(renderer));
+    const offset = state.commands.indexOf(window[0]!);
+    return displayRows(window, Math.max(0, offset), state.query.length === 0);
 }
 
 /**

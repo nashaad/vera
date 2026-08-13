@@ -98,8 +98,12 @@ test("command palette renders grouped action labels with slash hints", async () 
         await setup.flush();
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Commands");
-        expect(frame).toContain("Session");
-        expect(frame).toContain("Settings");
+        // Groups are a left column printed once, not a heading row, and the
+        // title line carries the cursor against the total.
+        expect(frame).toContain("session     Rename conversation");
+        expect(frame).toContain("settings    Switch model");
+        expect(frame).toContain("1/3");
+        expect(frame).not.toContain("settings    Review granted");
         expect(frame).toContain("Rename conversation");
         expect(frame).toContain("Switch model");
         // The right-hand column carries the slash form, so the palette teaches
