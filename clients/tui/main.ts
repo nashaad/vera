@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
+import { registerTuiParsers } from "./parsers.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -386,6 +387,8 @@ import {
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
 import { createTuiGutterEntry, tuiGutterContent } from "./gutter.ts";
+
+registerTuiParsers();
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
