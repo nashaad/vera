@@ -23,6 +23,10 @@ import {
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import {
+    veraMachineDirectory,
+    veraProfileDirectory,
+} from "../../src/profile-paths.ts";
 import type { PreToolUseHook } from "../../src/sdk/hooks.ts";
 import {
     decideToolPermission,
@@ -1303,4 +1307,34 @@ test("a failed activation withdraws that extension's contributions", async () =>
     expect(failures[0]?.extensionId).toBe("acme.arc-bridge");
     expect(registry.contributions().watches()).toEqual([]);
     await registry.close();
+});
+
+test("an extension gets its own directory in the tier it asks for", async () => {
+    const reported = join(createDirectory(), "storage.json");
+    const extension = createExtension("storage.probe", `
+        import { writeFileSync } from "node:fs";
+        export function activate(vera) {
+            writeFileSync(${JSON.stringify(reported)}, JSON.stringify({
+                profile: vera.storage.profile,
+                machine: vera.storage.machine,
+            }));
+        }
+    `);
+
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    await registry.close();
+
+    const storage = JSON.parse(readFileSync(reported, "utf8")) as {
+        profile: string;
+        machine: string;
+    };
+    expect(storage.profile).toBe(join(veraProfileDirectory(), "storage.probe"));
+    expect(storage.machine).toBe(join(veraMachineDirectory(), "storage.probe"));
+    // Reading the path is what creates it, so an extension never has to.
+    expect(existsSync(storage.profile)).toBe(true);
+    expect(existsSync(storage.machine)).toBe(true);
+    rmSync(storage.profile, { recursive: true, force: true });
+    rmSync(storage.machine, { recursive: true, force: true });
 });

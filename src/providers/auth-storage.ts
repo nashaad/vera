@@ -8,7 +8,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { veraUserDirectory } from "../profile-paths.ts";
+import { veraMachineDirectory } from "../profile-paths.ts";
 
 export const AUTH_STORAGE_SCHEMA_VERSION = 2;
 
@@ -102,7 +102,7 @@ export interface AuthStorageOptions {
 }
 
 export function defaultAuthStoragePath(): string {
-    return join(veraUserDirectory(), "auth.json");
+    return join(veraMachineDirectory(), "auth.json");
 }
 
 export function createAuthStorage(
