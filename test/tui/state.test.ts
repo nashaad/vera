@@ -3,6 +3,7 @@ import { TextAttributes, type StyledText } from "@opentui/core";
 
 import {
     appendTuiExtensionBlock,
+    appendTuiDiagnostic,
     appendTuiThought,
     toggleTuiThinking,
     toggleTuiToolDetails,
@@ -24,6 +25,7 @@ import {
     tuiToolRowText,
 } from "../../clients/tui/state.ts";
 import type { TuiTranscriptEntry } from "../../clients/tui/state.ts";
+import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { renderTuiStatusDetailsLine } from "../../clients/tui/status.ts";
 
@@ -519,7 +521,10 @@ test("TUI shows model failures when a turn finishes", () => {
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
         text: "",
-        errorText: "Model error: Kimi only supports reasoning max",
+        diagnostic: resolveTuiDiagnostic(
+            "model_request_failed",
+            "Model error: Kimi only supports reasoning max",
+        ),
     });
 });
 
@@ -537,8 +542,11 @@ test("TUI draws attachment failures as errors", () => {
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
         text: "",
-        errorText: "Attachment error: the selected model provider does not "
-            + "support image input",
+        diagnostic: resolveTuiDiagnostic(
+            "attachment_failed",
+            "Attachment error: the selected model provider does not "
+                + "support image input",
+        ),
     });
 });
 
@@ -561,7 +569,10 @@ test("TUI stops working when the resident agent fails", () => {
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
         text: "",
-        errorText: "Agent error: Resident agent stopped unexpectedly",
+        diagnostic: resolveTuiDiagnostic(
+            "resident_agent_stopped",
+            "Resident agent stopped unexpectedly",
+        ),
     });
 });
 
@@ -588,7 +599,10 @@ test("TUI connection failure stops work and clears unsendable prompts", () => {
     expect(state.entries.at(-1)).toEqual({
         kind: "notice",
         text: "",
-        errorText: "Connection error: Host sent a non-contiguous agent update sequence",
+        diagnostic: resolveTuiDiagnostic(
+            "connection_failed",
+            "Connection error: Host sent a non-contiguous agent update sequence",
+        ),
     });
 });
 
@@ -601,7 +615,11 @@ test("TUI keeps model failures restored from canonical history", () => {
 
     expect(state.entries).toEqual([{
         kind: "notice",
-        text: "Model error: rate limited after retries",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "model_request_failed",
+            "Model error: rate limited after retries",
+        ),
     }]);
 
     const fallback = applyAgentUpdate(createTuiState(), {
@@ -611,7 +629,11 @@ test("TUI keeps model failures restored from canonical history", () => {
     });
     expect(fallback.entries.at(-1)).toEqual({
         kind: "notice",
-        text: "Model error: Model request failed",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "model_request_failed",
+            "Model error: Model request failed",
+        ),
     });
 });
 
@@ -813,7 +835,8 @@ test("failed admission verdicts carry the reason and invite a retry", () => {
         reason: "no tool calling",
         seq: 1,
     });
-    expect((state.entries[0] as { errorText?: string })?.errorText)
+    expect((state.entries[0] as { diagnostic?: { message: string } })
+        ?.diagnostic?.message)
         .toContain("Not added, incompatible: no tool calling");
     expect(state.admission?.settled).toBe(true);
 
@@ -828,7 +851,8 @@ test("failed admission verdicts carry the reason and invite a retry", () => {
         statusCode: 503,
         seq: 1,
     });
-    expect((retried.entries[0] as { errorText?: string })?.errorText).toContain(
+    expect((retried.entries[0] as { diagnostic?: { message: string } })
+        ?.diagnostic?.message).toContain(
         "Provider unavailable (HTTP 503): provider timeout. "
             + "Select the model again to retry.",
     );
@@ -910,8 +934,34 @@ test("TUI entries render with kind-specific prefixes", () => {
     expect(plainText(renderTuiEntry({
         kind: "notice",
         text: "",
-        errorText: "Agent error: stopped",
-    }))).toBe("# Agent error: stopped");
+        diagnostic: resolveTuiDiagnostic(
+            "connection_failed",
+            "Connection error: attachment closed",
+        ),
+    }))).toBe("× Connection error: attachment closed");
+    expect(plainText(renderTuiEntry({
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "resident_agent_stopped",
+            "Resident agent stopped unexpectedly",
+        ),
+    }))).toBe("× stopped  Resident agent stopped unexpectedly");
+});
+
+test("identical diagnostics collapse in place with a count", () => {
+    let state = createTuiState();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+        state = appendTuiDiagnostic(
+            state,
+            "connection_retry",
+            "Connection retry",
+        );
+    }
+
+    expect(state.entries).toHaveLength(1);
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe("Connection retry (×10)");
 });
 
 test("TUI tool entries keep their whole argument", () => {
@@ -1263,6 +1313,40 @@ test("TUI spacing accepts separate message and activity-group gaps", () => {
     )).toEqual([0, 2, 0, 1, 2]);
 });
 
+test("diagnostics stay compact while a fatal keeps a blank row above", () => {
+    const entries: readonly TuiTranscriptEntry[] = [
+        {
+            kind: "notice",
+            text: "",
+            diagnostic: resolveTuiDiagnostic(
+                "connection_retry",
+                "Connection retry",
+            ),
+        },
+        {
+            kind: "notice",
+            text: "",
+            diagnostic: resolveTuiDiagnostic(
+                "connection_failed",
+                "Connection failed",
+            ),
+        },
+        {
+            kind: "notice",
+            text: "",
+            diagnostic: resolveTuiDiagnostic(
+                "resident_agent_stopped",
+                "Resident agent stopped",
+            ),
+        },
+    ];
+
+    const noGeneralSpacing = { message: 0, toolGroup: 0 };
+    expect(entries.map((_, index) =>
+        tuiEntryMarginTop(entries, index, noGeneralSpacing)
+    )).toEqual([0, 0, 1]);
+});
+
 test("a tool header follows its thought without a spacer row", () => {
     const entries = [
         { kind: "user", text: "inspect" },
@@ -1459,8 +1543,12 @@ test("reviewer decisions remain visible with their risk and authorization", () =
     });
     expect(state.entries[1]).toEqual({
         kind: "notice",
-        text: "Reviewer denied bash (critical risk):"
-            + " Deletes files outside the workspace.",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "permission_denied",
+            "Reviewer denied bash (critical risk):"
+                + " Deletes files outside the workspace.",
+        ),
     });
 });
 

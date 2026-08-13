@@ -668,7 +668,7 @@ test.skipIf(!tmuxAvailable)(
                 "Connection error: Host sent a non-contiguous agent update sequence",
             );
             expect(pane).toMatch(
-                /^ {2}# Connection error: Host sent a non-contiguous agent update sequence$/m,
+                /^ {2}× Connection error: Host sent a non-contiguous agent update sequence$/m,
             );
             expect(pane).toContain("disconnected · /reconnect host");
             expect(pane).not.toContain("working…");
@@ -688,6 +688,50 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Escape");
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "resident agent death renders as a separated fatal diagnostic",
+    async () => {
+        const socket = `vera-fatal-diagnostic-${process.pid}-${randomUUID()}`;
+        const session = "fatal-diagnostic";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-fatal-diagnostic-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-fatal-diagnostic-child.ts",
+            );
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Resident agent stopped unexpectedly",
+            );
+            expect(pane).toMatch(
+                /^ {2}× stopped  Resident agent stopped unexpectedly$/m,
+            );
+            expect(pane).toMatch(
+                /^ {2}× Reviewer denied bash \(high risk\): The permission gate denied this operation\.$/m,
+            );
+            expect(pane).toMatch(
+                /Reviewer denied bash[^\n]*\n[^\S\n]*\n {2}× stopped/,
+            );
+            expect(pane).not.toContain("# Agent error");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
