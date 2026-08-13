@@ -18,7 +18,19 @@ export interface VeraExtensionApi {
     readonly commands: VeraExtensionCommands;
     readonly tools: VeraExtensionTools;
     readonly hooks: VeraExtensionHooks;
+    readonly storage: VeraExtensionStorage;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+/**
+ * Where an extension keeps its own state, one directory per extension, created
+ * on first read. `profile` belongs to the installation the user selected and is
+ * the default; `machine` is for the rare state that has to be one picture for
+ * the whole machine no matter which profile is running.
+ */
+export interface VeraExtensionStorage {
+    readonly profile: string;
+    readonly machine: string;
 }
 
 export type VeraExtensionDisposer = () => void | Promise<void>;

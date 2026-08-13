@@ -20,12 +20,13 @@ export function veraHomeDirectory(home?: string): string {
 }
 
 /**
- * Credentials belong to the person and the machine, so they sit outside every
- * profile and stay in one copy. This is what makes a profile directory
- * shareable with nothing to strip.
+ * State that is one picture per machine rather than per installation, so it
+ * sits outside every profile and stays in one copy: credentials, and coord's
+ * presence store. This is also what makes a profile directory shareable with
+ * nothing to strip.
  */
-export function veraUserDirectory(home?: string): string {
-    return join(veraHomeDirectory(home), "user");
+export function veraMachineDirectory(home?: string): string {
+    return join(veraHomeDirectory(home), "machine");
 }
 
 export function veraProfileName(env = process.env): string {
@@ -83,20 +84,27 @@ export function legacyLayoutEntries(home?: string): readonly string[] {
  * finding nothing, which presents as missing credentials and missing sessions.
  */
 export function assertProfileLayout(home?: string): void {
+    const root = veraHomeDirectory(home);
+    if (existsSync(join(root, "user"))) {
+        throw new VeraProfileError(
+            `${join(root, "user")} is the old name for the machine tier.\n`
+            + `Rename it, then start Vera again:\n`
+            + `  mv ${join(root, "user")} ${veraMachineDirectory(home)}`,
+        );
+    }
     const found = legacyLayoutEntries(home);
     if (found.length === 0) return;
-    const root = veraHomeDirectory(home);
     throw new VeraProfileError(
         `${root} uses the old flat layout and Vera no longer reads it.\n`
         + `Move these into the new layout, then start Vera again:\n`
-        + `  auth.json                  -> ${veraUserDirectory(home)}/auth.json\n`
+        + `  auth.json                  -> ${veraMachineDirectory(home)}/auth.json\n`
         + `  everything else            -> ${join(root, "profiles", DEFAULT_PROFILE_NAME)}/\n`
         + `Found: ${found.join(", ")}`,
     );
 }
 
 /** The only names a tiered home owns. */
-const KNOWN_ENTRIES = ["user", "profiles"];
+const KNOWN_ENTRIES = ["machine", "profiles"];
 
 /**
  * Names sitting directly under the home that no tier owns, which is where an
