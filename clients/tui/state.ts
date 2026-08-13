@@ -196,6 +196,8 @@ export let TUI_MUTED = VERA_TUI_THEME.muted;
 export let TUI_NOTICE = VERA_TUI_THEME.notice;
 export let TUI_DANGER = VERA_TUI_THEME.danger;
 export let TUI_SUCCESS = VERA_TUI_THEME.success;
+export let TUI_DIFF_ADDED = VERA_TUI_THEME.diffAdded;
+export let TUI_DIFF_REMOVED = VERA_TUI_THEME.diffRemoved;
 export let TUI_BACKGROUND = VERA_TUI_THEME.background;
 export let TUI_PANEL = VERA_TUI_THEME.panel;
 export let TUI_ELEMENT = VERA_TUI_THEME.element;
@@ -207,6 +209,8 @@ export function applyTuiTheme(theme: TuiTheme): void {
     TUI_NOTICE = theme.notice;
     TUI_DANGER = theme.danger;
     TUI_SUCCESS = theme.success;
+    TUI_DIFF_ADDED = theme.diffAdded;
+    TUI_DIFF_REMOVED = theme.diffRemoved;
     TUI_BACKGROUND = theme.background;
     TUI_PANEL = theme.panel;
     TUI_ELEMENT = theme.element;

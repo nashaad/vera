@@ -20,6 +20,8 @@ export interface TuiTheme {
     readonly notice: string;
     readonly danger: string;
     readonly success: string;
+    readonly diffAdded: string;
+    readonly diffRemoved: string;
     readonly code: string;
     readonly background: string;
     readonly panel: string;
@@ -82,6 +84,8 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
         notice: paletteColor(colors, 3, VERA_TUI_THEME.notice),
         danger: paletteColor(colors, 1, VERA_TUI_THEME.danger),
         success: paletteColor(colors, 2, VERA_TUI_THEME.success),
+        diffAdded: paletteColor(colors, 2, VERA_TUI_THEME.diffAdded),
+        diffRemoved: paletteColor(colors, 1, VERA_TUI_THEME.diffRemoved),
         code: paletteColor(colors, 2, VERA_TUI_THEME.code),
         background,
         panel: mixHex(background, text, 0.08),
@@ -109,6 +113,25 @@ export function tuiHandleColor(theme: TuiTheme): string {
 /** The strip while it is held. */
 export function tuiHandleActiveColor(theme: TuiTheme): string {
     return mixHex(theme.background, theme.text, 0.30);
+}
+
+/**
+ * Quiet semantic grounds for unified diff rows. Keep these derived from the
+ * active background so they stay subordinate to syntax highlighting across
+ * Vera's dark themes instead of using OpenTUI's much brighter defaults.
+ */
+export function tuiDiffBackgroundColors(
+    background: string,
+    added: string,
+    removed: string,
+): {
+    readonly added: string;
+    readonly removed: string;
+} {
+    return {
+        added: mixHex(background, added, 0.26),
+        removed: mixHex(background, removed, 0.22),
+    };
 }
 
 function paletteColor(
