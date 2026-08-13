@@ -110,6 +110,7 @@ export interface VeraTuiTranscriptConfig {
     readonly activity_indent?: number;
     readonly message_spacing?: number;
     readonly tool_group_spacing?: number;
+    readonly separator_visible?: boolean;
     readonly separator_spacing_before?: number;
     readonly separator_spacing_after?: number;
     readonly separator_color?: string;
@@ -623,6 +624,8 @@ function parseTuiTranscriptConfig(
         || !isOptionalLayoutCount(raw.activity_indent, 1, 12)
         || !isOptionalLayoutCount(raw.message_spacing, 0, 5)
         || !isOptionalLayoutCount(raw.tool_group_spacing, 0, 5)
+        || (raw.separator_visible !== undefined
+            && typeof raw.separator_visible !== "boolean")
         || !isOptionalLayoutCount(raw.separator_spacing_before, 0, 5)
         || !isOptionalLayoutCount(raw.separator_spacing_after, 0, 5)
         || !isOptionalHexColor(raw.separator_color)
@@ -645,6 +648,9 @@ function parseTuiTranscriptConfig(
         ...(raw.tool_group_spacing === undefined
             ? {}
             : { tool_group_spacing: raw.tool_group_spacing as number }),
+        ...(raw.separator_visible === undefined
+            ? {}
+            : { separator_visible: raw.separator_visible as boolean }),
         ...(raw.separator_spacing_before === undefined
             ? {}
             : {

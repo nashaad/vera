@@ -8,7 +8,6 @@ import {
 
 import {
     TUI_ELEMENT,
-    TUI_ERROR,
     TUI_MUTED,
     type TuiTranscriptEntry,
 } from "./state.ts";
@@ -20,6 +19,7 @@ const contentNodes = new WeakMap<Renderable, Renderable>();
 
 export interface TuiGutterAppearance {
     readonly width?: number;
+    readonly separatorVisible?: boolean;
     readonly separatorColor?: string;
     readonly separatorSpacingBefore?: number;
     readonly separatorSpacingAfter?: number;
@@ -37,19 +37,11 @@ function entryMarker(
     readonly color: string;
     readonly attributes?: number;
 } {
-    if (entry.kind === "assistant" || entry.kind === "notification") {
+    if (entry.kind === "assistant") {
         return {
             glyph: "•",
             color: TUI_MUTED,
             attributes: TextAttributes.BOLD,
-        };
-    }
-    if (entry.kind === "notice" || entry.kind === "review") {
-        return {
-            glyph: "○",
-            color: entry.tone === "error" || entry.errorText !== undefined
-                ? TUI_ERROR
-                : TUI_MUTED,
         };
     }
     if (entry.kind === "thought" || entry.kind === "thinking") {
@@ -99,14 +91,16 @@ export function createTuiGutterEntry(
         flexDirection: "column",
         marginTop: appearance.separatorSpacingBefore ?? 1,
     });
-    column.add(new TextRenderable(renderer, {
-        id: `${id}-rule`,
-        content: "─".repeat(200),
-        fg: appearance.separatorColor ?? TUI_ELEMENT,
-        width: "100%",
-        wrapMode: "none",
-        marginLeft: width,
-    }));
+    if (appearance.separatorVisible ?? true) {
+        column.add(new TextRenderable(renderer, {
+            id: `${id}-rule`,
+            content: "─".repeat(200),
+            fg: appearance.separatorColor ?? TUI_ELEMENT,
+            width: "100%",
+            wrapMode: "none",
+            marginLeft: width,
+        }));
+    }
     column.add(row);
     contentNodes.set(column, content);
     return column;

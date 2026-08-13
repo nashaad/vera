@@ -1320,6 +1320,7 @@ export async function startTui(
         content: "Start a conversation with Vera.",
         fg: TUI_MUTED,
         width: "100%",
+        marginLeft: appearance.activityIndent,
     });
     transcript.add(placeholder);
 
@@ -1935,6 +1936,7 @@ export async function startTui(
                 separated,
                 {
                     width: appearance.activityIndent,
+                    separatorVisible: appearance.separatorVisible,
                     separatorColor: appearance.transcriptSeparatorColor
                         ?? theme.element,
                     separatorSpacingBefore:

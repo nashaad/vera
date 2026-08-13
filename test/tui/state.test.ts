@@ -907,6 +907,11 @@ test("TUI entries render with kind-specific prefixes", () => {
         .toBe("  └ pwd");
     expect(plainText(renderTuiEntry({ kind: "notice", text: "Engine error" })))
         .toBe("Engine error");
+    expect(plainText(renderTuiEntry({
+        kind: "notice",
+        text: "",
+        errorText: "Agent error: stopped",
+    }))).toBe("# Agent error: stopped");
 });
 
 test("TUI tool entries keep their whole argument", () => {
@@ -1269,6 +1274,22 @@ test("a tool header follows its thought without a spacer row", () => {
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
         .toEqual([0, 1, 0, 0, 1]);
+});
+
+test("a new tool header is separated from the rendered diff above it", () => {
+    const entries = [
+        {
+            kind: "diff",
+            text: "note.ts\n1 + changed",
+            path: "note.ts",
+            patch: "@@ -1 +1 @@\n-old\n+changed",
+        },
+        { kind: "tool_header", header: "Ran", text: "Ran" },
+        { kind: "tool", header: "Ran", prefix: "  └ ", text: "git diff" },
+    ] as const;
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 1, 0]);
 });
 
 test("TUI queues a follow-up without interrupting the active transcript", () => {
