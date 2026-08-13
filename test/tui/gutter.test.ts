@@ -7,7 +7,7 @@ import {
 import { createTestRenderer } from "@opentui/core/testing";
 
 import { createTuiGutterEntry } from "../../clients/tui/gutter.ts";
-import { TUI_MUTED } from "../../clients/tui/state.ts";
+import { TUI_ELEMENT, TUI_MUTED } from "../../clients/tui/state.ts";
 
 async function frameFor(ruled: boolean): Promise<string> {
     const setup = await createTestRenderer({ width: 30, height: 6 });
@@ -47,6 +47,33 @@ test("a rule takes its own row and leaves the marker beside the answer", async (
 
 test("an unruled block draws no rule", async () => {
     expect(await frameFor(false)).not.toContain("──────────");
+});
+
+test("the separator is a quiet element-colored hairline", async () => {
+    const setup = await createTestRenderer({ width: 30, height: 6 });
+    const content = new TextRenderable(setup.renderer, {
+        id: "content",
+        content: "Final answer",
+    });
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "answer",
+        { kind: "assistant", text: "Final answer" },
+        content,
+        0,
+        true,
+    );
+    setup.renderer.root.add(node);
+
+    try {
+        const rule = node.findDescendantById("answer-rule");
+        expect(rule).toBeInstanceOf(TextRenderable);
+        expect(rule instanceof TextRenderable
+            ? rule.fg.equals(parseColor(TUI_ELEMENT))
+            : false).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("the assistant marker is a muted weighted bullet", async () => {
