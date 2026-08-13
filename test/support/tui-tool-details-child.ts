@@ -2,6 +2,8 @@ import {
     startTui,
     type TuiAgentClient,
 } from "../../clients/tui/main.ts";
+import { resolveTuiAppearance } from "../../clients/tui/appearance.ts";
+import { loadOptionalVeraConfig } from "../../src/config.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import {
@@ -74,4 +76,7 @@ const client: TuiAgentClient = {
     close(): void {},
 };
 
-await startTui({ client });
+await startTui({
+    client,
+    appearance: resolveTuiAppearance(loadOptionalVeraConfig()?.tui),
+});

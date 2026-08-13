@@ -1188,9 +1188,20 @@ export function tuiToolRowText(entry: TuiTextTranscriptEntry): string {
     return repeat > 1 ? `${entry.text} ×${repeat}` : entry.text;
 }
 
+export interface TuiEntrySpacing {
+    readonly message: number;
+    readonly toolGroup: number;
+}
+
+export const DEFAULT_TUI_ENTRY_SPACING: TuiEntrySpacing = {
+    message: 1,
+    toolGroup: 0,
+};
+
 export function tuiEntryMarginTop(
     entries: readonly TuiTranscriptEntry[],
     index: number,
+    spacing: TuiEntrySpacing = DEFAULT_TUI_ENTRY_SPACING,
 ): number {
     if (index === 0) {
         return 0;
@@ -1213,9 +1224,9 @@ export function tuiEntryMarginTop(
             || previous?.kind === "diff"
         )
     ) {
-        return 0;
+        return spacing.toolGroup;
     }
-    return 1;
+    return spacing.message;
 }
 
 const TOOL_SUMMARY_LIMIT = 2000;

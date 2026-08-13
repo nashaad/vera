@@ -360,22 +360,30 @@ export interface TuiComposerPanel {
     readonly rule: BoxRenderable;
 }
 
+export interface TuiComposerPanelAppearance {
+    readonly marginHorizontal?: number;
+    readonly paddingHorizontal?: number;
+    readonly boundaryColor?: string;
+}
+
 export function createTuiComposerPanel(
     renderer: RenderContext,
     composer: TuiComposer,
+    appearance: TuiComposerPanelAppearance = {},
 ): TuiComposerPanel {
+    const boundaryColor = appearance.boundaryColor ?? TUI_ELEMENT;
     const panel = new BoxRenderable(renderer, {
         id: "composer-box",
         border: true,
         borderStyle: "rounded",
-        borderColor: TUI_ELEMENT,
+        borderColor: boundaryColor,
         height: TUI_COMPOSER_PANEL_ROWS,
-        paddingLeft: 1,
-        paddingRight: 1,
+        paddingLeft: appearance.paddingHorizontal ?? 1,
+        paddingRight: appearance.paddingHorizontal ?? 1,
         // Indented to where the lines under it start, so the frame and what it
         // says about the session read as one column.
-        marginLeft: 2,
-        marginRight: 2,
+        marginLeft: appearance.marginHorizontal ?? 2,
+        marginRight: appearance.marginHorizontal ?? 2,
         // Reserve the rows under the frame; whoever draws them sizes this to
         // what they actually take.
         marginBottom: 2,
@@ -389,7 +397,7 @@ export function createTuiComposerPanel(
     const rule = new BoxRenderable(renderer, {
         id: "composer-rule",
         border: ["top"],
-        borderColor: TUI_ELEMENT,
+        borderColor: boundaryColor,
         width: "100%",
         height: 1,
         flexShrink: 0,
