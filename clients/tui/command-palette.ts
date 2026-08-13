@@ -144,8 +144,10 @@ export function createTuiCommandPaletteView(
         backgroundColor: TUI_PANEL,
         position: "absolute",
         top: commandPaletteTop(renderer),
-        left: "10%",
-        width: "80%",
+        // Wider than the other dialogs: the group column is bought out of the
+        // card's own width rather than out of the descriptions.
+        left: "5%",
+        width: "90%",
         height: 8,
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: DIALOG_CARD_PADDING,
