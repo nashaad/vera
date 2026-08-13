@@ -2,6 +2,7 @@ import type { OwnedWatchContribution } from "../extensions/contribution-set.ts";
 import type { Inbox } from "../store/inbox.ts";
 import { WatchAdmission, type AdmissionLimits } from "./admission.ts";
 import { createArcConnector, type WatchSecretResolver } from "./arc-connector.ts";
+import { createFilesystemConnector } from "./filesystem-connector.ts";
 import { SupervisedWatch, type WatchStatus } from "./supervisor.ts";
 import type { WatchConnector } from "./source.ts";
 
@@ -18,7 +19,7 @@ import type { WatchConnector } from "./source.ts";
 export interface WatchRuntimeOptions {
     readonly inbox: Inbox;
     readonly watches: readonly OwnedWatchContribution[];
-    /** Defaults to the arc connector alone. */
+    /** Defaults to the built-in connectors. */
     readonly connectors?: readonly WatchConnector[];
     /** Called after a batch reaches the log, so delivery can pump. */
     readonly onAppended?: () => void;
@@ -37,9 +38,12 @@ export function startWatchRuntime(options: WatchRuntimeOptions): WatchRuntime {
     const connectors = new Map<string, WatchConnector>();
     for (
         const connector of options.connectors
-            ?? [createArcConnector(
-                options.secret === undefined ? {} : { secret: options.secret },
-            )]
+            ?? [
+                createArcConnector(
+                    options.secret === undefined ? {} : { secret: options.secret },
+                ),
+                createFilesystemConnector(),
+            ]
     ) {
         connectors.set(connector.sourceFamily, connector);
     }
