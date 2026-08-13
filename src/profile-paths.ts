@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export const VERA_HOME_ENV = "VERA_HOME";
 export const VERA_PROFILE_ENV = "VERA_PROFILE";
 export const VERA_RUNTIME_DIR_ENV = "VERA_RUNTIME_DIR";
 
@@ -11,8 +12,11 @@ export const DEFAULT_PROFILE_NAME = "default";
 const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Everything Vera owns on this machine, across every profile. */
-export function veraHomeDirectory(home = homedir()): string {
-    return join(home, ".vera");
+export function veraHomeDirectory(home?: string): string {
+    if (home !== undefined) return join(home, ".vera");
+    const override = process.env[VERA_HOME_ENV]?.trim();
+    if (override !== undefined && override.length > 0) return override;
+    return join(homedir(), ".vera");
 }
 
 /**
@@ -20,7 +24,7 @@ export function veraHomeDirectory(home = homedir()): string {
  * profile and stay in one copy. This is what makes a profile directory
  * shareable with nothing to strip.
  */
-export function veraUserDirectory(home = homedir()): string {
+export function veraUserDirectory(home?: string): string {
     return join(veraHomeDirectory(home), "user");
 }
 
@@ -36,7 +40,7 @@ export function veraProfileName(env = process.env): string {
 }
 
 /** Config, extensions, skills, and memory: what a second installation varies. */
-export function veraProfileDirectory(env = process.env, home = homedir()): string {
+export function veraProfileDirectory(env = process.env, home?: string): string {
     return join(veraHomeDirectory(home), "profiles", veraProfileName(env));
 }
 
@@ -45,7 +49,7 @@ export function veraProfileDirectory(env = process.env, home = homedir()): strin
  * as the lower-level override for tests and CI; the profile is the hand-driven
  * surface.
  */
-export function veraRuntimeDirectory(env = process.env, home = homedir()): string {
+export function veraRuntimeDirectory(env = process.env, home?: string): string {
     const override = env[VERA_RUNTIME_DIR_ENV]?.trim();
     if (override !== undefined && override.length > 0) return override;
     return join(veraProfileDirectory(env, home), "runtime");
@@ -69,7 +73,7 @@ const LEGACY_ENTRIES = [
     "memory",
 ];
 
-export function legacyLayoutEntries(home = homedir()): readonly string[] {
+export function legacyLayoutEntries(home?: string): readonly string[] {
     const root = veraHomeDirectory(home);
     return LEGACY_ENTRIES.filter((entry) => existsSync(join(root, entry)));
 }
@@ -78,7 +82,7 @@ export function legacyLayoutEntries(home = homedir()): readonly string[] {
  * Refuses to run against the flat layout rather than reading a tiered path and
  * finding nothing, which presents as missing credentials and missing sessions.
  */
-export function assertProfileLayout(home = homedir()): void {
+export function assertProfileLayout(home?: string): void {
     const found = legacyLayoutEntries(home);
     if (found.length === 0) return;
     const root = veraHomeDirectory(home);

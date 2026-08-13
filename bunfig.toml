@@ -1,3 +1,4 @@
 [test]
 root = "test"
+preload = "./test/preload.ts"
 pathIgnorePatterns = ["vera-one-archived/**"]

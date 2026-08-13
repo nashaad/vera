@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { TuiTipHistory } from "./tips.ts";
+import { veraProfileDirectory } from "../../src/profile-paths.ts";
 
 export interface TuiTipState {
     readonly launches: number;
@@ -26,7 +27,7 @@ export interface TuiTipState {
 const EMPTY: TuiTipState = { launches: 0, history: {} };
 
 export function defaultTuiTipsPath(): string {
-    return join(homedir(), ".vera", "tips.json");
+    return join(veraProfileDirectory(), "tips.json");
 }
 
 export function loadTuiTipState(

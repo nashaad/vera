@@ -11,6 +11,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+function profileDirectory(home: string): string {
+    return join(home, ".vera", "profiles", "default");
+}
+
+function runtimeDirectory(home: string): string {
+    return join(profileDirectory(home), "runtime");
+}
+
 const tmuxAvailable = canRunTmux();
 
 test.skipIf(!tmuxAvailable)(
@@ -1082,7 +1090,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     "FORK_TIMEOUT=1"
                 } ${shellQuote(process.execPath)} run ${
                     shellQuote("test/support/tui-fork-session-child.ts")
@@ -1564,7 +1572,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     "RENAME_BUSY=1"
                 } ${shellQuote(process.execPath)} run ${
                     shellQuote("test/support/tui-rename-session-child.ts")
@@ -1627,7 +1635,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     "TRASH_BUSY=1"
                 } ${shellQuote(process.execPath)} run ${
                     shellQuote("test/support/tui-trash-session-child.ts")
@@ -1702,7 +1710,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "theme changed: nightowl",
             );
-            expect(JSON.parse(readFileSync(join(home, ".vera", "tui.json"), "utf8")))
+            expect(JSON.parse(readFileSync(join(profileDirectory(home), "tui.json"), "utf8")))
                 .toEqual({
                     theme: "nightowl",
                     animation: "conveyor",
@@ -1767,7 +1775,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run test/support/tui-child.ts`,
             ]);
@@ -1973,7 +1981,7 @@ test.skipIf(!tmuxAvailable)(
         const socket = `vera-appearance-${process.pid}-${randomUUID()}`;
         const session = "appearance";
         const home = mkdtempSync(join(tmpdir(), "vera-tui-appearance-"));
-        const configDirectory = join(home, ".vera");
+        const configDirectory = profileDirectory(home);
         let pane = "";
 
         mkdirSync(configDirectory, { recursive: true });
@@ -2309,7 +2317,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_TEST_COPIED_TEXT_PATH=${shellQuote(copiedTextPath)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} VERA_TEST_COPIED_TEXT_PATH=${shellQuote(copiedTextPath)} ${
                     shellQuote(process.execPath)
                 } run test/support/tui-selection-child.ts`,
             ]);
@@ -2385,7 +2393,7 @@ function startTuiSession(
         String(height),
         `cd ${shellQuote(process.cwd())} && HOME=${
             shellQuote(home)
-        } ${exported}${shellQuote(process.execPath)} run ${
+        } VERA_HOME=${shellQuote(join(home, ".vera"))} ${exported}${shellQuote(process.execPath)} run ${
             shellQuote(childPath)
         }`,
     ]);
@@ -2411,7 +2419,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run test/support/tui-rewind-child.ts`,
             ]);
@@ -2447,6 +2455,7 @@ test.skipIf(!tmuxAvailable)(
             env: {
                 ...process.env,
                 HOME: home,
+                VERA_HOME: join(home, ".vera"),
                 VERA_TEST_READY_PATH: readyPath,
             },
             stdout: "ignore",
@@ -2466,7 +2475,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach rewind-agent`,
             ]);
@@ -2540,6 +2549,7 @@ test.skipIf(!tmuxAvailable)(
             env: {
                 ...process.env,
                 HOME: home,
+                VERA_HOME: join(home, ".vera"),
                 VERA_TEST_READY_PATH: readyPath,
                 VERA_TEST_MANIFEST_PATH: manifestPath,
             },
@@ -2570,7 +2580,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach roster-caller`,
             ]);
@@ -2633,6 +2643,7 @@ test.skipIf(!tmuxAvailable)(
             env: {
                 ...process.env,
                 HOME: home,
+                VERA_HOME: join(home, ".vera"),
                 VERA_TEST_READY_PATH: readyPath,
             },
             stdout: "ignore",
@@ -2652,7 +2663,7 @@ test.skipIf(!tmuxAvailable)(
                 "160",
                 "-y",
                 "36",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach left`,
             ]);
@@ -2661,7 +2672,7 @@ test.skipIf(!tmuxAvailable)(
                 "-h",
                 "-t",
                 leftPane,
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach right`,
             ]);
@@ -2719,8 +2730,8 @@ test.skipIf(!tmuxAvailable)(
         const session = "tui";
         const home = mkdtempSync(join(tmpdir(), "vera-resident-rewind-"));
         let pane = "";
-        mkdirSync(join(home, ".vera"), { recursive: true });
-        writeFileSync(join(home, ".vera", "config.json"), `${JSON.stringify({
+        mkdirSync(profileDirectory(home), { recursive: true });
+        writeFileSync(join(profileDirectory(home), "config.json"), `${JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
             model: "faux/test",
@@ -2739,7 +2750,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts`,
             ]);
@@ -2985,8 +2996,8 @@ test.skipIf(!tmuxAvailable)(
         let pane = "";
 
         try {
-            mkdirSync(join(home, ".vera"), { recursive: true });
-            writeFileSync(join(home, ".vera", "tui.json"), JSON.stringify({
+            mkdirSync(profileDirectory(home), { recursive: true });
+            writeFileSync(join(profileDirectory(home), "tui.json"), JSON.stringify({
                 extensions: {
                     "vera.model-presets": {
                         slots: [
@@ -3477,8 +3488,8 @@ test.skipIf(!tmuxAvailable)(
         const home = mkdtempSync(join(tmpdir(), "vera-btw-context-"));
         const readyPath = join(home, "host-ready");
         let pane = "";
-        mkdirSync(join(home, ".vera"), { recursive: true });
-        writeFileSync(join(home, ".vera", "config.json"), JSON.stringify({
+        mkdirSync(profileDirectory(home), { recursive: true });
+        writeFileSync(join(profileDirectory(home), "config.json"), JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
             model: "faux/test",
@@ -3496,6 +3507,7 @@ test.skipIf(!tmuxAvailable)(
             env: {
                 ...process.env,
                 HOME: home,
+                VERA_HOME: join(home, ".vera"),
                 VERA_TEST_READY_PATH: readyPath,
             },
             stdout: "ignore",
@@ -3514,7 +3526,7 @@ test.skipIf(!tmuxAvailable)(
                 "120",
                 "-y",
                 "40",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach btw-main`,
             ]);
@@ -3594,10 +3606,10 @@ test.skipIf(!tmuxAvailable)(
         const session = "pair-persist";
         const home = mkdtempSync(join(tmpdir(), "vera-pair-persist-"));
         const readyPath = join(home, "host-ready");
-        const preferencePath = join(home, ".vera", "tui.json");
+        const preferencePath = join(profileDirectory(home), "tui.json");
         let pane = "";
-        mkdirSync(join(home, ".vera"), { recursive: true });
-        writeFileSync(join(home, ".vera", "config.json"), JSON.stringify({
+        mkdirSync(profileDirectory(home), { recursive: true });
+        writeFileSync(join(profileDirectory(home), "config.json"), JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
             model: "faux/test",
@@ -3615,6 +3627,7 @@ test.skipIf(!tmuxAvailable)(
             env: {
                 ...process.env,
                 HOME: home,
+                VERA_HOME: join(home, ".vera"),
                 VERA_TEST_READY_PATH: readyPath,
             },
             stdout: "ignore",
@@ -3633,7 +3646,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach pair-main`,
             ]);
@@ -4497,7 +4510,7 @@ async function stopTemporaryHost(home: string): Promise<void> {
     let record: { readonly pid?: unknown };
     try {
         record = JSON.parse(
-            readFileSync(join(home, ".vera", "host.json"), "utf8"),
+            readFileSync(join(runtimeDirectory(home), "host.json"), "utf8"),
         ) as { readonly pid?: unknown };
     } catch {
         return;
