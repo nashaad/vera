@@ -104,6 +104,30 @@ export interface VeraExtensionConfig {
     readonly config: JsonValue;
 }
 
+export interface VeraTuiTranscriptConfig {
+    readonly padding_left?: number;
+    readonly padding_right?: number;
+    readonly activity_indent?: number;
+    readonly message_spacing?: number;
+    readonly tool_group_spacing?: number;
+    readonly separator_spacing_before?: number;
+    readonly separator_spacing_after?: number;
+    readonly separator_color?: string;
+}
+
+export interface VeraTuiComposerConfig {
+    readonly margin_horizontal?: number;
+    readonly padding_horizontal?: number;
+    readonly tip_indent?: number;
+    readonly boundary_color?: string;
+}
+
+/** Client-owned visual tuning. Absent values retain Vera's current layout. */
+export interface VeraTuiConfig {
+    readonly transcript?: VeraTuiTranscriptConfig;
+    readonly composer?: VeraTuiComposerConfig;
+}
+
 export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
     readonly provider: VeraProviderId;
@@ -128,6 +152,7 @@ export interface VeraConfig {
     readonly experimental?: VeraExperimentalConfig;
     readonly event_log?: VeraEventLogConfig;
     readonly tips?: VeraTipsConfig;
+    readonly tui?: VeraTuiConfig;
     /**
      * Where the curated model feed is fetched from. Absent means no fetch:
      * the copy shipped with the build answers instead.
@@ -472,6 +497,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const experimental = parseExperimental(config.experimental);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
+    const tui = parseTuiConfig(config.tui);
     const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
     const maxAgeMonths = parseMaxAgeMonths(config.model_picker_max_age_months);
     const collapseVersions = config.model_picker_collapse_versions;
@@ -493,6 +519,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || disabledPromptContributions === undefined
         || experimental === undefined
         || eventLog === undefined
+        || tui === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
         || (config.model_picker_max_age_months !== undefined
             && maxAgeMonths === undefined)
@@ -550,6 +577,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.experimental === undefined ? {} : { experimental }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
+        ...(config.tui === undefined ? {} : { tui }),
         ...(modelFeedUrl === undefined ? {} : { model_feed_url: modelFeedUrl }),
         ...(maxAgeMonths === undefined
             ? {}
@@ -558,6 +586,132 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? { model_picker_collapse_versions: collapseVersions }
             : {}),
     };
+}
+
+function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    const transcript = parseTuiTranscriptConfig(raw.transcript);
+    const composer = parseTuiComposerConfig(raw.composer);
+    if (transcript === undefined || composer === undefined) {
+        return undefined;
+    }
+    return {
+        ...(raw.transcript === undefined ? {} : { transcript }),
+        ...(raw.composer === undefined ? {} : { composer }),
+    };
+}
+
+function parseTuiTranscriptConfig(
+    value: unknown,
+): VeraTuiTranscriptConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    if (
+        !isOptionalLayoutCount(raw.padding_left, 0, 20)
+        || !isOptionalLayoutCount(raw.padding_right, 0, 20)
+        || !isOptionalLayoutCount(raw.activity_indent, 1, 12)
+        || !isOptionalLayoutCount(raw.message_spacing, 0, 5)
+        || !isOptionalLayoutCount(raw.tool_group_spacing, 0, 5)
+        || !isOptionalLayoutCount(raw.separator_spacing_before, 0, 5)
+        || !isOptionalLayoutCount(raw.separator_spacing_after, 0, 5)
+        || !isOptionalHexColor(raw.separator_color)
+    ) {
+        return undefined;
+    }
+    return {
+        ...(raw.padding_left === undefined
+            ? {}
+            : { padding_left: raw.padding_left as number }),
+        ...(raw.padding_right === undefined
+            ? {}
+            : { padding_right: raw.padding_right as number }),
+        ...(raw.activity_indent === undefined
+            ? {}
+            : { activity_indent: raw.activity_indent as number }),
+        ...(raw.message_spacing === undefined
+            ? {}
+            : { message_spacing: raw.message_spacing as number }),
+        ...(raw.tool_group_spacing === undefined
+            ? {}
+            : { tool_group_spacing: raw.tool_group_spacing as number }),
+        ...(raw.separator_spacing_before === undefined
+            ? {}
+            : {
+                separator_spacing_before:
+                    raw.separator_spacing_before as number,
+            }),
+        ...(raw.separator_spacing_after === undefined
+            ? {}
+            : {
+                separator_spacing_after:
+                    raw.separator_spacing_after as number,
+            }),
+        ...(raw.separator_color === undefined
+            ? {}
+            : { separator_color: raw.separator_color as string }),
+    };
+}
+
+function parseTuiComposerConfig(
+    value: unknown,
+): VeraTuiComposerConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    if (
+        !isOptionalLayoutCount(raw.margin_horizontal, 0, 20)
+        || !isOptionalLayoutCount(raw.padding_horizontal, 0, 12)
+        || !isOptionalLayoutCount(raw.tip_indent, 0, 24)
+        || !isOptionalHexColor(raw.boundary_color)
+    ) {
+        return undefined;
+    }
+    return {
+        ...(raw.margin_horizontal === undefined
+            ? {}
+            : { margin_horizontal: raw.margin_horizontal as number }),
+        ...(raw.padding_horizontal === undefined
+            ? {}
+            : { padding_horizontal: raw.padding_horizontal as number }),
+        ...(raw.tip_indent === undefined
+            ? {}
+            : { tip_indent: raw.tip_indent as number }),
+        ...(raw.boundary_color === undefined
+            ? {}
+            : { boundary_color: raw.boundary_color as string }),
+    };
+}
+
+function isOptionalLayoutCount(
+    value: unknown,
+    minimum: number,
+    maximum: number,
+): boolean {
+    return value === undefined
+        || (typeof value === "number"
+            && Number.isInteger(value)
+            && value >= minimum
+            && value <= maximum);
+}
+
+function isOptionalHexColor(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value));
 }
 
 /**

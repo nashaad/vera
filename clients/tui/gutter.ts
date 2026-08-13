@@ -18,6 +18,13 @@ export const TUI_GUTTER_WIDTH = 2;
 
 const contentNodes = new WeakMap<Renderable, Renderable>();
 
+export interface TuiGutterAppearance {
+    readonly width?: number;
+    readonly separatorColor?: string;
+    readonly separatorSpacingBefore?: number;
+    readonly separatorSpacingAfter?: number;
+}
+
 /**
  * The marker a block opens with, and undefined for entries that draw their own
  * leading glyph. A blank marker still reserves the column so every block in the
@@ -62,20 +69,22 @@ export function createTuiGutterEntry(
     content: Renderable,
     marginTop: number,
     ruled = false,
+    appearance: TuiGutterAppearance = {},
 ): BoxRenderable {
     const marker = entryMarker(entry);
+    const width = appearance.width ?? TUI_GUTTER_WIDTH;
     const row = new BoxRenderable(renderer, {
         id: `${id}-gutter`,
         width: "100%",
         flexDirection: "row",
-        marginTop: ruled ? 1 : marginTop,
+        marginTop: ruled ? appearance.separatorSpacingAfter ?? 1 : marginTop,
     });
     row.add(new TextRenderable(renderer, {
         id: `${id}-marker`,
         content: marker.glyph,
         fg: marker.color,
         attributes: marker.attributes,
-        width: TUI_GUTTER_WIDTH,
+        width,
         flexShrink: 0,
     }));
     row.add(content);
@@ -88,15 +97,15 @@ export function createTuiGutterEntry(
         id: `${id}-ruled`,
         width: "100%",
         flexDirection: "column",
-        marginTop,
+        marginTop: appearance.separatorSpacingBefore ?? 0,
     });
     column.add(new TextRenderable(renderer, {
         id: `${id}-rule`,
         content: "─".repeat(200),
-        fg: TUI_ELEMENT,
+        fg: appearance.separatorColor ?? TUI_ELEMENT,
         width: "100%",
         wrapMode: "none",
-        marginLeft: TUI_GUTTER_WIDTH,
+        marginLeft: width,
     }));
     column.add(row);
     contentNodes.set(column, content);

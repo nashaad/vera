@@ -188,6 +188,12 @@ import {
     TUI_COMPOSER_MIN_TEXT_ROWS,
     tuiComposerPanelRows,
 } from "./composer.ts";
+import {
+    fitTuiAppearance,
+    resolveTuiAppearance,
+    tuiComposerContentIndent,
+    type TuiAppearance,
+} from "./appearance.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { TuiBodyFocusController } from "./body-focus.ts";
 import {
@@ -434,6 +440,7 @@ function displayModeLabel(label: string): string {
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
+    readonly appearance?: TuiAppearance;
     readonly copyText?: (text: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
@@ -630,6 +637,7 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
+            appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
             createSession: async (workspace) =>
@@ -699,11 +707,20 @@ export async function startTui(
      * talks to the host reads this binding at the moment it sends.
      */
     let client = dependencies.client;
+    const configuredAppearance = dependencies.appearance
+        ?? resolveTuiAppearance();
     setTuiWorkspaceRoot(client.workspace ?? process.cwd());
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
     });
+    let appearance = fitTuiAppearance(configuredAppearance, renderer.width);
+    let composerContentIndent = tuiComposerContentIndent(appearance);
+    let composerHorizontalInset = composerContentIndent * 2;
+    const entrySpacing = {
+        message: appearance.messageSpacing,
+        toolGroup: appearance.toolGroupSpacing,
+    };
     const copyText = dependencies.copyText
         ?? ((text: string) => copyTuiText(text, renderer));
     let sessionTitle: string | undefined;
@@ -1241,8 +1258,8 @@ export async function startTui(
             gap: 0,
             paddingTop: 0,
             paddingBottom: 1,
-            paddingLeft: 0,
-            paddingRight: 2,
+            paddingLeft: appearance.transcriptPaddingLeft,
+            paddingRight: appearance.transcriptPaddingRight,
         },
     });
 
@@ -1384,8 +1401,8 @@ export async function startTui(
         // node laid out as a flex child does not carry its own padding. The
         // indent clears the frame above and its padding, so these rows start
         // in the same column as the text inside it.
-        paddingLeft: 4,
-        paddingRight: 4,
+        paddingLeft: composerContentIndent,
+        paddingRight: composerContentIndent,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
     const hostedModeText = new TextRenderable(renderer, {
@@ -1444,7 +1461,7 @@ export async function startTui(
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
-        paddingLeft: 2,
+        paddingLeft: 0,
         visible: false,
     });
 
@@ -1599,7 +1616,11 @@ export async function startTui(
         panel: composerBox,
         status: composerStatusText,
         rule: composerRule,
-    } = createTuiComposerPanel(renderer, composer);
+    } = createTuiComposerPanel(renderer, composer, {
+        marginHorizontal: appearance.composerMarginHorizontal,
+        paddingHorizontal: appearance.composerPaddingHorizontal,
+        boundaryColor: appearance.composerBoundaryColor ?? theme.element,
+    });
     let composerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
     let requestedComposerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
     function resizeComposer(requestedRows: number): void {
@@ -1912,6 +1933,14 @@ export async function startTui(
                 node,
                 marginTop,
                 separated,
+                {
+                    width: appearance.activityIndent,
+                    separatorColor: appearance.transcriptSeparatorColor
+                        ?? theme.element,
+                    separatorSpacingBefore:
+                        appearance.separatorSpacingBefore,
+                    separatorSpacingAfter: appearance.separatorSpacingAfter,
+                },
             );
     }
 
@@ -1966,7 +1995,7 @@ export async function startTui(
             const node = createTuiEntryNode(
                 id,
                 entry,
-                tuiEntryMarginTop(entries, index),
+                tuiEntryMarginTop(entries, index, entrySpacing),
                 assistantFollowsTools(entries, index),
             );
             node.visible = entry.kind !== "tool" || entry.hidden !== true;
@@ -2244,6 +2273,17 @@ export async function startTui(
     watchBackgroundAgents(dependencies.client);
 
     renderer.on(CliRenderEvents.RESIZE, () => {
+        appearance = fitTuiAppearance(configuredAppearance, renderer.width);
+        composerContentIndent = tuiComposerContentIndent(appearance);
+        composerHorizontalInset = composerContentIndent * 2;
+        composerBox.marginLeft = appearance.composerMarginHorizontal;
+        composerBox.marginRight = appearance.composerMarginHorizontal;
+        composerBox.paddingLeft = appearance.composerPaddingHorizontal;
+        composerBox.paddingRight = appearance.composerPaddingHorizontal;
+        statusBand.paddingLeft = composerContentIndent;
+        statusBand.paddingRight = composerContentIndent;
+        transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
+        transcript.content.paddingRight = appearance.transcriptPaddingRight;
         sidebar.refit();
         resizeComposer(requestedComposerTextRows);
         renderState();
@@ -5402,7 +5442,9 @@ export async function startTui(
             // optical indent beside the composer is written in rather than
             // set as padding.
             : new StyledText([
-                fg(TUI_ACCENT)("   Tip "),
+                fg(TUI_ACCENT)(
+                    `${" ".repeat(appearance.composerTipIndent)}Tip `,
+                ),
                 fg(TUI_MUTED)(composerTip),
             ]);
         composerTipText.visible = composerTip !== undefined
@@ -5418,7 +5460,7 @@ export async function startTui(
         const queuedPrompt = renderTuiQueuedPrompt(focusedState);
         queuedPromptText.content = queuedPrompt.length === 0
             ? ""
-            : `  ${queuedPrompt}`;
+            : `${" ".repeat(appearance.composerMarginHorizontal)}${queuedPrompt}`;
         queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
         approvalView.box.visible = uiRequest?.request.type
             === "tool_approval";
@@ -5641,7 +5683,7 @@ export async function startTui(
             const node = createTuiEntryNode(
                 `entry-${index}`,
                 entry,
-                tuiEntryMarginTop(state.entries, index),
+                tuiEntryMarginTop(state.entries, index, entrySpacing),
                 assistantFollowsTools(state.entries, index),
             );
             entryNodes.push(node);
@@ -7178,9 +7220,11 @@ export async function startTui(
         commandSuggestionsText.fg = theme.text;
         commandSuggestionsBox.backgroundColor = theme.background;
         composerBox.backgroundColor = theme.background;
-        composerBox.borderColor = theme.element;
+        composerBox.borderColor = appearance.composerBoundaryColor
+            ?? theme.element;
         composerStatusText.fg = theme.muted;
-        composerRule.borderColor = theme.element;
+        composerRule.borderColor = appearance.composerBoundaryColor
+            ?? theme.element;
         composer.backgroundColor = theme.background;
         composer.focusedBackgroundColor = theme.background;
         composer.textColor = theme.text;
@@ -7483,7 +7527,9 @@ export async function startTui(
         // Indented by hand: the row sits in a column that does not pad its
         // children, and it has to start where the composer's text starts.
         heldAddressText.content = new StyledText([
-            fg(TUI_MUTED)(`  ${facts} · `),
+            fg(TUI_MUTED)(
+                `${" ".repeat(appearance.composerMarginHorizontal)}${facts} · `,
+            ),
             fg(TUI_ACCENT)(keys),
         ]);
     }
@@ -7501,14 +7547,15 @@ export async function startTui(
             : settings?.provider === undefined
             ? model
             : `${settings.provider}/${model}`;
-        const contentWidth = Math.max(1, width - 8);
+        const contentWidth = Math.max(1, width - composerHorizontalInset);
+        const indent = " ".repeat(composerContentIndent);
         if (left.length + right.length + 3 <= contentWidth) {
-            return `    ${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
+            return `${indent}${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
         }
         const rightRoom = Math.max(0, contentWidth - left.length - 3);
         return rightRoom < 4
-            ? `    ${left.slice(0, contentWidth)}`
-            : `    ${left} · ${right.slice(0, rightRoom)}`;
+            ? `${indent}${left.slice(0, contentWidth)}`
+            : `${indent}${left} · ${right.slice(0, rightRoom)}`;
     }
 
     function renderStatus(): void {
@@ -7678,7 +7725,7 @@ export async function startTui(
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
-                Math.min(72, renderer.width - 8),
+                Math.min(72, renderer.width - composerHorizontalInset),
             )
         );
         const agentSection = currentAgentHasParent
@@ -7710,7 +7757,7 @@ export async function startTui(
             );
         // The card's own inner width, past the band's indent, its border and
         // its padding: the rules drawn inside it have to stop where it does.
-        const cardWidth = Math.max(1, renderer.width - 8);
+        const cardWidth = Math.max(1, renderer.width - composerHorizontalInset);
         const rule = (glyph: string) =>
             fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
         // The first row says what the session is answering as, and it lives

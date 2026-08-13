@@ -41,8 +41,39 @@ test("a rule takes its own row and leaves the marker beside the answer", async (
 
     expect(rule).toBeGreaterThanOrEqual(0);
     expect(answer).toBeGreaterThan(rule);
+    expect(answer - rule).toBe(2);
+    expect(rule).toBe(0);
     expect(lines[rule]).not.toContain("•");
     expect(lines[answer]).toContain("•");
+});
+
+test("separator spacing is independently configurable on both sides", async () => {
+    const setup = await createTestRenderer({ width: 30, height: 8 });
+    const content = new TextRenderable(setup.renderer, {
+        id: "content",
+        content: "Final answer",
+    });
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "answer",
+        { kind: "assistant", text: "Final answer" },
+        content,
+        4,
+        true,
+        { separatorSpacingBefore: 1, separatorSpacingAfter: 2 },
+    );
+    setup.renderer.root.add(node);
+
+    try {
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const rule = lines.findIndex((line) => line.includes("──────────"));
+        const answer = lines.findIndex((line) => line.includes("Final answer"));
+        expect(rule).toBe(1);
+        expect(answer - rule).toBe(3);
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("an unruled block draws no rule", async () => {
