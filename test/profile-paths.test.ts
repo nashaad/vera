@@ -7,6 +7,7 @@ import {
     assertProfileLayout,
     DEFAULT_PROFILE_NAME,
     legacyLayoutEntries,
+    unrecognisedHomeEntries,
     VERA_PROFILE_ENV,
     VERA_RUNTIME_DIR_ENV,
     VeraProfileError,
@@ -75,4 +76,20 @@ test("a tiered home is accepted", () => {
     mkdirSync(join(root, ".vera", "profiles", "default"), { recursive: true });
     expect(legacyLayoutEntries(root)).toEqual([]);
     expect(() => assertProfileLayout(root)).not.toThrow();
+});
+
+test("state written outside the tiers is named", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera", "user"), { recursive: true });
+    mkdirSync(join(root, ".vera", "profiles", "default"), { recursive: true });
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+
+    mkdirSync(join(root, ".vera", "chrome"));
+    writeFileSync(join(root, ".vera", ".DS_Store"), "");
+    expect(unrecognisedHomeEntries(root)).toEqual(["chrome"]);
+});
+
+test("a home that does not exist yet has nothing to complain about", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
 });

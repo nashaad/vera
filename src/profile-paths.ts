@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -93,4 +93,21 @@ export function assertProfileLayout(home?: string): void {
         + `  everything else            -> ${join(root, "profiles", DEFAULT_PROFILE_NAME)}/\n`
         + `Found: ${found.join(", ")}`,
     );
+}
+
+/** The only names a tiered home owns. */
+const KNOWN_ENTRIES = ["user", "profiles"];
+
+/**
+ * Names sitting directly under the home that no tier owns, which is where an
+ * extension joining `homedir()` with `.vera` leaves its state. Such a directory
+ * is shared by every profile and lost by anyone copying a profile.
+ */
+export function unrecognisedHomeEntries(home?: string): readonly string[] {
+    const root = veraHomeDirectory(home);
+    if (!existsSync(root)) return [];
+    return readdirSync(root)
+        .filter((entry) => !entry.startsWith("."))
+        .filter((entry) => !KNOWN_ENTRIES.includes(entry))
+        .sort();
 }
