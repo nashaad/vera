@@ -174,6 +174,33 @@ test("the assistant marker is a muted weighted bullet", async () => {
     }
 });
 
+test("thought markers use the same compact bullet as assistant rows", async () => {
+    const setup = await createTestRenderer({ width: 30, height: 6 });
+    const content = new TextRenderable(setup.renderer, {
+        id: "content",
+        content: "Thought: 1.8s",
+    });
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "thought",
+        { kind: "thought", text: "Thought: 1.8s" },
+        content,
+        0,
+    );
+    setup.renderer.root.add(node);
+
+    try {
+        const marker = node.findDescendantById("thought-marker");
+        expect(marker).toBeInstanceOf(TextRenderable);
+        expect(marker instanceof TextRenderable ? marker.plainText : undefined)
+            .toBe("•");
+        expect(marker instanceof TextRenderable ? marker.attributes : undefined)
+            .toBe(TextAttributes.BOLD);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("a runtime failure uses the indented activity gutter", async () => {
     const setup = await createTestRenderer({ width: 70, height: 4 });
     const entry = {

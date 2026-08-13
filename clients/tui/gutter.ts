@@ -37,15 +37,16 @@ function entryMarker(
     readonly color: string;
     readonly attributes?: number;
 } {
-    if (entry.kind === "assistant") {
+    if (
+        entry.kind === "assistant"
+        || entry.kind === "thought"
+        || entry.kind === "thinking"
+    ) {
         return {
             glyph: "•",
             color: TUI_MUTED,
             attributes: TextAttributes.BOLD,
         };
-    }
-    if (entry.kind === "thought" || entry.kind === "thinking") {
-        return { glyph: "○", color: TUI_MUTED };
     }
     return { glyph: " ", color: TUI_MUTED };
 }
