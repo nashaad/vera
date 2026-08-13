@@ -33,6 +33,8 @@ import { inspectLatestModelRequest } from "../../src/model-request-inspector.ts"
 import { workspaceKey } from "../../src/workspace-key.ts";
 import {
     assertProfileLayout,
+    unrecognisedHomeEntries,
+    veraHomeDirectory,
     VERA_PROFILE_ENV,
     VeraProfileError,
     veraProfileName,
@@ -726,6 +728,14 @@ if (import.meta.main) {
         stderr.write(`${renderCliFailure(layoutError)}\n`);
         process.exitCode = 1;
     } else {
+        const strays = unrecognisedHomeEntries();
+        if (strays.length > 0) {
+            stderr.write(
+                `${veraHomeDirectory()} holds entries no profile owns: ${strays.join(", ")}.\n`
+                + "Whatever wrote them joined the home directly instead of a profile;"
+                + " move them under a profile once it is fixed.\n",
+            );
+        }
         process.exitCode = await runCliMain(process.argv.slice(2));
     }
 }
