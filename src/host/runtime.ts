@@ -502,6 +502,11 @@ export async function startResidentHost(
             canShutdown: () => registry.idleForShutdown(),
             canReplace: () => registry.idleForReplacement(),
             onShutdownAccepted: closeHost,
+            onAgentStartFailure: (operation, error) => hostLog({
+                type: "agent_start_failed",
+                operation,
+                ...hostErrorFields(error),
+            }),
         });
         void indexStoredSessions(sessionDirectory, storedSessionIndex).then(
             publishStoredSessions,
@@ -531,6 +536,15 @@ export async function startResidentHost(
  */
 function scoped(projectRoot?: string): { readonly projectRoot?: string } {
     return projectRoot === undefined ? {} : { projectRoot };
+}
+
+function hostErrorFields(error: unknown): Record<string, unknown> {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    return {
+        error_name: error instanceof Error ? error.name : typeof error,
+        message: error instanceof Error ? error.message : String(error),
+        ...(typeof code === "string" ? { code } : {}),
+    };
 }
 
 /**

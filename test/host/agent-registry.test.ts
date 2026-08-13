@@ -47,6 +47,91 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { RegisteredTool } from "../../src/tools/types.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
 
+test("a missing workspace is a useful creation failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-missing-cwd-"));
+    const missing = join(root, "removed-worktree");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await expect(registry.create({
+            id: "missing-workspace",
+            workspace: missing,
+            sessionPath: join(root, "missing.jsonl"),
+        })).rejects.toThrow(`Session workspace is unavailable: ${missing}`);
+        expect(registry.find("missing-workspace")).toBeUndefined();
+        expect(registry.list()).toEqual([]);
+        expect(await readdir(root)).toEqual([]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("failed creation removes its unpublished session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-create-failure-"));
+    const sessionPath = join(root, "failed.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+        createToolHooks: () => {
+            throw new Error("hook construction failed");
+        },
+    });
+
+    try {
+        await expect(registry.create({
+            id: "failed-create",
+            workspace: root,
+            sessionPath,
+        })).rejects.toThrow("hook construction failed");
+        expect(registry.find("failed-create")).toBeUndefined();
+        expect(registry.list()).toEqual([]);
+        expect(await readdir(root)).toEqual([]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("failed creation preserves artifacts it did not create", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-create-artifacts-"));
+    const sessionPath = join(root, "failed.jsonl");
+    const attachmentsPath = `${sessionPath}.attachments`;
+    const eventLogPath = join(root, "existing-events.jsonl");
+    await mkdir(attachmentsPath);
+    await writeFile(join(attachmentsPath, "existing"), "attachment\n", "utf8");
+    await writeFile(eventLogPath, "event\n", "utf8");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+        eventLogPathForId: () => eventLogPath,
+        createToolHooks: () => {
+            throw new Error("hook construction failed");
+        },
+    });
+
+    try {
+        await expect(registry.create({
+            id: "failed-create",
+            workspace: root,
+            sessionPath,
+        })).rejects.toThrow("hook construction failed");
+        expect(registry.find("failed-create")).toBeUndefined();
+        expect(await readFile(join(attachmentsPath, "existing"), "utf8"))
+            .toBe("attachment\n");
+        expect(await readFile(eventLogPath, "utf8")).toBe("event\n");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("bare startup survives resume and excludes extension context", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-bare-"));
     const sessionPath = join(root, "bare.jsonl");
