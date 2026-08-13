@@ -1236,6 +1236,19 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
         .toEqual([0, 1, 0, 0, 1]);
 });
 
+test("a tool header follows its thought without a spacer row", () => {
+    const entries = [
+        { kind: "user", text: "inspect" },
+        { kind: "thought", text: "Thought: 0.0s", seconds: 0 },
+        { kind: "tool_header", header: "Ran", text: "Ran" },
+        { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
+        { kind: "assistant", text: "Done." },
+    ] as const;
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 1, 0, 0, 1]);
+});
+
 test("TUI queues a follow-up without interrupting the active transcript", () => {
     let state = beginTuiTurn(createTuiState(), "first");
     state = applyAgentUpdate(state, {

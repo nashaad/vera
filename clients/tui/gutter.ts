@@ -60,13 +60,14 @@ export function createTuiGutterEntry(
     entry: TuiTranscriptEntry,
     content: Renderable,
     marginTop: number,
+    ruled = false,
 ): BoxRenderable {
     const marker = entryMarker(entry);
     const row = new BoxRenderable(renderer, {
         id: `${id}-gutter`,
         width: "100%",
         flexDirection: "row",
-        marginTop,
+        marginTop: ruled ? 1 : marginTop,
     });
     row.add(new TextRenderable(renderer, {
         id: `${id}-marker`,
@@ -78,7 +79,27 @@ export function createTuiGutterEntry(
     }));
     row.add(content);
     contentNodes.set(row, content);
-    return row;
+    if (!ruled) return row;
+
+    // The rule marks the break, so it takes a row of its own with an empty
+    // marker column rather than displacing the block's own marker.
+    const column = new BoxRenderable(renderer, {
+        id: `${id}-ruled`,
+        width: "100%",
+        flexDirection: "column",
+        marginTop,
+    });
+    column.add(new TextRenderable(renderer, {
+        id: `${id}-rule`,
+        content: "─".repeat(200),
+        fg: TUI_MUTED,
+        width: "100%",
+        wrapMode: "none",
+        marginLeft: TUI_GUTTER_WIDTH,
+    }));
+    column.add(row);
+    contentNodes.set(column, content);
+    return column;
 }
 
 /** The rendered entry inside a gutter row, or the node itself when bare. */
