@@ -9,7 +9,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { createTuiGutterEntry } from "../../clients/tui/gutter.ts";
 import { TUI_MUTED } from "../../clients/tui/state.ts";
 
-async function assistantFrame(): Promise<string> {
+async function frameFor(ruled: boolean): Promise<string> {
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
         id: "content",
@@ -22,6 +22,7 @@ async function assistantFrame(): Promise<string> {
         { kind: "assistant", text: "Final answer" },
         content,
         0,
+        ruled,
     );
     setup.renderer.root.add(node);
     try {
@@ -33,10 +34,19 @@ async function assistantFrame(): Promise<string> {
     }
 }
 
-test("an assistant entry uses spacing without a separator rule", async () => {
-    const frame = await assistantFrame();
-    expect(frame).toContain("• Final answer");
-    expect(frame).not.toContain("──────────");
+test("a rule takes its own row and leaves the marker beside the answer", async () => {
+    const lines = (await frameFor(true)).split("\n");
+    const rule = lines.findIndex((line) => line.includes("──────────"));
+    const answer = lines.findIndex((line) => line.includes("Final answer"));
+
+    expect(rule).toBeGreaterThanOrEqual(0);
+    expect(answer).toBeGreaterThan(rule);
+    expect(lines[rule]).not.toContain("•");
+    expect(lines[answer]).toContain("•");
+});
+
+test("an unruled block draws no rule", async () => {
+    expect(await frameFor(false)).not.toContain("──────────");
 });
 
 test("the assistant marker is a muted weighted bullet", async () => {

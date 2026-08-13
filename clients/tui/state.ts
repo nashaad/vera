@@ -1196,9 +1196,18 @@ export function tuiEntryMarginTop(
         return 0;
     }
 
-    // Rows inside a group sit flush under their header. Everything else, the
-    // header included, opens with one blank line.
-    return entries[index]?.kind === "tool" ? 0 : 1;
+    const current = entries[index];
+    const previous = entries[index - 1];
+    // Rows inside a group sit flush under their header. A tool header also
+    // continues directly from the thought that introduced the work.
+    if (current?.kind === "tool") return 0;
+    if (
+        current?.kind === "tool_header"
+        && (previous?.kind === "thought" || previous?.kind === "thinking")
+    ) {
+        return 0;
+    }
+    return 1;
 }
 
 const TOOL_SUMMARY_LIMIT = 2000;
