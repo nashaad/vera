@@ -486,7 +486,18 @@ export async function startResidentHost(
             trashSession: (targetId) => registry.trashSession(targetId),
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),
-            runOnce: (runOptions) => registry.runOnce(runOptions),
+            runOnce: async (runOptions) => {
+                const result = await registry.runOnce(runOptions);
+                // The agent is already closed and off the roster, so the
+                // stored index is the only place the listing can learn of it.
+                if (result.sessionPath !== "") {
+                    await indexStoredSession(
+                        result.sessionPath,
+                        storedSessionIndex,
+                    );
+                }
+                return result;
+            },
             listExtensionCommands: () => extensions.commands(),
             runExtensionCommand: (
                 name,
@@ -1127,41 +1138,56 @@ async function indexStoredSessions(
     try {
         names = await readdir(sessionDirectory);
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Map();
-        hostLog({
-            type: "session_index_failed",
-            message: error instanceof Error ? error.message : String(error),
-        });
-        return new Map();
+        // Resolve with the shared map either way: sessions indexed after
+        // startup land in it, and a fresh map here would hide them.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            hostLog({
+                type: "session_index_failed",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+        return sessions;
     }
     for (const name of names.filter((value) => value.endsWith(".jsonl")).sort()) {
-        const path = join(sessionDirectory, name);
-        try {
-            const metadata = await readSessionIndexMetadata(path);
-            const header = metadata.header;
-            const fileStat = await stat(path).catch(() => undefined);
-            const size = fileStat?.size;
-            sessions.set(header.id, {
-                id: header.id,
-                workspace: header.cwd,
-                session_path: path,
-                kind: "interactive",
-                status: "completed",
-                live: false,
-                updated_at: fileStat?.mtime.toISOString() ?? header.timestamp,
-                ...(metadata.title === undefined
-                    ? {}
-                    : { title: metadata.title.slice(0, 80) }),
-                ...(header.origin === undefined
-                    ? {}
-                    : { forked_from: header.origin.sessionId }),
-                ...(size === undefined ? {} : { size_bytes: size }),
-            });
-        } catch {
-            // A corrupt unopened session cannot block healthy lazy resumes.
-        }
+        await indexStoredSession(join(sessionDirectory, name), sessions);
     }
     return sessions;
+}
+
+/**
+ * Index one session file into the stored-session map. Called for every file
+ * at startup, and again for each session finished after startup (a run-once
+ * turn closes its agent immediately), so the listing keeps covering sessions
+ * the registry no longer holds.
+ */
+export async function indexStoredSession(
+    path: string,
+    sessions: Map<string, RegisteredAgentSummary>,
+): Promise<void> {
+    try {
+        const metadata = await readSessionIndexMetadata(path);
+        const header = metadata.header;
+        const fileStat = await stat(path).catch(() => undefined);
+        const size = fileStat?.size;
+        sessions.set(header.id, {
+            id: header.id,
+            workspace: header.cwd,
+            session_path: path,
+            kind: "interactive",
+            status: "completed",
+            live: false,
+            updated_at: fileStat?.mtime.toISOString() ?? header.timestamp,
+            ...(metadata.title === undefined
+                ? {}
+                : { title: metadata.title.slice(0, 80) }),
+            ...(header.origin === undefined
+                ? {}
+                : { forked_from: header.origin.sessionId }),
+            ...(size === undefined ? {} : { size_bytes: size }),
+        });
+    } catch {
+        // A corrupt unopened session cannot block healthy lazy resumes.
+    }
 }
 
 function mergeStoredAndResidentAgents(
