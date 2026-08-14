@@ -260,3 +260,35 @@ test("the runtime names each log after the canonical sidecar id", async () => {
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("stop kills the whole process group, grandchildren included", async () => {
+    const root = await scratch();
+    try {
+        const pidFile = join(root, "grandchild-pid");
+        const task = new SupervisedSidecar({
+            sidecar: contribution(root, [
+                "sh",
+                "-c",
+                `sleep 60 & echo $! > ${pidFile}; wait`,
+            ]),
+            socketPath: join(root, "host.sock"),
+            logPath: join(root, "worker.log"),
+            timing: FAST_TIMING,
+        });
+        task.start();
+        await until(() => Bun.file(pidFile).size > 0);
+        const grandchild = Number((await readFile(pidFile, "utf8")).trim());
+        process.kill(grandchild, 0);
+        await task.stop();
+        await until(() => {
+            try {
+                process.kill(grandchild, 0);
+                return false;
+            } catch {
+                return true;
+            }
+        });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});

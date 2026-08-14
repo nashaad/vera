@@ -5,6 +5,7 @@ import {
     mkdirSync,
     openSync,
 } from "node:fs";
+import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 
 import type { OwnedSidecarContribution } from "../extensions/contribution-set.ts";
@@ -92,7 +93,7 @@ export class SupervisedSidecar {
 
     private controller: AbortController | null = null;
     private loop: Promise<void> | null = null;
-    private child: Bun.Subprocess | null = null;
+    private child: RunningChild | null = null;
     private stopping = false;
     private state: SidecarState = "stopped";
     private consecutiveFailures = 0;
@@ -146,17 +147,17 @@ export class SupervisedSidecar {
         this.loop = null;
         this.controller = null;
         const child = this.child;
-        if (child !== null && child.exitCode === null) {
-            child.kill("SIGTERM");
+        if (child !== null && !child.done) {
+            child.signal("SIGTERM");
             const grace = new AbortController();
             await Promise.race([
                 child.exited,
                 this.sleep(this.timing.stopGraceMs, grace.signal),
             ]);
             grace.abort();
-            if (child.exitCode === null && child.signalCode === null) {
-                child.kill("SIGKILL");
-                await child.exited.catch(() => undefined);
+            if (!child.done) {
+                child.signal("SIGKILL");
+                await child.exited;
             }
         }
         if (loop !== null) {
@@ -222,40 +223,38 @@ export class SupervisedSidecar {
             ? this.sidecar.extensionDirectory
             : resolve(this.sidecar.extensionDirectory, definition.cwd);
         const log = openLog(this.logPath);
-        let child: Bun.Subprocess;
-        try {
-            child = Bun.spawn({
-                cmd: [...definition.command],
-                cwd,
-                env: {
-                    ...process.env,
-                    ...definition.env,
-                    VERA_SOCKET: this.socketPath,
-                },
-                stdin: "ignore",
-                stdout: log,
-                stderr: log,
-            });
-        } catch (error) {
-            closeSync(log);
-            return `sidecar failed to spawn: ${errorMessage(error)}`;
-        }
+        const child = spawnChild({
+            command: definition.command,
+            cwd,
+            env: {
+                ...process.env,
+                ...definition.env,
+                VERA_SOCKET: this.socketPath,
+            },
+            log,
+        });
         this.child = child;
-        this.enter("running");
+        if (child.pid !== null) {
+            this.enter("running");
+        }
+        let outcome: ChildOutcome;
         try {
-            await child.exited;
+            outcome = await child.exited;
         } finally {
             closeSync(log);
         }
         if (signal.aborted || this.stopping) {
             return null;
         }
-        if (child.signalCode !== null) {
-            return `sidecar was killed by ${child.signalCode}`;
+        if (outcome.error !== null) {
+            return `sidecar failed to spawn: ${outcome.error}`;
         }
-        return child.exitCode === 0
+        if (outcome.signal !== null) {
+            return `sidecar was killed by ${outcome.signal}`;
+        }
+        return outcome.code === 0
             ? null
-            : `sidecar exited with code ${child.exitCode}`;
+            : `sidecar exited with code ${outcome.code}`;
     }
 
     private noteFailure(message: string): void {
@@ -359,6 +358,80 @@ export function startSidecarRuntimeIfNeeded(
     options: SidecarRuntimeOptions,
 ): SidecarRuntime | null {
     return options.sidecars.length === 0 ? null : startSidecarRuntime(options);
+}
+
+interface ChildOutcome {
+    readonly code: number | null;
+    readonly signal: string | null;
+    readonly error: string | null;
+}
+
+interface RunningChild {
+    readonly pid: number | null;
+    readonly exited: Promise<ChildOutcome>;
+    readonly done: boolean;
+    signal(name: "SIGTERM" | "SIGKILL"): void;
+}
+
+interface SpawnChildOptions {
+    readonly command: readonly string[];
+    readonly cwd: string;
+    readonly env: Record<string, string | undefined>;
+    readonly log: number;
+}
+
+/**
+ * Spawns the sidecar detached, so it leads its own process group and a
+ * shutdown signal reaches everything it started, not just the immediate
+ * child. Killing only the direct child would orphan a `sh worker.sh`
+ * grandchild, leaving it holding the log and VERA_SOCKET past host death.
+ */
+function spawnChild(options: SpawnChildOptions): RunningChild {
+    const [executable, ...args] = options.command;
+    const child = spawn(executable as string, args, {
+        cwd: options.cwd,
+        env: options.env,
+        detached: true,
+        stdio: ["ignore", options.log, options.log],
+    });
+    let done = false;
+    const exited = new Promise<ChildOutcome>((resolveOutcome) => {
+        let settled = false;
+        const settle = (outcome: ChildOutcome): void => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            done = true;
+            resolveOutcome(outcome);
+        };
+        child.once("error", (error) =>
+            settle({ code: null, signal: null, error: error.message }));
+        child.once("exit", (code, signal) =>
+            settle({ code, signal, error: null }));
+    });
+    return {
+        pid: child.pid ?? null,
+        exited,
+        get done(): boolean {
+            return done;
+        },
+        signal(name: "SIGTERM" | "SIGKILL"): void {
+            const pid = child.pid;
+            if (pid === undefined || done) {
+                return;
+            }
+            try {
+                process.kill(-pid, name);
+            } catch {
+                try {
+                    child.kill(name);
+                } catch {
+                    // Already gone; the exit event settles the outcome.
+                }
+            }
+        },
+    };
 }
 
 function openLog(path: string): number {
