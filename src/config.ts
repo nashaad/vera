@@ -28,6 +28,10 @@ import {
     type VeraCompactionConfig,
     type VeraReviewerProfileConfig,
 } from "./config/model-catalog.ts";
+import {
+    parseModelSlotsConfig,
+    type VeraModelSlotsConfig,
+} from "./config/model-slots.ts";
 import { parsePermissionModes } from "./config/permission-modes.ts";
 import type { PermissionMode } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
@@ -145,6 +149,11 @@ export interface VeraConfig {
         Record<string, VeraReviewerProfileConfig>
     >;
     readonly compaction?: VeraCompactionConfig;
+    /**
+     * Named bindings a caller reaches for instead of naming a model. Sparse:
+     * an unbound slot means the callers that wanted it do not run.
+     */
+    readonly model_slots?: VeraModelSlotsConfig;
     readonly permission_modes?: Readonly<
         Record<string, PermissionMode>
     >;
@@ -489,6 +498,13 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             config.compaction,
             modelCatalog?.model_routes ?? {},
         );
+    // Slots name routes, so they parse against the same catalog compaction
+    // does, and a slot naming a route the catalog dropped rejects the block
+    // rather than binding a caller to a short list.
+    const modelSlots = parseModelSlotsConfig(
+        config.model_slots,
+        modelCatalog?.model_routes ?? {},
+    );
     const extensions = parseExtensionConfigs(config.extensions);
     const disabledBuiltinExtensions = parseStringList(
         config.disabled_builtin_extensions,
@@ -528,6 +544,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || (collapseVersions !== undefined
             && typeof collapseVersions !== "boolean")
         || (config.compaction !== undefined && compaction === undefined)
+        || modelSlots === undefined
         ||
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
@@ -562,6 +579,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             }
             : {}),
         ...(compaction === undefined ? {} : { compaction }),
+        ...(modelSlots === undefined || Object.keys(modelSlots).length === 0
+            ? {}
+            : { model_slots: modelSlots }),
         ...(rawPermissionModes === undefined
             ? {}
             : { permission_modes: permissionModes }),
