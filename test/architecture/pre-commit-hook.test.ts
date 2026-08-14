@@ -60,7 +60,7 @@ test("an extension-only commit passes without approval", () => {
     ]).accepted).toBe(true);
 });
 
-test("engine source and tests require Nash's explicit approval", () => {
+test("engine source and tests require explicit maintainer approval", () => {
     const result = check([
         "src/engine/run-turn.ts",
         "test/engine/run-turn.test.ts",

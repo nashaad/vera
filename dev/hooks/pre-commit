@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Keep the engine frozen unless Nash approved the exact staged change.
+# Keep the engine frozen unless a maintainer approved the exact staged change.
 
 if ! protected_paths=$(git diff --cached --name-only --no-renames -- \
     'src/engine/**' 'test/engine/**'); then
@@ -25,12 +25,12 @@ if [ "${VERA_ENGINE_CHANGE_APPROVAL:-}" = "$approval" ]; then
     exit 0
 fi
 
-printf 'pre-commit: engine changes require Nash\047s explicit approval\n\n' >&2
+printf 'pre-commit: engine changes require explicit maintainer approval\n\n' >&2
 printf '%s\n' "$protected_paths" | sed 's/^/  /' >&2
 printf '\nNew capabilities belong in extensions by default. Run the adversarial\n' >&2
-printf 'review first, then show Nash the exact staged engine diff with:\n\n' >&2
+printf 'review first, then show a maintainer the exact staged engine diff with:\n\n' >&2
 printf '  git diff --cached -- src/engine test/engine\n\n' >&2
-printf 'Generic approval such as "continue" does not count. After Nash approves\n' >&2
+printf 'Generic approval such as "continue" does not count. After a maintainer approves\n' >&2
 printf 'that diff, retry once with:\n\n' >&2
 printf '  VERA_ENGINE_CHANGE_APPROVAL=%s git commit ...\n\n' "$approval" >&2
 printf 'Any staged engine change produces a different approval value.\n\n' >&2
