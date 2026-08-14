@@ -19,6 +19,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { registerTuiParsers } from "./parsers.ts";
+import {
+    createTuiFlightRecorder,
+    type TuiFlightRecorder,
+} from "./flight-recorder.ts";
 
 import {
     DIALOG_BACKGROUND_OPACITY,
@@ -515,6 +519,7 @@ export interface TuiDependencies {
         providerId: string,
         onAuthorizationUrl: (url: string) => void,
     ) => Promise<void>;
+    readonly flightRecorder?: TuiFlightRecorder;
 }
 
 export interface TuiDraft {
@@ -615,6 +620,8 @@ export async function startConfiguredTui(
             : resolvedTarget.agentId;
     const agentClients = createConfiguredTuiAgentClients(() => host.socket_path);
     const client = await agentClients.attach(agentId);
+    const flightRecorder = createTuiFlightRecorder();
+    flightRecorder.sessionEntered(agentId);
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);
     };
@@ -692,11 +699,18 @@ export async function startConfiguredTui(
                 hostPid: host.pid,
                 hostStartedAt: host.started_at,
             },
+            flightRecorder,
         });
         process.stdout.write(renderResumeHint(exit.agentId));
     } catch (error) {
+        flightRecorder.record({
+            type: "client_failed",
+            error: error instanceof Error ? error.message : String(error),
+        });
         client.close();
         throw error;
+    } finally {
+        flightRecorder.close("tui_returned");
     }
 }
 
@@ -711,6 +725,8 @@ export async function startTui(
      * talks to the host reads this binding at the moment it sends.
      */
     let client = dependencies.client;
+    const flightRecorder = dependencies.flightRecorder;
+    flightRecorder?.sessionEntered(client.agentId ?? "unknown");
     const configuredAppearance = dependencies.appearance
         ?? resolveTuiAppearance();
     setTuiWorkspaceRoot(client.workspace ?? process.cwd());
@@ -1799,6 +1815,10 @@ export async function startTui(
 
     function setSidebarFocused(focused: boolean): void {
         sidebar.setFocused(focused);
+        flightRecorder?.record({
+            type: "focus_changed",
+            surface: focused ? "sidebar_composer" : "main_composer",
+        });
         const settings = focusedAgentState().modelSettings;
         if (settings !== undefined) notifyExtensionSettings(settings);
     }
@@ -2225,9 +2245,14 @@ export async function startTui(
     renderer.root.add(app);
     clientSurfaceReady = true;
     composer.focus();
+    flightRecorder?.record({
+        type: "focus_changed",
+        surface: "main_composer",
+    });
     renderStatus();
 
     renderer.on(CliRenderEvents.DESTROY, () => {
+        flightRecorder?.record({ type: "renderer_destroyed" });
         shuttingDown = true;
         renderCoalescer.stop();
         clearInterval(statusTimer);
@@ -2372,6 +2397,7 @@ export async function startTui(
     });
 
     renderer.keyInput.on("keypress", handleKeypress);
+    let lastInputRecordAt = 0;
 
     /**
      * Every key the TUI acts on arrives here, overlays included. Pointer input
@@ -2381,6 +2407,20 @@ export async function startTui(
      * same call.
      */
     function handleKeypress(key: KeyEvent): void {
+        const inputAt = Date.now();
+        if (inputAt - lastInputRecordAt >= 250) {
+            lastInputRecordAt = inputAt;
+            flightRecorder?.record({
+                type: "raw_input_received",
+                surface: activeFlightSurface(),
+                control: key.ctrl || key.meta || key.super || key.hyper,
+            });
+            queueMicrotask(() => flightRecorder?.record({
+                type: "composer_observed",
+                characters: Array.from(composer.expandedText()).length,
+                surface: activeFlightSurface(),
+            }));
+        }
         if (parseRawInputEvent(key)?.type === "open_palette") {
             key.preventDefault();
             key.stopPropagation();
@@ -3222,6 +3262,19 @@ export async function startTui(
         interceptedText?: string,
         injectedPrefix?: number,
     ): void {
+        flightRecorder?.record({
+            type: "submit_requested",
+            characters: Array.from(
+                interceptedText ?? composer.expandedText(),
+            ).length,
+            surface: activeFlightSurface(),
+            blocked: promptSubmitting
+                || sessionSwitchPending
+                || pendingSessionRename
+                || extensionCommandPending
+                || sidebarPromptSubmitting
+                || messageInterceptPending,
+        });
         if (
             promptSubmitting
             || sessionSwitchPending
@@ -4160,11 +4213,13 @@ export async function startTui(
             );
             promptSubmitting = true;
             renderStatus();
+            flightRecorder?.record({ type: "submit_dispatched" });
             void client.send({
                 type: "prompt",
                 content: prompt,
                 attachmentIds,
             }).then(() => {
+                flightRecorder?.record({ type: "submit_accepted" });
                 promptSubmitting = false;
                 if (shuttingDown) return;
                 if (composer.expandedText().trim() === prompt) {
@@ -4185,6 +4240,10 @@ export async function startTui(
                 activity = "thinking";
                 renderState();
             }).catch((error) => {
+                flightRecorder?.record({
+                    type: "submit_failed",
+                    error: error instanceof Error ? error.message : String(error),
+                });
                 promptSubmitting = false;
                 reportConnectionError(error);
             });
@@ -4846,7 +4905,22 @@ export async function startTui(
     }
 
     function sendCommand(command: ClientCommand): void {
-        void client.send(command).catch(reportConnectionError);
+        if (command.type === "prompt") {
+            flightRecorder?.record({ type: "submit_dispatched" });
+        }
+        void client.send(command).then(() => {
+            if (command.type === "prompt") {
+                flightRecorder?.record({ type: "submit_accepted" });
+            }
+        }).catch((error) => {
+            if (command.type === "prompt") {
+                flightRecorder?.record({
+                    type: "submit_failed",
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+            reportConnectionError(error);
+        });
     }
 
     function requestExtensionModelSettingsUpdate(
@@ -5193,9 +5267,24 @@ export async function startTui(
         const overlay = activeOverlayFocus();
         if (overlay !== undefined) {
             overlay();
+            flightRecorder?.record({
+                type: "focus_changed",
+                surface: "overlay",
+            });
             return;
         }
         composer.focus();
+        flightRecorder?.record({
+            type: "focus_changed",
+            surface: sidebar.isFocused()
+                ? "sidebar_composer"
+                : "main_composer",
+        });
+    }
+
+    function activeFlightSurface(): string {
+        if (activeOverlayFocus() !== undefined) return "overlay";
+        return sidebar.isFocused() ? "sidebar_composer" : "main_composer";
     }
 
     function applyTimelineTransition(
@@ -6760,6 +6849,9 @@ export async function startTui(
             new Error("The conversation changed"),
         );
         client = next;
+        if (next.agentId !== undefined) {
+            flightRecorder?.sessionEntered(next.agentId);
+        }
         setTuiWorkspaceRoot(next.workspace ?? process.cwd());
         void previous.detach().catch(() => previous.close());
 
