@@ -2436,11 +2436,16 @@ export async function startTui(
                 surface: activeFlightSurface(),
                 control: key.ctrl || key.meta || key.super || key.hyper,
             });
-            queueMicrotask(() => flightRecorder?.record({
-                type: "composer_observed",
-                characters: Array.from(composer.expandedText()).length,
-                surface: activeFlightSurface(),
-            }));
+            queueMicrotask(() => {
+                // The key may synchronously destroy the renderer (for example,
+                // ctrl+c while idle), taking the composer's EditBuffer with it.
+                if (shuttingDown) return;
+                flightRecorder?.record({
+                    type: "composer_observed",
+                    characters: Array.from(composer.expandedText()).length,
+                    surface: activeFlightSurface(),
+                });
+            });
         }
         if (parseRawInputEvent(key)?.type === "open_palette") {
             key.preventDefault();
