@@ -73,7 +73,7 @@ import { skillScriptTool } from "../skills/script.ts";
 import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
-import { readArcNodeId } from "./arc-identity.ts";
+import { readArcNodeId, readArcToken } from "./arc-identity.ts";
 import {
     startWatchRuntimeIfEnabled,
     type WatchRuntime,
@@ -424,9 +424,11 @@ export async function startResidentHost(
             ...(options.watchConnectors === undefined
                 ? {}
                 : { connectors: options.watchConnectors }),
-            ...(options.watchSecret === undefined
-                ? {}
-                : { secret: options.watchSecret }),
+            // The host holds credentials; a watch definition is committed
+            // data and never carries one. Absent an injected resolver, every
+            // watch authenticates with this machine's arc token.
+            secret: options.watchSecret
+                ?? (() => readArcToken(options.arcConfigPath)),
             onAppended: () => {
                 void inboxDelivery?.pumpAll();
             },

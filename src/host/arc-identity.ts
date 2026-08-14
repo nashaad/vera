@@ -14,6 +14,7 @@ import { join } from "node:path";
  */
 
 const NODE_ID_LINE = /^\s*node_id\s*=\s*"([^"]*)"\s*(?:#.*)?$/;
+const TOKEN_LINE = /^\s*token\s*=\s*"([^"]*)"\s*(?:#.*)?$/;
 
 /** `$ARC_CONFIG` when set, else arc's default per-user config path. */
 export function defaultArcConfigPath(): string {
@@ -32,14 +33,29 @@ export function defaultArcConfigPath(): string {
 export function readArcNodeId(
     configPath: string = defaultArcConfigPath(),
 ): string | null {
+    return readQuotedValue(configPath, NODE_ID_LINE);
+}
+
+/**
+ * The bearer `token` from arc's config file, `null` when the file is missing,
+ * unreadable, or carries none. Watches use it to authenticate against the arc
+ * server; a watch without one still runs, unauthenticated.
+ */
+export function readArcToken(
+    configPath: string = defaultArcConfigPath(),
+): string | null {
+    return readQuotedValue(configPath, TOKEN_LINE);
+}
+
+function readQuotedValue(configPath: string, line: RegExp): string | null {
     let text: string;
     try {
         text = readFileSync(configPath, "utf8");
     } catch {
         return null;
     }
-    for (const line of text.split("\n")) {
-        const match = NODE_ID_LINE.exec(line);
+    for (const candidate of text.split("\n")) {
+        const match = line.exec(candidate);
         if (match !== null && match[1] !== "") {
             return match[1]!;
         }
