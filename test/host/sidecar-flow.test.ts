@@ -46,7 +46,7 @@ hostTest("a contributed sidecar lives and dies with the resident host", async ()
                 provider: "openrouter",
                 model: "faux/test",
                 approval_mode: "auto",
-                extensions: [{ path: extensionDirectory, enabled: true }],
+                extensions: [{ path: extensionDirectory, enabled: true, config: {} }],
             },
             createAdapter: () => new FauxAdapter([]),
             socketPath: join(root, "host.sock"),
