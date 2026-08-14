@@ -218,9 +218,10 @@ test("a job slot with neither itself nor its intent bound reaches the session", 
 });
 
 test("every job slot names an intent that exists, and every slot an intent line", () => {
+    const ids: string[] = [...MODEL_SLOT_IDS];
     for (const [job, intent] of Object.entries(JOB_SLOT_INTENTS)) {
-        expect(MODEL_SLOT_IDS).toContain(intent);
-        expect(MODEL_SLOT_IDS).toContain(job);
+        expect(ids).toContain(intent);
+        expect(ids).toContain(job);
     }
     for (const slot of MODEL_SLOT_IDS) {
         expect(MODEL_SLOT_INTENTS[slot].length).toBeGreaterThan(0);
