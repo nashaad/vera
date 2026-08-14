@@ -4,8 +4,8 @@ import { join } from "node:path";
 import {
     createHostLockfile,
     HostProtocolMismatchError,
-} from "../../src/host/lockfile.ts";
-import { veraHomeDirectory } from "../../src/profile-paths.ts";
+} from "../src/host/lockfile.ts";
+import { veraHomeDirectory } from "../src/profile-paths.ts";
 
 const DEFAULT_SAMPLE_INTERVAL_MS = 750;
 const DEFAULT_HIGH_CPU_PERCENT = 50;

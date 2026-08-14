@@ -129,6 +129,75 @@ test.skipIf(!tmuxAvailable)(
 );
 
 test.skipIf(!tmuxAvailable)(
+    "doctor opens the read-only process report inside the TUI",
+    async () => {
+        const socket = `vera-doctor-${process.pid}-${randomUUID()}`;
+        const session = "doctor";
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-doctor-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+                100,
+                36,
+                { VERA_TEST_STALE_DOCTOR: "1" },
+            );
+            await waitForVisiblePane(socket, session, "Start a conversation");
+            sendText(socket, session, "/doctor");
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(
+                socket,
+                session,
+                "checking process health…",
+            );
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePane(socket, session, "Message Vera");
+            sendText(socket, session, "/doctor");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "Result: issues found",
+            );
+            expect(pane).toContain("Doctor");
+            expect(pane).toContain("Process summary");
+            expect(pane).toContain("Resident hosts: 1 (1 unrecognized");
+            expect(pane).toContain("PID 4242");
+            expect(pane).toContain("No processes were stopped.");
+            await Bun.sleep(400);
+            pane = captureVisiblePane(socket, session);
+            expect(pane).toContain("PID 4242");
+            expect(pane).not.toContain("PID 1111");
+
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "✓ copied");
+            sendKey(socket, session, "Escape");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message Vera")
+                    && !visible.includes("Result: issues found"),
+                "doctor overlay to close without transcript output",
+            );
+            expect(pane).not.toContain("Process summary");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+test.skipIf(!tmuxAvailable)(
     "reload failure reaches the TUI diagnostics overlay",
     async () => {
         const socket = `vera-reload-failure-${process.pid}-${randomUUID()}`;
