@@ -147,6 +147,8 @@ export interface ResidentHost {
     readonly registry: AgentRegistry;
     readonly extensions: ExtensionRegistry;
     readonly server: HostServer;
+    /** Resolves as soon as any caller starts closing this resident host. */
+    readonly shutdownRequested: Promise<void>;
     close(): Promise<void>;
 }
 
@@ -422,8 +424,13 @@ export async function startResidentHost(
     const resumeSession = (sessionPath: string) =>
         resumeOrFind(registry, sessionPath, restoringSessions);
     let closing: Promise<void> | undefined;
+    let announceShutdown: () => void = () => {};
+    const shutdownRequested = new Promise<void>((resolve) => {
+        announceShutdown = resolve;
+    });
     const closeHost = (): Promise<void> => {
         if (closing === undefined) {
+            announceShutdown();
             closing = closeResidentHost(
                 server,
                 registry,
@@ -575,6 +582,7 @@ export async function startResidentHost(
         registry,
         extensions,
         server,
+        shutdownRequested,
         close: closeHost,
     };
 }

@@ -63,6 +63,11 @@ import type { ScheduleOperation } from "../../src/scheduler/types.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import type { StartupProfile } from "../../src/startup-profile.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
+import {
+    diagnoseVeraProcesses,
+    renderVeraDoctor,
+    type VeraDoctorReport,
+} from "../process-doctor.ts";
 
 interface CliOutput {
     write(text: string): unknown;
@@ -97,6 +102,7 @@ export interface CliDependencies {
     ) => Promise<void>;
     readonly confirmHostStop?: () => boolean | Promise<boolean>;
     readonly stopHost?: () => Promise<number | undefined>;
+    readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly listPool?: (workspace: string) => Promise<string>;
     readonly addPoolModel?: (
         workspace: string,
@@ -266,6 +272,14 @@ export async function runCli(
     if (args.length === 1 && args[0] === "rpc") {
         await (dependencies.runRpc ?? runNdjsonProcess)();
         return 0;
+    }
+
+    if (args.length === 1 && args[0] === "doctor") {
+        const report = await (
+            dependencies.doctor ?? diagnoseVeraProcesses
+        )();
+        output.write(renderVeraDoctor(report));
+        return report.healthy ? 0 : 1;
     }
 
     if (args[0] === "schedule") {
