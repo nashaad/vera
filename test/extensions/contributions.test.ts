@@ -67,7 +67,7 @@ test("flood policy defaults to shedding and config defaults to empty", () => {
 
 test("a missing contributes key yields no contributions", () => {
     expect(parseExtensionContributions(undefined, "acme.arc-bridge"))
-        .toEqual({ watches: [] });
+        .toEqual({ watches: [], sidecars: [] });
 });
 
 test("watch ids are local and canonicalize under the owning extension", () => {
@@ -137,4 +137,65 @@ test("a manifest parses its contributions alongside its identity", () => {
     });
 
     expect(manifest?.contributes.watches).toHaveLength(1);
+});
+
+test("a sidecar contribution parses its command, env, cwd, and restart", () => {
+    const contributions = parseExtensionContributions({
+        sidecars: [
+            {
+                id: "worker",
+                command: ["bun", "run", "main.ts"],
+                env: { TOPIC: "vera" },
+                cwd: "worker",
+                restart: false,
+            },
+        ],
+    }, "acme.tools");
+
+    expect(contributions.sidecars[0]).toEqual({
+        id: "worker",
+        command: ["bun", "run", "main.ts"],
+        env: { TOPIC: "vera" },
+        cwd: "worker",
+        restart: false,
+    });
+});
+
+test("a sidecar defaults to restart with no env and no cwd", () => {
+    const contributions = parseExtensionContributions({
+        sidecars: [{ id: "worker", command: ["bun", "main.ts"] }],
+    }, "acme.tools");
+
+    expect(contributions.sidecars[0]).toEqual({
+        id: "worker",
+        command: ["bun", "main.ts"],
+        env: {},
+        restart: true,
+    });
+});
+
+test("a sidecar refuses malformed declarations", () => {
+    for (const sidecar of [
+        { command: ["bun"] },
+        { id: "Worker", command: ["bun"] },
+        { id: "worker" },
+        { id: "worker", command: [] },
+        { id: "worker", command: ["bun", ""] },
+        { id: "worker", command: "bun main.ts" },
+        { id: "worker", command: ["bun"], env: { PORT: 5 } },
+        { id: "worker", command: ["bun"], cwd: "" },
+        { id: "worker", command: ["bun"], restart: "yes" },
+    ]) {
+        expect(() => parseExtensionContributions({ sidecars: [sidecar] }, "acme.tools"))
+            .toThrow(ExtensionContributionError);
+    }
+});
+
+test("duplicate sidecar ids within one extension are refused", () => {
+    expect(() => parseExtensionContributions({
+        sidecars: [
+            { id: "worker", command: ["bun"] },
+            { id: "worker", command: ["node"] },
+        ],
+    }, "acme.tools")).toThrow(ExtensionContributionError);
 });
