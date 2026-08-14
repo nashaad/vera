@@ -1,0 +1,17 @@
+{
+  "id": "nash.sidecar-heartbeat",
+  "version": "0.1.0",
+  "sdk": "1",
+  "entrypoint": "./index.ts",
+  "capabilities": [],
+  "contributes": {
+    "sidecars": [
+      {
+        "id": "heartbeat",
+        "command": ["sh", "heartbeat.sh"],
+        "env": { "INTERVAL_SECONDS": "60" },
+        "restart": true
+      }
+    ]
+  }
+}

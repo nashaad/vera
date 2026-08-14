@@ -160,6 +160,7 @@ export async function startExtensionRegistry(
             contributions.admit(
                 manifest.manifest.id,
                 manifest.manifest.contributes,
+                manifest.directory,
             );
             admitted = true;
             extension = await activateExtension(
