@@ -43,6 +43,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "clone_session" },
         { type: "compact_session" },
         { type: "show_diagnostics" },
+        { type: "show_doctor" },
         { type: "show_pool" },
         { type: "pool_current_model" },
         {
@@ -80,6 +81,7 @@ test("every slash action has an explicit pane scope", () => {
             ["clone_session", "main_session"],
             ["compact_session", "main_session"],
             ["show_diagnostics", "application"],
+            ["show_doctor", "application"],
             ["show_pool", "application"],
             ["pool_current_model", "application"],
             ["run_extension", "application"],
@@ -142,6 +144,14 @@ test("reload extensions is an application-owned client action", () => {
 
     const action = registry.dispatch("/reload-extensions");
     expect(action).toEqual({ type: "reload_client_extensions" });
+    expect(tuiCommandScope(action!)).toBe("application");
+});
+
+test("doctor is an application-owned client action", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    const action = registry.dispatch("/doctor");
+    expect(action).toEqual({ type: "show_doctor" });
     expect(tuiCommandScope(action!)).toBe("application");
 });
 

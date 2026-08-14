@@ -5,7 +5,7 @@ import {
     parseVeraProcessList,
     renderVeraDoctor,
     type VeraProcessSample,
-} from "../clients/cli/doctor.ts";
+} from "../clients/process-doctor.ts";
 
 test("process parsing finds Vera hosts and clients without claiming other Bun work", () => {
     const samples = parseVeraProcessList(`

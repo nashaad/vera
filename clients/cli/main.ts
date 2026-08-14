@@ -67,7 +67,7 @@ import {
     diagnoseVeraProcesses,
     renderVeraDoctor,
     type VeraDoctorReport,
-} from "./doctor.ts";
+} from "../process-doctor.ts";
 
 interface CliOutput {
     write(text: string): unknown;
