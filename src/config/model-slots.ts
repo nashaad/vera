@@ -156,3 +156,88 @@ export function resolveModelSlot(
         route: configured.model_route,
     };
 }
+
+/**
+ * Whether a caller can be skipped when nothing binds its slot.
+ *
+ * Compaction cannot: a session that does not compact reaches the context limit
+ * and stops, so an unbound slot has to fall through to the session's own model
+ * rather than leave the job undone. Session naming can: the session keeps its
+ * plain name and nothing is lost. Getting this backwards is expensive in both
+ * directions, so the caller states it rather than the resolver assuming.
+ */
+export type SlotDemand = "required" | "optional";
+
+export interface SlotBindingRequest {
+    readonly slot: ModelSlotId;
+    readonly demand: SlotDemand;
+    /**
+     * A route the feature was configured with directly. The more specific
+     * statement, so it wins: a user who named a route for compaction meant
+     * that route, not whatever the slot happens to hold.
+     */
+    readonly explicitRoute?: string;
+}
+
+export type SlotBindingSource = "explicit" | "slot" | "session" | "none";
+
+export interface SlotBinding {
+    readonly source: SlotBindingSource;
+    /** Empty when the caller falls through to the session's own model. */
+    readonly models: readonly VeraCatalogModel[];
+}
+
+/**
+ * Which models answer a caller, and on whose say-so.
+ *
+ * `session` means nothing was bound and the caller is required, so it runs on
+ * whatever model the session is already using. `none` means nothing was bound
+ * and the caller is optional, so it does not run.
+ */
+export function bindModelSlot(
+    catalog: VeraModelCatalogConfig,
+    slots: VeraModelSlotsConfig,
+    request: SlotBindingRequest,
+): SlotBinding {
+    if (request.explicitRoute !== undefined) {
+        const explicit = resolveModelRoute(catalog, request.explicitRoute);
+        if (explicit !== undefined && explicit.length > 0) {
+            return { source: "explicit", models: explicit };
+        }
+    }
+    const resolved = resolveModelSlot(catalog, slots, request.slot);
+    if (resolved !== undefined && resolved.models.length > 0) {
+        return { source: "slot", models: resolved.models };
+    }
+    return request.demand === "required"
+        ? { source: "session", models: [] }
+        : { source: "none", models: [] };
+}
+
+/**
+ * A model or provider that automatic slot assignment never reaches for.
+ *
+ * `provider` alone excludes every model that provider serves. `model` narrows
+ * it to one. Exclusion applies only to automatic assignment: a slot the user
+ * binds by hand holds whatever they bound, including these.
+ */
+export interface SlotAutoExclusion {
+    readonly provider: string;
+    readonly model?: string;
+}
+
+export const DEFAULT_SLOT_AUTO_EXCLUSIONS: readonly SlotAutoExclusion[] = [
+    { provider: "cerebras" },
+    { provider: "anthropic", model: "claude-fable-5" },
+];
+
+export function isAutoAssignable(
+    entry: VeraCatalogModel,
+    exclusions: readonly SlotAutoExclusion[] = DEFAULT_SLOT_AUTO_EXCLUSIONS,
+): boolean {
+    return !exclusions.some(
+        (excluded) =>
+            excluded.provider === entry.provider &&
+            (excluded.model === undefined || excluded.model === entry.model),
+    );
+}
