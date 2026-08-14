@@ -95,7 +95,8 @@ export function parseExtensionManifest(
 }
 
 export function hasContributions(manifest: ExtensionManifest): boolean {
-    return manifest.contributes.watches.length > 0;
+    return manifest.contributes.watches.length > 0
+        || manifest.contributes.sidecars.length > 0;
 }
 
 function realDirectory(configuredDirectory: string): string {

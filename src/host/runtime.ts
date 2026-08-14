@@ -79,6 +79,11 @@ import {
     type WatchRuntime,
 } from "../watch/runtime.ts";
 import type { WatchSecretResolver } from "../watch/arc-connector.ts";
+import {
+    startSidecarRuntimeIfNeeded,
+    type SidecarRuntime,
+} from "./sidecar-runtime.ts";
+import { veraRuntimeDirectory } from "../profile-paths.ts";
 import type { WatchConnector } from "../watch/source.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
 import {
@@ -127,6 +132,8 @@ export interface StartResidentHostOptions {
     readonly arcConfigPath?: string;
     /** Supplies a watch its bearer token. Definitions never carry one. */
     readonly watchSecret?: WatchSecretResolver;
+    /** Overrides `~/.vera/.../logs/sidecars`, so tests write under a tmp dir. */
+    readonly sidecarLogDirectory?: string;
     /** @deprecated Inbox arrivals no longer cold-spawn sessions. */
     readonly spawnConsentPath?: string;
     /** @deprecated Inbox arrivals no longer cold-spawn sessions. */
@@ -213,6 +220,14 @@ export async function startResidentHost(
     // so shutdown stops the connector tasks before the log they write to closes.
     let watches: WatchRuntime | null = null;
     let scheduler: SchedulerRuntime | null = null;
+    // Sidecars are started after the server, because the socket path they
+    // receive is the started server's. They stop first on shutdown, so a
+    // child never outlives the socket it talks to.
+    let sidecars: SidecarRuntime | null = null;
+    const closeSidecars = async (): Promise<void> => {
+        await sidecars?.close();
+        sidecars = null;
+    };
     const closeInbox = async (): Promise<void> => {
         await watches?.close();
         await scheduler?.close();
@@ -414,6 +429,7 @@ export async function startResidentHost(
                 registry,
                 extensions,
                 closeInbox,
+                closeSidecars,
             );
         }
         return closing;
@@ -508,10 +524,30 @@ export async function startResidentHost(
                 ...hostErrorFields(error),
             }),
         });
+        sidecars = startSidecarRuntimeIfNeeded({
+            sidecars: extensions.contributions().sidecars(),
+            socketPath: server.socketPath,
+            logDirectory: options.sidecarLogDirectory
+                ?? join(veraRuntimeDirectory(), "logs", "sidecars"),
+            onStateChange: (status) => hostLog({
+                type: "sidecar_state",
+                sidecar: status.sidecarId,
+                state: status.state,
+                ...(status.pid === null ? {} : { pid: status.pid }),
+                ...(status.lastError === null
+                    ? {}
+                    : { message: status.lastError }),
+            }),
+        });
         void indexStoredSessions(sessionDirectory, storedSessionIndex).then(
             publishStoredSessions,
         );
     } catch (error) {
+        try {
+            await closeSidecars();
+        } catch {
+            // Preserve the host startup failure.
+        }
         try {
             await extensions.close();
         } catch {
@@ -1180,6 +1216,20 @@ async function closeResidentHost(
     registry: AgentRegistry,
     extensions: ExtensionRegistry,
     closeInbox: () => void | Promise<void> = () => {},
+    closeSidecars: () => void | Promise<void> = () => {},
+): Promise<void> {
+    try {
+        await closeSidecars();
+    } finally {
+        await closeServerAndRest(server, registry, extensions, closeInbox);
+    }
+}
+
+async function closeServerAndRest(
+    server: HostServer,
+    registry: AgentRegistry,
+    extensions: ExtensionRegistry,
+    closeInbox: () => void | Promise<void>,
 ): Promise<void> {
     try {
         await server.close();

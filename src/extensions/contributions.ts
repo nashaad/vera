@@ -1,4 +1,4 @@
-export const CONTRIBUTION_KINDS = ["watches"] as const;
+export const CONTRIBUTION_KINDS = ["watches", "sidecars"] as const;
 
 export type ContributionKind = typeof CONTRIBUTION_KINDS[number];
 
@@ -26,13 +26,28 @@ export interface WatchContribution {
     readonly flood: WatchFloodPolicy;
 }
 
+/**
+ * A process the host launches when it starts and tears down when it stops.
+ * The command runs with the extension directory as its default working
+ * directory and learns the host socket through VERA_SOCKET.
+ */
+export interface SidecarContribution {
+    readonly id: string;
+    readonly command: readonly string[];
+    readonly env: Readonly<Record<string, string>>;
+    readonly cwd?: string;
+    readonly restart: boolean;
+}
+
 export interface ExtensionContributions {
     readonly watches: readonly WatchContribution[];
+    readonly sidecars: readonly SidecarContribution[];
 }
 
 export const EMPTY_EXTENSION_CONTRIBUTIONS: ExtensionContributions = Object
     .freeze({
         watches: Object.freeze([]) as readonly WatchContribution[],
+        sidecars: Object.freeze([]) as readonly SidecarContribution[],
     });
 
 export class ExtensionContributionError extends Error {
@@ -46,6 +61,13 @@ export class ExtensionContributionError extends Error {
 }
 
 export function canonicalWatchId(extensionId: string, localId: string): string {
+    return `${extensionId}/${localId}`;
+}
+
+export function canonicalSidecarId(
+    extensionId: string,
+    localId: string,
+): string {
     return `${extensionId}/${localId}`;
 }
 
@@ -74,7 +96,109 @@ export function parseExtensionContributions(
 
     return {
         watches: parseWatchContributions(value.watches, extensionId),
+        sidecars: parseSidecarContributions(value.sidecars, extensionId),
     };
+}
+
+function parseSidecarContributions(
+    value: unknown,
+    extensionId: string,
+): readonly SidecarContribution[] {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        throw new ExtensionContributionError(
+            extensionId,
+            "contributes.sidecars must be an array",
+        );
+    }
+
+    const sidecars: SidecarContribution[] = [];
+    const localIds = new Set<string>();
+    for (const entry of value) {
+        const sidecar = parseSidecarContribution(entry, extensionId);
+        if (localIds.has(sidecar.id)) {
+            throw new ExtensionContributionError(
+                extensionId,
+                `duplicate sidecar id "${sidecar.id}"`,
+            );
+        }
+        localIds.add(sidecar.id);
+        sidecars.push(sidecar);
+    }
+    return sidecars;
+}
+
+function parseSidecarContribution(
+    value: unknown,
+    extensionId: string,
+): SidecarContribution {
+    if (!isPlainObject(value)) {
+        throw new ExtensionContributionError(
+            extensionId,
+            "a sidecar contribution must be an object",
+        );
+    }
+
+    const id = value.id;
+    if (typeof id !== "string" || !isWatchLocalId(id)) {
+        throw new ExtensionContributionError(
+            extensionId,
+            `a sidecar id must match ${WATCH_LOCAL_ID_PATTERN.source}`,
+        );
+    }
+
+    const command = value.command;
+    if (
+        !Array.isArray(command)
+        || command.length === 0
+        || command.some(
+            (part) => typeof part !== "string" || part.trim().length === 0,
+        )
+    ) {
+        throw new ExtensionContributionError(
+            extensionId,
+            `sidecar "${id}" command must be a non-empty array of non-empty strings`,
+        );
+    }
+
+    const env = value.env === undefined
+        ? EMPTY_SIDECAR_ENV
+        : asStringRecord(value.env);
+    if (env === undefined) {
+        throw new ExtensionContributionError(
+            extensionId,
+            `sidecar "${id}" env must be an object of string values`,
+        );
+    }
+
+    const cwd = value.cwd;
+    if (
+        cwd !== undefined
+        && (typeof cwd !== "string" || cwd.trim().length === 0)
+    ) {
+        throw new ExtensionContributionError(
+            extensionId,
+            `sidecar "${id}" cwd must be a non-empty string`,
+        );
+    }
+
+    const restart = value.restart ?? true;
+    if (typeof restart !== "boolean") {
+        throw new ExtensionContributionError(
+            extensionId,
+            `sidecar "${id}" restart must be a boolean`,
+        );
+    }
+
+    return Object.freeze({
+        id,
+        command: Object.freeze([...command]) as readonly string[],
+        env,
+        ...(cwd === undefined ? {} : { cwd: cwd.trim() }),
+        restart,
+    });
 }
 
 function parseWatchContributions(
@@ -177,6 +301,25 @@ function parseWatchContribution(
 
 /** Shared by every watch that declares no config, so it must not be mutable. */
 const EMPTY_WATCH_CONFIG: JsonObject = Object.freeze({});
+
+/** Shared by every sidecar that declares no env, so it must not be mutable. */
+const EMPTY_SIDECAR_ENV: Readonly<Record<string, string>> = Object.freeze({});
+
+function asStringRecord(
+    value: unknown,
+): Readonly<Record<string, string>> | undefined {
+    if (!isPlainObject(value)) {
+        return undefined;
+    }
+    const result: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (key === "__proto__" || typeof entry !== "string") {
+            return undefined;
+        }
+        result[key] = entry;
+    }
+    return Object.freeze(result);
+}
 
 const WATCH_LOCAL_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const SOURCE_FAMILY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

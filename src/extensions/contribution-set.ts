@@ -1,6 +1,8 @@
 import {
+    canonicalSidecarId,
     canonicalWatchId,
     type ExtensionContributions,
+    type SidecarContribution,
     type WatchContribution,
 } from "./contributions.ts";
 
@@ -11,14 +13,29 @@ export interface OwnedWatchContribution {
     readonly definition: WatchContribution;
 }
 
+export interface OwnedSidecarContribution {
+    readonly id: string;
+    readonly localId: string;
+    readonly extensionId: string;
+    /** Realpath of the extension directory; relative cwd resolves here. */
+    readonly extensionDirectory: string;
+    readonly definition: SidecarContribution;
+}
+
 export interface HostContributionSet {
     watches(): readonly OwnedWatchContribution[];
     watch(id: string): OwnedWatchContribution | undefined;
+    sidecars(): readonly OwnedSidecarContribution[];
+    sidecar(id: string): OwnedSidecarContribution | undefined;
     frozen(): boolean;
 }
 
 export interface MutableHostContributionSet extends HostContributionSet {
-    admit(extensionId: string, contributions: ExtensionContributions): void;
+    admit(
+        extensionId: string,
+        contributions: ExtensionContributions,
+        extensionDirectory: string,
+    ): void;
     withdraw(extensionId: string): readonly OwnedWatchContribution[];
     freeze(): void;
 }
@@ -29,7 +46,7 @@ export class ContributionCollisionError extends Error {
 
     constructor(id: string, extensionId: string, ownerId: string) {
         super(
-            `Watch contribution ${id} from ${extensionId} collides with ${ownerId}`,
+            `Contribution ${id} from ${extensionId} collides with ${ownerId}`,
         );
         this.name = "ContributionCollisionError";
         this.extensionId = extensionId;
@@ -39,19 +56,22 @@ export class ContributionCollisionError extends Error {
 
 export function createHostContributionSet(): MutableHostContributionSet {
     const watches = new Map<string, OwnedWatchContribution>();
+    const sidecars = new Map<string, OwnedSidecarContribution>();
     let isFrozen = false;
 
     return {
         admit(
             extensionId: string,
             contributions: ExtensionContributions,
+            extensionDirectory: string,
         ): void {
             if (isFrozen) {
                 throw new Error(
                     `Contribution set is frozen; ${extensionId} cannot contribute`,
                 );
             }
-            const admitted: string[] = [];
+            const admittedWatches: string[] = [];
+            const admittedSidecars: string[] = [];
             try {
                 for (const definition of contributions.watches) {
                     const id = canonicalWatchId(extensionId, definition.id);
@@ -69,16 +89,44 @@ export function createHostContributionSet(): MutableHostContributionSet {
                         extensionId,
                         definition,
                     });
-                    admitted.push(id);
+                    admittedWatches.push(id);
+                }
+                for (const definition of contributions.sidecars) {
+                    const id = canonicalSidecarId(extensionId, definition.id);
+                    const existing = sidecars.get(id);
+                    if (existing !== undefined) {
+                        throw new ContributionCollisionError(
+                            id,
+                            extensionId,
+                            existing.extensionId,
+                        );
+                    }
+                    sidecars.set(id, {
+                        id,
+                        localId: definition.id,
+                        extensionId,
+                        extensionDirectory,
+                        definition,
+                    });
+                    admittedSidecars.push(id);
                 }
             } catch (error) {
-                for (const id of admitted.toReversed()) {
+                for (const id of admittedSidecars.toReversed()) {
+                    sidecars.delete(id);
+                }
+                for (const id of admittedWatches.toReversed()) {
                     watches.delete(id);
                 }
                 throw error;
             }
         },
         withdraw(extensionId: string): readonly OwnedWatchContribution[] {
+            const ownedSidecars = [...sidecars.values()].filter(
+                (entry) => entry.extensionId === extensionId,
+            ).toReversed();
+            for (const entry of ownedSidecars) {
+                sidecars.delete(entry.id);
+            }
             const owned = [...watches.values()].filter(
                 (entry) => entry.extensionId === extensionId,
             ).toReversed();
@@ -98,6 +146,12 @@ export function createHostContributionSet(): MutableHostContributionSet {
         },
         watch(id: string): OwnedWatchContribution | undefined {
             return watches.get(id);
+        },
+        sidecars(): readonly OwnedSidecarContribution[] {
+            return [...sidecars.values()];
+        },
+        sidecar(id: string): OwnedSidecarContribution | undefined {
+            return sidecars.get(id);
         },
     };
 }
