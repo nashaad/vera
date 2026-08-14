@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readArcNodeId } from "../../src/host/arc-identity.ts";
+import { readArcNodeId, readArcToken } from "../../src/host/arc-identity.ts";
 
 function withConfig(body: string, run: (path: string) => void): void {
     const dir = mkdtempSync(join(tmpdir(), "vera-arc-identity-"));
@@ -43,6 +43,26 @@ describe("arc identity", () => {
     test("a trailing comment after the value does not join the id", () => {
         withConfig('node_id = "node-b" # this machine\n', (path) => {
             expect(readArcNodeId(path)).toBe("node-b");
+        });
+    });
+
+    test("the bearer token is read from arc's config file", () => {
+        withConfig(
+            [
+                'node_id = "node-a"',
+                'token = "tok-123" # keep private',
+                'server_url = "https://arc.example/"',
+            ].join("\n"),
+            (path) => {
+                expect(readArcToken(path)).toBe("tok-123");
+            },
+        );
+    });
+
+    test("a missing file or absent token reads as no token", () => {
+        expect(readArcToken("/nonexistent/arc/config.toml")).toBeNull();
+        withConfig('node_id = "node-a"\ntoken = ""\n', (path) => {
+            expect(readArcToken(path)).toBeNull();
         });
     });
 });
