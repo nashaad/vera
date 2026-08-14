@@ -135,6 +135,10 @@ export interface ShowDiagnosticsTuiCommandAction {
     readonly type: "show_diagnostics";
 }
 
+export interface ShowDoctorTuiCommandAction {
+    readonly type: "show_doctor";
+}
+
 export interface ReloadClientExtensionsTuiCommandAction {
     readonly type: "reload_client_extensions";
 }
@@ -185,6 +189,7 @@ export type TuiCommandAction =
     | CloneSessionTuiCommandAction
     | CompactSessionTuiCommandAction
     | ShowDiagnosticsTuiCommandAction
+    | ShowDoctorTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
     | ShowPoolTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
@@ -224,6 +229,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "prefill_composer":
         case "open_theme_picker":
         case "show_diagnostics":
+        case "show_doctor":
         case "reload_client_extensions":
         case "show_pool":
         case "pool_current_model":
@@ -282,6 +288,7 @@ export interface TuiCommandDefinition {
         | CloneSessionTuiCommandAction
         | CompactSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction
+        | ShowDoctorTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly arguments?: TuiCommandArgumentKind;
@@ -403,6 +410,12 @@ const DIAGNOSTICS_COMMAND = {
     usage: "/diagnostics",
 } as const satisfies TuiCommandCatalogEntry;
 
+const DOCTOR_COMMAND = {
+    name: "doctor",
+    description: "Check resident hosts and Vera process health",
+    usage: "/doctor",
+} as const satisfies TuiCommandCatalogEntry;
+
 const RELOAD_EXTENSIONS_COMMAND = {
     name: "reload-extensions",
     description: "Reload client extensions without restarting Vera",
@@ -427,6 +440,7 @@ export const BUILTIN_COMMANDS = [
     CLONE_COMMAND,
     COMPACT_COMMAND,
     DIAGNOSTICS_COMMAND,
+    DOCTOR_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
     PALETTE_COMMAND,
@@ -1108,6 +1122,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "diagnostics",
             action: { type: "show_diagnostics" },
+        },
+    });
+    registry.registerCommand({
+        ...DOCTOR_COMMAND,
+        action: { type: "show_doctor" },
+        palette: {
+            name: "doctor",
+            label: "Check process health",
+            description: "find unrecognized hosts and sustained CPU",
+            group: "Session",
+            slashName: "doctor",
+            action: { type: "show_doctor" },
         },
     });
     registry.registerCommand({

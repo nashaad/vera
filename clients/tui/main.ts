@@ -150,6 +150,11 @@ import {
     type TuiDiagnosticsDialogState,
 } from "./diagnostics-dialog.ts";
 import {
+    diagnoseVeraProcesses,
+    renderVeraDoctor,
+    type VeraDoctorReport,
+} from "../process-doctor.ts";
+import {
     defaultStashRoot,
     summarizeStash,
 } from "../../src/store/preimage-stash.ts";
@@ -512,6 +517,8 @@ export interface TuiDependencies {
         readonly hostPid?: number;
         readonly hostStartedAt?: string;
     };
+    /** Overrides the read-only process sampler for deterministic TUI tests. */
+    readonly doctor?: () => Promise<VeraDoctorReport>;
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
     readonly authStorage?: AuthStorage;
     /** Overrides the browser hand-off a provider's OAuth row would run. */
@@ -873,6 +880,8 @@ export async function startTui(
     let help: TuiHelpState | undefined;
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     let diagnosticsSessionPath: string | undefined;
+    let doctorDialog: TuiDiagnosticsDialogState | undefined;
+    let doctorInspectionGeneration = 0;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let confirmingFullAccess = false;
     let confirmingFullAccessAgent: TuiAgentClient | undefined;
@@ -1552,6 +1561,17 @@ export async function startTui(
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
     const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer);
+    const doctorDialogView = createTuiDiagnosticsDialogView(renderer, {
+        id: "doctor-dialog",
+        title: "Doctor",
+        footerText: "Read-only; no processes are stopped.",
+        pendingText: "checking process health…",
+        sections: new Set([
+            "Process summary",
+            "Issues",
+            "High CPU activity",
+        ]),
+    });
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
     const admissionDialogView = createTuiAdmissionDialogView(renderer);
     const sessionTrashConfirmView =
@@ -2231,6 +2251,7 @@ export async function startTui(
     app.add(commandPaletteView.box);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
+    app.add(doctorDialogView.box);
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.box);
     app.add(sessionTrashConfirmView.box);
@@ -2750,6 +2771,35 @@ export async function startTui(
                 help = transition.state;
                 renderState();
                 focusActiveSurface();
+                return;
+            }
+        }
+
+        if (doctorDialog !== undefined) {
+            const action = handleTuiDiagnosticsDialogKey(key);
+            if (action !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                if (action === "dismiss") {
+                    doctorInspectionGeneration += 1;
+                    doctorDialog = undefined;
+                    focusActiveSurface();
+                    renderState();
+                    return;
+                }
+                if (doctorDialog.copyReady === false) {
+                    return;
+                }
+                const text = doctorDialog.text;
+                void copyText(text).then(() => {
+                    if (doctorDialog?.text !== text) return;
+                    doctorDialog = { text, copyStatus: "copied" };
+                    renderState();
+                }).catch(() => {
+                    if (doctorDialog?.text !== text) return;
+                    doctorDialog = { text, copyStatus: "failed" };
+                    renderState();
+                });
                 return;
             }
         }
@@ -3511,6 +3561,52 @@ export async function startTui(
                     renderState();
                 });
             }
+            return;
+        }
+        if (commandAction?.type === "show_doctor") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            doctorDialog = {
+                text: "Vera doctor\n\nChecking process health…\n",
+                copyReady: false,
+            };
+            renderState();
+            focusActiveSurface();
+            const inspectProcesses = dependencies.doctor
+                ?? diagnoseVeraProcesses;
+            const inspectionGeneration = ++doctorInspectionGeneration;
+            void inspectProcesses().then((report) => {
+                if (
+                    shuttingDown
+                    || doctorDialog === undefined
+                    || doctorInspectionGeneration !== inspectionGeneration
+                ) return;
+                doctorDialog = { text: renderVeraDoctor(report) };
+                renderState();
+                focusActiveSurface();
+            }).catch((error) => {
+                if (
+                    shuttingDown
+                    || doctorDialog === undefined
+                    || doctorInspectionGeneration !== inspectionGeneration
+                ) return;
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                doctorDialog = {
+                    text: [
+                        "Vera doctor",
+                        "",
+                        `Process inspection failed: ${message}`,
+                        "",
+                        "No processes were stopped.",
+                        "",
+                    ].join("\n"),
+                };
+                renderState();
+                focusActiveSurface();
+            });
             return;
         }
         if (commandAction?.type === "show_pool") {
@@ -5235,6 +5331,9 @@ export async function startTui(
         if (help !== undefined) {
             return () => helpView.box.focus();
         }
+        if (doctorDialog !== undefined) {
+            return () => doctorDialogView.focus();
+        }
         if (diagnosticsDialog !== undefined) {
             return () => diagnosticsDialogView.focus();
         }
@@ -5611,6 +5710,15 @@ export async function startTui(
             && settingsPicker === undefined
             && commandPalette === undefined
             && help !== undefined;
+        doctorDialogView.box.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && help === undefined
+            && diagnosticsDialog === undefined
+            && doctorDialog !== undefined;
         diagnosticsDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
@@ -5618,6 +5726,7 @@ export async function startTui(
             && settingsPicker === undefined
             && commandPalette === undefined
             && help === undefined
+            && doctorDialog === undefined
             && diagnosticsDialog !== undefined;
         permissionsConfirmView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
@@ -5638,6 +5747,7 @@ export async function startTui(
             || preferencesListView.box.visible
             || commandPaletteView.box.visible
             || helpView.box.visible
+            || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
             || permissionsConfirmView.box.visible
             || admissionDialogView.box.visible
@@ -5709,6 +5819,9 @@ export async function startTui(
         }
         if (help !== undefined) {
             helpView.update(help);
+        }
+        if (doctorDialog !== undefined) {
+            doctorDialogView.update(doctorDialog);
         }
         if (diagnosticsDialog !== undefined) {
             diagnosticsDialogView.update(diagnosticsDialog);
@@ -5805,6 +5918,7 @@ export async function startTui(
             || preferencesList !== undefined
             || commandPalette !== undefined
             || help !== undefined
+            || doctorDialog !== undefined
             || diagnosticsDialog !== undefined
             || confirmingFullAccess
             || admissionDialog !== undefined
@@ -7342,6 +7456,8 @@ export async function startTui(
         settingsPickerView.box.backgroundColor = theme.panel;
         commandPaletteView.box.backgroundColor = theme.panel;
         helpView.box.backgroundColor = theme.panel;
+        doctorDialogView.box.backgroundColor = theme.panel;
+        doctorDialogView.repaint();
         diagnosticsDialogView.box.backgroundColor = theme.panel;
         diagnosticsDialogView.repaint();
         // The column is built once and outlives any number of themes, and the

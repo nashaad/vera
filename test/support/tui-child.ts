@@ -9,6 +9,7 @@ import {
     type AssistantMessage,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import type { VeraDoctorReport } from "../../clients/process-doctor.ts";
 
 const responses: AssistantMessage[] = [
     response(`PARTIAL ${"x".repeat(200)} FIRST-END`),
@@ -43,7 +44,43 @@ const client: TuiAgentClient = {
     close(): void {},
 };
 
-await startTui({ client, copyText: async () => undefined });
+let doctorChecks = 0;
+
+await startTui({
+    client,
+    copyText: async () => undefined,
+    doctor: async () => {
+        doctorChecks += 1;
+        if (
+            process.env.VERA_TEST_STALE_DOCTOR === "1"
+            && doctorChecks === 1
+        ) {
+            await Bun.sleep(300);
+            return doctorReport(1111);
+        }
+        return doctorReport(4242);
+    },
+});
+
+function doctorReport(pid: number): VeraDoctorReport {
+    return {
+        healthy: false,
+        currentHostMissing: false,
+        highCpuPercent: 50,
+        processes: [{
+            pid,
+            ppid: 1,
+            elapsed: "01:23",
+            cpuPercent: 98.7,
+            startedAt: "Fri Aug 14 12:00:00 2026",
+            command: "bun clients/host/main.ts",
+            kind: "host",
+            currentHost: false,
+            knownProfileHost: false,
+            sustainedHighCpu: true,
+        }],
+    };
+}
 
 function thinkingResponse(
     reasoning: string,

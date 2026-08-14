@@ -41,6 +41,15 @@ export interface TuiDiagnosticsDialogView {
     repaint(): void;
 }
 
+export interface TuiDiagnosticsDialogOptions {
+    readonly id?: string;
+    readonly title?: string;
+    readonly footerText?: string;
+    readonly pendingText?: string;
+    readonly sections?: ReadonlySet<string>;
+    readonly skipFirstLine?: boolean;
+}
+
 export function handleTuiDiagnosticsDialogKey(
     key: TuiDiagnosticsDialogKey,
 ): TuiDiagnosticsDialogAction | undefined {
@@ -62,9 +71,11 @@ export function handleTuiDiagnosticsDialogKey(
 
 export function createTuiDiagnosticsDialogView(
     renderer: RenderContext,
+    options: TuiDiagnosticsDialogOptions = {},
 ): TuiDiagnosticsDialogView {
+    const id = options.id ?? "diagnostics-dialog";
     const box = new BoxRenderable(renderer, {
-        id: "diagnostics-dialog",
+        id,
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
@@ -80,9 +91,9 @@ export function createTuiDiagnosticsDialogView(
         focusable: true,
         visible: false,
     });
-    const header = dialogHeaderNode(renderer, "Diagnostics");
+    const header = dialogHeaderNode(renderer, options.title ?? "Diagnostics");
     const bodyText = new TextRenderable(renderer, {
-        id: "diagnostics-dialog-text",
+        id: `${id}-text`,
         content: "",
         fg: TUI_MUTED,
         width: "100%",
@@ -91,7 +102,7 @@ export function createTuiDiagnosticsDialogView(
         selectable: true,
     });
     const body = new ScrollBoxRenderable(renderer, {
-        id: "diagnostics-dialog-body",
+        id: `${id}-body`,
         width: "100%",
         flexGrow: 1,
         minHeight: 1,
@@ -104,7 +115,7 @@ export function createTuiDiagnosticsDialogView(
     });
     body.add(bodyText);
     const footer = new BoxRenderable(renderer, {
-        id: "diagnostics-dialog-footer",
+        id: `${id}-footer`,
         width: "100%",
         height: 2,
         marginTop: 1,
@@ -112,7 +123,7 @@ export function createTuiDiagnosticsDialogView(
         justifyContent: "space-between",
     });
     const shareHint = new TextRenderable(renderer, {
-        content: "Share this when reporting an issue.",
+        content: options.footerText ?? "Share this when reporting an issue.",
         fg: TUI_MUTED,
         height: 1,
     });
@@ -133,13 +144,16 @@ export function createTuiDiagnosticsDialogView(
             body.focus();
         },
         update(state): void {
-            bodyText.content = styledDiagnostics(state.text);
+            bodyText.content = styledDiagnostics(state.text, {
+                sections: options.sections,
+                skipFirstLine: options.skipFirstLine,
+            });
             copyHint.content = state.copyStatus === "copied"
                 ? "✓ copied"
                 : state.copyStatus === "failed"
                 ? "copy failed · enter retry"
                 : state.copyReady === false
-                ? "finding session path…"
+                ? options.pendingText ?? "finding session path…"
                 : "copy  enter";
             copyHint.fg = state.copyStatus === "copied"
                 ? TUI_SUCCESS
@@ -163,11 +177,22 @@ const DIAGNOSTIC_SECTIONS = new Set([
     "Pre-image stash",
 ]);
 
+interface DiagnosticsStyleOptions {
+    readonly sections?: ReadonlySet<string> | undefined;
+    readonly skipFirstLine?: boolean | undefined;
+}
+
 /** Low-contrast report text with just enough hierarchy to scan quickly. */
-export function styledDiagnostics(text: string): StyledText {
-    const lines = text.split("\n").slice(1);
+export function styledDiagnostics(
+    text: string,
+    options: DiagnosticsStyleOptions = {},
+): StyledText {
+    const lines = text.split("\n").slice(
+        options.skipFirstLine === false ? 0 : 1,
+    );
+    const sections = options.sections ?? DIAGNOSTIC_SECTIONS;
     return new StyledText(lines.flatMap((line, index) => {
-        const content = DIAGNOSTIC_SECTIONS.has(line)
+        const content = sections.has(line)
             ? bold(fg(TUI_TEXT)(line))
             : fg(TUI_MUTED)(line);
         return index === lines.length - 1
