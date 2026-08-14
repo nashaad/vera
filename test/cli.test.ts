@@ -27,6 +27,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera export <session-path>");
     expect(output).toContain("vera inspect <session-path>");
     expect(output).toContain("vera configure");
+    expect(output).toContain("vera doctor");
     expect(output).toContain("vera pool list");
     expect(output).toContain("vera pool add <provider/model>");
     expect(output).toContain("vera pool remove <pool name|id>");
@@ -320,6 +321,35 @@ test("vera rpc starts the NDJSON bridge", async () => {
 
     expect(exitCode).toBe(0);
     expect(started).toBe(true);
+});
+
+test("vera doctor renders process health and exits nonzero for a finding", async () => {
+    let output = "";
+    const exitCode = await runCli(["doctor"], {
+        doctor: async () => ({
+            healthy: false,
+            currentHostPid: 200,
+            currentHostMissing: false,
+            highCpuPercent: 50,
+            processes: [{
+                pid: 201,
+                ppid: 1,
+                elapsed: "03-00:00:00",
+                cpuPercent: 99,
+                startedAt: "Mon Aug 10 12:34:56 2026",
+                command: "bun /work/vera/clients/host/main.ts",
+                kind: "host",
+                currentHost: false,
+                knownProfileHost: false,
+                sustainedHighCpu: true,
+            }],
+        }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(output).toContain("Vera doctor");
+    expect(output).toContain("PID 201");
 });
 
 test("vera abort requests cancellation through a resident agent", async () => {
