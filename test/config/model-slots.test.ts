@@ -2,6 +2,9 @@ import { expect, test } from "bun:test";
 
 import { parseModelCatalogConfig } from "../../src/config/model-catalog.ts";
 import {
+    JOB_SLOT_INTENTS,
+    MODEL_SLOT_IDS,
+    MODEL_SLOT_INTENTS,
     bindModelSlot,
     isAutoAssignable,
     parseModelSlotsConfig,
@@ -155,12 +158,12 @@ test("an excluded provider is never auto assigned, at any of its models", () => 
     })).toBe(false);
 });
 
-test("an exclusion naming a model leaves the provider's others assignable", () => {
+test("an exclusion naming a model leaves its neighbours assignable", () => {
     expect(isAutoAssignable({
-        provider: "anthropic", model: "claude-fable-5", name: "a",
+        provider: "openrouter", model: "anthropic/claude-fable-5", name: "a",
     })).toBe(false);
     expect(isAutoAssignable({
-        provider: "anthropic", model: "claude-opus-5", name: "b",
+        provider: "openrouter", model: "anthropic/claude-opus-5", name: "b",
     })).toBe(true);
 });
 
@@ -175,4 +178,51 @@ test("exclusions bind automatic assignment, not what the user binds", () => {
     const slots = parseModelSlotsConfig({ snappy: { model_route: "fast" } }, routes);
     const resolved = resolveModelSlot(parsed, slots ?? {}, "snappy");
     expect(resolved?.models.map((m) => m.name)).toEqual(["cerebras_qwen"]);
+});
+
+test("an unbound job slot draws on the intent behind it", () => {
+    const slots = parseModelSlotsConfig(
+        { extra: { model_route: "thinking" } },
+        ROUTES,
+    );
+    const bound = bindModelSlot(catalog(), slots ?? {}, {
+        slot: "reviewer",
+        demand: "required",
+    });
+    expect(bound.source).toBe("intent");
+    expect(bound.models.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
+});
+
+test("a bound job slot answers for itself and leaves its intent alone", () => {
+    const slots = parseModelSlotsConfig(
+        { extra: { model_route: "thinking" }, reviewer: { model_route: "quick" } },
+        ROUTES,
+    );
+    const bound = bindModelSlot(catalog(), slots ?? {}, {
+        slot: "reviewer",
+        demand: "required",
+    });
+    expect(bound.source).toBe("slot");
+    expect(bound.models.map((m) => m.name)).toEqual(["glm_low"]);
+    // Pointing the reviewer somewhere must not move everything sharing extra.
+    expect(resolveModelSlot(catalog(), slots ?? {}, "extra")?.models
+        .map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
+});
+
+test("a job slot with neither itself nor its intent bound reaches the session", () => {
+    const bound = bindModelSlot(catalog(), {}, {
+        slot: "compaction",
+        demand: "required",
+    });
+    expect(bound.source).toBe("session");
+});
+
+test("every job slot names an intent that exists, and every slot an intent line", () => {
+    for (const [job, intent] of Object.entries(JOB_SLOT_INTENTS)) {
+        expect(MODEL_SLOT_IDS).toContain(intent);
+        expect(MODEL_SLOT_IDS).toContain(job);
+    }
+    for (const slot of MODEL_SLOT_IDS) {
+        expect(MODEL_SLOT_INTENTS[slot].length).toBeGreaterThan(0);
+    }
 });

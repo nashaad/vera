@@ -8,13 +8,16 @@
  * and speed, and a big model told not to think can come back sooner and
  * cheaper than a small one told to think hard.
  *
- * The set is deliberately small and fixed. Naming slots per job instead would
- * mean every new feature invented one and asked the user to fill it in, so
- * these three are the whole vocabulary and a feature picks one.
+ * Slots come in two kinds. Intent slots name how a job should feel, and any
+ * caller may reach for one. Job slots name a single feature, and exist so that
+ * feature can be pointed somewhere without disturbing every other caller that
+ * shares its intent. A job slot falls back to its intent slot, so the list a
+ * user meets is three rows long and the job rows only matter to someone who
+ * wants them.
  *
- * Slots are sparse. An unbound slot is the normal state, not a broken one, and
- * a caller that finds nothing bound does not run. That is the safe direction:
- * the cost of guessing a model for throwaway work is money spent quietly.
+ * Slots are sparse. An unbound slot is the normal state, not a broken one.
+ * What happens next is the caller's to declare: work that must happen falls
+ * through to the session's own model, and work that need not happen does not.
  */
 
 import {
@@ -27,19 +30,40 @@ import {
  * Ids are fixed because callers compile against them. The word the user sees
  * is `label`, which they may change without breaking anything.
  */
-export type ModelSlotId = "snappy" | "eco" | "extra";
+export type IntentSlotId = "snappy" | "eco" | "extra";
 
-export const MODEL_SLOT_IDS: readonly ModelSlotId[] = [
+export type JobSlotId = "reviewer" | "compaction";
+
+export type ModelSlotId = IntentSlotId | JobSlotId;
+
+export const INTENT_SLOT_IDS: readonly IntentSlotId[] = [
     "snappy",
     "eco",
     "extra",
 ];
+
+export const JOB_SLOT_IDS: readonly JobSlotId[] = ["reviewer", "compaction"];
+
+export const MODEL_SLOT_IDS: readonly ModelSlotId[] = [
+    ...INTENT_SLOT_IDS,
+    ...JOB_SLOT_IDS,
+];
+
+/**
+ * The intent a job slot draws on when it is unbound, which is its usual state.
+ */
+export const JOB_SLOT_INTENTS: Readonly<Record<JobSlotId, IntentSlotId>> = {
+    reviewer: "extra",
+    compaction: "eco",
+};
 
 /** Shipped words, used when a slot declares no label of its own. */
 export const DEFAULT_SLOT_LABELS: Readonly<Record<ModelSlotId, string>> = {
     snappy: "snappy",
     eco: "eco",
     extra: "extra",
+    reviewer: "reviewer",
+    compaction: "compaction",
 };
 
 /**
@@ -50,6 +74,8 @@ export const MODEL_SLOT_INTENTS: Readonly<Record<ModelSlotId, string>> = {
     snappy: "dirt cheap and fast, for work nothing depends on",
     eco: "smart but fast, for work a turn waits on",
     extra: "the most capable model, for work worth waiting for",
+    reviewer: "reviewing a change",
+    compaction: "summarising a session that has run long",
 };
 
 export interface VeraModelSlotConfig {
@@ -74,6 +100,11 @@ export interface ResolvedModelSlot {
 export function isModelSlotId(value: unknown): value is ModelSlotId {
     return typeof value === "string"
         && (MODEL_SLOT_IDS as readonly string[]).includes(value);
+}
+
+export function isJobSlotId(value: unknown): value is JobSlotId {
+    return typeof value === "string"
+        && (JOB_SLOT_IDS as readonly string[]).includes(value);
 }
 
 export function slotLabel(
@@ -179,7 +210,12 @@ export interface SlotBindingRequest {
     readonly explicitRoute?: string;
 }
 
-export type SlotBindingSource = "explicit" | "slot" | "session" | "none";
+export type SlotBindingSource =
+    | "explicit"
+    | "slot"
+    | "intent"
+    | "session"
+    | "none";
 
 export interface SlotBinding {
     readonly source: SlotBindingSource;
@@ -190,9 +226,10 @@ export interface SlotBinding {
 /**
  * Which models answer a caller, and on whose say-so.
  *
- * `session` means nothing was bound and the caller is required, so it runs on
- * whatever model the session is already using. `none` means nothing was bound
- * and the caller is optional, so it does not run.
+ * A job slot that is unbound draws on its intent slot before giving up.
+ * `session` means nothing was bound anywhere and the caller is required, so it
+ * runs on whatever model the session is already using. `none` means nothing
+ * was bound and the caller is optional, so it does not run.
  */
 export function bindModelSlot(
     catalog: VeraModelCatalogConfig,
@@ -209,6 +246,16 @@ export function bindModelSlot(
     if (resolved !== undefined && resolved.models.length > 0) {
         return { source: "slot", models: resolved.models };
     }
+    if (isJobSlotId(request.slot)) {
+        const intent = resolveModelSlot(
+            catalog,
+            slots,
+            JOB_SLOT_INTENTS[request.slot],
+        );
+        if (intent !== undefined && intent.models.length > 0) {
+            return { source: "intent", models: intent.models };
+        }
+    }
     return request.demand === "required"
         ? { source: "session", models: [] }
         : { source: "none", models: [] };
@@ -217,27 +264,31 @@ export function bindModelSlot(
 /**
  * A model or provider that automatic slot assignment never reaches for.
  *
- * `provider` alone excludes every model that provider serves. `model` narrows
- * it to one. Exclusion applies only to automatic assignment: a slot the user
- * binds by hand holds whatever they bound, including these.
+ * `provider` alone excludes every model that provider serves, `model` alone
+ * excludes that model wherever it is served, and both together excludes one
+ * model at one provider. Exclusion applies only to automatic assignment: a
+ * slot the user binds by hand holds whatever they bound, including these.
  */
 export interface SlotAutoExclusion {
-    readonly provider: string;
+    readonly provider?: string;
     readonly model?: string;
 }
 
 export const DEFAULT_SLOT_AUTO_EXCLUSIONS: readonly SlotAutoExclusion[] = [
     { provider: "cerebras" },
-    { provider: "anthropic", model: "claude-fable-5" },
+    { model: "anthropic/claude-fable-5" },
 ];
 
 export function isAutoAssignable(
     entry: VeraCatalogModel,
     exclusions: readonly SlotAutoExclusion[] = DEFAULT_SLOT_AUTO_EXCLUSIONS,
 ): boolean {
-    return !exclusions.some(
-        (excluded) =>
-            excluded.provider === entry.provider &&
-            (excluded.model === undefined || excluded.model === entry.model),
-    );
+    return !exclusions.some((excluded) => {
+        if (excluded.provider === undefined && excluded.model === undefined) {
+            return false;
+        }
+        return (excluded.provider === undefined
+            || excluded.provider === entry.provider)
+            && (excluded.model === undefined || excluded.model === entry.model);
+    });
 }
