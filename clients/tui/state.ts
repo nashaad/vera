@@ -341,10 +341,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "turn_finished") {
         const finished = clearedSubstitution({
             ...state,
-            entries: applyToolDetailPreference(
+            entries: settleTrailingThoughts(applyToolDetailPreference(
                 settleToolEntries(state.entries),
                 state.toolDetailsExpanded,
-            ),
+            )),
             working: false,
             modelActivity: undefined,
         });
@@ -542,6 +542,25 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             : appendEntry(next, substitutionEntry(update));
     }
     return assertNever(update);
+}
+
+/** A completed answer is the last row of its turn, even after a checkpoint. */
+function settleTrailingThoughts(
+    entries: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    let thoughtStart = entries.length;
+    while (thoughtStart > 0 && entries[thoughtStart - 1]?.kind === "thought") {
+        thoughtStart -= 1;
+    }
+    if (thoughtStart === entries.length
+        || entries[thoughtStart - 1]?.kind !== "assistant") {
+        return entries;
+    }
+
+    const next = [...entries];
+    const thoughts = next.splice(thoughtStart);
+    next.splice(thoughtStart - 1, 0, ...thoughts);
+    return next;
 }
 
 /**

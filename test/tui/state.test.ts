@@ -223,6 +223,31 @@ test("dropping live reasoning leaves settled rows alone", () => {
     expect(dropped.pendingThinking).toBeUndefined();
 });
 
+test("turn completion moves checkpointed thoughts before the final answer", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        working: true,
+        entries: [
+            { kind: "user", text: "how much work is left?" },
+            { kind: "assistant", text: "Five release slices remain." },
+            {
+                kind: "thought",
+                text: "+ Thought: 6.6s",
+                reasoning: "Estimating the remaining work",
+            },
+        ],
+    }, { type: "turn_finished", seq: 1 });
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "thought",
+        "assistant",
+    ]);
+    expect(state.entries[1]).toMatchObject({
+        reasoning: "Estimating the remaining work",
+    });
+});
+
 test("a thought summary survives a history rebuild in place", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "assistant_thinking",
