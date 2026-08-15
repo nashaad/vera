@@ -1971,6 +1971,7 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "C-o");
             pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
             expect(pane).toMatch(/- Reasoning: \d+\.\d+s/);
+            expect(pane).toContain("ctrl+o hide reasoning");
             expect(pane).toContain("PARTIAL xxxxx");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
