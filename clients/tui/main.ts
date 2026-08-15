@@ -3328,6 +3328,9 @@ export async function startTui(
         interceptedText?: string,
         injectedPrefix?: number,
     ): void {
+        // Reached from awaited continuations that can resolve after the
+        // renderer is destroyed, when the composer's EditBuffer is gone.
+        if (shuttingDown) return;
         flightRecorder?.record({
             type: "submit_requested",
             characters: Array.from(
@@ -4457,6 +4460,7 @@ export async function startTui(
             sidebarPromptSubmitting = true;
             void attachImagesToSidebar(side, imagePaths, controller.signal)
                 .then(async (attachments) => {
+                    if (shuttingDown) return;
                     await side.client.send({
                         type: "prompt",
                         content: route.text,
@@ -4496,6 +4500,9 @@ export async function startTui(
                         submitPrompt(route.text);
                         return;
                     }
+                    // The send above can resolve after the renderer is
+                    // destroyed; the composer's EditBuffer is gone with it.
+                    if (shuttingDown) return;
                     if (composer.expandedText().trim() === prompt) {
                         composer.rememberSubmittedText(prompt);
                         composer.clearComposer();
