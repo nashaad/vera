@@ -6,13 +6,28 @@ import {
 } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
-import { createTuiGutterEntry } from "../../clients/tui/gutter.ts";
+import {
+    createTuiGutterEntry,
+    tuiGutterWidth,
+} from "../../clients/tui/gutter.ts";
 import {
     renderTuiEntry,
     TUI_ELEMENT,
     TUI_MUTED,
 } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
+
+test("tool rows do not add a second activity indent", () => {
+    expect(tuiGutterWidth({ kind: "thought", text: "Reasoning" }, 2)).toBe(2);
+    expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 2))
+        .toBe(0);
+    expect(tuiGutterWidth({ kind: "tool", text: "Read file" }, 2)).toBe(0);
+    expect(tuiGutterWidth({ kind: "thought", text: "Reasoning" }, 1)).toBe(2);
+    expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 1))
+        .toBe(0);
+    expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 4))
+        .toBe(2);
+});
 
 async function frameFor(ruled: boolean): Promise<string> {
     const setup = await createTestRenderer({ width: 30, height: 6 });

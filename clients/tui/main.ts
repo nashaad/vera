@@ -396,7 +396,11 @@ import {
     createTuiMarkdownEntry,
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
-import { createTuiGutterEntry, tuiGutterContent } from "./gutter.ts";
+import {
+    createTuiGutterEntry,
+    tuiGutterContent,
+    tuiGutterWidth,
+} from "./gutter.ts";
 
 registerTuiParsers();
 
@@ -2003,7 +2007,7 @@ export async function startTui(
                 marginTop,
                 separated,
                 {
-                    width: appearance.activityIndent,
+                    width: tuiGutterWidth(entry, appearance.activityIndent),
                     separatorVisible: appearance.separatorVisible,
                     separatorColor: appearance.transcriptSeparatorColor
                         ?? theme.element,
