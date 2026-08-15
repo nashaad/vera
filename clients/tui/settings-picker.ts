@@ -926,7 +926,11 @@ export function startTuiSessionPicker(
     const options = agents
         .filter((agent) => agent.status !== "closed"
             && agent.status !== "failed"
-            && (includeUntitled || agent.title !== undefined))
+            && (includeUntitled
+                || agent.title !== undefined
+                || agent.has_user_content === true
+                || agent.parent_id !== undefined
+                || agent.forked_from !== undefined))
         .toSorted((left, right) =>
             (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
         )
