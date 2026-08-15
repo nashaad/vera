@@ -124,14 +124,14 @@ test("ask_user completion is semantic in live and replayed transcripts", () => {
     expect(replayResult?.text).toBe(liveResult?.text);
 });
 
-test("a thought with no reasoning behind it carries no fold marker", () => {
+test("a completion with no reasoning behind it gets a playful verb and no fold marker", () => {
     const state = appendTuiThought(createTuiState(), 3.04);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Thought: 3.0s",
+        text: "Sautéed for 3.0s",
     }]);
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Thought: 3.0s");
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Sautéed for 3.0s");
 });
 
 test("streamed reasoning shows live and is rebuilt from what arrived", () => {
@@ -160,12 +160,12 @@ test("the thought summary folds the reasoning it collected", () => {
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "+ Thought: 12.4s",
+        text: "+ Reasoning: 12.4s",
         reasoning: "weighing the two orderings",
     }]);
     expect(state.pendingThinking).toBeUndefined();
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("+ Thought: 12.4s  ctrl+o reasoning");
+        .toBe("+ Reasoning: 12.4s  ctrl+o reasoning");
 });
 
 test("toggling reasoning opens every fold and every later one", () => {
@@ -178,12 +178,12 @@ test("toggling reasoning opens every fold and every later one", () => {
 
     expect(state.entries[0]).toEqual({
         kind: "thought",
-        text: "- Thought: 12.4s",
+        text: "- Reasoning: 12.4s",
         reasoning: "weighing the two orderings",
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("- Thought: 12.4s  ctrl+o reasoning\n\nweighing the two orderings");
+        .toBe("- Reasoning: 12.4s  ctrl+o reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -193,12 +193,12 @@ test("toggling reasoning opens every fold and every later one", () => {
     });
     state = appendTuiThought(state, 1.5);
     expect(state.entries[1]).toMatchObject({
-        text: "- Thought: 1.5s",
+        text: "- Reasoning: 1.5s",
         expanded: true,
     });
 
     expect(toggleTuiThinking(state).entries[0]).toMatchObject({
-        text: "+ Thought: 12.4s",
+        text: "+ Reasoning: 12.4s",
         expanded: false,
     });
 });
@@ -212,7 +212,7 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     state = toggleTuiThinking(appendTuiThought(state, 3.3));
 
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "- Thought: 3.3s  ctrl+o reasoning"
+        "- Reasoning: 3.3s  ctrl+o reasoning"
         + "\n\nEstimating remaining work\n\nChecking shipped slices",
     );
 });
@@ -246,7 +246,7 @@ test("turn completion moves checkpointed thoughts before the final answer", () =
             { kind: "assistant", text: "Five release slices remain." },
             {
                 kind: "thought",
-                text: "+ Thought: 6.6s",
+                text: "+ Reasoning: 6.6s",
                 reasoning: "Estimating the remaining work",
             },
         ],
@@ -287,7 +287,7 @@ test("a thought summary survives a history rebuild in place", () => {
     expect(state.entries).toEqual([
         {
             kind: "thought",
-            text: "+ Thought: 8.3s",
+            text: "+ Reasoning: 8.3s",
             reasoning: "weighing the two orderings",
         },
         { kind: "user", text: "which ordering?" },
@@ -1389,7 +1389,7 @@ test("diagnostics stay compact while a fatal keeps a blank row above", () => {
 test("a tool header follows its thought without a spacer row", () => {
     const entries = [
         { kind: "user", text: "inspect" },
-        { kind: "thought", text: "Thought: 0.0s", seconds: 0 },
+        { kind: "thought", text: "Baked for 0.0s", seconds: 0 },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
         { kind: "assistant", text: "Done." },

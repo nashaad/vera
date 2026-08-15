@@ -1017,7 +1017,7 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     if (reasoning.length === 0) {
         return insertBeforeTrailingAssistant(settled, {
             kind: "thought",
-            text: `Thought: ${seconds.toFixed(1)}s`,
+            text: `${completionVerb(seconds)} for ${seconds.toFixed(1)}s`,
         });
     }
     return insertBeforeTrailingAssistant(settled, {
@@ -1034,7 +1034,23 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
  * marker that does nothing when pressed reads as a broken key.
  */
 function thoughtSummary(seconds: number, expanded: boolean): string {
-    return `${expanded ? "-" : "+"} Thought: ${seconds.toFixed(1)}s`;
+    return `${expanded ? "-" : "+"} Reasoning: ${seconds.toFixed(1)}s`;
+}
+
+const COMPLETION_VERBS = [
+    "Baked",
+    "Brewed",
+    "Churned",
+    "Cogitated",
+    "Cooked",
+    "Crunched",
+    "Sautéed",
+    "Worked",
+] as const;
+
+function completionVerb(seconds: number): string {
+    const elapsedTenths = Math.max(0, Math.round(seconds * 10));
+    return COMPLETION_VERBS[elapsedTenths % COMPLETION_VERBS.length]!;
 }
 
 /**
@@ -1091,7 +1107,7 @@ export function toggleTuiToolDetails(state: TuiState): TuiState {
 }
 
 function thoughtSeconds(text: string): number {
-    return Number.parseFloat(text.replace(/^[+-] Thought: /, "")) || 0;
+    return Number.parseFloat(text.replace(/^[+-] Reasoning: /, "")) || 0;
 }
 
 export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
