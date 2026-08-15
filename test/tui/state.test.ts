@@ -183,7 +183,7 @@ test("toggling reasoning opens every fold and every later one", () => {
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("- Reasoning: 12.4s  ctrl+o reasoning\n\nweighing the two orderings");
+        .toBe("- Reasoning: 12.4s  ctrl+o hide reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -212,7 +212,7 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     state = toggleTuiThinking(appendTuiThought(state, 3.3));
 
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "- Reasoning: 3.3s  ctrl+o reasoning"
+        "- Reasoning: 3.3s  ctrl+o hide reasoning"
         + "\n\nEstimating remaining work\n\nChecking shipped slices",
     );
 });
@@ -260,6 +260,29 @@ test("turn completion moves checkpointed thoughts before the final answer", () =
     expect(state.entries[1]).toMatchObject({
         reasoning: "Estimating the remaining work",
     });
+});
+
+test("idle status also keeps a late reasoning row before the final answer", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        working: true,
+        entries: [
+            { kind: "user", text: "how much work is left?" },
+            { kind: "assistant", text: "Five release slices remain." },
+            {
+                kind: "thought",
+                text: "+ Reasoning: 4.6s",
+                reasoning: "Summarizing active unfinished tasks",
+            },
+        ],
+    }, { type: "status", state: "idle", seq: 1 });
+
+    expect(state.working).toBe(false);
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "thought",
+        "assistant",
+    ]);
 });
 
 test("a thought summary survives a history rebuild in place", () => {
