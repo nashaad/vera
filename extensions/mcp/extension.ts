@@ -1,5 +1,6 @@
 import { McpServerClient } from "./client.ts";
-import { parseMcpConfig } from "./config.ts";
+import { parseMcpConfig, type McpServerConfig } from "./config.ts";
+import { freshAccessToken, loginServer, TokenStore } from "./oauth.ts";
 
 // The registry gives the whole activation 5 seconds by default, so each
 // server gets a slightly smaller budget and they all connect in parallel.
@@ -8,6 +9,7 @@ const CONNECT_TIMEOUT_MS = 3_500;
 
 interface VeraExtensionApiShape {
     readonly config: unknown;
+    readonly storage: { readonly profile: string; readonly machine: string };
     readonly tools: {
         register(spec: Record<string, unknown>): void;
     };
@@ -22,9 +24,24 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
     if (servers.length === 0) {
         return;
     }
+    const store = new TokenStore(vera.storage.machine);
+    const oauthServers = servers.filter(
+        (server) => server.kind === "http" && server.auth === "oauth",
+    );
+    if (oauthServers.length > 0) {
+        registerLoginCommand(vera, oauthServers, store);
+    }
 
     const clients = await Promise.all(servers.map(async (config) => {
-        const client = new McpServerClient(config);
+        const authorized = await withStoredToken(config, store);
+        if (authorized === undefined) {
+            console.error(
+                `[vera.mcp] server ${config.name} has no login yet; `
+                + `run /mcp-login ${config.name}, then restart the host`,
+            );
+            return undefined;
+        }
+        const client = new McpServerClient(authorized);
         try {
             await withTimeout(
                 client.connect(),
@@ -57,6 +74,83 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
         registerPrompts(vera, client);
     }
     registerResourceTool(vera, connected);
+}
+
+/**
+ * OAuth servers connect with the stored bearer token merged into their
+ * headers; a server whose token is missing (and not refreshable) resolves to
+ * undefined so activation skips it with a login hint. Non-OAuth servers pass
+ * through untouched.
+ */
+async function withStoredToken(
+    config: McpServerConfig,
+    store: TokenStore,
+): Promise<McpServerConfig | undefined> {
+    if (config.kind !== "http" || config.auth !== "oauth") {
+        return config;
+    }
+    const accessToken = await freshAccessToken(store, config.name);
+    if (accessToken === undefined) {
+        return undefined;
+    }
+    return {
+        ...config,
+        headers: { ...config.headers, authorization: `Bearer ${accessToken}` },
+    };
+}
+
+/**
+ * The browser round-trip outlives any command handler budget, so the handler
+ * opens the browser and returns immediately; the loopback callback finishes
+ * the exchange in the background and writes the token, which the next host
+ * start picks up.
+ */
+function registerLoginCommand(
+    vera: VeraExtensionApiShape,
+    oauthServers: readonly McpServerConfig[],
+    store: TokenStore,
+): void {
+    const byName = new Map(oauthServers.map((server) => [server.name, server]));
+    const names = [...byName.keys()].join(", ");
+    vera.commands.register({
+        name: "mcp-login",
+        description: `Log in to an OAuth MCP server (${names}).`,
+        usage: "/mcp-login <server>",
+        run(request: { argumentsText: string }) {
+            const name = request.argumentsText.trim();
+            const server = byName.get(name);
+            if (server === undefined || server.kind !== "http") {
+                return {
+                    kind: "text",
+                    text: name.length === 0
+                        ? `OAuth MCP servers: ${names}. Usage: /mcp-login <server>`
+                        : `No OAuth MCP server named ${name}. Configured: ${names}`,
+                };
+            }
+            void loginServer({
+                serverName: server.name,
+                serverUrl: server.url,
+                store,
+                ...(server.clientId === undefined
+                    ? {}
+                    : { clientId: server.clientId }),
+            }).then(
+                () => console.error(
+                    `[vera.mcp] login for ${server.name} complete; `
+                    + "restart the host to load its tools",
+                ),
+                (error) => console.error(
+                    `[vera.mcp] login for ${server.name} failed: `
+                    + message(error),
+                ),
+            );
+            return {
+                kind: "text",
+                text: `Opening the browser to log in to ${server.name}. `
+                    + "Finish there; tools load on the next host start.",
+            };
+        },
+    });
 }
 
 function registerTools(
