@@ -1943,7 +1943,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("esc stop");
             // No fold marker: this turn reasons without producing any summary
             // text, so there is nothing behind the line to open.
-            expect(pane).toMatch(/(?<![+-] )Thought: \d+\.\d+s/);
+            expect(pane).toMatch(/(?<![+-] )(?:Baked|Brewed|Churned|Cogitated|Cooked|Crunched|Sautéed|Worked) for \d+\.\d+s/);
             sendText(socket, session, "redirect now");
             sendKey(socket, session, "Enter");
 
@@ -1964,13 +1964,14 @@ test.skipIf(!tmuxAvailable)(
 
             // The second turn reasons, so its summary carries a fold that
             // ctrl+o opens over a row already drawn.
-            expect(pane).toMatch(/\+ Thought: \d+\.\d+s/);
+            expect(pane).toMatch(/\+ Reasoning: \d+\.\d+s/);
             expect(pane).not.toContain("WEIGHING THE ORDERINGS");
             sendKey(socket, session, "C-u");
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             sendKey(socket, session, "C-o");
             pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
-            expect(pane).toMatch(/- Thought: \d+\.\d+s/);
+            expect(pane).toMatch(/- Reasoning: \d+\.\d+s/);
+            expect(pane).toContain("ctrl+o hide reasoning");
             expect(pane).toContain("PARTIAL xxxxx");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
@@ -2060,7 +2061,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toMatch(/· ask +│$/m);
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
-            expect(pane).toMatch(/^• Thought: 0\.0s\n {4}Ran/m);
+            expect(pane).toMatch(/^• Baked for 0\.0s\n {4}Ran/m);
             expect(pane).toMatch(/^ {2}─{20}/m);
             expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
             expect(pane).toMatch(/^ {3}Tip /m);

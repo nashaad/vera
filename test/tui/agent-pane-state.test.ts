@@ -14,12 +14,12 @@ test("two panes reduce agent updates into independent transcripts", () => {
 
     expect(main.state.entries.map((entry) => entry.text)).toEqual([
         "main question",
-        "Thought: 2.0s",
+        "Cooked for 2.0s",
         "main answer",
     ]);
     expect(sidebar.state.entries.map((entry) => entry.text)).toEqual([
         "side question",
-        "Thought: 2.0s",
+        "Cooked for 2.0s",
         "side answer",
     ]);
 });
