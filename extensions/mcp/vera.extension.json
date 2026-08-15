@@ -1,0 +1,10 @@
+{
+  "id": "vera.mcp",
+  "version": "0.1.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "tools.register",
+    "commands.register"
+  ]
+}
