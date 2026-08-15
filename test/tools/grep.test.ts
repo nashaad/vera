@@ -72,6 +72,43 @@ test("grep content mode reports the matching line", async () => {
     }
 });
 
+test("grep ignores empty optional filters", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
+    try {
+        const target = join(workspace, "index.html");
+        await writeFile(target, "const player BlockPos = {};\n");
+
+        const result = await grepTool.execute(
+            {
+                pattern: "player BlockPos",
+                path: target,
+                case_insensitive: false,
+                fixed_strings: true,
+                word_regexp: false,
+                multiline: false,
+                glob: "",
+                type: "",
+                hidden: false,
+                before_context: 0,
+                after_context: 0,
+                context: 0,
+                offset: 0,
+                max_results: 20,
+                output_mode: "content",
+            },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+
+        expect(result).toMatchObject({ kind: "output", isError: false });
+        if (result.kind === "output") {
+            expect(result.output).toContain("player BlockPos");
+        }
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("grep with no matches is not an error", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-grep-"));
     try {
