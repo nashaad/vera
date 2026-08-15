@@ -1034,7 +1034,7 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
  * marker that does nothing when pressed reads as a broken key.
  */
 function thoughtSummary(seconds: number, expanded: boolean): string {
-    return `${expanded ? "-" : "+"} Reasoning: ${seconds.toFixed(1)}s`;
+    return `${expanded ? "▾" : "▸"} Reasoning: ${seconds.toFixed(1)}s`;
 }
 
 const COMPLETION_VERBS = [
@@ -1107,7 +1107,7 @@ export function toggleTuiToolDetails(state: TuiState): TuiState {
 }
 
 function thoughtSeconds(text: string): number {
-    return Number.parseFloat(text.replace(/^[+-] Reasoning: /, "")) || 0;
+    return Number.parseFloat(text.replace(/^[▸▾] Reasoning: /, "")) || 0;
 }
 
 export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
@@ -1331,7 +1331,11 @@ export function tuiEntryMarginTop(
     // continues directly from the activity row that preceded it, so changing
     // tool verbs does not break one run into a stack of spaced blocks. A diff
     // is a rendered block, so the next header falls through to message spacing.
-    if (current?.kind === "tool") return 0;
+    if (current?.kind === "tool") {
+        return previous?.kind === "thought" && previous.expanded === true
+            ? Math.max(1, spacing.message)
+            : 0;
+    }
     if (
         current?.kind === "tool_header"
         && (
@@ -1342,6 +1346,9 @@ export function tuiEntryMarginTop(
             || previous?.kind === "review"
         )
     ) {
+        if (previous?.kind === "thought" && previous.expanded === true) {
+            return Math.max(1, spacing.message);
+        }
         return spacing.toolGroup;
     }
     return spacing.message;
