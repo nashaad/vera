@@ -160,12 +160,12 @@ test("the thought summary folds the reasoning it collected", () => {
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "+ Reasoning: 12.4s",
+        text: "▸ Reasoning: 12.4s",
         reasoning: "weighing the two orderings",
     }]);
     expect(state.pendingThinking).toBeUndefined();
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("+ Reasoning: 12.4s  ctrl+o reasoning");
+        .toBe("▸ Reasoning: 12.4s  ctrl+o reasoning");
 });
 
 test("toggling reasoning opens every fold and every later one", () => {
@@ -178,12 +178,12 @@ test("toggling reasoning opens every fold and every later one", () => {
 
     expect(state.entries[0]).toEqual({
         kind: "thought",
-        text: "- Reasoning: 12.4s",
+        text: "▾ Reasoning: 12.4s",
         reasoning: "weighing the two orderings",
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("- Reasoning: 12.4s  ctrl+o hide reasoning\n\nweighing the two orderings");
+        .toBe("▾ Reasoning: 12.4s  ctrl+o hide reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -193,12 +193,12 @@ test("toggling reasoning opens every fold and every later one", () => {
     });
     state = appendTuiThought(state, 1.5);
     expect(state.entries[1]).toMatchObject({
-        text: "- Reasoning: 1.5s",
+        text: "▾ Reasoning: 1.5s",
         expanded: true,
     });
 
     expect(toggleTuiThinking(state).entries[0]).toMatchObject({
-        text: "+ Reasoning: 12.4s",
+        text: "▸ Reasoning: 12.4s",
         expanded: false,
     });
 });
@@ -212,7 +212,7 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     state = toggleTuiThinking(appendTuiThought(state, 3.3));
 
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "- Reasoning: 3.3s  ctrl+o hide reasoning"
+        "▾ Reasoning: 3.3s  ctrl+o hide reasoning"
         + "\n\nEstimating remaining work\n\nChecking shipped slices",
     );
 });
@@ -246,7 +246,7 @@ test("turn completion moves checkpointed thoughts before the final answer", () =
             { kind: "assistant", text: "Five release slices remain." },
             {
                 kind: "thought",
-                text: "+ Reasoning: 6.6s",
+                text: "▸ Reasoning: 6.6s",
                 reasoning: "Estimating the remaining work",
             },
         ],
@@ -271,7 +271,7 @@ test("idle status also keeps a late reasoning row before the final answer", () =
             { kind: "assistant", text: "Five release slices remain." },
             {
                 kind: "thought",
-                text: "+ Reasoning: 4.6s",
+                text: "▸ Reasoning: 4.6s",
                 reasoning: "Summarizing active unfinished tasks",
             },
         ],
@@ -310,7 +310,7 @@ test("a thought summary survives a history rebuild in place", () => {
     expect(state.entries).toEqual([
         {
             kind: "thought",
-            text: "+ Reasoning: 8.3s",
+            text: "▸ Reasoning: 8.3s",
             reasoning: "weighing the two orderings",
         },
         { kind: "user", text: "which ordering?" },
@@ -1420,6 +1420,40 @@ test("a tool header follows its thought without a spacer row", () => {
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
         .toEqual([0, 1, 0, 0, 1]);
+});
+
+test("a tool header leaves a row after expanded reasoning", () => {
+    const entries = [
+        {
+            kind: "thought",
+            text: "▾ Reasoning: 3.6s",
+            reasoning: "Inspecting Obsidian file in-flight",
+            expanded: true,
+        },
+        { kind: "tool_header", header: "Explored", text: "+ Explored" },
+        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read file" },
+    ] as const;
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 1, 0]);
+    expect(tuiEntryMarginTop(entries, 1, { message: 0, toolGroup: 0 })).toBe(1);
+});
+
+test("a continued tool run also leaves a row after expanded reasoning", () => {
+    const entries = [
+        { kind: "tool_header", header: "Explored", text: "Explored" },
+        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read first" },
+        {
+            kind: "thought",
+            text: "▾ Reasoning: 3.6s",
+            reasoning: "Checking the next file",
+            expanded: true,
+        },
+        { kind: "tool", header: "Explored", prefix: "    ", text: "Read next" },
+    ] as const;
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 0, 1, 1]);
 });
 
 test("a new tool header is separated from the rendered diff above it", () => {
