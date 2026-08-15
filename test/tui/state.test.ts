@@ -203,6 +203,20 @@ test("toggling reasoning opens every fold and every later one", () => {
     });
 });
 
+test("expanded reasoning does not show Markdown heading markers", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "**Estimating remaining work**\n---\n\n## Checking shipped slices ##",
+        seq: 1,
+    });
+    state = toggleTuiThinking(appendTuiThought(state, 3.3));
+
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
+        "- Thought: 3.3s  ctrl+o reasoning"
+        + "\n\nEstimating remaining work\n\nChecking shipped slices",
+    );
+});
+
 test("dropping live reasoning leaves settled rows alone", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "assistant_delta",

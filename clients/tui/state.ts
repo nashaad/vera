@@ -1189,11 +1189,19 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ? new StyledText([
                 summary,
                 hint,
-                fg(TUI_MUTED)(`\n\n${entry.reasoning}`),
+                fg(TUI_MUTED)(`\n\n${plainReasoningSummary(entry.reasoning)}`),
             ])
             : new StyledText([summary, hint]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
+}
+
+/** Provider summaries use Markdown headings; this row is a plain-text surface. */
+function plainReasoningSummary(reasoning: string): string {
+    return reasoning
+        .replace(/\n[ \t]*[-=]{3,}[ \t]*(?=\n|$)/g, "")
+        .replace(/^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]+#*[ \t]*$/gm, "$1")
+        .replace(/^[ \t]*(?:\*\*|__)(.*?)(?:\*\*|__)[ \t]*$/gm, "$1");
 }
 
 function renderTuiDiagnostic(

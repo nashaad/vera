@@ -1226,6 +1226,7 @@ export async function indexStoredSession(
             ...(metadata.title === undefined
                 ? {}
                 : { title: metadata.title.slice(0, 80) }),
+            has_user_content: metadata.hasUserContent,
             ...(header.origin === undefined
                 ? {}
                 : { forked_from: header.origin.sessionId }),

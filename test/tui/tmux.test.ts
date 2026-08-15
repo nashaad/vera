@@ -908,6 +908,9 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "starting new session",
             );
+            pane = captureVisiblePane(socket, session);
+            expect(pane).toContain("Start a conversation");
+            expect(pane).not.toContain("host refused creation");
             // The new session lands in the same TUI: the activity clears and
             // the failure notice goes with the transcript that held it, while
             // the process the pane belongs to is still the one that started.
@@ -1435,6 +1438,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("The one already open");
             expect(pane).toContain("● just now");
             expect(pane).toContain("1h ago");
+            expect(pane).not.toContain("empty-session-id");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePaneWhere(
                 socket,
@@ -1962,9 +1966,12 @@ test.skipIf(!tmuxAvailable)(
             // ctrl+o opens over a row already drawn.
             expect(pane).toMatch(/\+ Thought: \d+\.\d+s/);
             expect(pane).not.toContain("WEIGHING THE ORDERINGS");
+            sendKey(socket, session, "C-u");
+            pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             sendKey(socket, session, "C-o");
             pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
             expect(pane).toMatch(/- Thought: \d+\.\d+s/);
+            expect(pane).toContain("PARTIAL xxxxx");
         } catch (error) {
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
