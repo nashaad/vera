@@ -15,6 +15,9 @@ export interface HttpServerConfig {
     readonly name: string;
     readonly url: string;
     readonly headers: Readonly<Record<string, string>>;
+    readonly auth?: "oauth";
+    /** Pre-registered OAuth client id, for servers without dynamic registration. */
+    readonly clientId?: string;
 }
 
 export type McpServerConfig = StdioServerConfig | HttpServerConfig;
@@ -105,11 +108,23 @@ function parseServer(
             `mcp server ${name}: url must be an http(s) URL`,
         );
     }
+    if (value.auth !== undefined && value.auth !== "oauth") {
+        throw new McpConfigError(
+            `mcp server ${name}: auth must be "oauth" when present`,
+        );
+    }
+    if (value.clientId !== undefined && typeof value.clientId !== "string") {
+        throw new McpConfigError(`mcp server ${name}: clientId must be a string`);
+    }
     return {
         kind: "http",
         name,
         url: value.url,
         headers: stringRecord(name, "headers", value.headers),
+        ...(value.auth === "oauth" ? { auth: "oauth" as const } : {}),
+        ...(typeof value.clientId === "string"
+            ? { clientId: value.clientId }
+            : {}),
     };
 }
 
