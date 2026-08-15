@@ -343,7 +343,10 @@ export class SessionStore {
             try {
                 await file.chmod(0o600);
                 await file.writeFile(jsonLine(header), "utf8");
-                await file.sync();
+                // An empty session has no user work to make crash-durable yet.
+                // The first append fsyncs this header together with the first
+                // record; forcing a disk barrier here made /clear wait seconds
+                // on some filesystems for a chat Resume intentionally hides.
             } finally {
                 await file.close();
             }
