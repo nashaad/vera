@@ -64,7 +64,7 @@ test("composer geometry fits narrow terminals without changing configured intent
     expect(fitTuiAppearance(appearance, 100)).toEqual(appearance);
     expect(fitTuiAppearance(appearance, 30)).toMatchObject({
         transcriptPaddingLeft: 0,
-        transcriptPaddingRight: 0,
+        transcriptPaddingRight: 1,
         composerMarginHorizontal: 8,
         composerPaddingHorizontal: 0,
         composerTipIndent: 9,

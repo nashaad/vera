@@ -1310,13 +1310,15 @@ export async function startTui(
         stickyScroll: true,
         stickyStart: "bottom",
         scrollY: true,
+        wrapperOptions: {
+            paddingRight: appearance.transcriptPaddingRight,
+        },
         contentOptions: {
             flexDirection: "column",
             gap: 0,
             paddingTop: 0,
             paddingBottom: 1,
             paddingLeft: appearance.transcriptPaddingLeft,
-            paddingRight: appearance.transcriptPaddingRight,
         },
     });
 
@@ -2363,7 +2365,7 @@ export async function startTui(
         statusBand.paddingLeft = composerContentIndent;
         statusBand.paddingRight = composerContentIndent;
         transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
-        transcript.content.paddingRight = appearance.transcriptPaddingRight;
+        transcript.wrapper.paddingRight = appearance.transcriptPaddingRight;
         sidebar.refit();
         resizeComposer(requestedComposerTextRows);
         renderState();
