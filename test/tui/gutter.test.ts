@@ -178,12 +178,12 @@ test("thought markers use the same compact bullet as assistant rows", async () =
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
         id: "content",
-        content: "Thought: 1.8s",
+        content: "Churned for 1.8s",
     });
     const node = createTuiGutterEntry(
         setup.renderer,
         "thought",
-        { kind: "thought", text: "Thought: 1.8s" },
+        { kind: "thought", text: "Churned for 1.8s" },
         content,
         0,
     );
