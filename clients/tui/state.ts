@@ -994,13 +994,14 @@ export function failTuiConnection(state: TuiState, message: string): TuiState {
 export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     const reasoning = (state.pendingThinking ?? "").trim();
     const expanded = state.thinkingExpanded === true && reasoning.length > 0;
+    const settled = dropTuiThinking(state);
     if (reasoning.length === 0) {
-        return appendEntry(dropTuiThinking(state), {
+        return insertBeforeTrailingAssistant(settled, {
             kind: "thought",
             text: `Thought: ${seconds.toFixed(1)}s`,
         });
     }
-    return appendEntry(dropTuiThinking(state), {
+    return insertBeforeTrailingAssistant(settled, {
         kind: "thought",
         text: thoughtSummary(seconds, expanded),
         reasoning,
@@ -1025,7 +1026,11 @@ export function dropTuiThinking(state: TuiState): TuiState {
     if (state.pendingThinking === undefined) {
         return state;
     }
-    return withLiveThinking({ ...state, pendingThinking: undefined });
+    return {
+        ...state,
+        pendingThinking: undefined,
+        entries: state.entries.filter((entry) => entry.kind !== "thinking"),
+    };
 }
 
 /**
@@ -1942,16 +1947,27 @@ function appendThinkingText(state: TuiState, text: string): TuiState {
  * carries no state of its own.
  */
 function withLiveThinking(state: TuiState): TuiState {
-    const settled = state.entries.at(-1)?.kind === "thinking"
-        ? state.entries.slice(0, -1)
-        : state.entries;
+    const settled = state.entries.filter((entry) => entry.kind !== "thinking");
     const pending = state.pendingThinking;
-    return {
-        ...state,
-        entries: pending === undefined || pending.length === 0
-            ? settled
-            : [...settled, { kind: "thinking", text: pending }],
-    };
+    const withoutLiveThinking = { ...state, entries: settled };
+    return pending === undefined || pending.length === 0
+        ? withoutLiveThinking
+        : insertBeforeTrailingAssistant(withoutLiveThinking, {
+            kind: "thinking",
+            text: pending,
+        });
+}
+
+/** Provider streams may deliver reasoning after the answer it precedes. */
+function insertBeforeTrailingAssistant(
+    state: TuiState,
+    entry: TuiTranscriptEntry,
+): TuiState {
+    const entries = [...state.entries];
+    const last = entries.at(-1);
+    const index = last?.kind === "assistant" ? entries.length - 1 : entries.length;
+    entries.splice(index, 0, entry);
+    return { ...state, entries };
 }
 
 function appendEntry(state: TuiState, entry: TuiTranscriptEntry): TuiState {
