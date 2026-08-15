@@ -188,10 +188,12 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         stickyScroll: true,
         stickyStart: "bottom",
         scrollY: true,
+        // Reserve a column inside the scrollbar. Content padding does not
+        // shrink OpenTUI's full-width rows, so it would still paint flush.
+        wrapperOptions: { paddingRight: 1 },
         contentOptions: {
             flexDirection: "column",
             gap: 0,
-            paddingRight: 1,
         },
     });
     let panelDragged = false;
