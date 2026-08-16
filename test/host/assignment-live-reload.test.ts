@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
-function config(assigned: string) {
+function config(assigned: string, extra: Record<string, unknown> = {}) {
     return {
         schema_version: 1,
         provider: "openrouter",
@@ -19,6 +19,7 @@ function config(assigned: string) {
         model_routes: { one: ["one"], two: ["two"] },
         reviewer_profiles: {},
         model_assignments: { compaction: { model_route: assigned } },
+        ...extra,
     };
 }
 
@@ -64,6 +65,56 @@ test("an assignment written after the host started needs no restart", async () =
         else process.env.VERA_HOME = previousHome;
         if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
         else process.env.VERA_POOL_FILE = previousPool;
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+
+// Every setting the host hands the registry, not just the assignments: the one
+// accessor they all read through is what makes this a property of the file
+// rather than a fix applied one setting at a time.
+test("a setting changed on disk reaches the registry with no restart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-settings-live-"));
+    const configPath = join(root, "profiles", "default", "config.json");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = root;
+    await mkdir(join(root, "profiles", "default"), { recursive: true });
+    await writeFile(configPath, JSON.stringify(config("one")));
+    const host = await startResidentHost({
+        config: config("one") as never,
+        createAdapter: () => new FauxAdapter([]),
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+    });
+    try {
+        const options = (host.registry as unknown as {
+            options: Record<string, unknown>;
+        }).options;
+        expect(options.subagentModel).toBeUndefined();
+        expect(options.permissionModes).toBeUndefined();
+        expect(options.disabledPromptContributions).toBeUndefined();
+        expect(options.modelFallback).toBeUndefined();
+        await writeFile(
+            configPath,
+            JSON.stringify(config("one", {
+                subagent: { model: "faux/two", provider: "openrouter" },
+                permission_modes: { careful: { default: "ask", rules: [] } },
+                disabled_prompt_contributions: ["environment"],
+                fallback: { model: "faux/two", after_failures: 1 },
+            })),
+        );
+        expect((options.subagentModel as { model: string }).model)
+            .toBe("faux/two");
+        expect(Object.keys(options.permissionModes as object))
+            .toEqual(["careful"]);
+        expect(options.disabledPromptContributions).toEqual(["environment"]);
+        expect(options.modelFallback).toBeDefined();
+    } finally {
+        await host.close();
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
         await rm(root, { recursive: true, force: true });
     }
 });

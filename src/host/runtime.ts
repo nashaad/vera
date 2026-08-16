@@ -1,4 +1,5 @@
 import { readdir, realpath, stat } from "node:fs/promises";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -8,8 +9,9 @@ import {
     configuredCompaction,
     configuredCompactionModels,
     configuredReviewers,
+    defaultVeraConfigPath,
     eventLogEnabled,
-    loadOptionalVeraConfig,
+    loadVeraConfig,
     updateVeraConfigDefaults,
     type VeraProviderId,
     type VeraConfig,
@@ -164,21 +166,32 @@ export async function startResidentHost(
     if (migration.notice !== undefined) {
         hostLog({ type: "pool_migrated", message: migration.notice });
     }
-    const modelFallback = configuredModelFallback(options.config);
     const reviewer = configuredReviewer(options.config);
-    const subagentModel = configuredSubagentModel(options.config);
-    const compaction = configuredCompaction(options.config);
-    // The config as it stands on disk, not as it stood when the host came up:
-    // a model bound in settings has to reach the next session that starts,
-    // without the host being restarted under it.
-    // A file that is mid-edit or unreadable falls back to the config the host
-    // started with: a bad save must not take a session's bindings down with it.
+    // The config as it stands on disk, not as it stood when the host came up.
+    // Every setting below is read through this, so changing one in the
+    // settings pane reaches the next session that starts and nothing has to be
+    // restarted under the user.
+    //
+    // Re-read only when the file has moved on, because some of these are asked
+    // on every subagent spawn. A file that is mid-edit or unreadable keeps the
+    // last good answer: a bad save must not take a session's settings with it.
+    let lastConfig = options.config;
+    let lastStamp = "";
     const currentConfig = (): VeraConfig => {
+        const path = defaultVeraConfigPath();
         try {
-            return loadOptionalVeraConfig() ?? options.config;
+            const stat = statSync(path);
+            const stamp = `${stat.mtimeMs}:${stat.size}`;
+            if (stamp === lastStamp) {
+                return lastConfig;
+            }
+            const loaded = loadVeraConfig({ path });
+            lastStamp = stamp;
+            lastConfig = loaded;
         } catch {
-            return options.config;
+            // Absent, mid-write, or malformed: keep what last parsed.
         }
+        return lastConfig;
     };
     // The pool is what says a model can be used, so assignment bindings are
     // judged against it rather than against the catalog alone. User scope
@@ -274,7 +287,7 @@ export async function startResidentHost(
             ? () => {
                 models = refreshDynamicAvailableModels(
                     models,
-                    options.config,
+                    currentConfig(),
                     authStorage,
                 );
                 return models;
@@ -339,9 +352,13 @@ export async function startResidentHost(
         ...(options.config.reasoning_effort === undefined
             ? {}
             : { reasoningEffort: options.config.reasoning_effort }),
-        ...(modelFallback === undefined ? {} : { modelFallback }),
+        get modelFallback() {
+            return configuredModelFallback(currentConfig());
+        },
         ...(reviewer === undefined ? {} : { reviewer }),
-        ...(subagentModel === undefined ? {} : { subagentModel }),
+        get subagentModel() {
+            return configuredSubagentModel(currentConfig());
+        },
         // Read on every session start rather than captured here, so binding a
         // reviewer takes effect on the next session and not the next launch.
         get reviewers() {
@@ -387,16 +404,18 @@ export async function startResidentHost(
                 },
             });
         },
-        ...(compaction === undefined ? {} : { compaction }),
+        get compaction() {
+            return configuredCompaction(currentConfig());
+        },
         get compactionModels() {
             return configuredCompactionModels(
                 currentConfig(),
                 currentReachability(),
             );
         },
-        ...(options.config.permission_modes === undefined
-            ? {}
-            : { permissionModes: options.config.permission_modes }),
+        get permissionModes() {
+            return currentConfig().permission_modes;
+        },
         permissionPreferences,
         extensionTools: [...extensions.tools(), skillScriptTool],
         loadContextualContributions: loadSkillContribution,
@@ -411,12 +430,9 @@ export async function startResidentHost(
             }
             return hooks;
         },
-        ...(options.config.disabled_prompt_contributions === undefined
-            ? {}
-            : {
-                disabledPromptContributions:
-                    options.config.disabled_prompt_contributions,
-            }),
+        get disabledPromptContributions() {
+            return currentConfig().disabled_prompt_contributions;
+        },
         ...(inboxDelivery === undefined ? {} : {
             inboxDelivery,
             // Read per attach, not once at startup, because `arc init` can
@@ -428,7 +444,7 @@ export async function startResidentHost(
         }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
-        ...(eventLogEnabled(options.config)
+        ...(eventLogEnabled(currentConfig())
             ? {
                 eventLogPathForId: (agentId: string, cwd: string) =>
                     eventLogDirectory === undefined
