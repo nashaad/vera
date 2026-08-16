@@ -1123,6 +1123,79 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     )).toBe(true);
 });
 
+test("a folded multi-file preview keeps filenames instead of doubly truncating paths", () => {
+    const first = "/Users/nash/Projects/Obsidian/Private/PROJECTS/Vera Agent/Vera 2 - In flight.md";
+    const second = "/Users/nash/Projects/Obsidian/Private/PROJECTS/Vera Agent/index.md";
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "read",
+        args: { path: first },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: second },
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "first",
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "second",
+        seq: 4,
+    });
+
+    expect(state.entries[0]).toMatchObject({
+        kind: "tool_header",
+        detailPreview: "  └ Read Vera 2 - In flight.md, Read index.md",
+    });
+    expect(state.entries.filter((entry) => entry.kind === "tool")
+        .map((entry) => entry.text))
+        .toEqual([
+            `Read ${first}`,
+            `Read ${second}`,
+            "first",
+            "second",
+        ]);
+});
+
+test("a folded multi-file preview distinguishes matching filenames", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "/one/index.md" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "/two/index.md" },
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "first",
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "second",
+        seq: 4,
+    });
+
+    expect(state.entries[0]).toMatchObject({
+        detailPreview: "  └ Read one/index.md, Read two/index.md",
+    });
+});
+
 test("a short completed tool group uses the same compact header", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "tool_started",
