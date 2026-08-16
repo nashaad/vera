@@ -535,22 +535,16 @@ export async function runHeadlessLoop(
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir,
-            ...(options.disabledPromptContributions === undefined ? {} : {
-                disabledPromptContributions:
-                    options.disabledPromptContributions,
-            }),
-            ...(options.modelFallback === undefined
-                ? {}
-                : { modelFallback: options.modelFallback }),
-            ...(options.reviewer === undefined
-                ? {}
-                : { reviewer: options.reviewer }),
-            ...(options.reviewers === undefined
-                ? {}
-                : { reviewers: options.reviewers }),
-            ...(options.permissionModes === undefined
-                ? {}
-                : { permissionModes: options.permissionModes }),
+            // Settings the host may rewrite while this session runs are read
+            // here rather than copied, so a subagent spawned later is given
+            // what the settings say now, not what they said at start.
+            get disabledPromptContributions() {
+                return options.disabledPromptContributions;
+            },
+            get modelFallback() { return options.modelFallback; },
+            get reviewer() { return options.reviewer; },
+            get reviewers() { return options.reviewers; },
+            get permissionModes() { return options.permissionModes; },
         });
     // A configured reviewer wins, because the point of configuring one is to
     // pay for a cheaper model than the agent. Without it the reviewer reads the
@@ -750,9 +744,9 @@ export async function runHeadlessLoop(
         extensionTools: options.extensionTools ?? [],
         offerTools: options.offerTools ?? true,
         loadOptionalContext: options.loadOptionalContext ?? true,
-        ...(options.modelFallback === undefined
-            ? {}
-            : { modelFallback: options.modelFallback }),
+        // Asked at each turn, not captured for the session: a setting the
+        // user changes mid-session reaches the next turn with no restart.
+        get modelFallback() { return options.modelFallback; },
         ...(options.effortPool === undefined
             ? {}
             : { effortPool: options.effortPool }),
@@ -762,14 +756,12 @@ export async function runHeadlessLoop(
         readApprovalMode,
         readPermissionGrants,
         readPermissionPreferences,
-        ...(options.permissionModes === undefined
-            ? {}
-            : { permissionModes: options.permissionModes }),
+        get permissionModes() { return options.permissionModes; },
         reviewToolCall,
         reviewToolCallForProfile: createReviewerProfileRouter(
             reviewToolCall,
             adapter,
-            options.reviewers,
+            () => options.reviewers,
             options.reviewLog,
         ),
         promptPrefixTracker: new PromptPrefixTracker(),
@@ -777,9 +769,9 @@ export async function runHeadlessLoop(
             readSessionImageContent(store, attachmentId),
         scratchDir,
         toolResultSpill: createToolResultSpill(scratchDir),
-        ...(options.disabledPromptContributions === undefined ? {} : {
-            disabledPromptContributions: options.disabledPromptContributions,
-        }),
+        get disabledPromptContributions() {
+            return options.disabledPromptContributions;
+        },
         ...(options.loadContextualContributions === undefined ? {} : {
             loadContextualContributions: options.loadContextualContributions,
         }),
@@ -800,36 +792,64 @@ export async function runHeadlessLoop(
     }
 }
 
+/**
+ * `readProfiles` is asked at each review rather than read once, so a profile
+ * the user repoints between turns reaches the next review in this session. The
+ * reviewer instance is still kept, keyed by the settings it was built from:
+ * changed settings start a new conversation instead of continuing one that
+ * belongs to a model no longer in use.
+ */
 export function createReviewerProfileRouter(
     defaultReviewer: ReviewToolCall,
     adapter: ModelAdapter,
-    profiles: Readonly<Record<string, ToolReviewerSettings>> | undefined,
+    readProfiles: () => Readonly<Record<string, ToolReviewerSettings>> | undefined,
     log?: ReviewLog,
 ): NonNullable<RunTurnState["reviewToolCallForProfile"]> {
-    const reviewers = new Map<string, ReviewToolCall>();
+    const reviewers = new Map<string, { key: string; review: ReviewToolCall }>();
     return (profile, request, signal) => {
         if (profile === "default") {
             return defaultReviewer(request, signal);
         }
-        let reviewer = reviewers.get(profile);
-        if (reviewer === undefined) {
-            const settings = profiles?.[profile];
-            if (settings === undefined) {
-                return Promise.resolve({
-                    decision: "unavailable",
-                    reason: `Reviewer profile ${profile} is unavailable.`,
-                    riskLevel: "high",
-                    userAuthorization: "unknown",
-                });
-            }
-            reviewer = createRoutedToolReviewer(adapter, {
-                ...settings,
-                ...(log === undefined ? {} : { log }),
+        const settings = readProfiles()?.[profile];
+        if (settings === undefined) {
+            return Promise.resolve({
+                decision: "unavailable",
+                reason: `Reviewer profile ${profile} is unavailable.`,
+                riskLevel: "high",
+                userAuthorization: "unknown",
             });
+        }
+        const key = JSON.stringify(settings);
+        let reviewer = reviewers.get(profile);
+        if (reviewer?.key !== key) {
+            reviewer = {
+                key,
+                review: createRoutedToolReviewer(adapter, {
+                    ...settings,
+                    ...(log === undefined ? {} : { log }),
+                }),
+            };
             reviewers.set(profile, reviewer);
         }
-        return reviewer(request, signal);
+        return reviewer.review(request, signal);
     };
+}
+
+/**
+ * One read of a setting the host may rewrite between turns, so the test and the
+ * value passed on cannot come from two different answers.
+ */
+function fallbackFor(
+    fallback: RunTurnState["modelFallback"],
+    provider: string | undefined,
+): { fallback?: NonNullable<RunTurnState["modelFallback"]> } {
+    if (
+        fallback === undefined
+        || (fallback.provider !== undefined && fallback.provider !== provider)
+    ) {
+        return {};
+    }
+    return { fallback };
 }
 
 export async function runTurn(
@@ -1242,12 +1262,10 @@ export async function runTurn(
                             state.contextWatch.measurement = remeasured;
                         }
                     },
-                    ...(state.modelFallback === undefined
-                        || (state.modelFallback.provider !== undefined
-                            && state.modelFallback.provider
-                                !== modelSettings.provider)
-                        ? {}
-                        : { fallback: state.modelFallback }),
+                    ...fallbackFor(
+                        state.modelFallback,
+                        modelSettings.provider,
+                    ),
                     ...(state.effortPool === undefined
                         ? {}
                         : { coarsening: { pool: state.effortPool } }),
