@@ -7,6 +7,7 @@ import {
     MODEL_SLOT_INTENTS,
     bindModelSlot,
     isAutoAssignable,
+    slotExclusions,
     parseModelSlotsConfig,
     resolveModelSlot,
     slotLabel,
@@ -123,21 +124,65 @@ test("an optional caller with nothing bound does not run", () => {
 });
 
 test("an excluded provider is never auto assigned, at any of its models", () => {
-    expect(isAutoAssignable({
-        provider: "cerebras", model: "qwen-3-coder", name: "a",
-    })).toBe(false);
-    expect(isAutoAssignable({
-        provider: "cerebras", model: "llama-4", name: "b",
-    })).toBe(false);
+    const rules = slotExclusions({}, "extra");
+    expect(isAutoAssignable(
+        { provider: "cerebras", model: "qwen-3-coder", name: "a" },
+        rules,
+    )).toBe(false);
+    expect(isAutoAssignable(
+        { provider: "cerebras", model: "llama-4", name: "b" },
+        rules,
+    )).toBe(false);
+});
+
+test("a provider barred from one slot stays eligible for another", () => {
+    const entry = { provider: "cerebras" as const, model: "qwen", name: "a" };
+    expect(isAutoAssignable(entry, slotExclusions({}, "extra"))).toBe(false);
+    expect(isAutoAssignable(entry, slotExclusions({}, "snappy"))).toBe(true);
+});
+
+test("a user rule adds to the shipped default rather than replacing it", () => {
+    const slots = parseModelSlotsConfig(
+        { never_auto: { snappy: [{ provider: "ollama" }] } },
+        ROUTES,
+    );
+    const rules = slotExclusions(slots ?? {}, "snappy");
+    // The user was thinking about ollama, not about fable. Losing the shipped
+    // rule because they wrote one of their own is the footgun this avoids.
+    expect(isAutoAssignable(
+        { provider: "ollama", model: "qwen3", name: "a" },
+        rules,
+    )).toBe(false);
+    expect(isAutoAssignable(
+        { provider: "openrouter", model: "anthropic/claude-fable-5", name: "b" },
+        rules,
+    )).toBe(false);
+});
+
+test("an empty user list clears a slot's exclusions", () => {
+    const slots = parseModelSlotsConfig({ never_auto: { extra: [] } }, ROUTES);
+    expect(slotExclusions(slots ?? {}, "extra")).toEqual([]);
+    expect(isAutoAssignable(
+        { provider: "cerebras", model: "qwen", name: "a" },
+        slotExclusions(slots ?? {}, "extra"),
+    )).toBe(true);
+});
+
+test("a never_auto rule naming neither provider nor model is refused", () => {
+    expect(parseModelSlotsConfig({ never_auto: { extra: [{}] } }, ROUTES))
+        .toBeUndefined();
 });
 
 test("an exclusion naming a model leaves its neighbours assignable", () => {
-    expect(isAutoAssignable({
-        provider: "openrouter", model: "anthropic/claude-fable-5", name: "a",
-    })).toBe(false);
-    expect(isAutoAssignable({
-        provider: "openrouter", model: "anthropic/claude-opus-5", name: "b",
-    })).toBe(true);
+    const rules = slotExclusions({}, "extra");
+    expect(isAutoAssignable(
+        { provider: "openrouter", model: "anthropic/claude-fable-5", name: "a" },
+        rules,
+    )).toBe(false);
+    expect(isAutoAssignable(
+        { provider: "openrouter", model: "anthropic/claude-opus-5", name: "b" },
+        rules,
+    )).toBe(true);
 });
 
 test("exclusions bind automatic assignment, not what the user binds", () => {

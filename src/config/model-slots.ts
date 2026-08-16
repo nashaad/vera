@@ -84,8 +84,19 @@ export interface VeraModelSlotConfig {
     readonly label?: string;
 }
 
+/**
+ * Exclusions a user wrote, per slot. A list merges with the shipped default
+ * for that slot, so adding one rule does not silently drop the others. An
+ * empty list clears a slot's exclusions entirely, which is the way back to
+ * none.
+ */
+export type SlotExclusionsConfig = Readonly<
+    Partial<Record<ModelSlotId, readonly SlotAutoExclusion[]>>
+>;
+
 export type VeraModelSlotsConfig = Readonly<
-    Partial<Record<ModelSlotId, VeraModelSlotConfig>>
+    & Partial<Record<ModelSlotId, VeraModelSlotConfig>>
+    & { never_auto?: SlotExclusionsConfig }
 >;
 
 export interface ResolvedModelSlot {
@@ -127,8 +138,17 @@ export function parseModelSlotsConfig(
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return undefined;
     }
-    const slots: Partial<Record<ModelSlotId, VeraModelSlotConfig>> = {};
+    const slots: Partial<Record<ModelSlotId, VeraModelSlotConfig>>
+        & { never_auto?: SlotExclusionsConfig } = {};
     for (const [name, entry] of Object.entries(value)) {
+        if (name === "never_auto") {
+            const exclusions = parseExclusionsConfig(entry);
+            if (exclusions === undefined) {
+                return undefined;
+            }
+            slots.never_auto = exclusions;
+            continue;
+        }
         if (!isModelSlotId(name)) {
             return undefined;
         }
@@ -298,14 +318,84 @@ export interface SlotAutoExclusion {
     readonly model?: string;
 }
 
-export const DEFAULT_SLOT_AUTO_EXCLUSIONS: readonly SlotAutoExclusion[] = [
-    { provider: "cerebras" },
-    { model: "anthropic/claude-fable-5" },
-];
+/**
+ * Per slot, because a model that is a poor automatic choice for the most
+ * capable slot can be the right one for the cheapest. Cerebras stays eligible
+ * for `snappy` on exactly that reasoning.
+ */
+export const DEFAULT_SLOT_AUTO_EXCLUSIONS:
+    Readonly<Record<ModelSlotId, readonly SlotAutoExclusion[]>> = {
+        snappy: [{ model: "anthropic/claude-fable-5" }],
+        eco: [
+            { model: "anthropic/claude-fable-5" },
+            { provider: "cerebras" },
+        ],
+        extra: [
+            { model: "anthropic/claude-fable-5" },
+            { provider: "cerebras" },
+        ],
+        reviewer: [],
+        compaction: [],
+    };
+
+/**
+ * What actually gates automatic assignment for a slot: the shipped default
+ * plus whatever the user added. An empty user list clears the slot.
+ */
+export function slotExclusions(
+    slots: VeraModelSlotsConfig,
+    slot: ModelSlotId,
+): readonly SlotAutoExclusion[] {
+    const declared = slots.never_auto?.[slot];
+    if (declared === undefined) {
+        return DEFAULT_SLOT_AUTO_EXCLUSIONS[slot];
+    }
+    if (declared.length === 0) {
+        return [];
+    }
+    return [...DEFAULT_SLOT_AUTO_EXCLUSIONS[slot], ...declared];
+}
+
+function parseExclusionsConfig(
+    value: unknown,
+): SlotExclusionsConfig | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const parsed: Partial<Record<ModelSlotId, readonly SlotAutoExclusion[]>> =
+        {};
+    for (const [slot, list] of Object.entries(value)) {
+        if (!isModelSlotId(slot) || !Array.isArray(list)) {
+            return undefined;
+        }
+        const rules: SlotAutoExclusion[] = [];
+        for (const rule of list) {
+            if (
+                typeof rule !== "object" || rule === null || Array.isArray(rule)
+            ) {
+                return undefined;
+            }
+            const { provider, model } = rule as Record<string, unknown>;
+            if (
+                (provider !== undefined && typeof provider !== "string")
+                || (model !== undefined && typeof model !== "string")
+                || (provider === undefined && model === undefined)
+            ) {
+                return undefined;
+            }
+            rules.push({
+                ...(provider === undefined ? {} : { provider }),
+                ...(model === undefined ? {} : { model }),
+            });
+        }
+        parsed[slot] = rules;
+    }
+    return parsed;
+}
 
 export function isAutoAssignable(
     entry: VeraCatalogModel,
-    exclusions: readonly SlotAutoExclusion[] = DEFAULT_SLOT_AUTO_EXCLUSIONS,
+    exclusions: readonly SlotAutoExclusion[],
 ): boolean {
     return !exclusions.some((excluded) => {
         if (excluded.provider === undefined && excluded.model === undefined) {
