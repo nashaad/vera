@@ -300,7 +300,7 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-child.ts",
                 100,
-                36,
+                40,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
             sendText(socket, session, "/help");

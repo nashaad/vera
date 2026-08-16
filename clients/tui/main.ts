@@ -50,6 +50,7 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import {
+    configuredModelSlots,
     loadOptionalVeraConfig,
     tipsEnabled as configuredTipsEnabled,
     type VeraExtensionConfig,
@@ -58,6 +59,7 @@ import {
     loadPoolFile,
     poolFileIssueNotices,
 } from "../../src/model/pool-file-loader.ts";
+import { poolReachability } from "../../src/model/slot-reachability.ts";
 import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
 import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
 import {
@@ -361,6 +363,7 @@ import {
     renderTuiEntry,
     renderTuiQueuedPrompt,
     tuiPoolListing,
+    tuiSlotListing,
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
@@ -3621,6 +3624,29 @@ export async function startTui(
             state = appendTuiNotice(
                 state,
                 tuiPoolListing(state.modelSettings?.pooled),
+            );
+            renderState();
+            return;
+        }
+        if (commandAction?.type === "show_slots") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            // Read at the moment of asking rather than held from startup: the
+            // pool and the config are both files the user may have just
+            // edited, and this view exists to show what they say now.
+            const slotConfig = loadOptionalVeraConfig();
+            const pool = loadPoolFile({ projectRoot: process.cwd() }).merged;
+            state = appendTuiNotice(
+                state,
+                tuiSlotListing(
+                    slotConfig === undefined
+                        ? []
+                        : configuredModelSlots(
+                            slotConfig,
+                            poolReachability(pool),
+                        ),
+                ),
             );
             renderState();
             return;
