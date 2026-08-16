@@ -105,3 +105,75 @@ test("a subtitle does not cost the card its bottom padding", async () => {
     // The subtitle is a line and the blank under it, so the card grows by two.
     expect(await cardHeight(true)).toBe(await cardHeight(false) + 2);
 });
+
+/** The rows the card drew, measured from its own top edge. */
+function contentBottom(box: {
+    y: number;
+    height: number;
+    getChildren(): readonly { y: number; height: number }[];
+}): number {
+    return Math.max(
+        ...box.getChildren().map((child) => child.y - box.y + child.height),
+    );
+}
+
+// The card sizes itself from its content, so nothing it draws can push the
+// footer onto the bottom edge. This is the check that keeps it that way: the
+// last row of any pane, at any width, is the blank one under the hints.
+test("every pane keeps a blank row under whatever it draws", async () => {
+    const { createTestRenderer } = await import("@opentui/core/testing");
+    const { createTuiSettingsPickerView } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    for (const width of [40, 80, 140]) {
+        for (const kind of KINDS) {
+            const tabs = kind === "model" ? TABS : [undefined];
+            for (const tab of tabs) {
+                const setup = await createTestRenderer({ width, height: 40 });
+                const view = createTuiSettingsPickerView(setup.renderer);
+                setup.renderer.root.add(view.box);
+                view.box.visible = true;
+                // The theme rows draw a swatch, so that pane needs a name
+                // the catalog knows rather than the shared model fixture.
+                const state = kind === "theme"
+                    ? { ...pane(kind, tab), options: [{ value: "default", label: "default" }], allOptions: [{ value: "default", label: "default" }] }
+                    : pane(kind, tab);
+                view.update(state as never);
+                await setup.flush();
+                const slack = view.box.height - contentBottom(view.box as never);
+                setup.renderer.destroy();
+                expect([kind, tab, width, slack >= 1]).toEqual([
+                    kind,
+                    tab,
+                    width,
+                    true,
+                ]);
+            }
+        }
+    }
+});
+
+test("the command palette keeps a blank row under its hints", async () => {
+    const { createTestRenderer } = await import("@opentui/core/testing");
+    const { createTuiCommandPaletteView } = await import(
+        "../../clients/tui/command-palette.ts"
+    );
+    const setup = await createTestRenderer({ width: 80, height: 40 });
+    const view = createTuiCommandPaletteView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update({
+        commands: [{
+            name: "help",
+            label: "/help",
+            description: "what this does",
+            usage: "/help",
+        }],
+        selectedIndex: 0,
+        query: "",
+    } as never);
+    await setup.flush();
+    expect(view.box.height - contentBottom(view.box as never))
+        .toBeGreaterThanOrEqual(1);
+    setup.renderer.destroy();
+});

@@ -35,11 +35,10 @@ export const DIALOG_GUTTER_WIDTH = 0;
 /** Kept for the nodes that align themselves against a row's leading text. */
 export const DIALOG_GUTTER = "";
 
-// The card chrome that surrounds a variable-height row list: the header line,
-// the three-line search block, the footer's separating blank line and its
-// first line, and the card's own top padding. The footer's second line is
-// spare room for a hint row that wraps, so it is not counted here: on the
-// common single-line footer it would leave a blank row under the card.
+// How many rows a card spends on chrome rather than on rows: the header, the
+// three-line search block, the footer and the blank line above it, and the
+// card's own top padding. Cards size themselves from their content, so this is
+// only the row budget a list windows itself to, never a card's height.
 export const DIALOG_CHROME_HEIGHT = 9;
 
 /** How far a card holds its content off its own left and right edges. */
