@@ -1874,7 +1874,7 @@ export function createTuiSettingsPickerView(
                 box.top = PICKER_TOP_OFFSET;
                 box.left = "20%";
                 box.width = "60%";
-                box.height = state.allOptions.length + DIALOG_CHROME_HEIGHT;
+                box.height = "auto";
                 renderThemePickerRows(renderer, box, state, nodes, view.pointer);
                 return;
             }
@@ -2388,8 +2388,7 @@ function renderListPickerRows(
         );
         box.add(footer);
         nodes.push(footer);
-        box.height = MODEL_HELP_LINES.length + DIALOG_CHROME_HEIGHT
-            + MODEL_TAB_STRIP_HEIGHT;
+        box.height = "auto";
         return;
     }
 
@@ -2569,10 +2568,7 @@ function renderListPickerRows(
     );
     box.add(footer);
     nodes.push(footer);
-    box.height = lines + DIALOG_CHROME_HEIGHT - (searchable ? 0 : 3)
-        + (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
-        + subtitleLines
-        + (tip !== undefined && tip.length > 0 ? 2 : 0);
+    box.height = "auto";
 }
 
 // The strip and the blank line under it. What each collection is now sits in

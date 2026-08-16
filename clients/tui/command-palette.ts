@@ -177,7 +177,6 @@ export function createTuiCommandPaletteView(
             nodes.push(header, search);
 
             const rows = state.commands.length === 0 ? [] : windowedRows(renderer, state);
-            let lines = 0;
             if (rows.length === 0) {
                 const empty = new TextRenderable(renderer, {
                     content: `${DIALOG_GUTTER}No commands found`,
@@ -187,7 +186,6 @@ export function createTuiCommandPaletteView(
                 });
                 box.add(empty);
                 nodes.push(empty);
-                lines = 1;
             }
             const commandNodes = dialogOptionRows(
                 renderer,
@@ -206,8 +204,7 @@ export function createTuiCommandPaletteView(
                     ...dialogRowPointer(view.pointer, row.index),
                 })),
             );
-            commandNodes.forEach((node, position) => {
-                lines += rows[position]!.spaced ? 2 : 1;
+            commandNodes.forEach((node) => {
                 box.add(node);
                 nodes.push(node);
             });
@@ -218,7 +215,7 @@ export function createTuiCommandPaletteView(
             );
             box.add(footer);
             nodes.push(footer);
-            box.height = lines + DIALOG_CHROME_HEIGHT;
+            box.height = "auto";
         },
     };
     return view;
