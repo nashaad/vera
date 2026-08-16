@@ -210,26 +210,20 @@ test("assignment rows survive a snapshot from the host", async () => {
     );
 });
 
-test("the highlighted row explains itself in the footer", async () => {
-    const { pickerFooter } = await import(
-        "../../clients/tui/settings-picker.ts"
-    );
+test("the highlighted row explains itself beside the list", () => {
     const options = tuiModelAssignmentOptions(
         rows({ snappy: { model_route: "cheap" } }, (name) => name !== "small"),
         "session-model",
     );
-    const pane = {
-        kind: "model" as const,
-        allOptions: [],
-        options,
-        selectedIndex: options.findIndex((option) =>
-            option.label.startsWith("snappy")
-        ),
-        query: "",
-        tab: "assigned" as const,
-        assignmentOptions: options,
-    };
-    const footer = pickerFooter(pane);
-    expect(footer).toContain("Route cheap names a model that is not in your pool");
-    expect(footer).toContain("Add that model to the pool");
+    const snappy = options.find((option) => option.label.startsWith("snappy"));
+    expect(snappy?.detailTitle).toBe("snappy");
+    expect(snappy?.detailFacts).toEqual([
+        ["Runs", "nothing"],
+        ["Set to", "route cheap"],
+        ["Falls back", "nothing, it does not run"],
+        ["Reachable", "no, not in your pool"],
+    ]);
+    expect(snappy?.note).toContain(
+        "Route cheap names a model that is not in your pool",
+    );
 });
