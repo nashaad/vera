@@ -67,3 +67,32 @@ test("the listing shows the route, the substitute, and the unset rows", () => {
     expect(listing).toContain("unset, uses the session's model");
     expect(listing).toContain("snappy      cheap unreachable, nothing runs it");
 });
+
+test("a slot bound to inline models needs no route", () => {
+    const extra = rows({
+        extra: {
+            models: [
+                { name: "picked", provider: "openrouter", model: "big-1" },
+            ],
+        },
+    }).find((row) => row.slot === "extra");
+    expect(extra?.bound).toBe(true);
+    expect(extra?.route).toBeUndefined();
+    expect(extra?.source).toBe("slot");
+    expect(extra?.models.map((model) => model.model)).toEqual(["big-1"]);
+});
+
+test("a slot naming both a route and inline models is refused", async () => {
+    const { parseModelSlotsConfig } = await import(
+        "../../src/config/model-slots.ts"
+    );
+    expect(parseModelSlotsConfig(
+        {
+            extra: {
+                model_route: "best",
+                models: [{ provider: "openrouter", model: "big-1" }],
+            },
+        },
+        { best: ["big"] },
+    )).toBeUndefined();
+});

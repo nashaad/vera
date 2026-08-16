@@ -774,7 +774,7 @@ export function tuiSlotListing(
                     ? ""
                     : ` (${running.reasoning_effort})`
             }`;
-        if (row.route === undefined) {
+        if (!row.bound) {
             const takes = row.inherits === undefined
                 ? row.source === "session"
                     ? "unset, uses the session's model"
@@ -782,14 +782,23 @@ export function tuiSlotListing(
                 : `unset, uses ${row.inherits}`;
             return `  ${name}  ${takes}`;
         }
+        // A route is named because the user named it; inline models have no
+        // name to show, so the models themselves are the identification.
+        const bound = row.route ?? row.declared
+            .map((entry) => entry.model)
+            .join(", ");
         if (row.source === "slot") {
-            return `  ${name}  ${row.route} · ${target}`;
+            // With a route the name and the model are two different facts and
+            // both are worth showing. Inline, they are the same fact.
+            return row.route === undefined
+                ? `  ${name}  ${target}`
+                : `  ${name}  ${row.route} · ${target}`;
         }
         if (row.source === "none") {
-            return `  ${name}  ${row.route} unreachable, nothing runs it`;
+            return `  ${name}  ${bound} unreachable, nothing runs it`;
         }
         const substitute = row.inherits ?? "the session's model";
-        return `  ${name}  ${row.route} unreachable, uses ${substitute}`;
+        return `  ${name}  ${bound} unreachable, uses ${substitute}`;
     });
     return [`Model slots (${rows.length}):`, ...lines].join("\n");
 }

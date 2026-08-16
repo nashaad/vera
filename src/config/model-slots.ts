@@ -21,6 +21,7 @@
  */
 
 import {
+    parseCatalogModel,
     resolveModelRoute,
     type VeraCatalogModel,
     type VeraModelCatalogConfig,
@@ -78,8 +79,20 @@ export const MODEL_SLOT_INTENTS: Readonly<Record<ModelSlotId, string>> = {
     compaction: "summarising a session that has run long",
 };
 
+/**
+ * What a slot is bound to. Exactly one of the two ways of saying it: a named
+ * route from the catalog, or models written on the slot itself. Both at once
+ * is refused rather than ranked, because a file carrying two answers has no
+ * obvious right one and the user would have to guess which they were editing.
+ *
+ * Inline models exist because the picker binds a slot to a model the user just
+ * chose. Making that write a route would mean inventing a route name they
+ * never asked for and leaving it in their file.
+ */
 export interface VeraModelSlotConfig {
-    readonly model_route: string;
+    readonly model_route?: string;
+    /** In preference order, each carrying its own reasoning effort. */
+    readonly models?: readonly VeraCatalogModel[];
     /** The user's own word for this slot. Display only. */
     readonly label?: string;
 }
@@ -104,8 +117,8 @@ export interface ResolvedModelSlot {
     readonly label: string;
     /** In preference order, each carrying its own reasoning effort. */
     readonly models: readonly VeraCatalogModel[];
-    /** The route this slot came from. Diagnostic only. */
-    readonly route: string;
+    /** The route this slot named, absent when its models are inline. */
+    readonly route?: string;
 }
 
 export function isModelSlotId(value: unknown): value is ModelSlotId {
@@ -170,19 +183,35 @@ function parseSlot(
     }
     const record = value as Record<string, unknown>;
     const route = record.model_route;
+    const inline = record.models;
     const label = record.label;
     if (
-        typeof route !== "string"
-        || routes[route] === undefined
+        (route !== undefined && inline !== undefined)
+        || (route === undefined && inline === undefined)
         || (label !== undefined
             && (typeof label !== "string" || label.trim().length === 0))
     ) {
         return undefined;
     }
-    return {
-        model_route: route,
-        ...(label === undefined ? {} : { label: label.trim() }),
-    };
+    const labelled = label === undefined ? {} : { label: (label as string).trim() };
+    if (route !== undefined) {
+        if (typeof route !== "string" || routes[route] === undefined) {
+            return undefined;
+        }
+        return { model_route: route, ...labelled };
+    }
+    if (!Array.isArray(inline) || inline.length === 0) {
+        return undefined;
+    }
+    const models: VeraCatalogModel[] = [];
+    for (const entry of inline) {
+        const model = parseCatalogModel(entry);
+        if (model === undefined) {
+            return undefined;
+        }
+        models.push(model);
+    }
+    return { models, ...labelled };
 }
 
 /**
@@ -197,6 +226,16 @@ export function resolveModelSlot(
 ): ResolvedModelSlot | undefined {
     const configured = slots[slot];
     if (configured === undefined) {
+        return undefined;
+    }
+    if (configured.models !== undefined) {
+        return {
+            slot,
+            label: slotLabel(slots, slot),
+            models: configured.models,
+        };
+    }
+    if (configured.model_route === undefined) {
         return undefined;
     }
     const models = resolveModelRoute(catalog, configured.model_route);
@@ -428,7 +467,9 @@ export interface ModelSlotRow {
     readonly slot: ModelSlotId;
     readonly label: string;
     readonly intent: string;
-    /** The route the user named, absent when the slot is unset. */
+    /** Whether the slot itself names anything. */
+    readonly bound: boolean;
+    /** The route the user named, absent when the models are inline. */
     readonly route?: string;
     readonly declared: readonly VeraCatalogModel[];
     readonly models: readonly VeraCatalogModel[];
@@ -454,7 +495,8 @@ export function describeModelSlots(
             slot,
             label: slotLabel(slots, slot),
             intent: MODEL_SLOT_INTENTS[slot],
-            ...(resolved === undefined ? {} : { route: resolved.route }),
+            bound: slots[slot] !== undefined,
+            ...(resolved?.route === undefined ? {} : { route: resolved.route }),
             declared: resolved?.models ?? [],
             models: binding.models,
             source: binding.source,

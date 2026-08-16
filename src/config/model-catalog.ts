@@ -294,7 +294,7 @@ export function derivedModelName(
         .replace(/^_+|_+$/g, "");
 }
 
-function parseCatalogModel(value: unknown): VeraCatalogModel | undefined {
+export function parseCatalogModel(value: unknown): VeraCatalogModel | undefined {
     if (!isRecord(value)) {
         return undefined;
     }
