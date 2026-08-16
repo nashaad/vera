@@ -6096,10 +6096,10 @@ export async function startTui(
     }
 
     /**
-     * Writes the chosen model onto the assignment, or unbinds it. The write is to
-     * the config file because an assignment is a setting: the host reads it at start,
-     * so the change lands on the next run rather than on this turn, and the
-     * notice says so instead of implying it took effect.
+     * Writes the chosen model onto the assignment, or unbinds it. The write is
+     * to the config file because an assignment is a setting, and the host reads
+     * that file when a session starts, so the change is live from the next
+     * session on with nothing to restart.
      */
     function bindModelAssignmentFromPicker(
         selection: {
@@ -6138,8 +6138,8 @@ export async function startTui(
         state = appendTuiNotice(
             state,
             unbinding
-                ? `${selection.assignment} unset. Restart Vera to apply it.`
-                : `${selection.assignment} → ${selection.model}. Restart Vera to apply it.`,
+                ? `${selection.assignment} unset. New sessions use it.`
+                : `${selection.assignment} → ${selection.model}. New sessions use it.`,
         );
     }
 
