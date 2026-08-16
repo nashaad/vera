@@ -124,14 +124,14 @@ test("ask_user completion is semantic in live and replayed transcripts", () => {
     expect(replayResult?.text).toBe(liveResult?.text);
 });
 
-test("a thought with no reasoning behind it carries no fold marker", () => {
+test("a completion with no reasoning behind it gets a playful verb and no fold marker", () => {
     const state = appendTuiThought(createTuiState(), 3.04);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Thought: 3.0s",
+        text: "Sautéed for 3.0s",
     }]);
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Thought: 3.0s");
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Sautéed for 3.0s");
 });
 
 test("streamed reasoning shows live and is rebuilt from what arrived", () => {
@@ -160,12 +160,12 @@ test("the thought summary folds the reasoning it collected", () => {
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "+ Thought: 12.4s",
+        text: "▸ Reasoning: 12.4s",
         reasoning: "weighing the two orderings",
     }]);
     expect(state.pendingThinking).toBeUndefined();
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("+ Thought: 12.4s  ctrl+o reasoning");
+        .toBe("▸ Reasoning: 12.4s  ctrl+o reasoning");
 });
 
 test("toggling reasoning opens every fold and every later one", () => {
@@ -178,12 +178,12 @@ test("toggling reasoning opens every fold and every later one", () => {
 
     expect(state.entries[0]).toEqual({
         kind: "thought",
-        text: "- Thought: 12.4s",
+        text: "▾ Reasoning: 12.4s",
         reasoning: "weighing the two orderings",
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("- Thought: 12.4s  ctrl+o reasoning\n\nweighing the two orderings");
+        .toBe("▾ Reasoning: 12.4s  ctrl+o hide reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -193,14 +193,28 @@ test("toggling reasoning opens every fold and every later one", () => {
     });
     state = appendTuiThought(state, 1.5);
     expect(state.entries[1]).toMatchObject({
-        text: "- Thought: 1.5s",
+        text: "▾ Reasoning: 1.5s",
         expanded: true,
     });
 
     expect(toggleTuiThinking(state).entries[0]).toMatchObject({
-        text: "+ Thought: 12.4s",
+        text: "▸ Reasoning: 12.4s",
         expanded: false,
     });
+});
+
+test("expanded reasoning does not show Markdown heading markers", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "**Estimating remaining work**\n---\n\n## Checking shipped slices ##",
+        seq: 1,
+    });
+    state = toggleTuiThinking(appendTuiThought(state, 3.3));
+
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
+        "▾ Reasoning: 3.3s  ctrl+o hide reasoning"
+        + "\n\nEstimating remaining work\n\nChecking shipped slices",
+    );
 });
 
 test("dropping live reasoning leaves settled rows alone", () => {
@@ -221,6 +235,54 @@ test("dropping live reasoning leaves settled rows alone", () => {
         text: "here is the fix",
     }]);
     expect(dropped.pendingThinking).toBeUndefined();
+});
+
+test("turn completion moves checkpointed thoughts before the final answer", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        working: true,
+        entries: [
+            { kind: "user", text: "how much work is left?" },
+            { kind: "assistant", text: "Five release slices remain." },
+            {
+                kind: "thought",
+                text: "▸ Reasoning: 6.6s",
+                reasoning: "Estimating the remaining work",
+            },
+        ],
+    }, { type: "turn_finished", seq: 1 });
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "thought",
+        "assistant",
+    ]);
+    expect(state.entries[1]).toMatchObject({
+        reasoning: "Estimating the remaining work",
+    });
+});
+
+test("idle status also keeps a late reasoning row before the final answer", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        working: true,
+        entries: [
+            { kind: "user", text: "how much work is left?" },
+            { kind: "assistant", text: "Five release slices remain." },
+            {
+                kind: "thought",
+                text: "▸ Reasoning: 4.6s",
+                reasoning: "Summarizing active unfinished tasks",
+            },
+        ],
+    }, { type: "status", state: "idle", seq: 1 });
+
+    expect(state.working).toBe(false);
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "thought",
+        "assistant",
+    ]);
 });
 
 test("a thought summary survives a history rebuild in place", () => {
@@ -248,7 +310,7 @@ test("a thought summary survives a history rebuild in place", () => {
     expect(state.entries).toEqual([
         {
             kind: "thought",
-            text: "+ Thought: 8.3s",
+            text: "▸ Reasoning: 8.3s",
             reasoning: "weighing the two orderings",
         },
         { kind: "user", text: "which ordering?" },
@@ -1061,6 +1123,79 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     )).toBe(true);
 });
 
+test("a folded multi-file preview keeps filenames instead of doubly truncating paths", () => {
+    const first = "/Users/nash/Projects/Obsidian/Private/PROJECTS/Vera Agent/Vera 2 - In flight.md";
+    const second = "/Users/nash/Projects/Obsidian/Private/PROJECTS/Vera Agent/index.md";
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "read",
+        args: { path: first },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: second },
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "first",
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "second",
+        seq: 4,
+    });
+
+    expect(state.entries[0]).toMatchObject({
+        kind: "tool_header",
+        detailPreview: "  └ Read Vera 2 - In flight.md, Read index.md",
+    });
+    expect(state.entries.filter((entry) => entry.kind === "tool")
+        .map((entry) => entry.text))
+        .toEqual([
+            `Read ${first}`,
+            `Read ${second}`,
+            "first",
+            "second",
+        ]);
+});
+
+test("a folded multi-file preview distinguishes matching filenames", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "/one/index.md" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "/two/index.md" },
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "first",
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "second",
+        seq: 4,
+    });
+
+    expect(state.entries[0]).toMatchObject({
+        detailPreview: "  └ Read one/index.md, Read two/index.md",
+    });
+});
+
 test("a short completed tool group uses the same compact header", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "tool_started",
@@ -1350,7 +1485,7 @@ test("diagnostics stay compact while a fatal keeps a blank row above", () => {
 test("a tool header follows its thought without a spacer row", () => {
     const entries = [
         { kind: "user", text: "inspect" },
-        { kind: "thought", text: "Thought: 0.0s", seconds: 0 },
+        { kind: "thought", text: "Baked for 0.0s", seconds: 0 },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
         { kind: "assistant", text: "Done." },
@@ -1358,6 +1493,40 @@ test("a tool header follows its thought without a spacer row", () => {
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
         .toEqual([0, 1, 0, 0, 1]);
+});
+
+test("a tool header leaves a row after expanded reasoning", () => {
+    const entries = [
+        {
+            kind: "thought",
+            text: "▾ Reasoning: 3.6s",
+            reasoning: "Inspecting Obsidian file in-flight",
+            expanded: true,
+        },
+        { kind: "tool_header", header: "Explored", text: "+ Explored" },
+        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read file" },
+    ] as const;
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 1, 0]);
+    expect(tuiEntryMarginTop(entries, 1, { message: 0, toolGroup: 0 })).toBe(1);
+});
+
+test("a continued tool run also leaves a row after expanded reasoning", () => {
+    const entries = [
+        { kind: "tool_header", header: "Explored", text: "Explored" },
+        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read first" },
+        {
+            kind: "thought",
+            text: "▾ Reasoning: 3.6s",
+            reasoning: "Checking the next file",
+            expanded: true,
+        },
+        { kind: "tool", header: "Explored", prefix: "    ", text: "Read next" },
+    ] as const;
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 0, 1, 1]);
 });
 
 test("a new tool header is separated from the rendered diff above it", () => {

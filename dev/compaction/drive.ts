@@ -1,5 +1,10 @@
 /**
- * The compaction seam an unattended harness shells out to.
+ * Developer-only test harness for Vera's context compaction.
+ *
+ * It sends a scripted sequence of prompts through one real model session,
+ * forces compaction at configurable token thresholds, and prints a JSON report
+ * of each turn and compaction attempt. Use it for provider-backed experiments
+ * and automated checks; Vera does not call it in normal operation.
  *
  *     bun run dev/compaction/drive.ts --provider <provider> --model <id> \
  *         --prompts <file|-> [--capacity <tokens|unknown>] \

@@ -51,6 +51,8 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         )
         && typeof agent.live === "boolean"
         && (agent.title === undefined || typeof agent.title === "string")
+        && (agent.has_user_content === undefined
+            || typeof agent.has_user_content === "boolean")
         && (
             agent.forked_from === undefined
             || (

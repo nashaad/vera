@@ -407,7 +407,11 @@ import {
     createTuiMarkdownEntry,
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
-import { createTuiGutterEntry, tuiGutterContent } from "./gutter.ts";
+import {
+    createTuiGutterEntry,
+    tuiGutterContent,
+    tuiGutterWidth,
+} from "./gutter.ts";
 
 registerTuiParsers();
 
@@ -669,8 +673,28 @@ export async function startConfiguredTui(
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
-            createSession: async (workspace) =>
-                attach((await createAgentThroughHost(host.socket_path, workspace)).id),
+            createSession: async (workspace) => {
+                const createStartedAt = performance.now();
+                const created = await createAgentThroughHost(
+                    host.socket_path,
+                    workspace,
+                );
+                flightRecorder.record({
+                    type: "session_switch_phase_completed",
+                    operation: "clear",
+                    phase: "create",
+                    durationMs: Math.round(performance.now() - createStartedAt),
+                });
+                const attachStartedAt = performance.now();
+                const attached = await attach(created.id);
+                flightRecorder.record({
+                    type: "session_switch_phase_completed",
+                    operation: "clear",
+                    phase: "attach",
+                    durationMs: Math.round(performance.now() - attachStartedAt),
+                });
+                return attached;
+            },
             createAgent: agentClients.create,
             branchAgent: agentClients.branch,
             syncAgentContext: agentClients.sync,
@@ -955,6 +979,10 @@ export async function startTui(
     let promptSubmitting = false;
     let sessionSwitchPending = false;
     let sessionSwitchActivity = "starting new session…";
+    let sessionSwitchStartedAt: number | undefined;
+    let sessionSwitchOperation: string | undefined;
+    let sessionSwitchBufferedUpdates: AgentUpdate[] = [];
+    let sessionSwitchClearingMain = false;
     let extensionCommandPending = false;
     let clientExtensionReloadPending = false;
     let clientExtensionReload: TuiClientExtensionReloadSnapshot = {
@@ -1293,13 +1321,15 @@ export async function startTui(
         stickyScroll: true,
         stickyStart: "bottom",
         scrollY: true,
+        wrapperOptions: {
+            paddingRight: appearance.transcriptPaddingRight,
+        },
         contentOptions: {
             flexDirection: "column",
             gap: 0,
             paddingTop: 0,
             paddingBottom: 1,
             paddingLeft: appearance.transcriptPaddingLeft,
-            paddingRight: appearance.transcriptPaddingRight,
         },
     });
 
@@ -1990,7 +2020,7 @@ export async function startTui(
                 marginTop,
                 separated,
                 {
-                    width: appearance.activityIndent,
+                    width: tuiGutterWidth(entry, appearance.activityIndent),
                     separatorVisible: appearance.separatorVisible,
                     separatorColor: appearance.transcriptSeparatorColor
                         ?? theme.element,
@@ -2221,7 +2251,7 @@ export async function startTui(
     };
     app.add(settingsPickerView.box);
     app.add(secretPromptView.box);
-    app.add(namePromptView.box);
+    app.add(namePromptView.surface);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
@@ -2258,14 +2288,14 @@ export async function startTui(
         help = transition.state;
         renderState();
     };
-    app.add(preferencesListView.box);
-    app.add(commandPaletteView.box);
+    app.add(preferencesListView.surface);
+    app.add(commandPaletteView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
     app.add(doctorDialogView.box);
     app.add(permissionsConfirmView.box);
-    app.add(admissionDialogView.box);
-    app.add(sessionTrashConfirmView.box);
+    app.add(admissionDialogView.surface);
+    app.add(sessionTrashConfirmView.surface);
     app.add(composerTipText);
     app.add(experimentalTuiHost.footer);
     app.add(experimentalTuiHost.composerAdornment);
@@ -2346,7 +2376,7 @@ export async function startTui(
         statusBand.paddingLeft = composerContentIndent;
         statusBand.paddingRight = composerContentIndent;
         transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
-        transcript.content.paddingRight = appearance.transcriptPaddingRight;
+        transcript.wrapper.paddingRight = appearance.transcriptPaddingRight;
         sidebar.refit();
         resizeComposer(requestedComposerTextRows);
         renderState();
@@ -2405,7 +2435,7 @@ export async function startTui(
     renderer.keyInput.on("paste", (event) => {
         if (
             namePrompt !== undefined
-            && namePromptView.box.visible
+            && namePromptView.surface.visible
         ) {
             event.preventDefault();
             event.stopPropagation();
@@ -2465,7 +2495,7 @@ export async function startTui(
             // than reopening a palette that is already in front of you.
             if (commandPalette !== undefined) {
                 commandPalette = undefined;
-                commandPaletteView.box.visible = false;
+                commandPaletteView.surface.visible = false;
                 composer.focus();
                 renderState();
                 return;
@@ -2741,7 +2771,7 @@ export async function startTui(
                     });
                 }
                 if (preferencesList === undefined) {
-                    preferencesListView.box.visible = false;
+                    preferencesListView.surface.visible = false;
                     settingsPicker = preferencesListParent;
                     preferencesListParent = undefined;
                     if (settingsPicker === undefined) {
@@ -3039,27 +3069,14 @@ export async function startTui(
                 renderSidebarAgent(side);
             }
             renderState();
-            // Opening every fold grows the transcript above the viewport, which
-            // walks the view backwards through the conversation. The reasoning
-            // worth reading is the most recent, so the view follows it.
-            //
-            // Reading the bottom first is what keeps the toggle from costing
-            // the follow: setting a scroll position anywhere but the bottom
-            // drops sticky scroll for the rest of the session, so a transcript
-            // that was keeping up with the stream is put back on the bottom
-            // rather than pointed at a row.
-            const activeState = side?.state.state ?? state;
-            const lastThought = activeState.entries.findLastIndex((entry) =>
-                entry.kind === "thought"
-            );
+            // A reader who scrolled away from the live edge keeps that place.
+            // Expanding a fold is inspection, not new transcript activity.
             if (wasFollowing) {
                 if (side === undefined) {
                     transcript.scrollTo(transcript.scrollHeight);
                 } else {
                     sidebar.scrollToBottom();
                 }
-            } else if (side === undefined && lastThought >= 0) {
-                transcript.scrollChildIntoView(`entry-${lastThought}`);
             }
             return;
         }
@@ -3328,6 +3345,9 @@ export async function startTui(
         interceptedText?: string,
         injectedPrefix?: number,
     ): void {
+        // Reached from awaited continuations that can resolve after the
+        // renderer is destroyed, when the composer's EditBuffer is gone.
+        if (shuttingDown) return;
         flightRecorder?.record({
             type: "submit_requested",
             characters: Array.from(
@@ -3935,7 +3955,7 @@ export async function startTui(
                     targetAgentId,
                     false,
                     new Date(),
-                    true,
+                    false,
                     hostedPanePersistence.groups,
                 );
                 focusActiveSurface();
@@ -4143,7 +4163,23 @@ export async function startTui(
             }
             sessionSwitchPending = true;
             sessionSwitchActivity = "starting new session…";
-            renderStatus();
+            sessionSwitchStartedAt = performance.now();
+            sessionSwitchOperation = "clear";
+            sessionSwitchBufferedUpdates = [];
+            sessionSwitchClearingMain = !clearingSidebar;
+            flightRecorder?.record({
+                type: "session_switch_started",
+                operation: "clear",
+                target: clearingSidebar ? "sidebar" : "main",
+            });
+            const previousState = clearingSidebar ? undefined : state;
+            if (!clearingSidebar) {
+                state = createTuiState();
+                clearTranscriptNodes();
+                renderState();
+            } else {
+                renderStatus();
+            }
             const nextSession = clearingSidebar
                 ? dependencies.createAgent!(
                     workspace,
@@ -4170,6 +4206,7 @@ export async function startTui(
                         hostedSidebar.attachmentLifetime,
                         hostedSidebar.initialApprovalMode,
                     );
+                    recordSessionSwitchOutcome("completed");
                     sessionSwitchPending = false;
                     return;
                 }
@@ -4179,6 +4216,15 @@ export async function startTui(
                     return;
                 }
                 sessionSwitchPending = false;
+                if (previousState !== undefined) {
+                    state = previousState;
+                    for (const update of sessionSwitchBufferedUpdates) {
+                        state = applyAgentUpdate(state, update);
+                    }
+                    clearTranscriptNodes();
+                }
+                sessionSwitchBufferedUpdates = [];
+                recordSessionSwitchOutcome("failed", error);
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
@@ -4443,6 +4489,7 @@ export async function startTui(
             sidebarPromptSubmitting = true;
             void attachImagesToSidebar(side, imagePaths, controller.signal)
                 .then(async (attachments) => {
+                    if (shuttingDown) return;
                     await side.client.send({
                         type: "prompt",
                         content: route.text,
@@ -4482,6 +4529,9 @@ export async function startTui(
                         submitPrompt(route.text);
                         return;
                     }
+                    // The send above can resolve after the renderer is
+                    // destroyed; the composer's EditBuffer is gone with it.
+                    if (shuttingDown) return;
                     if (composer.expandedText().trim() === prompt) {
                         composer.rememberSubmittedText(prompt);
                         composer.clearComposer();
@@ -4599,6 +4649,14 @@ export async function startTui(
                 const update = await source.receive();
                 if (shuttingDown || generation !== clientGeneration) {
                     return;
+                }
+                if (
+                    sessionSwitchPending
+                    && sessionSwitchOperation === "clear"
+                    && sessionSwitchClearingMain
+                ) {
+                    sessionSwitchBufferedUpdates.push(update);
+                    continue;
                 }
                 if (
                     update.type === "image_attached"
@@ -5477,6 +5535,25 @@ export async function startTui(
         });
     }
 
+    function recordSessionSwitchOutcome(
+        outcome: "completed" | "failed",
+        error?: unknown,
+    ): void {
+        if (sessionSwitchStartedAt === undefined) return;
+        flightRecorder?.record({
+            type: `session_switch_${outcome}`,
+            operation: sessionSwitchOperation ?? "unknown",
+            durationMs: Math.round(performance.now() - sessionSwitchStartedAt),
+            ...(error === undefined
+                ? {}
+                : { error: error instanceof Error ? error.message : String(error) }),
+        });
+        sessionSwitchStartedAt = undefined;
+        sessionSwitchOperation = undefined;
+        sessionSwitchBufferedUpdates = [];
+        sessionSwitchClearingMain = false;
+    }
+
     /** Drop a session the client asked for but can no longer use. */
     function discardSwitchTarget(next: TuiAgentClient): void {
         void next.detach().catch(() => next.close());
@@ -5699,7 +5776,7 @@ export async function startTui(
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
-        namePromptView.box.visible = uiRequest === undefined
+        namePromptView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -5717,13 +5794,13 @@ export async function startTui(
             && secretPrompt === undefined
             && namePrompt === undefined
             && settingsPicker !== undefined;
-        preferencesListView.box.visible = uiRequest === undefined
+        preferencesListView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && preferencesList !== undefined;
-        commandPaletteView.box.visible = uiRequest === undefined
+        commandPaletteView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -5760,27 +5837,27 @@ export async function startTui(
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && confirmingFullAccess;
-        admissionDialogView.box.visible = uiRequest === undefined
+        admissionDialogView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && !confirmingFullAccess
             && admissionDialog !== undefined;
-        sessionTrashConfirmView.box.visible = uiRequest === undefined
+        sessionTrashConfirmView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate !== undefined;
         const overlayVisible = approvalView.box.visible
             || questionView.box.visible
             || timelinePickerView.box.visible
             || settingsPickerView.box.visible
-            || preferencesListView.box.visible
-            || commandPaletteView.box.visible
+            || preferencesListView.surface.visible
+            || commandPaletteView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
             || permissionsConfirmView.box.visible
-            || admissionDialogView.box.visible
-            || sessionTrashConfirmView.box.visible
-            || namePromptView.box.visible
+            || admissionDialogView.surface.visible
+            || sessionTrashConfirmView.surface.visible
+            || namePromptView.surface.visible
             || secretPromptView.box.visible
             || experimentalTuiHost.hasModal();
         overlayScrim.visible = overlayVisible;
@@ -6613,7 +6690,7 @@ export async function startTui(
                 client.agentId,
                 false,
                 new Date(),
-                true,
+                false,
                 hostedPanePersistence.groups,
             );
             renderState();
@@ -7084,6 +7161,7 @@ export async function startTui(
         draft?: TuiDraft,
         options: { readonly preserveSidebar?: boolean } = {},
     ): void {
+        recordSessionSwitchOutcome("completed");
         const previous = client;
         clientGeneration += 1;
         // The old session owned these calls; nothing will answer them now.

@@ -23,7 +23,7 @@ import type {
 } from "../../src/engine/permissions.ts";
 import type { TuiTheme } from "./theme.ts";
 import type { ModelSubstitution } from "../../src/model/types.ts";
-import { tuiKeyHint } from "./keymap.ts";
+import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 import {
     resolveTuiDiagnostic,
     type TuiDiagnostic,
@@ -341,10 +341,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "turn_finished") {
         const finished = clearedSubstitution({
             ...state,
-            entries: applyToolDetailPreference(
+            entries: settleTrailingThoughts(applyToolDetailPreference(
                 settleToolEntries(state.entries),
                 state.toolDetailsExpanded,
-            ),
+            )),
             working: false,
             modelActivity: undefined,
         });
@@ -382,10 +382,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...state,
             ...(update.state === "idle"
                 ? {
-                    entries: applyToolDetailPreference(
+                    entries: settleTrailingThoughts(applyToolDetailPreference(
                         settleToolEntries(state.entries),
                         state.toolDetailsExpanded,
-                    ),
+                    )),
                 }
                 : {}),
             working: update.state !== "idle",
@@ -542,6 +542,25 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             : appendEntry(next, substitutionEntry(update));
     }
     return assertNever(update);
+}
+
+/** A completed answer is the last row of its turn, even after a checkpoint. */
+function settleTrailingThoughts(
+    entries: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    let thoughtStart = entries.length;
+    while (thoughtStart > 0 && entries[thoughtStart - 1]?.kind === "thought") {
+        thoughtStart -= 1;
+    }
+    if (thoughtStart === entries.length
+        || entries[thoughtStart - 1]?.kind !== "assistant") {
+        return entries;
+    }
+
+    const next = [...entries];
+    const thoughts = next.splice(thoughtStart);
+    next.splice(thoughtStart - 1, 0, ...thoughts);
+    return next;
 }
 
 /**
@@ -994,13 +1013,14 @@ export function failTuiConnection(state: TuiState, message: string): TuiState {
 export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     const reasoning = (state.pendingThinking ?? "").trim();
     const expanded = state.thinkingExpanded === true && reasoning.length > 0;
+    const settled = dropTuiThinking(state);
     if (reasoning.length === 0) {
-        return appendEntry(dropTuiThinking(state), {
+        return insertBeforeTrailingAssistant(settled, {
             kind: "thought",
-            text: `Thought: ${seconds.toFixed(1)}s`,
+            text: `${completionVerb(seconds)} for ${seconds.toFixed(1)}s`,
         });
     }
-    return appendEntry(dropTuiThinking(state), {
+    return insertBeforeTrailingAssistant(settled, {
         kind: "thought",
         text: thoughtSummary(seconds, expanded),
         reasoning,
@@ -1014,7 +1034,23 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
  * marker that does nothing when pressed reads as a broken key.
  */
 function thoughtSummary(seconds: number, expanded: boolean): string {
-    return `${expanded ? "-" : "+"} Thought: ${seconds.toFixed(1)}s`;
+    return `${expanded ? "▾" : "▸"} Reasoning: ${seconds.toFixed(1)}s`;
+}
+
+const COMPLETION_VERBS = [
+    "Baked",
+    "Brewed",
+    "Churned",
+    "Cogitated",
+    "Cooked",
+    "Crunched",
+    "Sautéed",
+    "Worked",
+] as const;
+
+function completionVerb(seconds: number): string {
+    const elapsedTenths = Math.max(0, Math.round(seconds * 10));
+    return COMPLETION_VERBS[elapsedTenths % COMPLETION_VERBS.length]!;
 }
 
 /**
@@ -1025,7 +1061,11 @@ export function dropTuiThinking(state: TuiState): TuiState {
     if (state.pendingThinking === undefined) {
         return state;
     }
-    return withLiveThinking({ ...state, pendingThinking: undefined });
+    return {
+        ...state,
+        pendingThinking: undefined,
+        entries: state.entries.filter((entry) => entry.kind !== "thinking"),
+    };
 }
 
 /**
@@ -1067,7 +1107,7 @@ export function toggleTuiToolDetails(state: TuiState): TuiState {
 }
 
 function thoughtSeconds(text: string): number {
-    return Number.parseFloat(text.replace(/^[+-] Thought: /, "")) || 0;
+    return Number.parseFloat(text.replace(/^[▸▾] Reasoning: /, "")) || 0;
 }
 
 export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
@@ -1160,16 +1200,28 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         }
         // The hint rides the rendered row, not the stored text, so the stored
         // summary stays the fold marker other code parses.
-        const hint = fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_thinking")}`);
+        const hint = fg(TUI_MUTED)(
+            entry.expanded === true
+                ? `  ${tuiKeyChord("toggle_thinking")} hide reasoning`
+                : `  ${tuiKeyHint("toggle_thinking")}`,
+        );
         return entry.expanded === true
             ? new StyledText([
                 summary,
                 hint,
-                fg(TUI_MUTED)(`\n\n${entry.reasoning}`),
+                fg(TUI_MUTED)(`\n\n${plainReasoningSummary(entry.reasoning)}`),
             ])
             : new StyledText([summary, hint]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
+}
+
+/** Provider summaries use Markdown headings; this row is a plain-text surface. */
+function plainReasoningSummary(reasoning: string): string {
+    return reasoning
+        .replace(/\n[ \t]*[-=]{3,}[ \t]*(?=\n|$)/g, "")
+        .replace(/^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]+#*[ \t]*$/gm, "$1")
+        .replace(/^[ \t]*(?:\*\*|__)(.*?)(?:\*\*|__)[ \t]*$/gm, "$1");
 }
 
 function renderTuiDiagnostic(
@@ -1279,7 +1331,11 @@ export function tuiEntryMarginTop(
     // continues directly from the activity row that preceded it, so changing
     // tool verbs does not break one run into a stack of spaced blocks. A diff
     // is a rendered block, so the next header falls through to message spacing.
-    if (current?.kind === "tool") return 0;
+    if (current?.kind === "tool") {
+        return previous?.kind === "thought" && previous.expanded === true
+            ? Math.max(1, spacing.message)
+            : 0;
+    }
     if (
         current?.kind === "tool_header"
         && (
@@ -1290,6 +1346,9 @@ export function tuiEntryMarginTop(
             || previous?.kind === "review"
         )
     ) {
+        if (previous?.kind === "thought" && previous.expanded === true) {
+            return Math.max(1, spacing.message);
+        }
         return spacing.toolGroup;
     }
     return spacing.message;
@@ -1742,13 +1801,48 @@ function compactToolSummary(
     calls: readonly string[],
 ): string | undefined {
     if (calls.length > 1) {
-        return `  └ ${compactToolLine(calls.join(", "))}`;
+        return `  └ ${compactToolLine(compactFoldedCalls(calls).join(", "))}`;
     }
     const result = rows.find((row) => row.prefix === "  └ ");
     const line = (result === undefined ? undefined : tuiToolRowText(result))
         ?.split("\n")
         .find((entry) => entry.trim().length > 0);
     return line === undefined ? undefined : `  └ ${compactToolLine(line)}`;
+}
+
+/**
+ * A folded multi-call row is only a clue; full paths remain in its details.
+ * Keeping the shortest unique suffix avoids a second renderer truncation
+ * without making equal filenames from different directories look identical.
+ */
+interface CompactPathCall {
+    readonly action: string;
+    readonly path: string;
+    readonly segments: readonly string[];
+}
+
+function compactFoldedCalls(calls: readonly string[]): string[] {
+    const parsed = calls.map((call): CompactPathCall | undefined => {
+        const match = /^(Read|List|Edit|Write) (.+)$/.exec(call);
+        if (match?.[1] === undefined || match[2] === undefined) return undefined;
+        const segments = match[2].split(/[\\/]+/).filter((part) => part.length > 0);
+        return { action: match[1], path: match[2], segments };
+    });
+    return calls.map((call, index) => {
+        const current = parsed[index];
+        if (current === undefined || current.segments.length === 0) return call;
+        for (let kept = 1; kept <= current.segments.length; kept += 1) {
+            const suffix = current.segments.slice(-kept).join("/");
+            const collides = parsed.some((other, otherIndex) =>
+                otherIndex !== index
+                && other?.action === current.action
+                && other.path !== current.path
+                && other.segments.slice(-kept).join("/") === suffix
+            );
+            if (!collides) return `${current.action} ${suffix}`;
+        }
+        return `${current.action} ${current.path}`;
+    });
 }
 
 function compactToolLine(line: string): string {
@@ -1942,16 +2036,27 @@ function appendThinkingText(state: TuiState, text: string): TuiState {
  * carries no state of its own.
  */
 function withLiveThinking(state: TuiState): TuiState {
-    const settled = state.entries.at(-1)?.kind === "thinking"
-        ? state.entries.slice(0, -1)
-        : state.entries;
+    const settled = state.entries.filter((entry) => entry.kind !== "thinking");
     const pending = state.pendingThinking;
-    return {
-        ...state,
-        entries: pending === undefined || pending.length === 0
-            ? settled
-            : [...settled, { kind: "thinking", text: pending }],
-    };
+    const withoutLiveThinking = { ...state, entries: settled };
+    return pending === undefined || pending.length === 0
+        ? withoutLiveThinking
+        : insertBeforeTrailingAssistant(withoutLiveThinking, {
+            kind: "thinking",
+            text: pending,
+        });
+}
+
+/** Provider streams may deliver reasoning after the answer it precedes. */
+function insertBeforeTrailingAssistant(
+    state: TuiState,
+    entry: TuiTranscriptEntry,
+): TuiState {
+    const entries = [...state.entries];
+    const last = entries.at(-1);
+    const index = last?.kind === "assistant" ? entries.length - 1 : entries.length;
+    entries.splice(index, 0, entry);
+    return { ...state, entries };
 }
 
 function appendEntry(state: TuiState, entry: TuiTranscriptEntry): TuiState {

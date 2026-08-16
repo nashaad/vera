@@ -200,6 +200,8 @@ export interface RegisteredAgentSummary {
      */
     readonly live: boolean;
     readonly title?: string;
+    /** Whether the transcript contains a non-internal user message. */
+    readonly has_user_content?: boolean;
     readonly updated_at?: string;
     /** The resident parent that launched this async subagent. */
     readonly parent_id?: string;
@@ -2136,6 +2138,7 @@ export class AgentRegistry {
                     ...(title === undefined || title.length === 0
                         ? {}
                         : { title: title.slice(0, 80) }),
+                    has_user_content: firstUserEntry !== undefined,
                     ...(entry.store.header.origin === undefined
                         ? {}
                         : { forked_from: entry.store.header.origin.sessionId }),

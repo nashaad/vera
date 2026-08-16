@@ -49,7 +49,10 @@ export interface TuiSecretPromptTransition {
 }
 
 export interface TuiSecretPromptView {
+    /** Full-screen centering surface; visibility and focus live here. */
     readonly box: BoxRenderable;
+    /** The visible prompt card inside the centering surface. */
+    readonly card: BoxRenderable;
     update(state: TuiSecretPromptState): void;
 }
 
@@ -173,30 +176,41 @@ export function createTuiSecretPromptView(
         height: 1,
         marginTop: 1,
     });
-    const box = new BoxRenderable(renderer, {
-        id: "secret-prompt",
+    const card = new BoxRenderable(renderer, {
+        id: "secret-prompt-card",
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: 2,
-        left: "15%",
         width: "70%",
         height: "auto",
-        zIndex: DIALOG_CARD_Z_INDEX,
+        maxHeight: "90%",
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,
         paddingBottom: 1,
+    });
+    card.add(title);
+    card.add(hint);
+    card.add(entry);
+    card.add(footer);
+    const box = new BoxRenderable(renderer, {
+        id: "secret-prompt",
+        border: false,
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: DIALOG_CARD_Z_INDEX,
+        alignItems: "center",
+        justifyContent: "center",
         focusable: true,
         visible: false,
     });
-    box.add(title);
-    box.add(hint);
-    box.add(entry);
-    box.add(footer);
+    box.add(card);
     return {
         box,
+        card,
         update(state): void {
             title.content = `${state.label} API key`;
             hint.content = state.hint ?? "";

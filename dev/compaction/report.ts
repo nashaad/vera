@@ -1,6 +1,7 @@
 /**
- * Argument parsing and stdout shaping for `drive.ts`, kept separate so both
- * can be tested without a provider.
+ * Parses options and builds the JSON report for the developer compaction
+ * harness in `drive.ts`. It is separate so these parts can be tested without
+ * calling a model provider.
  */
 
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";

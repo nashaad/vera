@@ -10,12 +10,13 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
+import { centeredDialogSurface } from "./dialog-chrome.ts";
 
 export type TuiSessionTrashConfirmResult = "confirm" | "cancel" | undefined;
 
 export interface TuiSessionTrashConfirmView {
     readonly box: BoxRenderable;
+    readonly surface: BoxRenderable;
     update(label: string): void;
 }
 
@@ -81,26 +82,23 @@ export function createTuiSessionTrashConfirmView(
         id: "session-trash-confirm",
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: 2,
-        left: "15%",
         width: "70%",
         height: "auto",
-        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,
         paddingBottom: 1,
         focusable: true,
-        visible: false,
     });
     box.add(title);
     box.add(name);
     box.add(detail);
     box.add(footer);
+    const surface = centeredDialogSurface(renderer, "session-trash-confirm-surface", box);
     return {
         box,
+        surface,
         update(label): void {
             name.content = label;
         },

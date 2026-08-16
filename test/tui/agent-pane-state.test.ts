@@ -14,12 +14,12 @@ test("two panes reduce agent updates into independent transcripts", () => {
 
     expect(main.state.entries.map((entry) => entry.text)).toEqual([
         "main question",
-        "Thought: 2.0s",
+        "Cooked for 2.0s",
         "main answer",
     ]);
     expect(sidebar.state.entries.map((entry) => entry.text)).toEqual([
         "side question",
-        "Thought: 2.0s",
+        "Cooked for 2.0s",
         "side answer",
     ]);
 });
@@ -73,6 +73,32 @@ test("activity timing and background agents stay pane-local", () => {
     expect(sidebar.activity).toBe("waiting");
     expect(sidebar.elapsedWorkingTime(6_000)).toBe("1s");
     expect(sidebar.backgroundAgents?.has_parent).toBe(true);
+});
+
+test("late reasoning settles before the answer when the turn completes", () => {
+    const pane = new TuiAgentPaneState();
+
+    pane.apply({
+        type: "assistant_delta",
+        text: "I created the game files.",
+        seq: 1,
+    }, 2_000);
+    pane.apply({
+        type: "assistant_thinking",
+        text: "Identifying and fixing syntax errors",
+        seq: 2,
+    }, 3_000);
+    pane.apply({ type: "turn_finished", seq: 3 }, 4_000);
+
+    expect(pane.state.working).toBe(false);
+    expect(pane.state.entries.map((entry) => entry.kind)).toEqual([
+        "thought",
+        "assistant",
+    ]);
+    expect(pane.state.entries[0]).toMatchObject({
+        reasoning: "Identifying and fixing syntax errors",
+    });
+    expect(pane.state.pendingThinking).toBeUndefined();
 });
 
 function approval(requestId: string): AgentUpdate {

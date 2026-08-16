@@ -18,7 +18,7 @@ export interface TuiAppearance {
 
 export const DEFAULT_TUI_APPEARANCE: TuiAppearance = {
     transcriptPaddingLeft: 0,
-    transcriptPaddingRight: 0,
+    transcriptPaddingRight: 1,
     activityIndent: 2,
     messageSpacing: 1,
     toolGroupSpacing: 0,
