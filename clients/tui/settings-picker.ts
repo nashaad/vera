@@ -866,139 +866,120 @@ function modelAssignmentOfValue(value: string): ModelAssignmentId | undefined {
 }
 
 /**
- * The Assigned tab's rows: the session's own model first, because it is the model
- * most of Vera's work runs on and a tab claiming to show everything that would
- * omit it is lying, then one row per assignment.
+ * The Assigned tab's rows: the session's own model first, because it is the
+ * model most of Vera's work runs on and a tab claiming to show everything that
+ * would omit it is lying, then one row per assignment.
+ *
+ * A row is its name and one status word. Model names, route names and the
+ * reason behind either are all longer than half a card, so they live in the
+ * block beside the list, which is sized for them: a name cut to "m…" tells the
+ * user less than nothing.
  */
 export function tuiModelAssignmentOptions(
     rows: readonly ModelAssignmentRow[],
     sessionModel?: string,
 ): readonly TuiSettingsPickerOption[] {
-    const cells = [
+    return [
         {
             value: SESSION_MODEL_VALUE,
-            name: "this session",
-            model: sessionModel ?? MISSING_CELL,
-            state: "enter to change",
-            note: "The model this session runs on. Enter to change it.",
+            label: "this session",
+            description: "",
+            note: "The model this session runs on. Press \u23ce to change it.",
             detailTitle: "this session",
             detailFacts: [["Runs", sessionModel ?? "not known"] as const],
             searchText: "session current model main",
         },
         ...rows.map((row) => ({
             value: tuiModelAssignmentValue(row.assignment),
-            name: row.label,
-            model: assignedModelCell(row),
-            state: assignmentStateCell(row),
+            label: row.label,
+            description: assignmentStatusWord(row),
             note: assignmentNote(row),
             detailTitle: row.label,
             detailFacts: assignmentFacts(row),
             searchText: `${row.assignment} ${row.label} ${row.intent}`,
         })),
     ];
-    // The name column is as wide as its widest entry, so the model column
-    // starts at the same place on every row. Two ragged columns read as one
-    // sentence per row, which is what made "best" look like a word describing
-    // the model beside it rather than the name of a route.
-    const nameWidth = Math.max(...cells.map((cell) => cell.name.length));
-    return cells.map((cell) => ({
-        value: cell.value,
-        label: `${cell.name.padEnd(nameWidth)}  ${cell.model}`,
-        description: cell.state,
-        note: cell.note,
-        detailTitle: cell.detailTitle,
-        detailFacts: cell.detailFacts,
-        searchText: cell.searchText,
-    }));
-}
-
-/** Nothing to show, in a column that still has to hold its place. */
-const MISSING_CELL = "\u00b7";
-
-/** What will actually run, which is the only model the row claims. */
-function assignedModelCell(row: ModelAssignmentRow): string {
-    const running = row.models[0];
-    if (running === undefined) {
-        return MISSING_CELL;
-    }
-    return running.reasoning_effort === undefined
-        ? running.model
-        : `${running.model} (${running.reasoning_effort})`;
 }
 
 /**
- * Why the model column says what it says, and nothing when it is simply what
- * the user set. An unreachable binding names the route it came from: a
- * substitution the user cannot see is one they cannot fix.
+ * The row's state in one everyday word, which is all the list carries. The
+ * vocabulary is closed and short enough to fit the narrowest list: anything
+ * that would need a sentence is a sentence, in the block beside the list.
  */
-function assignmentStateCell(row: ModelAssignmentRow): string {
-    if (!row.bound) {
-        if (row.inherits !== undefined) return `uses ${row.inherits}`;
-        return row.source === "session" ? "uses session model" : "not set";
+function assignmentStatusWord(row: ModelAssignmentRow): string {
+    if (row.bound) {
+        return row.source === "assignment" ? "set" : "not in pool";
     }
-    if (row.source === "assignment") {
-        return "";
+    if (row.inherits !== undefined) return `uses ${row.inherits}`;
+    return row.source === "session" ? "uses session" : "not set";
+}
+
+/** What runs the row, with the substitute named when it is not what was set. */
+function assignmentRunsFact(row: ModelAssignmentRow): string {
+    const running = row.models[0];
+    if (running === undefined) {
+        return row.source === "session" ? "this session's model" : "nothing";
     }
-    const named = row.route === undefined
-        ? "what it is set to"
-        : `route ${row.route}`;
-    return row.source === "none"
-        ? `${named} unreachable`
-        : `${named} unreachable, uses ${row.inherits ?? "session model"}`;
+    const named = running.reasoning_effort === undefined
+        ? running.model
+        : `${running.model} (${running.reasoning_effort})`;
+    // What ran is not what this row names, so the row says whose model it is.
+    return row.source === "assignment"
+        ? named
+        : `${named} (via ${row.inherits ?? "this session"})`;
 }
 
 /** The row as a fact block, for the column beside the list. */
 function assignmentFacts(
     row: ModelAssignmentRow,
 ): readonly (readonly [string, string])[] {
-    const running = row.models[0];
-    const set = !row.bound
+    const setTo = !row.bound
         ? "nothing"
         : row.route === undefined
-        ? "a model of its own"
-        : `route ${row.route}`;
-    const falls = row.inherits ?? (
-        ASSIGNMENT_DEMANDS[row.assignment] === "required"
-            ? "this session's model"
-            : "nothing, it does not run"
-    );
+        ? "a model picked here"
+        : `route "${row.route}"`;
+    const ifUnset = row.inherits !== undefined
+        ? `whatever ${row.inherits} uses`
+        : ASSIGNMENT_DEMANDS[row.assignment] === "required"
+        ? "this session's model"
+        : "the work is skipped";
     return [
-        ["Runs", running === undefined ? "nothing" : running.model],
-        ["Set to", set],
-        ["Falls back", falls],
-        ...(row.bound && row.source !== "assignment"
-            ? [["Reachable", "no, not in your pool"] as const]
+        ["Runs", assignmentRunsFact(row)],
+        ["Set to", setTo],
+        ["If unset", ifUnset],
+        // Only where something is set: whether a model the user has not named
+        // is in the pool is not a fact about this row.
+        ...(row.bound
+            ? [[
+                "In pool",
+                row.source === "assignment" ? "yes" : "no",
+            ] as const]
             : []),
     ];
 }
 
 /**
- * The row in full sentences, for the column beside the list. The table cell has room for a
- * label and no room to say what to do about it, so the cursor carries the
- * explanation: what this assignment is for, and what is running it now.
+ * The row in full sentences: what this assignment is for, and, when that is
+ * not the whole story, what is running it and what to do about it.
  */
 function assignmentNote(row: ModelAssignmentRow): string {
     const purpose = `${row.label}: ${row.intent}.`;
     if (!row.bound) {
         if (row.inherits !== undefined) {
-            return `${purpose} Nothing set, so it uses ${row.inherits}.`;
+            return `${purpose} Nothing is set here, so it uses whatever ${row.inherits} uses.`;
         }
         return row.source === "session"
-            ? `${purpose} Nothing set, so it runs on this session's model.`
-            : `${purpose} Nothing set, so it does not run.`;
+            ? `${purpose} Nothing is set here, so it runs on this session's model.`
+            : `${purpose} Nothing is set, so work asking for ${row.label} is skipped.`;
     }
     if (row.source === "assignment") {
         return purpose;
     }
-    const named = row.route === undefined
-        ? "The model set here is"
-        : `Route ${row.route} names a model that is`;
-    const missing = `${named} not in your pool`;
-    if (row.source === "none") {
-        return `${purpose} ${missing}, so nothing runs it. Add that model to the pool, or set this to a pooled one.`;
-    }
-    const substitute = row.inherits ?? "this session's model";
-    return `${purpose} ${missing}, so ${substitute} runs it instead. Add that model to the pool, or set this to a pooled one.`;
+    const runs = row.source === "none"
+        ? "nothing runs it"
+        : `${row.inherits ?? "this session's model"} runs it instead`;
+    return `${purpose} The model it is set to is not in your pool, so ${runs}.`
+        + ` Add that model to your pool, or point ${row.label} at one that is.`;
 }
 
 function reviewerSlotLabel(selection?: ReviewerModelSelection): string {
@@ -2083,6 +2064,33 @@ type PickerDisplayRow =
  * so a model with more facts than its neighbour fills more of a column that was
  * already there instead of moving anything.
  */
+/**
+ * The detail block as list rows, for a card too narrow to hold a second
+ * column. It carries no title: the highlighted row is directly above it and
+ * has already named itself.
+ */
+function stackedDetailLines(
+    state: TuiAnySettingsPickerState,
+    option: TuiSettingsPickerOption | undefined,
+    width: number,
+): readonly (readonly TextChunk[])[] {
+    if (
+        state.kind !== "model" || state.tab !== "assigned"
+        || option?.detailFacts === undefined
+    ) {
+        return [];
+    }
+    const lines: (readonly TextChunk[])[] = [[]];
+    for (const [label, value] of option.detailFacts) {
+        lines.push(factChunks([label, value], width));
+    }
+    lines.push([]);
+    for (const text of wrappedTo(option.note ?? "", width)) {
+        lines.push([fg(TUI_MUTED)(text)]);
+    }
+    return lines;
+}
+
 function modelDetailNode(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
@@ -2524,6 +2532,23 @@ function renderListPickerRows(
         body.add(detail);
         nodes.push(detail);
         body.height = lines;
+    }
+
+    // The same block the column would have carried, under the list instead of
+    // beside it. The pane keeps what it says at every width and gives up only
+    // the second column, which is what the terminal actually ran out of.
+    if (split === undefined) {
+        const option = state.options[state.selectedIndex];
+        for (const chunks of stackedDetailLines(state, option, rowWidth)) {
+            const node = new TextRenderable(renderer, {
+                content: new StyledText([...chunks]),
+                width: "100%",
+                height: 1,
+            });
+            lines += 1;
+            listColumn.add(node);
+            nodes.push(node);
+        }
     }
 
     // Above the hints, below the rows: the tip is about the pane, so it sits
@@ -3099,8 +3124,9 @@ function optionMeta(
     }
     // An assignment row's whole content is what runs it, so the column carries
     // rather than the facts a model row shows.
+    // The status word is the row's whole right-hand column, at any width.
     if (state.tab === "assigned") {
-        return option.description === undefined || option.description === ""
+        return option.description === ""
             ? undefined
             : [{ text: option.description }];
     }
