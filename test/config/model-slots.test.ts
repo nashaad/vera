@@ -227,3 +227,81 @@ test("every job slot names an intent that exists, and every slot an intent line"
         expect(MODEL_SLOT_INTENTS[slot].length).toBeGreaterThan(0);
     }
 });
+
+function reachableExcept(...unreachable: string[]) {
+    return (entry: { name: string }) => !unreachable.includes(entry.name);
+}
+
+test("a route falls to its own next entry before any rung is climbed", () => {
+    const slots = parseModelSlotsConfig(
+        { extra: { model_route: "quick" }, reviewer: { model_route: "thinking" } },
+        ROUTES,
+    );
+    const bound = bindModelSlot(
+        catalog(),
+        slots ?? {},
+        { slot: "reviewer", demand: "required" },
+        reachableExcept("opus_low"),
+    );
+    // The user asked for opus then glm. Losing opus must not hand the job to
+    // extra while a model they named is still standing.
+    expect(bound.source).toBe("slot");
+    expect(bound.models.map((m) => m.name)).toEqual(["glm_high"]);
+});
+
+test("a binding reports what was named as well as what will run", () => {
+    const slots = parseModelSlotsConfig(
+        { reviewer: { model_route: "thinking" } },
+        ROUTES,
+    );
+    const bound = bindModelSlot(
+        catalog(),
+        slots ?? {},
+        { slot: "reviewer", demand: "required" },
+        reachableExcept("opus_low"),
+    );
+    expect(bound.declared.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
+    expect(bound.models.map((m) => m.name)).toEqual(["glm_high"]);
+});
+
+test("a route with nothing reachable climbs to the intent slot", () => {
+    const slots = parseModelSlotsConfig(
+        { extra: { model_route: "quick" }, reviewer: { model_route: "thinking" } },
+        ROUTES,
+    );
+    const bound = bindModelSlot(
+        catalog(),
+        slots ?? {},
+        { slot: "reviewer", demand: "required" },
+        reachableExcept("opus_low", "glm_high"),
+    );
+    expect(bound.source).toBe("intent");
+    expect(bound.models.map((m) => m.name)).toEqual(["glm_low"]);
+});
+
+test("a required caller with nothing reachable anywhere uses the session", () => {
+    const slots = parseModelSlotsConfig(
+        { reviewer: { model_route: "thinking" } },
+        ROUTES,
+    );
+    const bound = bindModelSlot(
+        catalog(),
+        slots ?? {},
+        { slot: "reviewer", demand: "required" },
+        () => false,
+    );
+    expect(bound.source).toBe("session");
+});
+
+test("an unasked reachability check leaves every declared entry standing", () => {
+    const slots = parseModelSlotsConfig(
+        { reviewer: { model_route: "thinking" } },
+        ROUTES,
+    );
+    const bound = bindModelSlot(catalog(), slots ?? {}, {
+        slot: "reviewer",
+        demand: "required",
+    });
+    expect(bound.models).toEqual(bound.declared);
+    expect(bound.models).toHaveLength(2);
+});
