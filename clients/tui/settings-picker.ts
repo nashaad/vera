@@ -1604,7 +1604,7 @@ export function createTuiSettingsPickerView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: PICKER_TOP_OFFSET,
+        top: pickerTopOffset(renderer),
         left: "10%",
         width: "80%",
         height: 8,
@@ -1626,7 +1626,7 @@ export function createTuiSettingsPickerView(
             nodes = [];
             box.title = undefined;
             if (state.kind === "theme") {
-                box.top = PICKER_TOP_OFFSET;
+                box.top = pickerTopOffset(renderer);
                 box.left = "20%";
                 box.width = "60%";
                 box.height = state.allOptions.length + DIALOG_CHROME_HEIGHT;
@@ -1639,7 +1639,7 @@ export function createTuiSettingsPickerView(
             // starts at the top edge too: an inset card is read against the
             // scrimmed transcript around it, but a full-width panel with a
             // strip of transcript over it reads as a row that leaked through.
-            box.top = state.kind === "session" ? 0 : PICKER_TOP_OFFSET;
+            box.top = state.kind === "session" ? 0 : pickerTopOffset(renderer);
             box.left = state.kind === "session" ? 0 : "10%";
             box.width = state.kind === "session" ? "100%" : "80%";
             renderListPickerRows(
@@ -1677,15 +1677,18 @@ function pickerMaxRows(
     rowLines = 1,
 ): number {
     const lines = listWindowRows(
-        dialogBoxHeight(renderer, PICKER_TOP_OFFSET),
+        dialogBoxHeight(renderer, pickerTopOffset(renderer)),
         DIALOG_CHROME_HEIGHT + extraChrome,
     );
     return Math.max(LIST_MIN_ROWS, Math.floor(lines / rowLines));
 }
 
-// Where an inset card's top edge sits. The full-width session list sits at 0
-// instead, so this is the smaller of the two row budgets.
-const PICKER_TOP_OFFSET = 2;
+// OpenCode's dialog wrapper starts cards a quarter of the way down the
+// terminal. Using the same measured offset keeps Vera's inset pickers near the
+// visual centre while leaving the full-width session list anchored at row 0.
+function pickerTopOffset(renderer: RenderContext): number {
+    return renderer.height / 4;
+}
 
 /**
  * How far the half-page keys move, which is half of what is currently on
