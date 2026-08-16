@@ -52,7 +52,7 @@ test("compaction with nothing bound falls to the session's model", () => {
     expect(compaction?.models).toEqual([]);
 });
 
-test("the rows line up in columns and say why each model is there", () => {
+test("a row is its name and one status word", () => {
     const options = tuiModelAssignmentOptions(
         rows(
             {
@@ -64,36 +64,17 @@ test("the rows line up in columns and say why each model is there", () => {
         ),
         "session-model",
     );
-    // Every name column is the same width, so the model column starts at the
-    // same character on every row.
-    const starts = new Set(
-        options.map((option) => option.label.search(/\S+(\s\S+)*$/)),
+    const status = new Map(
+        options.map((option) => [option.label, option.description]),
     );
-    expect(starts.size).toBe(1);
-    const cell = new Map(options.map((option) => {
-        const [name, model] = option.label.split(/\s{2,}/);
-        return [name!.trim(), { model: model ?? "", state: option.description }];
-    }));
-    expect(cell.get("this session")).toEqual({
-        model: "session-model",
-        state: "enter to change",
-    });
-    expect(cell.get("extra")).toEqual({ model: "big-1 (high)", state: "" });
-    // The substitute runs, and the row still names the route that did not, so
-    // the user can see what to fix.
-    expect(cell.get("critic")).toEqual({
-        model: "big-1 (high)",
-        state: "route cheap unreachable, uses extra",
-    });
-    expect(cell.get("snappy")).toEqual({
-        model: "\u00b7",
-        state: "route cheap unreachable",
-    });
-    expect(cell.get("eco")).toEqual({ model: "\u00b7", state: "not set" });
-    expect(cell.get("compaction")).toEqual({
-        model: "\u00b7",
-        state: "uses session model",
-    });
+    // Nothing in the list is longer than a word or two, so no row can clip.
+    expect(status.get("this session")).toBe("");
+    expect(status.get("extra")).toBe("set");
+    expect(status.get("snappy")).toBe("not in pool");
+    expect(status.get("critic")).toBe("not in pool");
+    expect(status.get("eco")).toBe("not set");
+    // eco is unset in this fixture, so compaction falls past it to the session.
+    expect(status.get("compaction")).toBe("uses session");
 });
 
 test("a assignment bound to inline models needs no route", () => {
@@ -212,18 +193,27 @@ test("assignment rows survive a snapshot from the host", async () => {
 
 test("the highlighted row explains itself beside the list", () => {
     const options = tuiModelAssignmentOptions(
-        rows({ snappy: { model_route: "cheap" } }, (name) => name !== "small"),
+        rows(
+            { snappy: { model_route: "cheap" }, extra: { model_route: "best" } },
+            (name) => name !== "small",
+        ),
         "session-model",
     );
-    const snappy = options.find((option) => option.label.startsWith("snappy"));
-    expect(snappy?.detailTitle).toBe("snappy");
-    expect(snappy?.detailFacts).toEqual([
+    const cell = new Map(options.map((option) => [option.label, option]));
+    expect(cell.get("snappy")?.detailFacts).toEqual([
         ["Runs", "nothing"],
-        ["Set to", "route cheap"],
-        ["Falls back", "nothing, it does not run"],
-        ["Reachable", "no, not in your pool"],
+        ["Set to", 'route "cheap"'],
+        ["If unset", "the work is skipped"],
+        ["In pool", "no"],
     ]);
-    expect(snappy?.note).toContain(
-        "Route cheap names a model that is not in your pool",
+    expect(cell.get("snappy")?.note).toContain(
+        "The model it is set to is not in your pool, so nothing runs it.",
     );
+    // A job row names the substitute that actually ran.
+    expect(cell.get("reviewer")?.detailFacts).toEqual([
+        ["Runs", "big-1 (high) (via extra)"],
+        ["Set to", "nothing"],
+        ["If unset", "whatever extra uses"],
+    ]);
+    expect(cell.get("extra")?.detailFacts?.[3]).toEqual(["In pool", "yes"]);
 });
