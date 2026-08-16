@@ -147,6 +147,10 @@ export interface ShowPoolTuiCommandAction {
     readonly type: "show_pool";
 }
 
+export interface ShowSlotsTuiCommandAction {
+    readonly type: "show_slots";
+}
+
 /** `/pool add`: pools the running model, the same write ^s makes. */
 export interface AddCurrentModelToPoolTuiCommandAction {
     readonly type: "pool_current_model";
@@ -192,6 +196,7 @@ export type TuiCommandAction =
     | ShowDoctorTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
     | ShowPoolTuiCommandAction
+    | ShowSlotsTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
@@ -232,6 +237,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "show_doctor":
         case "reload_client_extensions":
         case "show_pool":
+        case "show_slots":
         case "pool_current_model":
         case "run_extension":
         case "command_error":
@@ -289,6 +295,7 @@ export interface TuiCommandDefinition {
         | CompactSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction
         | ShowDoctorTuiCommandAction
+        | ShowSlotsTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly arguments?: TuiCommandArgumentKind;
@@ -404,6 +411,12 @@ const POOL_COMMAND = {
     usage: "/pool [add]",
 } as const satisfies TuiCommandCatalogEntry;
 
+const SLOTS_COMMAND = {
+    name: "slots",
+    description: "Show which model runs each job",
+    usage: "/slots",
+} as const satisfies TuiCommandCatalogEntry;
+
 const DIAGNOSTICS_COMMAND = {
     name: "diagnostics",
     description: "Show live turn and model activity",
@@ -443,6 +456,7 @@ export const BUILTIN_COMMANDS = [
     DOCTOR_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
+    SLOTS_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -1170,6 +1184,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Settings",
             slashName: "pool",
             action: { type: "show_pool" },
+        },
+    });
+    registry.registerCommand({
+        ...SLOTS_COMMAND,
+        action: { type: "show_slots" },
+        palette: {
+            name: "slots",
+            label: "Show which model runs each job",
+            description: "snappy, eco, extra, and the jobs that inherit them",
+            group: "Settings",
+            slashName: "slots",
+            action: { type: "show_slots" },
         },
     });
     // The palette does not list itself: you are already looking at it.

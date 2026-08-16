@@ -406,3 +406,61 @@ export function isAutoAssignable(
             && (excluded.model === undefined || excluded.model === entry.model);
     });
 }
+
+/**
+ * Which callers can be skipped when nothing binds their slot. Compaction is
+ * the one that cannot: see `SlotDemand`.
+ */
+export const SLOT_DEMANDS: Readonly<Record<ModelSlotId, SlotDemand>> = {
+    snappy: "optional",
+    eco: "optional",
+    extra: "optional",
+    reviewer: "optional",
+    compaction: "required",
+};
+
+/**
+ * One slot as it stands, for a surface that shows the whole set. Both what the
+ * setting names and what will actually run are on the row, so a display can
+ * say a route is set but unreachable rather than showing only the substitute.
+ */
+export interface ModelSlotRow {
+    readonly slot: ModelSlotId;
+    readonly label: string;
+    readonly intent: string;
+    /** The route the user named, absent when the slot is unset. */
+    readonly route?: string;
+    readonly declared: readonly VeraCatalogModel[];
+    readonly models: readonly VeraCatalogModel[];
+    readonly source: SlotBindingSource;
+    /** The intent slot answering this one, present only when it does. */
+    readonly inherits?: IntentSlotId;
+}
+
+export function describeModelSlots(
+    catalog: VeraModelCatalogConfig,
+    slots: VeraModelSlotsConfig,
+    isReachable?: ReachabilityCheck,
+): readonly ModelSlotRow[] {
+    return MODEL_SLOT_IDS.map((slot) => {
+        const resolved = resolveModelSlot(catalog, slots, slot);
+        const binding = bindModelSlot(
+            catalog,
+            slots,
+            { slot, demand: SLOT_DEMANDS[slot] },
+            isReachable,
+        );
+        return {
+            slot,
+            label: slotLabel(slots, slot),
+            intent: MODEL_SLOT_INTENTS[slot],
+            ...(resolved === undefined ? {} : { route: resolved.route }),
+            declared: resolved?.models ?? [],
+            models: binding.models,
+            source: binding.source,
+            ...(binding.source === "intent" && isJobSlotId(slot)
+                ? { inherits: JOB_SLOT_INTENTS[slot] }
+                : {}),
+        };
+    });
+}

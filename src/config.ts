@@ -30,6 +30,8 @@ import {
 } from "./config/model-catalog.ts";
 import {
     bindModelSlot,
+    describeModelSlots,
+    type ModelSlotRow,
     parseModelSlotsConfig,
     type ReachabilityCheck,
     type VeraModelSlotsConfig,
@@ -1073,6 +1075,28 @@ export function configuredCompactionModels(
         { slot: "compaction", demand: "required" },
         isReachable,
     ).models;
+}
+
+/**
+ * Every slot as it stands, for a surface that lists them. Empty when no
+ * catalog is configured, since there is nothing a slot could name.
+ */
+export function configuredModelSlots(
+    config: VeraConfig,
+    isReachable?: ReachabilityCheck,
+): readonly ModelSlotRow[] {
+    if (config.models === undefined || config.model_routes === undefined) {
+        return [];
+    }
+    return describeModelSlots(
+        {
+            models: config.models,
+            model_routes: config.model_routes,
+            reviewer_profiles: config.reviewer_profiles ?? {},
+        },
+        config.model_slots ?? {},
+        isReachable,
+    );
 }
 
 export function configuredReviewers(
