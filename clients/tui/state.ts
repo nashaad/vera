@@ -1801,13 +1801,48 @@ function compactToolSummary(
     calls: readonly string[],
 ): string | undefined {
     if (calls.length > 1) {
-        return `  └ ${compactToolLine(calls.join(", "))}`;
+        return `  └ ${compactToolLine(compactFoldedCalls(calls).join(", "))}`;
     }
     const result = rows.find((row) => row.prefix === "  └ ");
     const line = (result === undefined ? undefined : tuiToolRowText(result))
         ?.split("\n")
         .find((entry) => entry.trim().length > 0);
     return line === undefined ? undefined : `  └ ${compactToolLine(line)}`;
+}
+
+/**
+ * A folded multi-call row is only a clue; full paths remain in its details.
+ * Keeping the shortest unique suffix avoids a second renderer truncation
+ * without making equal filenames from different directories look identical.
+ */
+interface CompactPathCall {
+    readonly action: string;
+    readonly path: string;
+    readonly segments: readonly string[];
+}
+
+function compactFoldedCalls(calls: readonly string[]): string[] {
+    const parsed = calls.map((call): CompactPathCall | undefined => {
+        const match = /^(Read|List|Edit|Write) (.+)$/.exec(call);
+        if (match?.[1] === undefined || match[2] === undefined) return undefined;
+        const segments = match[2].split(/[\\/]+/).filter((part) => part.length > 0);
+        return { action: match[1], path: match[2], segments };
+    });
+    return calls.map((call, index) => {
+        const current = parsed[index];
+        if (current === undefined || current.segments.length === 0) return call;
+        for (let kept = 1; kept <= current.segments.length; kept += 1) {
+            const suffix = current.segments.slice(-kept).join("/");
+            const collides = parsed.some((other, otherIndex) =>
+                otherIndex !== index
+                && other?.action === current.action
+                && other.path !== current.path
+                && other.segments.slice(-kept).join("/") === suffix
+            );
+            if (!collides) return `${current.action} ${suffix}`;
+        }
+        return `${current.action} ${current.path}`;
+    });
 }
 
 function compactToolLine(line: string): string {
