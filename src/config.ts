@@ -31,6 +31,8 @@ import {
 import {
     bindModelSlot,
     describeModelSlots,
+    type ModelSlotId,
+    type VeraModelSlotConfig,
     type ModelSlotRow,
     parseModelSlotsConfig,
     type ReachabilityCheck,
@@ -238,6 +240,16 @@ export interface VeraConfigDefaultsPatch {
      * which returns auto mode to reviewing on the agent's own model.
      */
     readonly reviewer?: VeraReviewerConfig | null;
+    /**
+     * One slot, written whole. `null` unbinds it, which returns the slot to
+     * inheriting its intent or, for an intent slot, to nothing at all. Only
+     * the named slot is touched: the others are settings the user made
+     * separately and a picker changing one must not disturb them.
+     */
+    readonly model_slot?: {
+        readonly slot: ModelSlotId;
+        readonly binding: VeraModelSlotConfig | null;
+    };
 }
 
 export function defaultVeraConfigPath(): string {
@@ -380,6 +392,9 @@ export function updateVeraConfigDefaults(
         ...(patch.reviewer === undefined
             ? {}
             : { reviewer: patch.reviewer === null ? undefined : patch.reviewer }),
+        ...(patch.model_slot === undefined
+            ? {}
+            : { model_slots: patchedModelSlots(current.model_slots, patch.model_slot) }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
             : {}),
@@ -417,6 +432,22 @@ export function updateVeraConfigDefaults(
  * resurrect them. Add a key here when a new owner starts writing to this file.
  */
 const FOREIGN_CONFIG_KEYS: readonly string[] = [];
+
+/**
+ * One slot replaced or removed, the rest carried across untouched. Written as
+ * a rebuild rather than a delete so the result stays a plain readonly record.
+ */
+function patchedModelSlots(
+    current: VeraModelSlotsConfig | undefined,
+    patch: { readonly slot: ModelSlotId; readonly binding: VeraModelSlotConfig | null },
+): VeraModelSlotsConfig {
+    const rest = Object.fromEntries(
+        Object.entries(current ?? {}).filter(([name]) => name !== patch.slot),
+    ) as VeraModelSlotsConfig;
+    return patch.binding === null
+        ? rest
+        : { ...rest, [patch.slot]: patch.binding };
+}
 
 function foreignConfigEntries(path: string): Record<string, unknown> {
     let raw: Record<string, unknown>;

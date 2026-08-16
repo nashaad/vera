@@ -1,0 +1,75 @@
+import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { loadVeraConfig, updateVeraConfigDefaults } from "../../src/config.ts";
+
+function withConfigFile(run: (path: string) => void): void {
+    const directory = mkdtempSync(join(tmpdir(), "vera-slot-write-"));
+    try {
+        const path = join(directory, "config.json");
+        writeFileSync(
+            path,
+            JSON.stringify({ schema_version: 1, model: "seed" }),
+        );
+        run(path);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+}
+
+test("binding a slot writes it and reads back", () => {
+    withConfigFile((path) => {
+        updateVeraConfigDefaults({
+            model_slot: {
+                slot: "extra",
+                binding: {
+                    models: [
+                        { name: "big", provider: "openrouter", model: "big-1" },
+                    ],
+                },
+            },
+        }, { path });
+        const config = loadVeraConfig({ path });
+        expect(config.model_slots?.extra?.models?.[0]?.model).toBe("big-1");
+    });
+});
+
+test("binding one slot leaves the others alone", () => {
+    withConfigFile((path) => {
+        const model = { name: "big", provider: "openrouter" as const, model: "big-1" };
+        updateVeraConfigDefaults(
+            { model_slot: { slot: "extra", binding: { models: [model] } } },
+            { path },
+        );
+        updateVeraConfigDefaults(
+            { model_slot: { slot: "eco", binding: { models: [model] } } },
+            { path },
+        );
+        const config = loadVeraConfig({ path });
+        expect(config.model_slots?.extra).toBeDefined();
+        expect(config.model_slots?.eco).toBeDefined();
+    });
+});
+
+test("null unbinds only the named slot", () => {
+    withConfigFile((path) => {
+        const model = { name: "big", provider: "openrouter" as const, model: "big-1" };
+        updateVeraConfigDefaults(
+            { model_slot: { slot: "extra", binding: { models: [model] } } },
+            { path },
+        );
+        updateVeraConfigDefaults(
+            { model_slot: { slot: "eco", binding: { models: [model] } } },
+            { path },
+        );
+        updateVeraConfigDefaults(
+            { model_slot: { slot: "extra", binding: null } },
+            { path },
+        );
+        const config = loadVeraConfig({ path });
+        expect(config.model_slots?.extra).toBeUndefined();
+        expect(config.model_slots?.eco).toBeDefined();
+    });
+});
