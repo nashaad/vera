@@ -72,7 +72,8 @@ test("a row is its name and one status word", () => {
     expect(status.get("extra")).toBe("set");
     expect(status.get("snappy")).toBe("not in pool");
     expect(status.get("critic")).toBe("not in pool");
-    expect(status.get("eco")).toBe("not set");
+    // Nothing is ever left unrun: an unset row names what runs it instead.
+    expect(status.get("eco")).toBe("uses session");
     // eco is unset in this fixture, so compaction falls past it to the session.
     expect(status.get("compaction")).toBe("uses session");
 });
@@ -168,7 +169,7 @@ test("a assignment is bound only from the pool", async () => {
     // The intent names the pane, and the unset row says what unset does.
     expect(pane.title).toBe("Assign a model to extra");
     expect(pane.subtitle).toBe("more thinking");
-    expect(pane.options[0]?.description).toBe("nothing runs it");
+    expect(pane.options[0]?.description).toBe("uses this session's model");
 });
 
 test("assignment rows survive a snapshot from the host", async () => {
@@ -201,13 +202,13 @@ test("the highlighted row explains itself beside the list", () => {
     );
     const cell = new Map(options.map((option) => [option.label, option]));
     expect(cell.get("snappy")?.detailFacts).toEqual([
-        ["Runs", "nothing"],
+        ["Runs", "this session's model"],
         ["Set to", 'route "cheap"'],
-        ["If unset", "the work is skipped"],
+        ["If unset", "this session's model"],
         ["In pool", "no"],
     ]);
     expect(cell.get("snappy")?.note).toContain(
-        "The model it is set to is not in your pool, so nothing runs it.",
+        "not in your pool, so this session's model runs it instead",
     );
     // A job row names the substitute that actually ran.
     expect(cell.get("reviewer")?.detailFacts).toEqual([
@@ -216,4 +217,15 @@ test("the highlighted row explains itself beside the list", () => {
         ["If unset", "whatever extra uses"],
     ]);
     expect(cell.get("extra")?.detailFacts?.[3]).toEqual(["In pool", "yes"]);
+});
+
+test("no row can leave its work unrun", () => {
+    const options = tuiModelAssignmentOptions(rows({}), "session-model");
+    for (const option of options.slice(1)) {
+        const unset = option.detailFacts?.find(([label]) => label === "If unset");
+        expect([option.label, unset?.[1]]).toEqual([
+            option.label,
+            expect.stringMatching(/session's model|whatever \w+ uses/),
+        ]);
+    }
 });

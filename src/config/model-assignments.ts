@@ -247,27 +247,14 @@ export function resolveModelAssignment(
     };
 }
 
-/**
- * Whether a caller can be skipped when nothing binds its assignment.
- *
- * Compaction cannot: a session that does not compact reaches the context limit
- * and stops, so an unbound assignment has to fall through to the session's own model
- * rather than leave the job undone. Session naming can: the session keeps its
- * plain name and nothing is lost. Getting this backwards is expensive in both
- * directions, so the caller states it rather than the resolver assuming.
- */
-export type AssignmentDemand = "required" | "optional";
-
 export interface SlotBindingRequest {
     readonly assignment: ModelAssignmentId;
-    readonly demand: AssignmentDemand;
 }
 
 export type AssignmentBindingSource =
     | "assignment"
     | "intent"
-    | "session"
-    | "none";
+    | "session";
 
 export interface SlotBinding {
     readonly source: AssignmentBindingSource;
@@ -303,10 +290,11 @@ export type ReachabilityCheck = (entry: VeraCatalogModel) => boolean;
  * Reachability is read once, here. A provider that recovers a moment later
  * does not change a binding that has already resolved.
  *
- * A job assignment that is unbound draws on its intent assignment before giving up.
- * `session` means nothing was bound anywhere and the caller is required, so it
- * runs on whatever model the session is already using. `none` means nothing
- * was bound and the caller is optional, so it does not run.
+ * A job assignment that is unbound draws on its intent assignment first.
+ * `session` means nothing was bound anywhere, so the work runs on whatever
+ * model the session is already using. Nothing is ever left undone for want of
+ * a binding: an unset assignment is the normal state, and the session's model
+ * is always an answer.
  */
 export function bindModelAssignment(
     catalog: VeraModelCatalogConfig,
@@ -339,9 +327,7 @@ export function bindModelAssignment(
         );
         if (intent !== undefined) return intent;
     }
-    return request.demand === "required"
-        ? { source: "session", models: [], declared: [] }
-        : { source: "none", models: [], declared: [] };
+    return { source: "session", models: [], declared: [] };
 }
 
 /**
@@ -447,18 +433,6 @@ export function isAutoAssignable(
 }
 
 /**
- * Which callers can be skipped when nothing binds their assignment. Compaction is
- * the one that cannot: see `AssignmentDemand`.
- */
-export const ASSIGNMENT_DEMANDS: Readonly<Record<ModelAssignmentId, AssignmentDemand>> = {
-    snappy: "optional",
-    eco: "optional",
-    extra: "optional",
-    reviewer: "optional",
-    compaction: "required",
-};
-
-/**
  * One assignment as it stands, for a surface that shows the whole set. Both what the
  * setting names and what will actually run are on the row, so a display can
  * say a route is set but unreachable rather than showing only the substitute.
@@ -488,7 +462,7 @@ export function describeModelAssignments(
         const binding = bindModelAssignment(
             catalog,
             assignments,
-            { assignment, demand: ASSIGNMENT_DEMANDS[assignment] },
+            { assignment },
             isReachable,
         );
         return {
