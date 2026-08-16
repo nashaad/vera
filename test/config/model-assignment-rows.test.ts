@@ -169,7 +169,7 @@ test("a assignment is bound only from the pool", async () => {
     const { startTuiModelAssignmentPicker } = await import(
         "../../clients/tui/settings-picker.ts"
     );
-    const pane = startTuiModelAssignmentPicker("extra", "best", undefined, [
+    const pane = startTuiModelAssignmentPicker("extra", "extra", "more thinking", [
         {
             provider: "openrouter",
             model: "kimi-k3",
@@ -184,6 +184,10 @@ test("a assignment is bound only from the pool", async () => {
         "Not set",
         "big",
     ]);
+    // The intent names the pane, and the unset row says what unset does.
+    expect(pane.title).toBe("Assign a model to extra");
+    expect(pane.subtitle).toBe("more thinking");
+    expect(pane.options[0]?.description).toBe("nothing runs it");
 });
 
 test("assignment rows survive a snapshot from the host", async () => {
@@ -204,4 +208,28 @@ test("assignment rows survive a snapshot from the host", async () => {
     expect(switchedModelTab(synced, "assigned").options.length).toBe(
         options.length,
     );
+});
+
+test("the highlighted row explains itself in the footer", async () => {
+    const { pickerFooter } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    const options = tuiModelAssignmentOptions(
+        rows({ snappy: { model_route: "cheap" } }, (name) => name !== "small"),
+        "session-model",
+    );
+    const pane = {
+        kind: "model" as const,
+        allOptions: [],
+        options,
+        selectedIndex: options.findIndex((option) =>
+            option.label.startsWith("snappy")
+        ),
+        query: "",
+        tab: "assigned" as const,
+        assignmentOptions: options,
+    };
+    const footer = pickerFooter(pane);
+    expect(footer).toContain("Route cheap names a model that is not in your pool");
+    expect(footer).toContain("Add that model to the pool");
 });

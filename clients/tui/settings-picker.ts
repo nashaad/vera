@@ -14,9 +14,12 @@ import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import type { ReductionReason } from "../../src/model/catalog-reduction.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
-import type {
-    ModelAssignmentId,
-    ModelAssignmentRow,
+import {
+    ASSIGNMENT_DEMANDS,
+    isJobAssignmentId,
+    JOB_ASSIGNMENT_INTENTS,
+    type ModelAssignmentId,
+    type ModelAssignmentRow,
 } from "../../src/config/model-assignments.ts";
 import type {
     ReasoningLevel,
@@ -108,6 +111,8 @@ export interface TuiSettingsPickerOption {
     readonly value: string;
     readonly label: string;
     readonly description: string;
+    /** A full sentence for the footer, shown while the row is highlighted. */
+    readonly note?: string;
     readonly searchText?: string;
     readonly provider?: string;
     readonly model?: string;
@@ -240,6 +245,10 @@ export interface TuiSettingsPickerState {
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
     readonly query: string;
+    /** Overrides the name the pane draws for its kind. */
+    readonly title?: string;
+    /** A line under the title, for a pane whose rows need the context. */
+    readonly subtitle?: string;
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly loading?: boolean;
@@ -867,6 +876,7 @@ export function tuiModelAssignmentOptions(
             name: "this session",
             model: sessionModel ?? MISSING_CELL,
             state: "enter to change",
+            note: "The model this session runs on. Enter to change it.",
             searchText: "session current model main",
         },
         ...rows.map((row) => ({
@@ -874,6 +884,7 @@ export function tuiModelAssignmentOptions(
             name: row.label,
             model: assignedModelCell(row),
             state: assignmentStateCell(row),
+            note: assignmentNote(row),
             searchText: `${row.assignment} ${row.label} ${row.intent}`,
         })),
     ];
@@ -886,6 +897,7 @@ export function tuiModelAssignmentOptions(
         value: cell.value,
         label: `${cell.name.padEnd(nameWidth)}  ${cell.model}`,
         description: cell.state,
+        note: cell.note,
         searchText: cell.searchText,
     }));
 }
@@ -923,6 +935,35 @@ function assignmentStateCell(row: ModelAssignmentRow): string {
     return row.source === "none"
         ? `${named} unreachable`
         : `${named} unreachable, uses ${row.inherits ?? "session model"}`;
+}
+
+/**
+ * The row in full sentences, for the footer. The table cell has room for a
+ * label and no room to say what to do about it, so the cursor carries the
+ * explanation: what this assignment is for, and what is running it now.
+ */
+function assignmentNote(row: ModelAssignmentRow): string {
+    const purpose = `${row.label}: ${row.intent}.`;
+    if (!row.bound) {
+        if (row.inherits !== undefined) {
+            return `${purpose} Nothing set, so it uses ${row.inherits}.`;
+        }
+        return row.source === "session"
+            ? `${purpose} Nothing set, so it runs on this session's model.`
+            : `${purpose} Nothing set, so it does not run.`;
+    }
+    if (row.source === "assignment") {
+        return purpose;
+    }
+    const named = row.route === undefined
+        ? "The model set here is"
+        : `Route ${row.route} names a model that is`;
+    const missing = `${named} not in your pool`;
+    if (row.source === "none") {
+        return `${purpose} ${missing}, so nothing runs it. Add that model to the pool, or set this to a pooled one.`;
+    }
+    const substitute = row.inherits ?? "this session's model";
+    return `${purpose} ${missing}, so ${substitute} runs it instead. Add that model to the pool, or set this to a pooled one.`;
 }
 
 function reviewerSlotLabel(selection?: ReviewerModelSelection): string {
@@ -1027,8 +1068,8 @@ export function startTuiReviewerPicker(
  */
 export function startTuiModelAssignmentPicker(
     assignment: ModelAssignmentId,
+    label: string,
     intent: string,
-    inherits: string | undefined,
     pooled: readonly PooledModel[] = [],
     current?: string,
 ): TuiSettingsPickerState {
@@ -1049,12 +1090,16 @@ export function startTuiModelAssignmentPicker(
     }
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
-        label: inherits === undefined ? "Not set" : `Not set (use ${inherits})`,
-        description: intent,
+        label: "Not set",
+        description: unsetAssignmentMeans(assignment),
     };
     const options = [clearRow, ...rows];
     return {
         kind: "model_assignment",
+        // What this assignment is for belongs to the pane, not to one of its
+        // rows: read on a row it looks like a description of that row.
+        title: `Assign a model to ${label}`,
+        subtitle: intent,
         allOptions: options,
         options,
         selectedIndex: Math.max(
@@ -1064,6 +1109,16 @@ export function startTuiModelAssignmentPicker(
         query: "",
         modelAssignment: assignment,
     };
+}
+
+/** What leaving an assignment unset does, which is the row's real meaning. */
+function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
+    if (isJobAssignmentId(assignment)) {
+        return `uses ${JOB_ASSIGNMENT_INTENTS[assignment]}`;
+    }
+    return ASSIGNMENT_DEMANDS[assignment] === "required"
+        ? "uses this session's model"
+        : "nothing runs it";
 }
 
 export function startTuiSettingsMenu(
@@ -2225,13 +2280,13 @@ function renderListPickerRows(
                 // inside it: one card that changes what it lists, not two.
                 : stop === "providers"
                 ? pickerTitle("model")
-                : undefined,
+                : state.title,
         ),
     );
     box.add(header);
     nodes.push(header);
     let subtitleLines = 0;
-    if (state.kind === "extension" && state.subtitle !== undefined) {
+    if (state.subtitle !== undefined) {
         const subtitleNode = new TextRenderable(renderer, {
             content: state.subtitle,
             fg: TUI_MUTED,
@@ -2650,6 +2705,17 @@ export function pickerFooter(
             ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
+    }
+    // The Assigned tab's rows are jobs, and a two-word state cell cannot say
+    // what to do about one, so the cursor's row explains itself down here.
+    if (state.kind === "model" && state.tab === "assigned") {
+        const note = state.options[state.selectedIndex]?.note;
+        return fittedHints([
+            ...(note === undefined ? [] : [{ text: note, drop: 0 }]),
+            { text: "\u23ce change", drop: 2 },
+            { text: "\u21e5 tabs", drop: 1 },
+            { text: "esc close", drop: 3 },
+        ], width);
     }
     if (state.kind === "model" && state.tab === "help") {
         return "⇥ tabs · esc close";
