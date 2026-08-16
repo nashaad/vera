@@ -6150,7 +6150,8 @@ export async function startTui(
                 openFileInEditor(veraConfigPath())))();
             state = appendTuiNotice(
                 state,
-                "Configure editor closed. Restart Vera to apply config changes.",
+                "Configure editor closed. Settings apply to new sessions; a"
+                + " changed extension list needs a restart.",
             );
         } catch (error) {
             state = appendTuiError(
