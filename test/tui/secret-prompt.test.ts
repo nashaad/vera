@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { parseKeypress, type StyledText } from "@opentui/core";
+import { createTestRenderer } from "@opentui/core/testing";
 
 import {
+    createTuiSecretPromptView,
     handleTuiSecretPromptKey,
     tuiSecretEntryLine,
     handleTuiSecretPromptPaste,
@@ -13,6 +15,31 @@ const OPENROUTER = {
     label: "OpenRouter",
     hint: "API key, pay per token",
 };
+
+test("the API-key card is vertically centered", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiSecretPromptView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(startTuiSecretPrompt(OPENROUTER));
+
+    try {
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("OpenRouter API key");
+        expect(view.card.screenY).toBe(
+            Math.floor((setup.renderer.height - view.card.height) / 2),
+        );
+
+        setup.resize(60, 14);
+        view.update(startTuiSecretPrompt(OPENROUTER));
+        await setup.flush();
+        expect(view.card.screenY).toBe(
+            Math.floor((setup.renderer.height - view.card.height) / 2),
+        );
+    } finally {
+        setup.renderer.destroy();
+    }
+});
 
 function typed(value: string) {
     let state = startTuiSecretPrompt(OPENROUTER);

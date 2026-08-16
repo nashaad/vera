@@ -12,7 +12,6 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import {
-    DIALOG_CARD_Z_INDEX,
     DIALOG_CARD_PADDING,
     DIALOG_CHROME_HEIGHT,
     DIALOG_GUTTER,
@@ -22,6 +21,7 @@ import {
     dialogRowPointer,
     type DialogRowPointer,
     dialogSearchNode,
+    centeredDialogSurface,
 } from "./dialog-chrome.ts";
 import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
@@ -50,6 +50,7 @@ export interface TuiCommandPaletteTransition {
 
 export interface TuiCommandPaletteView {
     readonly box: BoxRenderable;
+    readonly surface: BoxRenderable;
     pointer?: DialogRowPointer;
     update(state: TuiCommandPaletteState): void;
 }
@@ -142,26 +143,22 @@ export function createTuiCommandPaletteView(
         // explicit `border: false`, so passing a color is what draws the box.
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: commandPaletteTop(renderer),
         // Wider than the other dialogs: the group column is bought out of the
         // card's own width rather than out of the descriptions.
-        left: "5%",
         width: "90%",
         height: 8,
-        zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: DIALOG_CARD_PADDING,
         paddingRight: DIALOG_CARD_PADDING,
         paddingTop: 2,
         paddingBottom: 1,
         focusable: true,
-        visible: false,
     });
 
+    const surface = centeredDialogSurface(renderer, "command-palette-surface", box);
     const view: TuiCommandPaletteView = {
         box,
+        surface,
         update(state): void {
-            box.top = commandPaletteTop(renderer);
             for (const node of nodes) {
                 node.destroy();
             }
@@ -220,14 +217,6 @@ export function createTuiCommandPaletteView(
     };
     return view;
 }
-
-function commandPaletteTop(renderer: RenderContext): number {
-    // The palette can grow much taller than a compact launcher. A quarter-
-    // screen inset pushes its footer into the composer, so retain a small
-    // proportional margin without letting viewport height drive it downward.
-    return Math.max(2, Math.floor(renderer.height / 10));
-}
-
 
 function searched(
     state: TuiCommandPaletteState,

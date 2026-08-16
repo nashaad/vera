@@ -131,11 +131,18 @@ test("the palette card is borderless from construction, not from its first updat
     }
 });
 
-test("the palette keeps a small top margin on a tall terminal", async () => {
+test("the palette is vertically centered on a tall terminal", async () => {
     const setup = await createTestRenderer({ width: 100, height: 30 });
     try {
         const view = createTuiCommandPaletteView(setup.renderer);
-        expect(view.box.top).toBe(3);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        view.update(startTuiCommandPalette(commands));
+        await setup.flush();
+        const spaceAbove = view.box.screenY;
+        const spaceBelow = setup.renderer.height
+            - (view.box.screenY + view.box.height);
+        expect(Math.abs(spaceAbove - spaceBelow)).toBeLessThanOrEqual(1);
     } finally {
         setup.renderer.destroy();
     }

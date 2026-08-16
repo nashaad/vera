@@ -13,7 +13,7 @@ import {
     tuiAdmissionVerdictLine,
     type TuiAdmissionState,
 } from "./state.ts";
-import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
+import { centeredDialogSurface } from "./dialog-chrome.ts";
 
 /**
  * The verification run this dialog reports on. It exists only once the probes
@@ -77,6 +77,7 @@ export function handleTuiAdmissionDialogKey(
 
 export interface TuiAdmissionDialogView {
     readonly box: BoxRenderable;
+    readonly surface: BoxRenderable;
     update(
         dialog: TuiAdmissionDialogState,
         admission: TuiAdmissionState | undefined,
@@ -155,25 +156,22 @@ export function createTuiAdmissionDialogView(
         id: "admission-dialog",
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: 2,
-        left: "15%",
         width: "70%",
         height: "auto",
-        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,
         paddingBottom: 1,
         focusable: true,
-        visible: false,
     });
     box.add(title);
     box.add(body);
     box.add(footer);
+    const surface = centeredDialogSurface(renderer, "admission-dialog-surface", box);
     return {
         box,
+        surface,
         update(dialog, admission): void {
             const phase = tuiAdmissionDialogPhase(dialog, admission);
             const relevant = admission?.requestId === dialog.requestId

@@ -25,6 +25,17 @@ export interface TuiGutterAppearance {
     readonly separatorSpacingAfter?: number;
 }
 
+/** Tool rows already reserve the two columns every activity needs internally. */
+export function tuiGutterWidth(
+    entry: TuiTranscriptEntry,
+    activityIndent: number,
+): number {
+    const alignedIndent = Math.max(2, activityIndent);
+    return entry.kind === "tool" || entry.kind === "tool_header"
+        ? alignedIndent - 2
+        : alignedIndent;
+}
+
 /**
  * The marker a block opens with, and undefined for entries that draw their own
  * leading glyph. A blank marker still reserves the column so every block in the

@@ -46,6 +46,15 @@ const exit = await startTui({
             title: "Continue the theme picker",
             updated_at: updatedAt,
         },
+        {
+            id: "empty-session-id",
+            workspace: "/work/vera",
+            session_path: "/sessions/empty.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: false,
+            updated_at: new Date().toISOString(),
+        },
     ],
     ...(process.env.RESUME_TIMEOUT === "1"
         ? { sessionSwitchTimeoutMs: 100 }

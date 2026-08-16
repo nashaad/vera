@@ -343,7 +343,10 @@ export class SessionStore {
             try {
                 await file.chmod(0o600);
                 await file.writeFile(jsonLine(header), "utf8");
-                await file.sync();
+                // An empty session has no user work to make crash-durable yet.
+                // The first append fsyncs this header together with the first
+                // record; forcing a disk barrier here made /clear wait seconds
+                // on some filesystems for a chat Resume intentionally hides.
             } finally {
                 await file.close();
             }
@@ -1083,6 +1086,7 @@ export async function readSessionHeader(path: string): Promise<SessionHeader> {
 export interface SessionIndexMetadata {
     readonly header: SessionHeader;
     readonly title?: string;
+    readonly hasUserContent: boolean;
 }
 
 export async function readSessionIndexMetadata(
@@ -1111,6 +1115,7 @@ export async function readSessionIndexMetadata(
         const lines = source.split("\n");
         const header = parseHeader(path, lines.shift() ?? "");
         let firstPrompt: string | undefined;
+        let hasUserContent = false;
         let name: string | null | undefined;
         for (const line of lines.slice(0, -1)) {
             let record: Record<string, unknown>;
@@ -1127,24 +1132,25 @@ export async function readSessionIndexMetadata(
             }
             const message = record.message as Record<string, unknown> | undefined;
             if (
-                firstPrompt === undefined
-                && record.type === "message"
+                record.type === "message"
                 && message?.role === "user"
                 && message.internal !== true
                 && Array.isArray(message.content)
             ) {
+                hasUserContent = true;
                 const text = message.content.flatMap((part) => {
                     const value = part as Record<string, unknown>;
                     return value.type === "text" && typeof value.text === "string"
                         ? [value.text]
                         : [];
                 }).join(" ").replaceAll(/\s+/g, " ").trim();
-                if (text.length > 0) firstPrompt = text;
+                if (firstPrompt === undefined && text.length > 0) firstPrompt = text;
             }
         }
         const title = name ?? firstPrompt;
         return {
             header,
+            hasUserContent,
             ...(title === undefined ? {} : { title }),
         };
     } finally {

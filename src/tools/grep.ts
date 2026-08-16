@@ -90,10 +90,10 @@ export const grepTool: RegisteredTool = {
         if (input.multiline === true) {
             args.push("--multiline", "--multiline-dotall");
         }
-        if (typeof input.glob === "string") {
+        if (typeof input.glob === "string" && input.glob.trim().length > 0) {
             args.push("--glob", input.glob);
         }
-        if (typeof input.type === "string") {
+        if (typeof input.type === "string" && input.type.trim().length > 0) {
             args.push("--type", input.type);
         }
         if (outputMode === "files_with_matches") {
