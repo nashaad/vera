@@ -162,3 +162,23 @@ test("a slot is bound only from the pool", async () => {
         "big",
     ]);
 });
+
+test("slot rows survive a snapshot from the host", async () => {
+    const { syncTuiModelPicker, switchedModelTab } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    const options = tuiModelSlotOptions(rows({}), "session-model");
+    const opened = {
+        kind: "model" as const,
+        allOptions: [],
+        options: [],
+        selectedIndex: 0,
+        query: "",
+        tab: "all" as const,
+        slotOptions: options,
+    };
+    const synced = syncTuiModelPicker(opened, { model: "session-model" });
+    expect(switchedModelTab(synced, "slots").options.length).toBe(
+        options.length,
+    );
+});

@@ -582,6 +582,11 @@ export function syncTuiModelPicker(
         tab,
         ...(state.revealAll === true ? { revealAll: true } : {}),
         ...(collapsed.length === 0 ? {} : { collapsed }),
+        // Slot rows are read from config and the pool rather than from the
+        // host, so a rebuild has nothing to put back and has to carry them.
+        ...(state.slotOptions === undefined
+            ? {}
+            : { slotOptions: state.slotOptions }),
         options: modelPickerOptions(
             rebuilt.allOptions,
             tab,
