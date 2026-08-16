@@ -998,28 +998,28 @@ export function startTuiReviewerPicker(
 }
 
 /**
- * The models offered for one slot. Pooled entries lead because the pool is the
- * shortlist the user built, but everything the host knows about follows: a
- * slot is a setting, so a model absent from the pool is still theirs to name.
+ * The models offered for one slot, which is the pool and nothing else. A slot
+ * binds only what can run, and reachability is pool membership, so offering a
+ * model from outside it would let the user set a slot that reads back as
+ * unreachable the moment it is written. Widening the choice means adding to
+ * the pool first.
  */
 export function startTuiModelSlotPicker(
     slot: ModelSlotId,
     intent: string,
     inherits: string | undefined,
     pooled: readonly PooledModel[] = [],
-    availableModels: readonly SuggestedModel[] = [],
     current?: string,
 ): TuiSettingsPickerState {
     const seen = new Set<string>();
     const rows: TuiSettingsPickerOption[] = [];
-    for (const entry of [...pooled, ...availableModels]) {
+    for (const entry of pooled) {
         const value = `${entry.provider}/${entry.model}`;
         if (seen.has(value)) continue;
         seen.add(value);
         rows.push({
             value,
-            label: ("poolName" in entry ? entry.poolName : undefined)
-                ?? entry.label,
+            label: entry.poolName ?? entry.label,
             description: entry.provider,
             provider: entry.provider,
             model: entry.model,
@@ -2996,6 +2996,9 @@ function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     }
     if (state.kind === "model" && state.tab === "pool") {
         return "No pooled models match. Tab switches to All models.";
+    }
+    if (state.kind === "model_slot") {
+        return "No pooled models. Add one to the pool to bind this slot.";
     }
     if (state.kind !== "session") {
         return "No matches found";

@@ -141,3 +141,24 @@ test("the session row moves to the list that changes it", async () => {
     expect(transition.selection).toBeUndefined();
     expect(transition.state?.tab).toBe("all");
 });
+
+test("a slot is bound only from the pool", async () => {
+    const { startTuiModelSlotPicker } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    const pane = startTuiModelSlotPicker("extra", "best", undefined, [
+        {
+            provider: "openrouter",
+            model: "kimi-k3",
+            label: "Kimi K3",
+            poolName: "big",
+            available: true,
+            verified: true,
+            levels: [],
+        },
+    ]);
+    expect(pane.options.map((option) => option.label)).toEqual([
+        "Not set",
+        "big",
+    ]);
+});

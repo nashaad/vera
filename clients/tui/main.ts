@@ -6088,7 +6088,6 @@ export async function startTui(
                 row?.intent ?? "",
                 row?.inherits,
                 targetState.modelSettings?.pooled,
-                targetState.modelSettings?.availableModels,
             ),
             parent,
         );
