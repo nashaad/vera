@@ -7008,11 +7008,14 @@ export async function startTui(
                     );
                 }
             } else if (selection.kind === "model_assignment_open") {
+                // The pane the row was chosen on, which Enter has already
+                // cleared from `settingsPicker`: without it Escape closes the
+                // card instead of stepping back to the list.
                 openModelAssignmentPicker(
                     selection.assignment,
-                    settingsPicker?.kind === "extension"
+                    previousPicker?.kind === "extension"
                         ? undefined
-                        : settingsPicker,
+                        : previousPicker,
                 );
                 return;
             } else if (selection.kind === "model_assignment") {

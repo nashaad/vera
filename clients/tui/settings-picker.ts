@@ -2362,7 +2362,9 @@ function renderListPickerRows(
         });
         box.add(subtitleNode);
         nodes.push(subtitleNode);
-        subtitleLines = 1;
+        // The node is the line and the blank under it, so the card grows by
+        // both. Counting one leaves the footer standing on the bottom edge.
+        subtitleLines = 2;
     }
     if (searchable) {
         const search = dialogSearchNode(

@@ -67,3 +67,41 @@ test("a clipped line ends in an ellipsis and still fits", () => {
     expect(clippedToWidth("abc", 4)).toBe("abc");
     expect(clippedToWidth("abcdef", 0)).toBe("abcdef");
 });
+
+// The card sizes itself from a line count, and its background is drawn to that
+// height. A line the count does not know about pushes the footer onto the
+// bottom edge, so the card loses the blank line under its hints.
+test("a subtitle does not cost the card its bottom padding", async () => {
+    const { createTestRenderer } = await import("@opentui/core/testing");
+    const { createTuiSettingsPickerView, startTuiModelAssignmentPicker } =
+        await import("../../clients/tui/settings-picker.ts");
+    const pooled = [{
+        provider: "openrouter",
+        model: "big-1",
+        label: "big",
+        available: true,
+        verified: true,
+        levels: [],
+    }] as const;
+    async function cardHeight(subtitled: boolean): Promise<number> {
+        const state = startTuiModelAssignmentPicker(
+            "eco",
+            "eco",
+            "for work a turn waits on",
+            pooled as never,
+        );
+        const setup = await createTestRenderer({ width: 100, height: 30 });
+        const view = createTuiSettingsPickerView(setup.renderer);
+        setup.renderer.root.add(view.box);
+        view.box.visible = true;
+        view.update(
+            subtitled ? state : { ...state, subtitle: undefined },
+        );
+        await setup.flush();
+        const height = view.box.height;
+        setup.renderer.destroy();
+        return height;
+    }
+    // The subtitle is a line and the blank under it, so the card grows by two.
+    expect(await cardHeight(true)).toBe(await cardHeight(false) + 2);
+});
