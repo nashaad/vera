@@ -219,12 +219,37 @@ export type SlotBindingSource =
 
 export interface SlotBinding {
     readonly source: SlotBindingSource;
-    /** Empty when the caller falls through to the session's own model. */
+    /** What will run. Empty when the caller falls through to the session. */
     readonly models: readonly VeraCatalogModel[];
+    /**
+     * What the winning rung named, before reachability narrowed it. Equal to
+     * `models` when everything named could be reached, and longer when some
+     * entries were skipped, which is what lets a screen say that a setting is
+     * being honored only in part.
+     */
+    readonly declared: readonly VeraCatalogModel[];
 }
 
 /**
+ * Whether an entry can be reached right now.
+ *
+ * The pool answers this, and it is passed in rather than imported so that
+ * config keeps knowing nothing about pool state. Omitted means unasked, in
+ * which case every declared entry is treated as reachable.
+ */
+export type ReachabilityCheck = (entry: VeraCatalogModel) => boolean;
+
+/**
  * Which models answer a caller, and on whose say-so.
+ *
+ * A route is exhausted before the next rung is tried: an unreachable first
+ * entry falls to the second entry of the same route, and only a route with
+ * nothing reachable in it climbs. A route is the user saying "these, in this
+ * order", so we owe them all of it before substituting something they did not
+ * pick.
+ *
+ * Reachability is read once, here. A provider that recovers a moment later
+ * does not change a binding that has already resolved.
  *
  * A job slot that is unbound draws on its intent slot before giving up.
  * `session` means nothing was bound anywhere and the caller is required, so it
@@ -235,30 +260,41 @@ export function bindModelSlot(
     catalog: VeraModelCatalogConfig,
     slots: VeraModelSlotsConfig,
     request: SlotBindingRequest,
+    isReachable?: ReachabilityCheck,
 ): SlotBinding {
-    if (request.explicitRoute !== undefined) {
-        const explicit = resolveModelRoute(catalog, request.explicitRoute);
-        if (explicit !== undefined && explicit.length > 0) {
-            return { source: "explicit", models: explicit };
-        }
-    }
-    const resolved = resolveModelSlot(catalog, slots, request.slot);
-    if (resolved !== undefined && resolved.models.length > 0) {
-        return { source: "slot", models: resolved.models };
-    }
+    const rung = (
+        source: SlotBindingSource,
+        declared: readonly VeraCatalogModel[] | undefined,
+    ): SlotBinding | undefined => {
+        if (declared === undefined || declared.length === 0) return undefined;
+        const models = isReachable === undefined
+            ? declared
+            : declared.filter((entry) => isReachable(entry));
+        return models.length === 0 ? undefined : { source, models, declared };
+    };
+
+    const explicit = request.explicitRoute === undefined
+        ? undefined
+        : rung("explicit", resolveModelRoute(catalog, request.explicitRoute));
+    if (explicit !== undefined) return explicit;
+
+    const bound = rung(
+        "slot",
+        resolveModelSlot(catalog, slots, request.slot)?.models,
+    );
+    if (bound !== undefined) return bound;
+
     if (isJobSlotId(request.slot)) {
-        const intent = resolveModelSlot(
-            catalog,
-            slots,
-            JOB_SLOT_INTENTS[request.slot],
+        const intent = rung(
+            "intent",
+            resolveModelSlot(catalog, slots, JOB_SLOT_INTENTS[request.slot])
+                ?.models,
         );
-        if (intent !== undefined && intent.models.length > 0) {
-            return { source: "intent", models: intent.models };
-        }
+        if (intent !== undefined) return intent;
     }
     return request.demand === "required"
-        ? { source: "session", models: [] }
-        : { source: "none", models: [] };
+        ? { source: "session", models: [], declared: [] }
+        : { source: "none", models: [], declared: [] };
 }
 
 /**
