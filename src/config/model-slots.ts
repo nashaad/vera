@@ -202,16 +202,9 @@ export type SlotDemand = "required" | "optional";
 export interface SlotBindingRequest {
     readonly slot: ModelSlotId;
     readonly demand: SlotDemand;
-    /**
-     * A route the feature was configured with directly. The more specific
-     * statement, so it wins: a user who named a route for compaction meant
-     * that route, not whatever the slot happens to hold.
-     */
-    readonly explicitRoute?: string;
 }
 
 export type SlotBindingSource =
-    | "explicit"
     | "slot"
     | "intent"
     | "session"
@@ -272,11 +265,6 @@ export function bindModelSlot(
             : declared.filter((entry) => isReachable(entry));
         return models.length === 0 ? undefined : { source, models, declared };
     };
-
-    const explicit = request.explicitRoute === undefined
-        ? undefined
-        : rung("explicit", resolveModelRoute(catalog, request.explicitRoute));
-    if (explicit !== undefined) return explicit;
 
     const bound = rung(
         "slot",

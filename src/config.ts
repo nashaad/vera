@@ -29,7 +29,9 @@ import {
     type VeraReviewerProfileConfig,
 } from "./config/model-catalog.ts";
 import {
+    bindModelSlot,
     parseModelSlotsConfig,
+    type ReachabilityCheck,
     type VeraModelSlotsConfig,
 } from "./config/model-slots.ts";
 import { parsePermissionModes } from "./config/permission-modes.ts";
@@ -1044,8 +1046,38 @@ export function configuredCompaction(
     }, config.compaction);
 }
 
+/**
+ * `isReachable` comes from the pool. Without it a route is judged on whether
+ * its models are declared, which is a weaker question than whether they can be
+ * used, so callers that have the pool should pass it.
+ */
+/**
+ * What a compaction strategy slot takes when the profile names no route for
+ * it. Empty when nothing is bound, which leaves the session's own model as the
+ * answer, since a session that fills its window has to compact regardless.
+ */
+export function configuredCompactionModels(
+    config: VeraConfig,
+    isReachable?: ReachabilityCheck,
+): readonly VeraCatalogModel[] {
+    if (config.models === undefined || config.model_routes === undefined) {
+        return [];
+    }
+    return bindModelSlot(
+        {
+            models: config.models,
+            model_routes: config.model_routes,
+            reviewer_profiles: config.reviewer_profiles ?? {},
+        },
+        config.model_slots ?? {},
+        { slot: "compaction", demand: "required" },
+        isReachable,
+    ).models;
+}
+
 export function configuredReviewers(
     config: VeraConfig,
+    isReachable?: ReachabilityCheck,
 ): Readonly<Record<string, ToolReviewerSettings>> {
     const configured: Record<string, ToolReviewerSettings> = {};
     if (
@@ -1058,8 +1090,14 @@ export function configuredReviewers(
             model_routes: config.model_routes,
             reviewer_profiles: config.reviewer_profiles,
         };
+        const slot = bindModelSlot(
+            catalog,
+            config.model_slots ?? {},
+            { slot: "reviewer", demand: "optional" },
+            isReachable,
+        );
         for (const name of Object.keys(config.reviewer_profiles)) {
-            const resolved = resolveReviewerProfile(catalog, name);
+            const resolved = resolveReviewerProfile(catalog, name, slot.models);
             if (resolved === undefined) {
                 continue;
             }
