@@ -35,10 +35,10 @@ import type {
 } from "../../src/engine/permissions.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import {
-    DIALOG_CARD_Z_INDEX,
     dialogHeaderNode,
     dialogOptionRow,
     dialogRowPointer,
+    centeredDialogSurface,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
@@ -81,6 +81,7 @@ export interface TuiPreferencesListTransition {
 
 export interface TuiPreferencesListView {
     readonly box: BoxRenderable;
+    readonly surface: BoxRenderable;
     pointer?: DialogRowPointer;
     update(state: TuiPreferencesListState): void;
 }
@@ -206,28 +207,25 @@ export function createTuiPreferencesListView(
         id: "preferences-list",
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: 2,
-        left: "10%",
         width: "80%",
         height: "auto",
         maxHeight: "90%",
-        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,
         paddingBottom: 1,
         focusable: true,
-        visible: false,
     });
     box.add(dialogHeaderNode(renderer, "Granted permissions"));
     box.add(rows);
     box.add(footer);
+    const surface = centeredDialogSurface(renderer, "preferences-list-surface", box);
 
     let current: (BoxRenderable | TextRenderable)[] = [];
     const view: TuiPreferencesListView = {
         box,
+        surface,
         update(state): void {
             for (const row of current) {
                 row.destroy();

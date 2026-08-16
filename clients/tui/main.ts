@@ -2240,7 +2240,7 @@ export async function startTui(
     };
     app.add(settingsPickerView.box);
     app.add(secretPromptView.box);
-    app.add(namePromptView.box);
+    app.add(namePromptView.surface);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
@@ -2277,14 +2277,14 @@ export async function startTui(
         help = transition.state;
         renderState();
     };
-    app.add(preferencesListView.box);
-    app.add(commandPaletteView.box);
+    app.add(preferencesListView.surface);
+    app.add(commandPaletteView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
     app.add(doctorDialogView.box);
     app.add(permissionsConfirmView.box);
-    app.add(admissionDialogView.box);
-    app.add(sessionTrashConfirmView.box);
+    app.add(admissionDialogView.surface);
+    app.add(sessionTrashConfirmView.surface);
     app.add(composerTipText);
     app.add(experimentalTuiHost.footer);
     app.add(experimentalTuiHost.composerAdornment);
@@ -2424,7 +2424,7 @@ export async function startTui(
     renderer.keyInput.on("paste", (event) => {
         if (
             namePrompt !== undefined
-            && namePromptView.box.visible
+            && namePromptView.surface.visible
         ) {
             event.preventDefault();
             event.stopPropagation();
@@ -2484,7 +2484,7 @@ export async function startTui(
             // than reopening a palette that is already in front of you.
             if (commandPalette !== undefined) {
                 commandPalette = undefined;
-                commandPaletteView.box.visible = false;
+                commandPaletteView.surface.visible = false;
                 composer.focus();
                 renderState();
                 return;
@@ -2760,7 +2760,7 @@ export async function startTui(
                     });
                 }
                 if (preferencesList === undefined) {
-                    preferencesListView.box.visible = false;
+                    preferencesListView.surface.visible = false;
                     settingsPicker = preferencesListParent;
                     preferencesListParent = undefined;
                     if (settingsPicker === undefined) {
@@ -5753,7 +5753,7 @@ export async function startTui(
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
-        namePromptView.box.visible = uiRequest === undefined
+        namePromptView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -5771,13 +5771,13 @@ export async function startTui(
             && secretPrompt === undefined
             && namePrompt === undefined
             && settingsPicker !== undefined;
-        preferencesListView.box.visible = uiRequest === undefined
+        preferencesListView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && preferencesList !== undefined;
-        commandPaletteView.box.visible = uiRequest === undefined
+        commandPaletteView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -5814,27 +5814,27 @@ export async function startTui(
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && confirmingFullAccess;
-        admissionDialogView.box.visible = uiRequest === undefined
+        admissionDialogView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && !confirmingFullAccess
             && admissionDialog !== undefined;
-        sessionTrashConfirmView.box.visible = uiRequest === undefined
+        sessionTrashConfirmView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate !== undefined;
         const overlayVisible = approvalView.box.visible
             || questionView.box.visible
             || timelinePickerView.box.visible
             || settingsPickerView.box.visible
-            || preferencesListView.box.visible
-            || commandPaletteView.box.visible
+            || preferencesListView.surface.visible
+            || commandPaletteView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
             || permissionsConfirmView.box.visible
-            || admissionDialogView.box.visible
-            || sessionTrashConfirmView.box.visible
-            || namePromptView.box.visible
+            || admissionDialogView.surface.visible
+            || sessionTrashConfirmView.surface.visible
+            || namePromptView.surface.visible
             || secretPromptView.box.visible
             || experimentalTuiHost.hasModal();
         overlayScrim.visible = overlayVisible;
