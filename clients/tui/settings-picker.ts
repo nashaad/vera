@@ -111,8 +111,12 @@ export interface TuiSettingsPickerOption {
     readonly value: string;
     readonly label: string;
     readonly description: string;
-    /** A full sentence for the footer, shown while the row is highlighted. */
+    /** A full sentence about the row, drawn in the column beside the list. */
     readonly note?: string;
+    /** The row's name for that column, when the row's label is a table line. */
+    readonly detailTitle?: string;
+    /** The row's own facts, for a row the model facts do not describe. */
+    readonly detailFacts?: readonly (readonly [string, string])[];
     readonly searchText?: string;
     readonly provider?: string;
     readonly model?: string;
@@ -877,6 +881,8 @@ export function tuiModelAssignmentOptions(
             model: sessionModel ?? MISSING_CELL,
             state: "enter to change",
             note: "The model this session runs on. Enter to change it.",
+            detailTitle: "this session",
+            detailFacts: [["Runs", sessionModel ?? "not known"] as const],
             searchText: "session current model main",
         },
         ...rows.map((row) => ({
@@ -885,6 +891,8 @@ export function tuiModelAssignmentOptions(
             model: assignedModelCell(row),
             state: assignmentStateCell(row),
             note: assignmentNote(row),
+            detailTitle: row.label,
+            detailFacts: assignmentFacts(row),
             searchText: `${row.assignment} ${row.label} ${row.intent}`,
         })),
     ];
@@ -898,6 +906,8 @@ export function tuiModelAssignmentOptions(
         label: `${cell.name.padEnd(nameWidth)}  ${cell.model}`,
         description: cell.state,
         note: cell.note,
+        detailTitle: cell.detailTitle,
+        detailFacts: cell.detailFacts,
         searchText: cell.searchText,
     }));
 }
@@ -937,8 +947,33 @@ function assignmentStateCell(row: ModelAssignmentRow): string {
         : `${named} unreachable, uses ${row.inherits ?? "session model"}`;
 }
 
+/** The row as a fact block, for the column beside the list. */
+function assignmentFacts(
+    row: ModelAssignmentRow,
+): readonly (readonly [string, string])[] {
+    const running = row.models[0];
+    const set = !row.bound
+        ? "nothing"
+        : row.route === undefined
+        ? "a model of its own"
+        : `route ${row.route}`;
+    const falls = row.inherits ?? (
+        ASSIGNMENT_DEMANDS[row.assignment] === "required"
+            ? "this session's model"
+            : "nothing, it does not run"
+    );
+    return [
+        ["Runs", running === undefined ? "nothing" : running.model],
+        ["Set to", set],
+        ["Falls back", falls],
+        ...(row.bound && row.source !== "assignment"
+            ? [["Reachable", "no, not in your pool"] as const]
+            : []),
+    ];
+}
+
 /**
- * The row in full sentences, for the footer. The table cell has room for a
+ * The row in full sentences, for the column beside the list. The table cell has room for a
  * label and no room to say what to do about it, so the cursor carries the
  * explanation: what this assignment is for, and what is running it now.
  */
@@ -1954,7 +1989,8 @@ export function tuiPickerViewportRows(
  * half-width column turns into a list of clipped prefixes.
  */
 function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
-    return state.kind === "model" && (state.tab ?? "all") === "pool";
+    const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
+    return tab === "pool" || tab === "assigned";
 }
 
 /** The narrowest the detail column is worth drawing at. */
@@ -2071,6 +2107,23 @@ function modelDetailNode(
     };
     const option = state.options[state.selectedIndex];
     const described = option !== undefined && option.section === undefined;
+    // A row whose label is a table line names itself here instead, and brings
+    // its own facts: what runs a job is not what describes a model.
+    if (described && option.detailFacts !== undefined) {
+        line([fg(TUI_TEXT)(clippedTo(option.detailTitle ?? "", width))]);
+        line();
+        for (const [label, value] of option.detailFacts) {
+            line(factChunks([label, value], width));
+        }
+        line();
+        for (const text of wrappedTo(option.note ?? "", width)) {
+            line([fg(TUI_MUTED)(text)]);
+        }
+        while (drawn < height) {
+            line();
+        }
+        return pane;
+    }
     if (described) {
         line([fg(TUI_TEXT)(clippedTo(option.label, width))]);
         line([
@@ -2204,6 +2257,11 @@ function modelDetailHeight(
 ): number {
     const option = state.options[state.selectedIndex];
     const described = option !== undefined && option.section === undefined;
+    if (described && option.detailFacts !== undefined) {
+        // The name, a blank, the facts, a blank, and the sentence under them.
+        return 3 + option.detailFacts.length
+            + wrappedTo(option.note ?? "", width).length;
+    }
     // The name, the source, a blank, the facts, and a blank under them.
     const facts = described
         ? 3 + modelDetailFacts(state, option).length + 1
@@ -2649,12 +2707,29 @@ interface PickerHint {
     readonly drop: number;
 }
 
+/**
+ * The text cut to the room there is for it, with an ellipsis where it was cut.
+ * A footer line that overflows its card wraps onto the padding line under it,
+ * so the pane loses its bottom margin rather than the sentence losing a word.
+ */
+export function clippedToWidth(text: string, width: number): string {
+    if (width <= 0 || Bun.stringWidth(text) <= width) return text;
+    if (width === 1) return "\u2026";
+    const chars = [...text];
+    let kept = "";
+    for (const char of chars) {
+        if (Bun.stringWidth(kept + char) > width - 1) break;
+        kept += char;
+    }
+    return `${kept.trimEnd()}\u2026`;
+}
+
 function fittedHints(hints: readonly PickerHint[], width: number): string {
     const kept = [...hints];
     for (;;) {
         const line = kept.map((hint) => hint.text).join(" · ");
         if (width <= 0 || Bun.stringWidth(line) <= width || kept.length <= 1) {
-            return line;
+            return clippedToWidth(line, width);
         }
         let last = 0;
         kept.forEach((hint, index) => {
@@ -2663,13 +2738,25 @@ function fittedHints(hints: readonly PickerHint[], width: number): string {
             }
         });
         if (kept[last]!.drop === 0) {
-            return line;
+            return clippedToWidth(line, width);
         }
         kept.splice(last, 1);
     }
 }
 
+/**
+ * The hint line, never wider than the card it sits in. A line that overflows
+ * wraps onto the blank line under it and the pane loses its bottom padding, so
+ * a branch that cannot shed a hint has its line cut instead.
+ */
 export function pickerFooter(
+    state: TuiAnySettingsPickerState,
+    width = 0,
+): string {
+    return clippedToWidth(pickerFooterText(state, width), width);
+}
+
+function pickerFooterText(
     state: TuiAnySettingsPickerState,
     width = 0,
 ): string {
@@ -2708,13 +2795,14 @@ export function pickerFooter(
     }
     // The Assigned tab's rows are jobs, and a two-word state cell cannot say
     // what to do about one, so the cursor's row explains itself down here.
+    // The Assigned tab's rows explain themselves in the column beside the
+    // list, so the footer stays keys.
     if (state.kind === "model" && state.tab === "assigned") {
-        const note = state.options[state.selectedIndex]?.note;
         return fittedHints([
-            ...(note === undefined ? [] : [{ text: note, drop: 0 }]),
-            { text: "\u23ce change", drop: 2 },
+            { text: "\u2191\u2193 move", drop: 0 },
+            { text: "\u23ce change", drop: 0 },
             { text: "\u21e5 tabs", drop: 1 },
-            { text: "esc close", drop: 3 },
+            { text: "esc close", drop: 0 },
         ], width);
     }
     if (state.kind === "model" && state.tab === "help") {
