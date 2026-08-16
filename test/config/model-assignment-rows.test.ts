@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 
 import {
-    describeModelSlots,
-    type VeraModelSlotsConfig,
-} from "../../src/config/model-slots.ts";
+    describeModelAssignments,
+    type VeraModelAssignmentsConfig,
+} from "../../src/config/model-assignments.ts";
 import type { VeraModelCatalogConfig } from "../../src/config/model-catalog.ts";
-import { tuiModelSlotOptions } from "../../clients/tui/settings-picker.ts";
+import { tuiModelAssignmentOptions } from "../../clients/tui/settings-picker.ts";
 
 const CATALOG: VeraModelCatalogConfig = {
     models: [
@@ -16,19 +16,19 @@ const CATALOG: VeraModelCatalogConfig = {
     reviewer_profiles: {},
 };
 
-function rows(slots: VeraModelSlotsConfig, reachable?: (name: string) => boolean) {
-    return describeModelSlots(
+function rows(assignments: VeraModelAssignmentsConfig, reachable?: (name: string) => boolean) {
+    return describeModelAssignments(
         CATALOG,
-        slots,
+        assignments,
         reachable === undefined
             ? undefined
             : (entry) => reachable(entry.name),
     );
 }
 
-test("an unset job slot reports the intent it inherits", () => {
+test("an unset job assignment reports the intent it inherits", () => {
     const reviewer = rows({ extra: { model_route: "best" } })
-        .find((row) => row.slot === "reviewer");
+        .find((row) => row.assignment === "reviewer");
     expect(reviewer?.route).toBeUndefined();
     expect(reviewer?.source).toBe("intent");
     expect(reviewer?.inherits).toBe("extra");
@@ -39,7 +39,7 @@ test("an unreachable route stays on the row next to its substitute", () => {
     const reviewer = rows(
         { extra: { model_route: "best" }, reviewer: { model_route: "cheap" } },
         (name) => name !== "small",
-    ).find((row) => row.slot === "reviewer");
+    ).find((row) => row.assignment === "reviewer");
     expect(reviewer?.route).toBe("cheap");
     expect(reviewer?.declared.map((model) => model.name)).toEqual(["small"]);
     expect(reviewer?.source).toBe("intent");
@@ -47,13 +47,13 @@ test("an unreachable route stays on the row next to its substitute", () => {
 });
 
 test("compaction with nothing bound falls to the session's model", () => {
-    const compaction = rows({}).find((row) => row.slot === "compaction");
+    const compaction = rows({}).find((row) => row.assignment === "compaction");
     expect(compaction?.source).toBe("session");
     expect(compaction?.models).toEqual([]);
 });
 
-test("the rows show the route, the substitute, and the unset ones", () => {
-    const options = tuiModelSlotOptions(
+test("the rows line up in columns and say why each model is there", () => {
+    const options = tuiModelAssignmentOptions(
         rows(
             {
                 snappy: { model_route: "cheap" },
@@ -64,36 +64,57 @@ test("the rows show the route, the substitute, and the unset ones", () => {
         ),
         "session-model",
     );
-    const described = new Map(
-        options.map((option) => [option.label, option.description]),
+    // Every name column is the same width, so the model column starts at the
+    // same character on every row.
+    const starts = new Set(
+        options.map((option) => option.label.search(/\S+(\s\S+)*$/)),
     );
-    expect(described.get("This session")).toContain("session-model");
-    expect(described.get("extra")).toBe("best · big-1 (high)");
-    expect(described.get("critic")).toBe("cheap unreachable · uses extra");
-    expect(described.get("snappy")).toBe("cheap unreachable · nothing runs it");
-    expect(described.get("eco")).toBe("not set");
-    expect(described.get("compaction")).toBe("not set · uses this session's model");
+    expect(starts.size).toBe(1);
+    const cell = new Map(options.map((option) => {
+        const [name, model] = option.label.split(/\s{2,}/);
+        return [name!.trim(), { model: model ?? "", state: option.description }];
+    }));
+    expect(cell.get("this session")).toEqual({
+        model: "session-model",
+        state: "enter to change",
+    });
+    expect(cell.get("extra")).toEqual({ model: "big-1 (high)", state: "" });
+    // The substitute runs, and the row still names the route that did not, so
+    // the user can see what to fix.
+    expect(cell.get("critic")).toEqual({
+        model: "big-1 (high)",
+        state: "route cheap unreachable, uses extra",
+    });
+    expect(cell.get("snappy")).toEqual({
+        model: "\u00b7",
+        state: "route cheap unreachable",
+    });
+    expect(cell.get("eco")).toEqual({ model: "\u00b7", state: "not set" });
+    expect(cell.get("compaction")).toEqual({
+        model: "\u00b7",
+        state: "uses session model",
+    });
 });
 
-test("a slot bound to inline models needs no route", () => {
+test("a assignment bound to inline models needs no route", () => {
     const extra = rows({
         extra: {
             models: [
                 { name: "picked", provider: "openrouter", model: "big-1" },
             ],
         },
-    }).find((row) => row.slot === "extra");
+    }).find((row) => row.assignment === "extra");
     expect(extra?.bound).toBe(true);
     expect(extra?.route).toBeUndefined();
-    expect(extra?.source).toBe("slot");
+    expect(extra?.source).toBe("assignment");
     expect(extra?.models.map((model) => model.model)).toEqual(["big-1"]);
 });
 
-test("a slot naming both a route and inline models is refused", async () => {
-    const { parseModelSlotsConfig } = await import(
-        "../../src/config/model-slots.ts"
+test("a assignment naming both a route and inline models is refused", async () => {
+    const { parseModelAssignmentsConfig } = await import(
+        "../../src/config/model-assignments.ts"
     );
-    expect(parseModelSlotsConfig(
+    expect(parseModelAssignmentsConfig(
         {
             extra: {
                 model_route: "best",
@@ -104,49 +125,51 @@ test("a slot naming both a route and inline models is refused", async () => {
     )).toBeUndefined();
 });
 
-test("a slots row resolves to its slot, not to a model", async () => {
+test("a assignments row resolves to its assignment, not to a model", async () => {
     const { handleTuiSettingsPickerKey } = await import(
         "../../clients/tui/settings-picker.ts"
     );
-    const options = tuiModelSlotOptions(rows({}), "session-model");
+    const options = tuiModelAssignmentOptions(rows({}), "session-model");
     const pane = {
         kind: "model" as const,
         allOptions: [],
         options,
-        selectedIndex: options.findIndex((option) => option.label === "extra"),
+        selectedIndex: options.findIndex((option) =>
+            option.label.startsWith("extra")
+        ),
         query: "",
-        tab: "slots" as const,
-        slotOptions: options,
+        tab: "assigned" as const,
+        assignmentOptions: options,
     };
     const selection = handleTuiSettingsPickerKey(pane, { name: "return" })
         .selection;
-    expect(selection).toEqual({ kind: "model_slot_open", slot: "extra" });
+    expect(selection).toEqual({ kind: "model_assignment_open", assignment: "extra" });
 });
 
 test("the session row moves to the list that changes it", async () => {
     const { handleTuiSettingsPickerKey } = await import(
         "../../clients/tui/settings-picker.ts"
     );
-    const options = tuiModelSlotOptions(rows({}), "session-model");
+    const options = tuiModelAssignmentOptions(rows({}), "session-model");
     const pane = {
         kind: "model" as const,
         allOptions: [],
         options,
         selectedIndex: 0,
         query: "",
-        tab: "slots" as const,
-        slotOptions: options,
+        tab: "assigned" as const,
+        assignmentOptions: options,
     };
     const transition = handleTuiSettingsPickerKey(pane, { name: "return" });
     expect(transition.selection).toBeUndefined();
     expect(transition.state?.tab).toBe("all");
 });
 
-test("a slot is bound only from the pool", async () => {
-    const { startTuiModelSlotPicker } = await import(
+test("a assignment is bound only from the pool", async () => {
+    const { startTuiModelAssignmentPicker } = await import(
         "../../clients/tui/settings-picker.ts"
     );
-    const pane = startTuiModelSlotPicker("extra", "best", undefined, [
+    const pane = startTuiModelAssignmentPicker("extra", "best", undefined, [
         {
             provider: "openrouter",
             model: "kimi-k3",
@@ -163,11 +186,11 @@ test("a slot is bound only from the pool", async () => {
     ]);
 });
 
-test("slot rows survive a snapshot from the host", async () => {
+test("assignment rows survive a snapshot from the host", async () => {
     const { syncTuiModelPicker, switchedModelTab } = await import(
         "../../clients/tui/settings-picker.ts"
     );
-    const options = tuiModelSlotOptions(rows({}), "session-model");
+    const options = tuiModelAssignmentOptions(rows({}), "session-model");
     const opened = {
         kind: "model" as const,
         allOptions: [],
@@ -175,10 +198,10 @@ test("slot rows survive a snapshot from the host", async () => {
         selectedIndex: 0,
         query: "",
         tab: "all" as const,
-        slotOptions: options,
+        assignmentOptions: options,
     };
     const synced = syncTuiModelPicker(opened, { model: "session-model" });
-    expect(switchedModelTab(synced, "slots").options.length).toBe(
+    expect(switchedModelTab(synced, "assigned").options.length).toBe(
         options.length,
     );
 });

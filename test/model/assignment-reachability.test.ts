@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { poolReachability } from "../../src/model/slot-reachability.ts";
+import { poolReachability } from "../../src/model/assignment-reachability.ts";
 import type { PoolFile } from "../../src/model/pool-file.ts";
 
 function pool(models: string[], deny?: string[]): PoolFile {

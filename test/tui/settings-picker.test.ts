@@ -1217,7 +1217,7 @@ test("⇥ moves to All models, which lists what can run", async () => {
 
     // The cycle is Pool, All models, Slots, Help, and round again.
     const slots = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
-    expect(slots.tab).toBe("slots");
+    expect(slots.tab).toBe("assigned");
     const help = handleTuiSettingsPickerKey(slots, { name: "tab" }).state!;
     expect(help.tab).toBe("help");
     expect(handleTuiSettingsPickerKey(help, { name: "tab" }).state?.tab)
@@ -1848,7 +1848,7 @@ test("the connect pane opened from the model pane draws in the same card", async
     // strip the user tabbed along is still there to tab back on.
     expect(frame).toContain("Select model");
     expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Slots\s+Help\s+Providers \^e/);
+    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Assigned\s+Help\s+Providers \^e/);
     expect(frame).toContain("⇥ tabs");
     expect(frame).toContain("OpenRouter");
 });

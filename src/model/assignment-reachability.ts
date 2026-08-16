@@ -6,7 +6,7 @@
  * the pool's side of that line.
  */
 
-import type { ReachabilityCheck } from "../config/model-slots.ts";
+import type { ReachabilityCheck } from "../config/model-assignments.ts";
 import type { PoolFile } from "./pool-file.ts";
 import { isSelectable } from "./pool-policy.ts";
 

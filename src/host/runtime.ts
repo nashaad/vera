@@ -40,7 +40,7 @@ import {
     PoolFileWriteRefusedError,
 } from "../model/pool-file-store.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
-import { poolReachability } from "../model/slot-reachability.ts";
+import { poolReachability } from "../model/assignment-reachability.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitToPool } from "../model/pool-admission.ts";
 import { createFeedRowReader } from "../model/feed-cache.ts";
