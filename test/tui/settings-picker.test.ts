@@ -58,6 +58,27 @@ async function pickerFrame(
     }
 }
 
+test("inset pickers start one quarter down the terminal", async () => {
+    const { renderer } = await createTestRenderer({ width: 100, height: 40 });
+    try {
+        const view = createTuiSettingsPickerView(renderer);
+        view.update(startTuiSettingsPicker(
+            "model",
+            undefined,
+            undefined,
+            "auto",
+            availableModels,
+            "default",
+        ));
+        expect(view.box.top).toBe(10);
+
+        view.update(startTuiSessionPicker([], undefined, false));
+        expect(view.box.top).toBe(0);
+    } finally {
+        renderer.destroy();
+    }
+});
+
 test("session picker filters titled durable conversations and selects an agent", async () => {
     const state = startTuiSessionPicker([
         {
@@ -1195,7 +1216,7 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     view.update(state);
     try {
         expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(28);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(24);
         expect(view.box.height).toBeLessThan(40);
     } finally {
         setup.renderer.destroy();
