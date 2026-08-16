@@ -1103,7 +1103,7 @@ export function configuredCompactionModels(
             reviewer_profiles: config.reviewer_profiles ?? {},
         },
         config.model_assignments ?? {},
-        { assignment: "compaction", demand: "required" },
+        { assignment: "compaction" },
         isReachable,
     ).models;
 }
@@ -1148,7 +1148,7 @@ export function configuredReviewers(
         const slot = bindModelAssignment(
             catalog,
             config.model_assignments ?? {},
-            { assignment: "reviewer", demand: "optional" },
+            { assignment: "reviewer" },
             isReachable,
         );
         for (const name of Object.keys(config.reviewer_profiles)) {

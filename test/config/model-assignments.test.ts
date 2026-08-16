@@ -99,7 +99,6 @@ test("a feature with no route of its own falls to the assignment", () => {
     );
     const bound = bindModelAssignment(catalog(), assignments ?? {}, {
         assignment: "eco",
-        demand: "required",
     });
     expect(bound.source).toBe("assignment");
     expect(bound.models.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
@@ -108,18 +107,14 @@ test("a feature with no route of its own falls to the assignment", () => {
 test("a required caller with nothing bound runs on the session's model", () => {
     const bound = bindModelAssignment(catalog(), {}, {
         assignment: "eco",
-        demand: "required",
     });
     expect(bound.source).toBe("session");
     expect(bound.models).toEqual([]);
 });
 
-test("an optional caller with nothing bound does not run", () => {
-    const bound = bindModelAssignment(catalog(), {}, {
-        assignment: "snappy",
-        demand: "optional",
-    });
-    expect(bound.source).toBe("none");
+test("nothing bound anywhere still runs, on the session's own model", () => {
+    const bound = bindModelAssignment(catalog(), {}, { assignment: "snappy" });
+    expect(bound.source).toBe("session");
     expect(bound.models).toEqual([]);
 });
 
@@ -205,7 +200,6 @@ test("an unbound job assignment draws on the intent behind it", () => {
     );
     const bound = bindModelAssignment(catalog(), assignments ?? {}, {
         assignment: "reviewer",
-        demand: "required",
     });
     expect(bound.source).toBe("intent");
     expect(bound.models.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
@@ -218,7 +212,6 @@ test("a bound job assignment answers for itself and leaves its intent alone", ()
     );
     const bound = bindModelAssignment(catalog(), assignments ?? {}, {
         assignment: "reviewer",
-        demand: "required",
     });
     expect(bound.source).toBe("assignment");
     expect(bound.models.map((m) => m.name)).toEqual(["glm_low"]);
@@ -230,7 +223,6 @@ test("a bound job assignment answers for itself and leaves its intent alone", ()
 test("a job assignment with neither itself nor its intent bound reaches the session", () => {
     const bound = bindModelAssignment(catalog(), {}, {
         assignment: "compaction",
-        demand: "required",
     });
     expect(bound.source).toBe("session");
 });
@@ -258,7 +250,7 @@ test("a route falls to its own next entry before any rung is climbed", () => {
     const bound = bindModelAssignment(
         catalog(),
         assignments ?? {},
-        { assignment: "reviewer", demand: "required" },
+        { assignment: "reviewer" },
         reachableExcept("opus_low"),
     );
     // The user asked for opus then glm. Losing opus must not hand the job to
@@ -275,7 +267,7 @@ test("a binding reports what was named as well as what will run", () => {
     const bound = bindModelAssignment(
         catalog(),
         assignments ?? {},
-        { assignment: "reviewer", demand: "required" },
+        { assignment: "reviewer" },
         reachableExcept("opus_low"),
     );
     expect(bound.declared.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
@@ -290,7 +282,7 @@ test("a route with nothing reachable climbs to the intent assignment", () => {
     const bound = bindModelAssignment(
         catalog(),
         assignments ?? {},
-        { assignment: "reviewer", demand: "required" },
+        { assignment: "reviewer" },
         reachableExcept("opus_low", "glm_high"),
     );
     expect(bound.source).toBe("intent");
@@ -305,7 +297,7 @@ test("a required caller with nothing reachable anywhere uses the session", () =>
     const bound = bindModelAssignment(
         catalog(),
         assignments ?? {},
-        { assignment: "reviewer", demand: "required" },
+        { assignment: "reviewer" },
         () => false,
     );
     expect(bound.source).toBe("session");
@@ -318,7 +310,6 @@ test("an unasked reachability check leaves every declared entry standing", () =>
     );
     const bound = bindModelAssignment(catalog(), assignments ?? {}, {
         assignment: "reviewer",
-        demand: "required",
     });
     expect(bound.models).toEqual(bound.declared);
     expect(bound.models).toHaveLength(2);

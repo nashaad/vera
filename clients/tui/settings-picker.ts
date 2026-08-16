@@ -15,7 +15,6 @@ import type { ReductionReason } from "../../src/model/catalog-reduction.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
 import {
-    ASSIGNMENT_DEMANDS,
     isJobAssignmentId,
     JOB_ASSIGNMENT_INTENTS,
     type ModelAssignmentId,
@@ -910,15 +909,18 @@ function assignmentStatusWord(row: ModelAssignmentRow): string {
     if (row.bound) {
         return row.source === "assignment" ? "set" : "not in pool";
     }
-    if (row.inherits !== undefined) return `uses ${row.inherits}`;
-    return row.source === "session" ? "uses session" : "not set";
+    return row.inherits === undefined
+        ? "uses session"
+        : `uses ${row.inherits}`;
 }
 
 /** What runs the row, with the substitute named when it is not what was set. */
 function assignmentRunsFact(row: ModelAssignmentRow): string {
     const running = row.models[0];
+    // Nothing bound anywhere still runs: the session's model is the last rung
+    // and there is no rung below it.
     if (running === undefined) {
-        return row.source === "session" ? "this session's model" : "nothing";
+        return "this session's model";
     }
     const named = running.reasoning_effort === undefined
         ? running.model
@@ -938,11 +940,9 @@ function assignmentFacts(
         : row.route === undefined
         ? "a model picked here"
         : `route "${row.route}"`;
-    const ifUnset = row.inherits !== undefined
-        ? `whatever ${row.inherits} uses`
-        : ASSIGNMENT_DEMANDS[row.assignment] === "required"
+    const ifUnset = row.inherits === undefined
         ? "this session's model"
-        : "the work is skipped";
+        : `whatever ${row.inherits} uses`;
     return [
         ["Runs", assignmentRunsFact(row)],
         ["Set to", setTo],
@@ -968,16 +968,12 @@ function assignmentNote(row: ModelAssignmentRow): string {
         if (row.inherits !== undefined) {
             return `${purpose} Nothing is set here, so it uses whatever ${row.inherits} uses.`;
         }
-        return row.source === "session"
-            ? `${purpose} Nothing is set here, so it runs on this session's model.`
-            : `${purpose} Nothing is set, so work asking for ${row.label} is skipped.`;
+        return `${purpose} Nothing is set here, so it runs on this session's model.`;
     }
     if (row.source === "assignment") {
         return purpose;
     }
-    const runs = row.source === "none"
-        ? "nothing runs it"
-        : `${row.inherits ?? "this session's model"} runs it instead`;
+    const runs = `${row.inherits ?? "this session's model"} runs it instead`;
     return `${purpose} The model it is set to is not in your pool, so ${runs}.`
         + ` Add that model to your pool, or point ${row.label} at one that is.`;
 }
@@ -1129,12 +1125,9 @@ export function startTuiModelAssignmentPicker(
 
 /** What leaving an assignment unset does, which is the row's real meaning. */
 function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
-    if (isJobAssignmentId(assignment)) {
-        return `uses ${JOB_ASSIGNMENT_INTENTS[assignment]}`;
-    }
-    return ASSIGNMENT_DEMANDS[assignment] === "required"
-        ? "uses this session's model"
-        : "nothing runs it";
+    return isJobAssignmentId(assignment)
+        ? `uses ${JOB_ASSIGNMENT_INTENTS[assignment]}`
+        : "uses this session's model";
 }
 
 export function startTuiSettingsMenu(
