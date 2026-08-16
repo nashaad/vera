@@ -14,7 +14,6 @@ import type {
 } from "../../src/engine/protocol.ts";
 import type { PoolAdmissionVerdict } from "../../src/engine/events.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
-import type { ModelSlotRow } from "../../src/config/model-slots.ts";
 import type { ToolPresentation } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
@@ -750,57 +749,6 @@ export function tuiPoolListing(
         return `  ${named} · ${effort} · ${state} · ${entry.provider}${availability}`;
     });
     return [`Pool (${pooled.length}):`, ...lines].join("\n");
-}
-
-/**
- * The slots as prose, one line per slot: what it names, what will run, and
- * where the two differ. A slot whose route cannot be reached keeps showing the
- * route, because a substitution the user cannot see is one they cannot fix.
- */
-export function tuiSlotListing(
-    rows: readonly ModelSlotRow[],
-): string {
-    if (rows.length === 0) {
-        return "No model catalog is configured, so no slot can name anything.";
-    }
-    const width = Math.max(...rows.map((row) => row.label.length));
-    const lines = rows.map((row) => {
-        const name = row.label.padEnd(width);
-        const running = row.models[0];
-        const target = running === undefined
-            ? undefined
-            : `${running.model}${
-                running.reasoning_effort === undefined
-                    ? ""
-                    : ` (${running.reasoning_effort})`
-            }`;
-        if (!row.bound) {
-            const takes = row.inherits === undefined
-                ? row.source === "session"
-                    ? "unset, uses the session's model"
-                    : "unset"
-                : `unset, uses ${row.inherits}`;
-            return `  ${name}  ${takes}`;
-        }
-        // A route is named because the user named it; inline models have no
-        // name to show, so the models themselves are the identification.
-        const bound = row.route ?? row.declared
-            .map((entry) => entry.model)
-            .join(", ");
-        if (row.source === "slot") {
-            // With a route the name and the model are two different facts and
-            // both are worth showing. Inline, they are the same fact.
-            return row.route === undefined
-                ? `  ${name}  ${target}`
-                : `  ${name}  ${row.route} · ${target}`;
-        }
-        if (row.source === "none") {
-            return `  ${name}  ${bound} unreachable, nothing runs it`;
-        }
-        const substitute = row.inherits ?? "the session's model";
-        return `  ${name}  ${bound} unreachable, uses ${substitute}`;
-    });
-    return [`Model slots (${rows.length}):`, ...lines].join("\n");
 }
 
 /**

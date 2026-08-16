@@ -5,7 +5,7 @@ import {
     type VeraModelSlotsConfig,
 } from "../../src/config/model-slots.ts";
 import type { VeraModelCatalogConfig } from "../../src/config/model-catalog.ts";
-import { tuiSlotListing } from "../../clients/tui/state.ts";
+import { tuiModelSlotOptions } from "../../clients/tui/settings-picker.ts";
 
 const CATALOG: VeraModelCatalogConfig = {
     models: [
@@ -52,20 +52,27 @@ test("compaction with nothing bound falls to the session's model", () => {
     expect(compaction?.models).toEqual([]);
 });
 
-test("the listing shows the route, the substitute, and the unset rows", () => {
-    const listing = tuiSlotListing(rows(
-        {
-            snappy: { model_route: "cheap" },
-            extra: { model_route: "best" },
-            reviewer: { model_route: "cheap", label: "critic" },
-        },
-        (name) => name !== "small",
-    ));
-    expect(listing).toContain("extra");
-    expect(listing).toContain("best · big-1 (high)");
-    expect(listing).toContain("critic      cheap unreachable, uses extra");
-    expect(listing).toContain("unset, uses the session's model");
-    expect(listing).toContain("snappy      cheap unreachable, nothing runs it");
+test("the rows show the route, the substitute, and the unset ones", () => {
+    const options = tuiModelSlotOptions(
+        rows(
+            {
+                snappy: { model_route: "cheap" },
+                extra: { model_route: "best" },
+                reviewer: { model_route: "cheap", label: "critic" },
+            },
+            (name) => name !== "small",
+        ),
+        "session-model",
+    );
+    const described = new Map(
+        options.map((option) => [option.label, option.description]),
+    );
+    expect(described.get("This session")).toContain("session-model");
+    expect(described.get("extra")).toBe("best · big-1 (high)");
+    expect(described.get("critic")).toBe("cheap unreachable · uses extra");
+    expect(described.get("snappy")).toBe("cheap unreachable · nothing runs it");
+    expect(described.get("eco")).toBe("not set");
+    expect(described.get("compaction")).toBe("not set · uses this session's model");
 });
 
 test("a slot bound to inline models needs no route", () => {
@@ -95,4 +102,42 @@ test("a slot naming both a route and inline models is refused", async () => {
         },
         { best: ["big"] },
     )).toBeUndefined();
+});
+
+test("a slots row resolves to its slot, not to a model", async () => {
+    const { handleTuiSettingsPickerKey } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    const options = tuiModelSlotOptions(rows({}), "session-model");
+    const pane = {
+        kind: "model" as const,
+        allOptions: [],
+        options,
+        selectedIndex: options.findIndex((option) => option.label === "extra"),
+        query: "",
+        tab: "slots" as const,
+        slotOptions: options,
+    };
+    const selection = handleTuiSettingsPickerKey(pane, { name: "return" })
+        .selection;
+    expect(selection).toEqual({ kind: "model_slot_open", slot: "extra" });
+});
+
+test("the session row moves to the list that changes it", async () => {
+    const { handleTuiSettingsPickerKey } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    const options = tuiModelSlotOptions(rows({}), "session-model");
+    const pane = {
+        kind: "model" as const,
+        allOptions: [],
+        options,
+        selectedIndex: 0,
+        query: "",
+        tab: "slots" as const,
+        slotOptions: options,
+    };
+    const transition = handleTuiSettingsPickerKey(pane, { name: "return" });
+    expect(transition.selection).toBeUndefined();
+    expect(transition.state?.tab).toBe("all");
 });

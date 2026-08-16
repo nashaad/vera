@@ -1215,8 +1215,10 @@ test("⇥ moves to All models, which lists what can run", async () => {
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // The cycle is Pool, All models, Help, and round again.
-    const help = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
+    // The cycle is Pool, All models, Slots, Help, and round again.
+    const slots = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
+    expect(slots.tab).toBe("slots");
+    const help = handleTuiSettingsPickerKey(slots, { name: "tab" }).state!;
     expect(help.tab).toBe("help");
     expect(handleTuiSettingsPickerKey(help, { name: "tab" }).state?.tab)
         .toBe("pool");
@@ -1421,10 +1423,11 @@ test("⇧← folds every section and ⇧→ opens every one", () => {
 test("a fold survives a tab away and back, and a search opens everything", () => {
     const folded = allTabWithRecommendations();
 
-    const pool = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(folded, { name: "tab" }).state!,
-        { name: "tab" },
-    ).state!;
+    // All -> Slots -> Help -> Pool, the long way round the strip.
+    let pool = folded;
+    for (let step = 0; step < 3; step += 1) {
+        pool = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
+    }
     expect(pool.tab).toBe("pool");
     const back = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
     expect(back.tab).toBe("all");
@@ -1845,7 +1848,7 @@ test("the connect pane opened from the model pane draws in the same card", async
     // strip the user tabbed along is still there to tab back on.
     expect(frame).toContain("Select model");
     expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Help\s+Providers \^e/);
+    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Slots\s+Help\s+Providers \^e/);
     expect(frame).toContain("⇥ tabs");
     expect(frame).toContain("OpenRouter");
 });

@@ -49,9 +49,12 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
+import { derivedModelName } from "../../src/config/model-catalog.ts";
 import {
     configuredModelSlots,
     loadOptionalVeraConfig,
+    updateVeraConfigDefaults,
+    type VeraProviderId,
     tipsEnabled as configuredTipsEnabled,
     type VeraExtensionConfig,
 } from "../../src/config.ts";
@@ -60,6 +63,10 @@ import {
     poolFileIssueNotices,
 } from "../../src/model/pool-file-loader.ts";
 import { poolReachability } from "../../src/model/slot-reachability.ts";
+import type {
+    ModelSlotId,
+    ModelSlotRow,
+} from "../../src/config/model-slots.ts";
 import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
 import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
 import {
@@ -261,6 +268,8 @@ import {
     type TuiSettingsMenuTarget,
     type TuiAnySettingsPickerState,
     type TuiReviewerSlot,
+    startTuiModelSlotPicker,
+    tuiModelSlotOptions,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
     type TuiExtensionPickerAction,
@@ -363,7 +372,6 @@ import {
     renderTuiEntry,
     renderTuiQueuedPrompt,
     tuiPoolListing,
-    tuiSlotListing,
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
@@ -3632,21 +3640,10 @@ export async function startTui(
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
-            // Read at the moment of asking rather than held from startup: the
-            // pool and the config are both files the user may have just
-            // edited, and this view exists to show what they say now.
-            const slotConfig = loadOptionalVeraConfig();
-            const pool = loadPoolFile({ projectRoot: process.cwd() }).merged;
-            state = appendTuiNotice(
-                state,
-                tuiSlotListing(
-                    slotConfig === undefined
-                        ? []
-                        : configuredModelSlots(
-                            slotConfig,
-                            poolReachability(pool),
-                        ),
-                ),
+            openModelPicker();
+            settingsPicker = switchedModelTab(
+                settingsPicker as TuiSettingsPickerState,
+                "slots",
             );
             renderState();
             return;
@@ -6048,12 +6045,103 @@ export async function startTui(
             undefined,
             targetState.modelSettings?.pooled,
         ), parent);
+        settingsPicker = {
+            ...settingsPicker,
+            slotOptions: tuiModelSlotOptions(
+                currentModelSlotRows(),
+                targetState.modelSettings?.model,
+            ),
+        };
         // Auth changes happen outside the host's original model snapshot.
         // Refresh here so reopening the picker also repairs a stale model pane
         // that was kept underneath the provider picker.
         requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    /**
+     * Read at the moment the pane opens rather than held from startup: config
+     * and the pool are both files the user may have just edited, and this is
+     * the surface that claims to show what they say.
+     */
+    function currentModelSlotRows(): readonly ModelSlotRow[] {
+        const configured = loadOptionalVeraConfig();
+        if (configured === undefined) {
+            return [];
+        }
+        return configuredModelSlots(
+            configured,
+            poolReachability(loadPoolFile({ projectRoot: process.cwd() }).merged),
+        );
+    }
+
+    function openModelSlotPicker(
+        slot: ModelSlotId,
+        parent?: TuiSettingsPickerState,
+    ): void {
+        const targetState = focusedAgentState();
+        const row = currentModelSlotRows().find((entry) => entry.slot === slot);
+        settingsPicker = withTuiPickerParent(
+            startTuiModelSlotPicker(
+                slot,
+                row?.intent ?? "",
+                row?.inherits,
+                targetState.modelSettings?.pooled,
+                targetState.modelSettings?.availableModels,
+            ),
+            parent,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    /**
+     * Writes the chosen model onto the slot, or unbinds it. The write is to
+     * the config file because a slot is a setting: the host reads it at start,
+     * so the change lands on the next run rather than on this turn, and the
+     * notice says so instead of implying it took effect.
+     */
+    function bindModelSlotFromPicker(
+        selection: {
+            readonly slot: ModelSlotId;
+            readonly provider?: string;
+            readonly model?: string;
+        },
+    ): void {
+        const unbinding = selection.model === undefined;
+        try {
+            updateVeraConfigDefaults({
+                model_slot: {
+                    slot: selection.slot,
+                    binding: unbinding ? null : {
+                        models: [{
+                            name: derivedModelName(
+                                selection.provider as VeraProviderId,
+                                selection.model as string,
+                            ),
+                            provider: selection.provider as VeraProviderId,
+                            model: selection.model as string,
+                        }],
+                    },
+                },
+            });
+        } catch (error) {
+            state = appendTuiError(
+                state,
+                `Could not write the slot: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+            return;
+        }
+        state = appendTuiNotice(
+            state,
+            unbinding
+                ? `${selection.slot} unset. Restart Vera to apply it.`
+                : `${selection.slot} → ${selection.model}. Restart Vera to apply it.`,
+        );
     }
 
     async function openConfigureEditor(): Promise<void> {
@@ -6920,6 +7008,16 @@ export async function startTui(
                         settingsPickerAgent,
                     );
                 }
+            } else if (selection.kind === "model_slot_open") {
+                openModelSlotPicker(
+                    selection.slot,
+                    settingsPicker?.kind === "extension"
+                        ? undefined
+                        : settingsPicker,
+                );
+                return;
+            } else if (selection.kind === "model_slot") {
+                bindModelSlotFromPicker(selection);
             } else {
                 beginSessionResume(selection.sessionPath, selection.sessionId);
                 return;
