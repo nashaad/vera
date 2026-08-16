@@ -6085,8 +6085,8 @@ export async function startTui(
         settingsPicker = withTuiPickerParent(
             startTuiModelAssignmentPicker(
                 assignment,
+                row?.label ?? assignment,
                 row?.intent ?? "",
-                row?.inherits,
                 targetState.modelSettings?.pooled,
             ),
             parent,
