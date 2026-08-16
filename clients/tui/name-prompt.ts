@@ -12,7 +12,7 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
+import { centeredDialogSurface } from "./dialog-chrome.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
@@ -67,6 +67,7 @@ export interface TuiNamePromptTransition {
 
 export interface TuiNamePromptView {
     readonly box: BoxRenderable;
+    readonly surface: BoxRenderable;
     update(state: TuiNamePromptState): void;
 }
 
@@ -171,26 +172,23 @@ export function createTuiNamePromptView(
         id: "name-prompt",
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: 2,
-        left: "15%",
         width: "70%",
         height: "auto",
-        zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
         paddingRight: 2,
         paddingTop: 1,
         paddingBottom: 1,
         focusable: true,
-        visible: false,
     });
     box.add(title);
     box.add(hint);
     box.add(entry);
     box.add(footer);
+    const surface = centeredDialogSurface(renderer, "name-prompt-surface", box);
     return {
         box,
+        surface,
         update(state): void {
             title.content = state.target.kind === "session"
                 ? "Rename conversation"

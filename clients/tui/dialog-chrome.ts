@@ -76,6 +76,29 @@ export function dialogBottomOffset(renderer: RenderContext): number {
     return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT ? 1 : 2;
 }
 
+/** Full-screen flex surface that keeps a variable-height dialog card centered. */
+export function centeredDialogSurface(
+    renderer: RenderContext,
+    id: string,
+    card: BoxRenderable,
+): BoxRenderable {
+    const surface = new BoxRenderable(renderer, {
+        id,
+        border: false,
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: DIALOG_CARD_Z_INDEX,
+        alignItems: "center",
+        justifyContent: "center",
+        visible: false,
+    });
+    surface.add(card);
+    return surface;
+}
+
 export function dialogHeaderNode(
     renderer: RenderContext,
     title: string,
