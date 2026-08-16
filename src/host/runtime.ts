@@ -9,6 +9,7 @@ import {
     configuredCompactionModels,
     configuredReviewers,
     eventLogEnabled,
+    loadOptionalVeraConfig,
     updateVeraConfigDefaults,
     type VeraProviderId,
     type VeraConfig,
@@ -166,16 +167,23 @@ export async function startResidentHost(
     const modelFallback = configuredModelFallback(options.config);
     const reviewer = configuredReviewer(options.config);
     const subagentModel = configuredSubagentModel(options.config);
-    // The pool is what says a model can be used, so slot bindings are judged
-    // against it rather than against the catalog alone. User scope only: these
-    // bindings are read once for the host, before any project is known.
-    const isReachable = poolReachability(loadPoolFile({}).merged);
-    const reviewers = configuredReviewers(options.config, isReachable);
     const compaction = configuredCompaction(options.config);
-    const compactionModels = configuredCompactionModels(
-        options.config,
-        isReachable,
-    );
+    // The config as it stands on disk, not as it stood when the host came up:
+    // a model bound in settings has to reach the next session that starts,
+    // without the host being restarted under it.
+    // A file that is mid-edit or unreadable falls back to the config the host
+    // started with: a bad save must not take a session's bindings down with it.
+    const currentConfig = (): VeraConfig => {
+        try {
+            return loadOptionalVeraConfig() ?? options.config;
+        } catch {
+            return options.config;
+        }
+    };
+    // The pool is what says a model can be used, so assignment bindings are
+    // judged against it rather than against the catalog alone. User scope
+    // only: these bindings are read before any project is known.
+    const currentReachability = () => poolReachability(loadPoolFile({}).merged);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
     const eventLogDirectory = options.eventLogDirectory;
@@ -334,7 +342,11 @@ export async function startResidentHost(
         ...(modelFallback === undefined ? {} : { modelFallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(subagentModel === undefined ? {} : { subagentModel }),
-        ...(Object.keys(reviewers).length === 0 ? {} : { reviewers }),
+        // Read on every session start rather than captured here, so binding a
+        // reviewer takes effect on the next session and not the next launch.
+        get reviewers() {
+            return configuredReviewers(currentConfig(), currentReachability());
+        },
         reviewLog,
         writeReviewer: (settings) => {
             if (settings === null || settings.models.length === 0) {
@@ -376,7 +388,12 @@ export async function startResidentHost(
             });
         },
         ...(compaction === undefined ? {} : { compaction }),
-        ...(compactionModels.length === 0 ? {} : { compactionModels }),
+        get compactionModels() {
+            return configuredCompactionModels(
+                currentConfig(),
+                currentReachability(),
+            );
+        },
         ...(options.config.permission_modes === undefined
             ? {}
             : { permissionModes: options.config.permission_modes }),
