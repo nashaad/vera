@@ -2201,10 +2201,14 @@ export class AgentRegistry {
         const extensionTools = startupProfile === "default"
             ? this.options.extensionTools
             : [];
-        const disabledPromptContributions = disabledContributionsForProfile(
-            startupProfile,
-            this.options.disabledPromptContributions,
-        );
+        // Named so the getters below can reach the registry's own options:
+        // inside an object literal `this` is the literal, not the registry.
+        const registry = this;
+        const disabledPromptContributions = () =>
+            disabledContributionsForProfile(
+                startupProfile,
+                registry.options.disabledPromptContributions,
+            );
         const storedFailure = store.agentFailure();
         const captureFailedRequest = (
             this.options.createFailedRequestCapture
@@ -2301,12 +2305,9 @@ export class AgentRegistry {
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),
-            ...(disabledPromptContributions.length === 0
-                ? {}
-                : {
-                    disabledPromptContributions:
-                        disabledPromptContributions,
-                }),
+            get disabledPromptContributions() {
+                return disabledPromptContributions();
+            },
             extensionTools,
             ...(startupProfile !== "default"
                 || this.options.loadContextualContributions === undefined
@@ -2451,7 +2452,11 @@ export class AgentRegistry {
                 // suppression matches with no manual export.
                 toolEnv: { ARC_SESSION: entry.arcName },
                 instructionRoot,
-                modelFallback: this.options.modelFallback,
+                // Read at each turn, not copied for the session: a setting
+                // the user changes has to reach a session already running.
+                get modelFallback() {
+                    return registry.options.modelFallback;
+                },
                 ...(this.options.createEffortPool === undefined
                     ? {}
                     : {
@@ -2463,15 +2468,15 @@ export class AgentRegistry {
                     ? {}
                     : { reviewer: this.options.reviewer }),
                 readReviewer: () => this.readReviewer(),
-                ...(this.options.reviewers === undefined
-                    ? {}
-                    : { reviewers: this.options.reviewers }),
+                get reviewers() {
+                    return registry.options.reviewers;
+                },
                 ...(this.options.reviewLog === undefined
                     ? {}
                     : { reviewLog: this.options.reviewLog }),
-                ...(this.options.permissionModes === undefined
-                    ? {}
-                    : { permissionModes: this.options.permissionModes }),
+                get permissionModes() {
+                    return registry.options.permissionModes;
+                },
                 ...(compaction === undefined ? {} : { compaction }),
                 applyToolEffect,
                 applyCommittedToolEffect,
@@ -2571,12 +2576,9 @@ export class AgentRegistry {
                     agent.sendTimelineReply(ownerId, reply),
                 sendSessionNameReply: (ownerId, reply) =>
                     agent.sendSessionNameReply(ownerId, reply),
-                ...(disabledPromptContributions.length === 0
-                    ? {}
-                    : {
-                        disabledPromptContributions:
-                            disabledPromptContributions,
-                    }),
+                get disabledPromptContributions() {
+                    return disabledPromptContributions();
+                },
                 ...(startupProfile !== "default"
                         || this.options.createToolHooks === undefined
                     ? {}

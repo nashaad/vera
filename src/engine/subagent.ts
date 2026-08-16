@@ -415,6 +415,16 @@ export function createSubagentEffectApplier(
         const substitutions = resolved.substitutions ?? [];
         activeChildren += 1;
         const sessionId = randomUUID();
+        // Read once here. These come from the host and can change while the
+        // session runs, so a child gets one coherent set of settings rather
+        // than one field from before an edit and the next from after it.
+        const {
+            disabledPromptContributions,
+            modelFallback,
+            reviewer,
+            reviewers,
+            permissionModes,
+        } = options;
         try {
             const result = await runSubagent({
                 adapter: options.adapter,
@@ -430,9 +440,8 @@ export function createSubagentEffectApplier(
                 ...(options.scratchDir === undefined
                     ? {}
                     : { scratchDir: options.scratchDir }),
-                ...(options.disabledPromptContributions === undefined ? {} : {
-                    disabledPromptContributions:
-                        options.disabledPromptContributions,
+                ...(disabledPromptContributions === undefined ? {} : {
+                    disabledPromptContributions,
                 }),
                 approvalMode: context.approvalMode,
                 extensionTools: options.extensionTools,
@@ -451,27 +460,19 @@ export function createSubagentEffectApplier(
                 ...(resolved.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: resolved.reasoningEffort }),
-                ...(options.modelFallback === undefined
-                    ? {}
-                    : { modelFallback: options.modelFallback }),
+                ...(modelFallback === undefined ? {} : { modelFallback }),
                 ...(options.sessionPathForId === undefined
                     ? {}
                     : { sessionPath: options.sessionPathForId(sessionId) }),
-                ...(options.reviewer === undefined
-                    ? {}
-                    : { reviewer: options.reviewer }),
-                ...(options.reviewers === undefined
-                    ? {}
-                    : { reviewers: options.reviewers }),
+                ...(reviewer === undefined ? {} : { reviewer }),
+                ...(reviewers === undefined ? {} : { reviewers }),
                 ...(options.reviewLog === undefined
                     ? {}
                     : { reviewLog: options.reviewLog }),
                 ...(options.readReviewer === undefined
                     ? {}
                     : { readReviewer: options.readReviewer }),
-                ...(options.permissionModes === undefined
-                    ? {}
-                    : { permissionModes: options.permissionModes }),
+                ...(permissionModes === undefined ? {} : { permissionModes }),
             });
             return {
                 kind: "output",
@@ -569,7 +570,7 @@ export async function runSubagent(
             reviewToolCallForProfile: createReviewerProfileRouter(
                 reviewToolCall,
                 options.adapter,
-                options.reviewers,
+                () => options.reviewers,
                 options.reviewLog,
             ),
             ...(options.permissionModes === undefined
