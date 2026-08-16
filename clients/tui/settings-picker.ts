@@ -15,9 +15,9 @@ import type { ReductionReason } from "../../src/model/catalog-reduction.ts";
 import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
 import type {
-    ModelSlotId,
-    ModelSlotRow,
-} from "../../src/config/model-slots.ts";
+    ModelAssignmentId,
+    ModelAssignmentRow,
+} from "../../src/config/model-assignments.ts";
 import type {
     ReasoningLevel,
     ReasoningLevelId,
@@ -78,7 +78,7 @@ export type TuiSettingsPickerKind =
     | "permission_settings"
     | "reviewer_settings"
     | "reviewer"
-    | "model_slot";
+    | "model_assignment";
 
 /**
  * Where a menu row leads. The menu kinds carry no value of their own: choosing
@@ -212,7 +212,7 @@ export interface TuiProviderRow {
  * first section, above the providers, and the same models keep their rows in
  * the provider sections below.
  */
-export type TuiModelPickerTab = "all" | "pool" | "slots" | "help";
+export type TuiModelPickerTab = "all" | "pool" | "assigned" | "help";
 
 export interface TuiExtensionPickerRow {
     readonly id: string;
@@ -246,12 +246,12 @@ export interface TuiSettingsPickerState {
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
     /**
-     * The Slots tab's rows, which are jobs rather than models and so cannot be
+     * The Assigned tab's rows, which are jobs rather than models and so cannot be
      * filtered out of `allOptions` the way the other tabs are. Set by the
-     * client after the pane opens, since the slots come from config and the
+     * client after the pane opens, since assignments come from config and the
      * pool rather than from the settings snapshot the pane is built from.
      */
-    readonly slotOptions?: readonly TuiSettingsPickerOption[];
+    readonly assignmentOptions?: readonly TuiSettingsPickerOption[];
     /** The caller has one confirmed pool change it can reverse. */
     readonly canUndoPoolChange?: boolean;
     /**
@@ -278,8 +278,8 @@ export interface TuiSettingsPickerState {
     readonly pendingModel?: TuiPendingModelChoice;
     /** Set only on a reviewer pane: which slot the chosen row fills. */
     readonly reviewerSlot?: TuiReviewerSlot;
-    /** Set only on a model-slot pane: which slot the chosen row binds. */
-    readonly modelSlot?: ModelSlotId;
+    /** Set only on an assignment pane: which assignment the chosen row binds. */
+    readonly modelAssignment?: ModelAssignmentId;
     /**
      * Set on the model pane once the user has asked for the folded rows. Like
      * `collapsed`, it lasts as long as the pane: wanting the whole catalog is
@@ -344,12 +344,12 @@ export type TuiSettingsPickerSelection =
         readonly provider?: string;
         readonly model?: string;
     }
-    /** A Slots-tab row was chosen: open the model list for that slot. */
-    | { readonly kind: "model_slot_open"; readonly slot: ModelSlotId }
+    /** An Assigned-tab row was chosen: open the model list for it. */
+    | { readonly kind: "model_assignment_open"; readonly assignment: ModelAssignmentId }
     | {
-        readonly kind: "model_slot";
-        readonly slot: ModelSlotId;
-        /** Absent unbinds the slot. */
+        readonly kind: "model_assignment";
+        readonly assignment: ModelAssignmentId;
+        /** Absent unbinds the assignment. */
         readonly provider?: string;
         readonly model?: string;
     };
@@ -584,16 +584,16 @@ export function syncTuiModelPicker(
         ...(collapsed.length === 0 ? {} : { collapsed }),
         // Slot rows are read from config and the pool rather than from the
         // host, so a rebuild has nothing to put back and has to carry them.
-        ...(state.slotOptions === undefined
+        ...(state.assignmentOptions === undefined
             ? {}
-            : { slotOptions: state.slotOptions }),
+            : { assignmentOptions: state.assignmentOptions }),
         options: modelPickerOptions(
             rebuilt.allOptions,
             tab,
             collapsed,
             "",
             state.revealAll === true,
-            state.slotOptions ?? [],
+            state.assignmentOptions ?? [],
         ),
     };
     const options = state.query.length === 0
@@ -835,78 +835,94 @@ export const REVIEWER_CLEAR_VALUE = "\u0000clear";
 
 /**
  * Slot rows share a list with model rows, so their values are namespaced to
- * keep a slot named like a model from ever being mistaken for one.
+ * keep an assignment named like a model from ever being mistaken for one.
  */
-const MODEL_SLOT_VALUE_PREFIX = "\u0000slot:";
+const MODEL_ASSIGNMENT_VALUE_PREFIX = "\u0000assignment:";
 
-/** The session's own model, which is a row here but is not a slot. */
+/** The session's own model, which is a row here but is not an assignment. */
 const SESSION_MODEL_VALUE = "\u0000session-model";
 
-export function tuiModelSlotValue(slot: ModelSlotId): string {
-    return `${MODEL_SLOT_VALUE_PREFIX}${slot}`;
+export function tuiModelAssignmentValue(assignment: ModelAssignmentId): string {
+    return `${MODEL_ASSIGNMENT_VALUE_PREFIX}${assignment}`;
 }
 
-function modelSlotOfValue(value: string): ModelSlotId | undefined {
-    return value.startsWith(MODEL_SLOT_VALUE_PREFIX)
-        ? value.slice(MODEL_SLOT_VALUE_PREFIX.length) as ModelSlotId
+function modelAssignmentOfValue(value: string): ModelAssignmentId | undefined {
+    return value.startsWith(MODEL_ASSIGNMENT_VALUE_PREFIX)
+        ? value.slice(MODEL_ASSIGNMENT_VALUE_PREFIX.length) as ModelAssignmentId
         : undefined;
 }
 
 /**
- * The Slots tab's rows: the session's own model first, because it is the model
+ * The Assigned tab's rows: the session's own model first, because it is the model
  * most of Vera's work runs on and a tab claiming to show everything that would
- * omit it is lying, then one row per slot.
+ * omit it is lying, then one row per assignment.
  */
-export function tuiModelSlotOptions(
-    rows: readonly ModelSlotRow[],
+export function tuiModelAssignmentOptions(
+    rows: readonly ModelAssignmentRow[],
     sessionModel?: string,
 ): readonly TuiSettingsPickerOption[] {
-    return [
+    const cells = [
         {
             value: SESSION_MODEL_VALUE,
-            label: "This session",
-            description: sessionModel === undefined
-                ? "no model running yet"
-                : `${sessionModel} · enter to change it`,
+            name: "this session",
+            model: sessionModel ?? MISSING_CELL,
+            state: "enter to change",
             searchText: "session current model main",
         },
         ...rows.map((row) => ({
-            value: tuiModelSlotValue(row.slot),
-            label: row.label,
-            description: modelSlotRowDescription(row),
-            searchText: `${row.slot} ${row.label} ${row.intent}`,
+            value: tuiModelAssignmentValue(row.assignment),
+            name: row.label,
+            model: assignedModelCell(row),
+            state: assignmentStateCell(row),
+            searchText: `${row.assignment} ${row.label} ${row.intent}`,
         })),
     ];
+    // The name column is as wide as its widest entry, so the model column
+    // starts at the same place on every row. Two ragged columns read as one
+    // sentence per row, which is what made "best" look like a word describing
+    // the model beside it rather than the name of a route.
+    const nameWidth = Math.max(...cells.map((cell) => cell.name.length));
+    return cells.map((cell) => ({
+        value: cell.value,
+        label: `${cell.name.padEnd(nameWidth)}  ${cell.model}`,
+        description: cell.state,
+        searchText: cell.searchText,
+    }));
+}
+
+/** Nothing to show, in a column that still has to hold its place. */
+const MISSING_CELL = "\u00b7";
+
+/** What will actually run, which is the only model the row claims. */
+function assignedModelCell(row: ModelAssignmentRow): string {
+    const running = row.models[0];
+    if (running === undefined) {
+        return MISSING_CELL;
+    }
+    return running.reasoning_effort === undefined
+        ? running.model
+        : `${running.model} (${running.reasoning_effort})`;
 }
 
 /**
- * What the row says to the right of its name. A slot whose binding cannot be
- * reached keeps saying what it was bound to: a substitution the user cannot
- * see is one they cannot fix.
+ * Why the model column says what it says, and nothing when it is simply what
+ * the user set. An unreachable binding names the route it came from: a
+ * substitution the user cannot see is one they cannot fix.
  */
-function modelSlotRowDescription(row: ModelSlotRow): string {
-    const running = row.models[0];
-    const target = running === undefined
-        ? undefined
-        : running.reasoning_effort === undefined
-        ? running.model
-        : `${running.model} (${running.reasoning_effort})`;
+function assignmentStateCell(row: ModelAssignmentRow): string {
     if (!row.bound) {
-        if (row.inherits !== undefined) {
-            return `not set · uses ${row.inherits}`;
-        }
-        return row.source === "session"
-            ? "not set · uses this session's model"
-            : "not set";
+        if (row.inherits !== undefined) return `uses ${row.inherits}`;
+        return row.source === "session" ? "uses session model" : "not set";
     }
-    const bound = row.route ?? row.declared.map((entry) => entry.model).join(", ");
-    if (row.source === "slot") {
-        return row.route === undefined ? `${target}` : `${row.route} · ${target}`;
+    if (row.source === "assignment") {
+        return "";
     }
-    if (row.source === "none") {
-        return `${bound} unreachable · nothing runs it`;
-    }
-    return `${bound} unreachable · uses ${row.inherits ?? "this session's model"}`;
+    const named = row.route === undefined
+        ? "what it is set to"
+        : `route ${row.route}`;
+    return row.source === "none"
+        ? `${named} unreachable`
+        : `${named} unreachable, uses ${row.inherits ?? "session model"}`;
 }
 
 function reviewerSlotLabel(selection?: ReviewerModelSelection): string {
@@ -1003,14 +1019,14 @@ export function startTuiReviewerPicker(
 }
 
 /**
- * The models offered for one slot, which is the pool and nothing else. A slot
+ * The models offered for one assignment, which is the pool and nothing else. An
  * binds only what can run, and reachability is pool membership, so offering a
- * model from outside it would let the user set a slot that reads back as
+ * assignment set from outside it would read back as
  * unreachable the moment it is written. Widening the choice means adding to
  * the pool first.
  */
-export function startTuiModelSlotPicker(
-    slot: ModelSlotId,
+export function startTuiModelAssignmentPicker(
+    assignment: ModelAssignmentId,
     intent: string,
     inherits: string | undefined,
     pooled: readonly PooledModel[] = [],
@@ -1038,7 +1054,7 @@ export function startTuiModelSlotPicker(
     };
     const options = [clearRow, ...rows];
     return {
-        kind: "model_slot",
+        kind: "model_assignment",
         allOptions: options,
         options,
         selectedIndex: Math.max(
@@ -1046,7 +1062,7 @@ export function startTuiModelSlotPicker(
             options.findIndex((option) => option.value === current),
         ),
         query: "",
-        modelSlot: slot,
+        modelAssignment: assignment,
     };
 }
 
@@ -1501,7 +1517,7 @@ export function handleTuiSettingsPickerKey(
             modelState.collapsed ?? [],
             modelState.query,
             revealAll,
-            modelState.slotOptions ?? [],
+            modelState.assignmentOptions ?? [],
         );
         const selectedValue = modelState.options[modelState.selectedIndex]
             ?.value;
@@ -1537,7 +1553,7 @@ export function handleTuiSettingsPickerKey(
         const cycle: readonly TuiModelPickerTab[] = [
             "pool",
             "all",
-            "slots",
+            "assigned",
             "help",
         ];
         const at = cycle.indexOf(state.tab ?? "all");
@@ -1586,7 +1602,7 @@ export function handleTuiSettingsPickerKey(
             collapsed,
             modelState.query,
             modelState.revealAll === true,
-            modelState.slotOptions ?? [],
+            modelState.assignmentOptions ?? [],
         );
         const selectedValue = modelState.options[modelState.selectedIndex]
             ?.value;
@@ -2466,12 +2482,12 @@ function modelStripStop(
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Pool"],
     ["all", "All models"],
-    ["slots", "Slots"],
+    ["assigned", "Assigned"],
     ["help", "Help"],
 ];
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
-    slots: "Every job Vera runs a model for, and the model behind it.",
+    assigned: "Every job Vera runs a model for, and what it is assigned.",
     pool: "Your curated shortlist. ^s adds or removes models here.",
     all: "Everything your providers offer. Enter runs one without pooling it.",
     help: "What the marks and the keys in this pane mean.",
@@ -2649,7 +2665,7 @@ export function pickerFooter(
                 : tuiKeyHint("toggle_pooled");
         return fittedHints([
             // The movement entry carries the half-page keys rather than taking
-            // a separate slot: they are the same movement, and this footer is
+            // a separate assignment: they are the same movement, and this footer is
             // already the longest one in the pane.
             { text: "↑↓ ^d^u move", drop: 0 },
             { text: "⏎ select", drop: 0 },
@@ -2927,9 +2943,9 @@ function optionMeta(
     if (state.kind !== "model") {
         return undefined;
     }
-    // A slot row's whole content is what runs it, so the column carries that
+    // An assignment row's whole content is what runs it, so the column carries
     // rather than the facts a model row shows.
-    if (state.tab === "slots") {
+    if (state.tab === "assigned") {
         return option.description === undefined || option.description === ""
             ? undefined
             : [{ text: option.description }];
@@ -3002,8 +3018,8 @@ function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     if (state.kind === "model" && state.tab === "pool") {
         return "No pooled models match. Tab switches to All models.";
     }
-    if (state.kind === "model_slot") {
-        return "No pooled models. Add one to the pool to bind this slot.";
+    if (state.kind === "model_assignment") {
+        return "No pooled models. Add one to the pool to assign it here.";
     }
     if (state.kind !== "session") {
         return "No matches found";
@@ -3114,7 +3130,7 @@ export function switchedModelTab(
         state.collapsed ?? [],
         "",
         state.revealAll === true,
-        state.slotOptions ?? [],
+        state.assignmentOptions ?? [],
     );
     return {
         ...state,
@@ -3180,7 +3196,7 @@ function searched(
             state.collapsed ?? [],
             query,
             state.revealAll === true,
-            state.slotOptions ?? [],
+            state.assignmentOptions ?? [],
         );
     const next = { ...state, options, selectedIndex: 0, query };
     return {
@@ -3332,13 +3348,13 @@ function modelTabRows(
     allOptions: readonly TuiSettingsPickerOption[],
     tab: TuiModelPickerTab,
     revealAll = false,
-    slotOptions: readonly TuiSettingsPickerOption[] = [],
+    assignmentOptions: readonly TuiSettingsPickerOption[] = [],
 ): readonly TuiSettingsPickerOption[] {
     if (tab === "help") {
         return [];
     }
-    if (tab === "slots") {
-        return slotOptions;
+    if (tab === "assigned") {
+        return assignmentOptions;
     }
     if (tab === "all") {
         return allOptions.filter((option) =>
@@ -3369,7 +3385,7 @@ function modelPickerOptions(
     collapsed: readonly string[],
     query: string,
     revealAll = false,
-    slotOptions: readonly TuiSettingsPickerOption[] = [],
+    assignmentOptions: readonly TuiSettingsPickerOption[] = [],
 ): readonly TuiSettingsPickerOption[] {
     // Search reaches a folded row whether or not the pane is revealed. Typing
     // an id is naming a model outright, and a list that answers "no such
@@ -3378,15 +3394,15 @@ function modelPickerOptions(
         allOptions,
         tab,
         revealAll || query !== "",
-        slotOptions,
+        assignmentOptions,
     );
     const matched = query === "" ? rows : matching(rows, query);
     // Neither list is sectioned by provider: the pool is one short list, and a
-    // slot row is a job, which has no provider to be grouped under.
-    if ((tab === "pool" || tab === "slots") && query === "") {
+    // assignment row is a job, which has no provider to be grouped under.
+    if ((tab === "pool" || tab === "assigned") && query === "") {
         return matched;
     }
-    if (tab === "slots") {
+    if (tab === "assigned") {
         return matched;
     }
     return sectionedOptions(
@@ -3515,7 +3531,7 @@ function sectionLabels(
         [],
         state.query,
         state.revealAll === true,
-        state.slotOptions ?? [],
+        state.assignmentOptions ?? [],
     ).flatMap((option) => option.section === undefined ? [] : [option.section]);
 }
 
@@ -3552,7 +3568,7 @@ function toggledSection(
         collapsed,
         state.query,
         state.revealAll === true,
-        state.slotOptions ?? [],
+        state.assignmentOptions ?? [],
     );
     return {
         state: {
@@ -3578,11 +3594,11 @@ function pickerSelection(
 ): TuiSettingsPickerSelection {
     const kind = state.kind;
     if (kind === "model") {
-        // The Slots tab shares the model pane but its rows are jobs, so they
-        // resolve to the slot rather than to a model.
-        const slot = modelSlotOfValue(option.value);
-        if (slot !== undefined) {
-            return { kind: "model_slot_open", slot };
+        // The Assigned tab shares the model pane but its rows are jobs, so
+        // they resolve to the assignment rather than to a model.
+        const assignment = modelAssignmentOfValue(option.value);
+        if (assignment !== undefined) {
+            return { kind: "model_assignment_open", assignment };
         }
         if (option.provider === undefined || option.model === undefined) {
             throw new Error("model picker option is missing provider identity");
@@ -3630,11 +3646,11 @@ function pickerSelection(
     ) {
         return { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
-    if (kind === "model_slot") {
+    if (kind === "model_assignment") {
         // The clear row carries no model, which is what unbinds the slot.
         return {
             kind,
-            slot: state.modelSlot ?? "extra",
+            assignment: state.modelAssignment ?? "extra",
             ...(value === REVIEWER_CLEAR_VALUE ? {} : {
                 ...(option.provider === undefined
                     ? {}
@@ -3682,8 +3698,8 @@ function pickerTitle(
                                 ? "Reviewer"
                                 : kind === "reviewer"
                                     ? "Select reviewer"
-                                    : kind === "model_slot"
-                                        ? "Bind slot"
+                                    : kind === "model_assignment"
+                                        ? "Assign a model"
                                         : "Theme";
 }
 

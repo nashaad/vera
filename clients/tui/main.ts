@@ -51,7 +51,7 @@ import type {
 } from "../../src/model/catalog-shape.ts";
 import { derivedModelName } from "../../src/config/model-catalog.ts";
 import {
-    configuredModelSlots,
+    configuredModelAssignments,
     loadOptionalVeraConfig,
     updateVeraConfigDefaults,
     type VeraProviderId,
@@ -62,11 +62,11 @@ import {
     loadPoolFile,
     poolFileIssueNotices,
 } from "../../src/model/pool-file-loader.ts";
-import { poolReachability } from "../../src/model/slot-reachability.ts";
+import { poolReachability } from "../../src/model/assignment-reachability.ts";
 import type {
-    ModelSlotId,
-    ModelSlotRow,
-} from "../../src/config/model-slots.ts";
+    ModelAssignmentId,
+    ModelAssignmentRow,
+} from "../../src/config/model-assignments.ts";
 import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
 import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
 import {
@@ -268,8 +268,8 @@ import {
     type TuiSettingsMenuTarget,
     type TuiAnySettingsPickerState,
     type TuiReviewerSlot,
-    startTuiModelSlotPicker,
-    tuiModelSlotOptions,
+    startTuiModelAssignmentPicker,
+    tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
     type TuiExtensionPickerAction,
@@ -3636,14 +3636,14 @@ export async function startTui(
             renderState();
             return;
         }
-        if (commandAction?.type === "show_slots") {
+        if (commandAction?.type === "show_assigned") {
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
             openModelPicker();
             settingsPicker = switchedModelTab(
                 settingsPicker as TuiSettingsPickerState,
-                "slots",
+                "assigned",
             );
             renderState();
             return;
@@ -6047,8 +6047,8 @@ export async function startTui(
         ), parent);
         settingsPicker = {
             ...settingsPicker,
-            slotOptions: tuiModelSlotOptions(
-                currentModelSlotRows(),
+            assignmentOptions: tuiModelAssignmentOptions(
+                currentModelAssignmentRows(),
                 targetState.modelSettings?.model,
             ),
         };
@@ -6065,26 +6065,26 @@ export async function startTui(
      * and the pool are both files the user may have just edited, and this is
      * the surface that claims to show what they say.
      */
-    function currentModelSlotRows(): readonly ModelSlotRow[] {
+    function currentModelAssignmentRows(): readonly ModelAssignmentRow[] {
         const configured = loadOptionalVeraConfig();
         if (configured === undefined) {
             return [];
         }
-        return configuredModelSlots(
+        return configuredModelAssignments(
             configured,
             poolReachability(loadPoolFile({ projectRoot: process.cwd() }).merged),
         );
     }
 
-    function openModelSlotPicker(
-        slot: ModelSlotId,
+    function openModelAssignmentPicker(
+        assignment: ModelAssignmentId,
         parent?: TuiSettingsPickerState,
     ): void {
         const targetState = focusedAgentState();
-        const row = currentModelSlotRows().find((entry) => entry.slot === slot);
+        const row = currentModelAssignmentRows().find((entry) => entry.assignment === assignment);
         settingsPicker = withTuiPickerParent(
-            startTuiModelSlotPicker(
-                slot,
+            startTuiModelAssignmentPicker(
+                assignment,
                 row?.intent ?? "",
                 row?.inherits,
                 targetState.modelSettings?.pooled,
@@ -6096,14 +6096,14 @@ export async function startTui(
     }
 
     /**
-     * Writes the chosen model onto the slot, or unbinds it. The write is to
-     * the config file because a slot is a setting: the host reads it at start,
+     * Writes the chosen model onto the assignment, or unbinds it. The write is to
+     * the config file because an assignment is a setting: the host reads it at start,
      * so the change lands on the next run rather than on this turn, and the
      * notice says so instead of implying it took effect.
      */
-    function bindModelSlotFromPicker(
+    function bindModelAssignmentFromPicker(
         selection: {
-            readonly slot: ModelSlotId;
+            readonly assignment: ModelAssignmentId;
             readonly provider?: string;
             readonly model?: string;
         },
@@ -6111,8 +6111,8 @@ export async function startTui(
         const unbinding = selection.model === undefined;
         try {
             updateVeraConfigDefaults({
-                model_slot: {
-                    slot: selection.slot,
+                model_assignment: {
+                    assignment: selection.assignment,
                     binding: unbinding ? null : {
                         models: [{
                             name: derivedModelName(
@@ -6128,7 +6128,7 @@ export async function startTui(
         } catch (error) {
             state = appendTuiError(
                 state,
-                `Could not write the slot: ${
+                `Could not write the assignment: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
             );
@@ -6138,8 +6138,8 @@ export async function startTui(
         state = appendTuiNotice(
             state,
             unbinding
-                ? `${selection.slot} unset. Restart Vera to apply it.`
-                : `${selection.slot} → ${selection.model}. Restart Vera to apply it.`,
+                ? `${selection.assignment} unset. Restart Vera to apply it.`
+                : `${selection.assignment} → ${selection.model}. Restart Vera to apply it.`,
         );
     }
 
@@ -7007,16 +7007,16 @@ export async function startTui(
                         settingsPickerAgent,
                     );
                 }
-            } else if (selection.kind === "model_slot_open") {
-                openModelSlotPicker(
-                    selection.slot,
+            } else if (selection.kind === "model_assignment_open") {
+                openModelAssignmentPicker(
+                    selection.assignment,
                     settingsPicker?.kind === "extension"
                         ? undefined
                         : settingsPicker,
                 );
                 return;
-            } else if (selection.kind === "model_slot") {
-                bindModelSlotFromPicker(selection);
+            } else if (selection.kind === "model_assignment") {
+                bindModelAssignmentFromPicker(selection);
             } else {
                 beginSessionResume(selection.sessionPath, selection.sessionId);
                 return;

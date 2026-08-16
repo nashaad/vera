@@ -29,15 +29,15 @@ import {
     type VeraReviewerProfileConfig,
 } from "./config/model-catalog.ts";
 import {
-    bindModelSlot,
-    describeModelSlots,
-    type ModelSlotId,
-    type VeraModelSlotConfig,
-    type ModelSlotRow,
-    parseModelSlotsConfig,
+    bindModelAssignment,
+    describeModelAssignments,
+    type ModelAssignmentId,
+    type VeraModelAssignmentConfig,
+    type ModelAssignmentRow,
+    parseModelAssignmentsConfig,
     type ReachabilityCheck,
-    type VeraModelSlotsConfig,
-} from "./config/model-slots.ts";
+    type VeraModelAssignmentsConfig,
+} from "./config/model-assignments.ts";
 import { parsePermissionModes } from "./config/permission-modes.ts";
 import type { PermissionMode } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
@@ -157,9 +157,9 @@ export interface VeraConfig {
     readonly compaction?: VeraCompactionConfig;
     /**
      * Named bindings a caller reaches for instead of naming a model. Sparse:
-     * an unbound slot means the callers that wanted it do not run.
+     * an unbound assignment means the callers that wanted it do not run.
      */
-    readonly model_slots?: VeraModelSlotsConfig;
+    readonly model_assignments?: VeraModelAssignmentsConfig;
     readonly permission_modes?: Readonly<
         Record<string, PermissionMode>
     >;
@@ -241,14 +241,14 @@ export interface VeraConfigDefaultsPatch {
      */
     readonly reviewer?: VeraReviewerConfig | null;
     /**
-     * One slot, written whole. `null` unbinds it, which returns the slot to
-     * inheriting its intent or, for an intent slot, to nothing at all. Only
-     * the named slot is touched: the others are settings the user made
+     * One assignment, written whole. `null` unbinds it, which returns it to
+     * inheriting its intent or, for an intent row, to nothing at all. Only
+     * the named one is touched: the others are settings the user made
      * separately and a picker changing one must not disturb them.
      */
-    readonly model_slot?: {
-        readonly slot: ModelSlotId;
-        readonly binding: VeraModelSlotConfig | null;
+    readonly model_assignment?: {
+        readonly assignment: ModelAssignmentId;
+        readonly binding: VeraModelAssignmentConfig | null;
     };
 }
 
@@ -392,9 +392,9 @@ export function updateVeraConfigDefaults(
         ...(patch.reviewer === undefined
             ? {}
             : { reviewer: patch.reviewer === null ? undefined : patch.reviewer }),
-        ...(patch.model_slot === undefined
+        ...(patch.model_assignment === undefined
             ? {}
-            : { model_slots: patchedModelSlots(current.model_slots, patch.model_slot) }),
+            : { model_assignments: patchedModelAssignments(current.model_assignments, patch.model_assignment) }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
             : {}),
@@ -434,19 +434,19 @@ export function updateVeraConfigDefaults(
 const FOREIGN_CONFIG_KEYS: readonly string[] = [];
 
 /**
- * One slot replaced or removed, the rest carried across untouched. Written as
+ * One assignment replaced or removed, the rest carried across untouched. Written as
  * a rebuild rather than a delete so the result stays a plain readonly record.
  */
-function patchedModelSlots(
-    current: VeraModelSlotsConfig | undefined,
-    patch: { readonly slot: ModelSlotId; readonly binding: VeraModelSlotConfig | null },
-): VeraModelSlotsConfig {
+function patchedModelAssignments(
+    current: VeraModelAssignmentsConfig | undefined,
+    patch: { readonly assignment: ModelAssignmentId; readonly binding: VeraModelAssignmentConfig | null },
+): VeraModelAssignmentsConfig {
     const rest = Object.fromEntries(
-        Object.entries(current ?? {}).filter(([name]) => name !== patch.slot),
-    ) as VeraModelSlotsConfig;
+        Object.entries(current ?? {}).filter(([name]) => name !== patch.assignment),
+    ) as VeraModelAssignmentsConfig;
     return patch.binding === null
         ? rest
-        : { ...rest, [patch.slot]: patch.binding };
+        : { ...rest, [patch.assignment]: patch.binding };
 }
 
 function foreignConfigEntries(path: string): Record<string, unknown> {
@@ -533,11 +533,11 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             config.compaction,
             modelCatalog?.model_routes ?? {},
         );
-    // Slots name routes, so they parse against the same catalog compaction
-    // does, and a slot naming a route the catalog dropped rejects the block
+    // Assignments name routes, so they parse against the same catalog compaction
+    // does, and an assignment naming a route the catalog dropped rejects the block
     // rather than binding a caller to a short list.
-    const modelSlots = parseModelSlotsConfig(
-        config.model_slots,
+    const modelSlots = parseModelAssignmentsConfig(
+        config.model_assignments,
         modelCatalog?.model_routes ?? {},
     );
     const extensions = parseExtensionConfigs(config.extensions);
@@ -616,7 +616,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(compaction === undefined ? {} : { compaction }),
         ...(modelSlots === undefined || Object.keys(modelSlots).length === 0
             ? {}
-            : { model_slots: modelSlots }),
+            : { model_assignments: modelSlots }),
         ...(rawPermissionModes === undefined
             ? {}
             : { permission_modes: permissionModes }),
@@ -1096,36 +1096,36 @@ export function configuredCompactionModels(
     if (config.models === undefined || config.model_routes === undefined) {
         return [];
     }
-    return bindModelSlot(
+    return bindModelAssignment(
         {
             models: config.models,
             model_routes: config.model_routes,
             reviewer_profiles: config.reviewer_profiles ?? {},
         },
-        config.model_slots ?? {},
-        { slot: "compaction", demand: "required" },
+        config.model_assignments ?? {},
+        { assignment: "compaction", demand: "required" },
         isReachable,
     ).models;
 }
 
 /**
- * Every slot as it stands, for a surface that lists them. Empty when no
- * catalog is configured, since there is nothing a slot could name.
+ * Every assignment as it stands, for a surface that lists them. Empty when no
+ * catalog is configured, since there is nothing it could name.
  */
-export function configuredModelSlots(
+export function configuredModelAssignments(
     config: VeraConfig,
     isReachable?: ReachabilityCheck,
-): readonly ModelSlotRow[] {
+): readonly ModelAssignmentRow[] {
     if (config.models === undefined || config.model_routes === undefined) {
         return [];
     }
-    return describeModelSlots(
+    return describeModelAssignments(
         {
             models: config.models,
             model_routes: config.model_routes,
             reviewer_profiles: config.reviewer_profiles ?? {},
         },
-        config.model_slots ?? {},
+        config.model_assignments ?? {},
         isReachable,
     );
 }
@@ -1145,10 +1145,10 @@ export function configuredReviewers(
             model_routes: config.model_routes,
             reviewer_profiles: config.reviewer_profiles,
         };
-        const slot = bindModelSlot(
+        const slot = bindModelAssignment(
             catalog,
-            config.model_slots ?? {},
-            { slot: "reviewer", demand: "optional" },
+            config.model_assignments ?? {},
+            { assignment: "reviewer", demand: "optional" },
             isReachable,
         );
         for (const name of Object.keys(config.reviewer_profiles)) {

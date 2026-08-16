@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { loadVeraConfig, updateVeraConfigDefaults } from "../../src/config.ts";
 
 function withConfigFile(run: (path: string) => void): void {
-    const directory = mkdtempSync(join(tmpdir(), "vera-slot-write-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-assignment-write-"));
     try {
         const path = join(directory, "config.json");
         writeFileSync(
@@ -19,11 +19,11 @@ function withConfigFile(run: (path: string) => void): void {
     }
 }
 
-test("binding a slot writes it and reads back", () => {
+test("binding a assignment writes it and reads back", () => {
     withConfigFile((path) => {
         updateVeraConfigDefaults({
-            model_slot: {
-                slot: "extra",
+            model_assignment: {
+                assignment: "extra",
                 binding: {
                     models: [
                         { name: "big", provider: "openrouter", model: "big-1" },
@@ -32,44 +32,44 @@ test("binding a slot writes it and reads back", () => {
             },
         }, { path });
         const config = loadVeraConfig({ path });
-        expect(config.model_slots?.extra?.models?.[0]?.model).toBe("big-1");
+        expect(config.model_assignments?.extra?.models?.[0]?.model).toBe("big-1");
     });
 });
 
-test("binding one slot leaves the others alone", () => {
+test("binding one assignment leaves the others alone", () => {
     withConfigFile((path) => {
         const model = { name: "big", provider: "openrouter" as const, model: "big-1" };
         updateVeraConfigDefaults(
-            { model_slot: { slot: "extra", binding: { models: [model] } } },
+            { model_assignment: { assignment: "extra", binding: { models: [model] } } },
             { path },
         );
         updateVeraConfigDefaults(
-            { model_slot: { slot: "eco", binding: { models: [model] } } },
+            { model_assignment: { assignment: "eco", binding: { models: [model] } } },
             { path },
         );
         const config = loadVeraConfig({ path });
-        expect(config.model_slots?.extra).toBeDefined();
-        expect(config.model_slots?.eco).toBeDefined();
+        expect(config.model_assignments?.extra).toBeDefined();
+        expect(config.model_assignments?.eco).toBeDefined();
     });
 });
 
-test("null unbinds only the named slot", () => {
+test("null unbinds only the named assignment", () => {
     withConfigFile((path) => {
         const model = { name: "big", provider: "openrouter" as const, model: "big-1" };
         updateVeraConfigDefaults(
-            { model_slot: { slot: "extra", binding: { models: [model] } } },
+            { model_assignment: { assignment: "extra", binding: { models: [model] } } },
             { path },
         );
         updateVeraConfigDefaults(
-            { model_slot: { slot: "eco", binding: { models: [model] } } },
+            { model_assignment: { assignment: "eco", binding: { models: [model] } } },
             { path },
         );
         updateVeraConfigDefaults(
-            { model_slot: { slot: "extra", binding: null } },
+            { model_assignment: { assignment: "extra", binding: null } },
             { path },
         );
         const config = loadVeraConfig({ path });
-        expect(config.model_slots?.extra).toBeUndefined();
-        expect(config.model_slots?.eco).toBeDefined();
+        expect(config.model_assignments?.extra).toBeUndefined();
+        expect(config.model_assignments?.eco).toBeDefined();
     });
 });

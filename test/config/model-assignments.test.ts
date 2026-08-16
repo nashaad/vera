@@ -2,16 +2,16 @@ import { expect, test } from "bun:test";
 
 import { parseModelCatalogConfig } from "../../src/config/model-catalog.ts";
 import {
-    JOB_SLOT_INTENTS,
-    MODEL_SLOT_IDS,
-    MODEL_SLOT_INTENTS,
-    bindModelSlot,
+    JOB_ASSIGNMENT_INTENTS,
+    MODEL_ASSIGNMENT_IDS,
+    MODEL_ASSIGNMENT_INTENTS,
+    bindModelAssignment,
     isAutoAssignable,
     slotExclusions,
-    parseModelSlotsConfig,
-    resolveModelSlot,
-    slotLabel,
-} from "../../src/config/model-slots.ts";
+    parseModelAssignmentsConfig,
+    resolveModelAssignment,
+    assignmentLabel,
+} from "../../src/config/model-assignments.ts";
 
 const MODELS = [
     { provider: "openrouter", model: "z-ai/glm-5.2", name: "glm_low",
@@ -33,81 +33,81 @@ function catalog() {
     return parsed;
 }
 
-test("a slot resolves to the route's entries, each with its own effort", () => {
-    const slots = parseModelSlotsConfig(
+test("a assignment resolves to the route's entries, each with its own effort", () => {
+    const assignments = parseModelAssignmentsConfig(
         { eco: { model_route: "thinking" } },
         ROUTES,
     );
-    const resolved = resolveModelSlot(catalog(), slots ?? {}, "eco");
+    const resolved = resolveModelAssignment(catalog(), assignments ?? {}, "eco");
     expect(resolved?.models.map((m) => m.name))
         .toEqual(["opus_low", "glm_high"]);
     // The same model at two efforts is two different answers, which is the
-    // thing a slot can say and a bare model name cannot.
+    // thing a assignment can say and a bare model name cannot.
     expect(resolved?.models[0]?.reasoning_effort).toBe("low");
     expect(resolved?.models[1]?.reasoning_effort).toBe("high");
 });
 
-test("an unbound slot resolves to nothing, so its callers do not run", () => {
-    const slots = parseModelSlotsConfig(
+test("an unbound assignment resolves to nothing, so its callers do not run", () => {
+    const assignments = parseModelAssignmentsConfig(
         { snappy: { model_route: "quick" } },
         ROUTES,
     );
-    expect(resolveModelSlot(catalog(), slots ?? {}, "snappy")).toBeDefined();
-    expect(resolveModelSlot(catalog(), slots ?? {}, "eco")).toBeUndefined();
-    expect(resolveModelSlot(catalog(), slots ?? {}, "extra")).toBeUndefined();
+    expect(resolveModelAssignment(catalog(), assignments ?? {}, "snappy")).toBeDefined();
+    expect(resolveModelAssignment(catalog(), assignments ?? {}, "eco")).toBeUndefined();
+    expect(resolveModelAssignment(catalog(), assignments ?? {}, "extra")).toBeUndefined();
 });
 
 test("renaming a label leaves the id callers bind to untouched", () => {
-    const slots = parseModelSlotsConfig(
+    const assignments = parseModelAssignmentsConfig(
         { snappy: { model_route: "quick", label: "turbo" } },
         ROUTES,
     );
-    expect(slotLabel(slots ?? {}, "snappy")).toBe("turbo");
-    expect(slotLabel(slots ?? {}, "eco")).toBe("eco");
-    const resolved = resolveModelSlot(catalog(), slots ?? {}, "snappy");
-    expect(resolved?.slot).toBe("snappy");
+    expect(assignmentLabel(assignments ?? {}, "snappy")).toBe("turbo");
+    expect(assignmentLabel(assignments ?? {}, "eco")).toBe("eco");
+    const resolved = resolveModelAssignment(catalog(), assignments ?? {}, "snappy");
+    expect(resolved?.assignment).toBe("snappy");
     expect(resolved?.label).toBe("turbo");
     expect(resolved?.models.map((m) => m.name)).toEqual(["glm_low"]);
 });
 
-test("an unknown slot id is rejected rather than ignored", () => {
-    expect(parseModelSlotsConfig({ zippy: { model_route: "quick" } }, ROUTES))
+test("an unknown assignment id is rejected rather than ignored", () => {
+    expect(parseModelAssignmentsConfig({ zippy: { model_route: "quick" } }, ROUTES))
         .toBeUndefined();
 });
 
-test("a slot naming an unknown route is rejected", () => {
-    expect(parseModelSlotsConfig({ eco: { model_route: "nope" } }, ROUTES))
+test("a assignment naming an unknown route is rejected", () => {
+    expect(parseModelAssignmentsConfig({ eco: { model_route: "nope" } }, ROUTES))
         .toBeUndefined();
 });
 
-test("an absent block is an empty set of slots, not a failure", () => {
-    expect(parseModelSlotsConfig(undefined, ROUTES)).toEqual({});
+test("an absent block is an empty set of assignments, not a failure", () => {
+    expect(parseModelAssignmentsConfig(undefined, ROUTES)).toEqual({});
 });
 
 test("a blank label falls back to the shipped word", () => {
-    const slots = parseModelSlotsConfig(
+    const assignments = parseModelAssignmentsConfig(
         { extra: { model_route: "thinking", label: "  " } },
         ROUTES,
     );
-    expect(slots).toBeUndefined();
+    expect(assignments).toBeUndefined();
 });
 
-test("a feature with no route of its own falls to the slot", () => {
-    const slots = parseModelSlotsConfig(
+test("a feature with no route of its own falls to the assignment", () => {
+    const assignments = parseModelAssignmentsConfig(
         { eco: { model_route: "thinking" } },
         ROUTES,
     );
-    const bound = bindModelSlot(catalog(), slots ?? {}, {
-        slot: "eco",
+    const bound = bindModelAssignment(catalog(), assignments ?? {}, {
+        assignment: "eco",
         demand: "required",
     });
-    expect(bound.source).toBe("slot");
+    expect(bound.source).toBe("assignment");
     expect(bound.models.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
 });
 
 test("a required caller with nothing bound runs on the session's model", () => {
-    const bound = bindModelSlot(catalog(), {}, {
-        slot: "eco",
+    const bound = bindModelAssignment(catalog(), {}, {
+        assignment: "eco",
         demand: "required",
     });
     expect(bound.source).toBe("session");
@@ -115,8 +115,8 @@ test("a required caller with nothing bound runs on the session's model", () => {
 });
 
 test("an optional caller with nothing bound does not run", () => {
-    const bound = bindModelSlot(catalog(), {}, {
-        slot: "snappy",
+    const bound = bindModelAssignment(catalog(), {}, {
+        assignment: "snappy",
         demand: "optional",
     });
     expect(bound.source).toBe("none");
@@ -135,18 +135,18 @@ test("an excluded provider is never auto assigned, at any of its models", () => 
     )).toBe(false);
 });
 
-test("a provider barred from one slot stays eligible for another", () => {
+test("a provider barred from one assignment stays eligible for another", () => {
     const entry = { provider: "cerebras" as const, model: "qwen", name: "a" };
     expect(isAutoAssignable(entry, slotExclusions({}, "extra"))).toBe(false);
     expect(isAutoAssignable(entry, slotExclusions({}, "snappy"))).toBe(true);
 });
 
 test("a user rule adds to the shipped default rather than replacing it", () => {
-    const slots = parseModelSlotsConfig(
+    const assignments = parseModelAssignmentsConfig(
         { never_auto: { snappy: [{ provider: "ollama" }] } },
         ROUTES,
     );
-    const rules = slotExclusions(slots ?? {}, "snappy");
+    const rules = slotExclusions(assignments ?? {}, "snappy");
     // The user was thinking about ollama, not about fable. Losing the shipped
     // rule because they wrote one of their own is the footgun this avoids.
     expect(isAutoAssignable(
@@ -159,17 +159,17 @@ test("a user rule adds to the shipped default rather than replacing it", () => {
     )).toBe(false);
 });
 
-test("an empty user list clears a slot's exclusions", () => {
-    const slots = parseModelSlotsConfig({ never_auto: { extra: [] } }, ROUTES);
-    expect(slotExclusions(slots ?? {}, "extra")).toEqual([]);
+test("an empty user list clears a assignment's exclusions", () => {
+    const assignments = parseModelAssignmentsConfig({ never_auto: { extra: [] } }, ROUTES);
+    expect(slotExclusions(assignments ?? {}, "extra")).toEqual([]);
     expect(isAutoAssignable(
         { provider: "cerebras", model: "qwen", name: "a" },
-        slotExclusions(slots ?? {}, "extra"),
+        slotExclusions(assignments ?? {}, "extra"),
     )).toBe(true);
 });
 
 test("a never_auto rule naming neither provider nor model is refused", () => {
-    expect(parseModelSlotsConfig({ never_auto: { extra: [{}] } }, ROUTES))
+    expect(parseModelAssignmentsConfig({ never_auto: { extra: [{}] } }, ROUTES))
         .toBeUndefined();
 });
 
@@ -193,56 +193,56 @@ test("exclusions bind automatic assignment, not what the user binds", () => {
         {},
     );
     if (parsed === undefined) throw new Error("catalog did not parse");
-    const slots = parseModelSlotsConfig({ snappy: { model_route: "fast" } }, routes);
-    const resolved = resolveModelSlot(parsed, slots ?? {}, "snappy");
+    const assignments = parseModelAssignmentsConfig({ snappy: { model_route: "fast" } }, routes);
+    const resolved = resolveModelAssignment(parsed, assignments ?? {}, "snappy");
     expect(resolved?.models.map((m) => m.name)).toEqual(["cerebras_qwen"]);
 });
 
-test("an unbound job slot draws on the intent behind it", () => {
-    const slots = parseModelSlotsConfig(
+test("an unbound job assignment draws on the intent behind it", () => {
+    const assignments = parseModelAssignmentsConfig(
         { extra: { model_route: "thinking" } },
         ROUTES,
     );
-    const bound = bindModelSlot(catalog(), slots ?? {}, {
-        slot: "reviewer",
+    const bound = bindModelAssignment(catalog(), assignments ?? {}, {
+        assignment: "reviewer",
         demand: "required",
     });
     expect(bound.source).toBe("intent");
     expect(bound.models.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
 });
 
-test("a bound job slot answers for itself and leaves its intent alone", () => {
-    const slots = parseModelSlotsConfig(
+test("a bound job assignment answers for itself and leaves its intent alone", () => {
+    const assignments = parseModelAssignmentsConfig(
         { extra: { model_route: "thinking" }, reviewer: { model_route: "quick" } },
         ROUTES,
     );
-    const bound = bindModelSlot(catalog(), slots ?? {}, {
-        slot: "reviewer",
+    const bound = bindModelAssignment(catalog(), assignments ?? {}, {
+        assignment: "reviewer",
         demand: "required",
     });
-    expect(bound.source).toBe("slot");
+    expect(bound.source).toBe("assignment");
     expect(bound.models.map((m) => m.name)).toEqual(["glm_low"]);
     // Pointing the reviewer somewhere must not move everything sharing extra.
-    expect(resolveModelSlot(catalog(), slots ?? {}, "extra")?.models
+    expect(resolveModelAssignment(catalog(), assignments ?? {}, "extra")?.models
         .map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
 });
 
-test("a job slot with neither itself nor its intent bound reaches the session", () => {
-    const bound = bindModelSlot(catalog(), {}, {
-        slot: "compaction",
+test("a job assignment with neither itself nor its intent bound reaches the session", () => {
+    const bound = bindModelAssignment(catalog(), {}, {
+        assignment: "compaction",
         demand: "required",
     });
     expect(bound.source).toBe("session");
 });
 
-test("every job slot names an intent that exists, and every slot an intent line", () => {
-    const ids: string[] = [...MODEL_SLOT_IDS];
-    for (const [job, intent] of Object.entries(JOB_SLOT_INTENTS)) {
+test("every job assignment names an intent that exists, and every assignment an intent line", () => {
+    const ids: string[] = [...MODEL_ASSIGNMENT_IDS];
+    for (const [job, intent] of Object.entries(JOB_ASSIGNMENT_INTENTS)) {
         expect(ids).toContain(intent);
         expect(ids).toContain(job);
     }
-    for (const slot of MODEL_SLOT_IDS) {
-        expect(MODEL_SLOT_INTENTS[slot].length).toBeGreaterThan(0);
+    for (const assignment of MODEL_ASSIGNMENT_IDS) {
+        expect(MODEL_ASSIGNMENT_INTENTS[assignment].length).toBeGreaterThan(0);
     }
 });
 
@@ -251,46 +251,46 @@ function reachableExcept(...unreachable: string[]) {
 }
 
 test("a route falls to its own next entry before any rung is climbed", () => {
-    const slots = parseModelSlotsConfig(
+    const assignments = parseModelAssignmentsConfig(
         { extra: { model_route: "quick" }, reviewer: { model_route: "thinking" } },
         ROUTES,
     );
-    const bound = bindModelSlot(
+    const bound = bindModelAssignment(
         catalog(),
-        slots ?? {},
-        { slot: "reviewer", demand: "required" },
+        assignments ?? {},
+        { assignment: "reviewer", demand: "required" },
         reachableExcept("opus_low"),
     );
     // The user asked for opus then glm. Losing opus must not hand the job to
     // extra while a model they named is still standing.
-    expect(bound.source).toBe("slot");
+    expect(bound.source).toBe("assignment");
     expect(bound.models.map((m) => m.name)).toEqual(["glm_high"]);
 });
 
 test("a binding reports what was named as well as what will run", () => {
-    const slots = parseModelSlotsConfig(
+    const assignments = parseModelAssignmentsConfig(
         { reviewer: { model_route: "thinking" } },
         ROUTES,
     );
-    const bound = bindModelSlot(
+    const bound = bindModelAssignment(
         catalog(),
-        slots ?? {},
-        { slot: "reviewer", demand: "required" },
+        assignments ?? {},
+        { assignment: "reviewer", demand: "required" },
         reachableExcept("opus_low"),
     );
     expect(bound.declared.map((m) => m.name)).toEqual(["opus_low", "glm_high"]);
     expect(bound.models.map((m) => m.name)).toEqual(["glm_high"]);
 });
 
-test("a route with nothing reachable climbs to the intent slot", () => {
-    const slots = parseModelSlotsConfig(
+test("a route with nothing reachable climbs to the intent assignment", () => {
+    const assignments = parseModelAssignmentsConfig(
         { extra: { model_route: "quick" }, reviewer: { model_route: "thinking" } },
         ROUTES,
     );
-    const bound = bindModelSlot(
+    const bound = bindModelAssignment(
         catalog(),
-        slots ?? {},
-        { slot: "reviewer", demand: "required" },
+        assignments ?? {},
+        { assignment: "reviewer", demand: "required" },
         reachableExcept("opus_low", "glm_high"),
     );
     expect(bound.source).toBe("intent");
@@ -298,26 +298,26 @@ test("a route with nothing reachable climbs to the intent slot", () => {
 });
 
 test("a required caller with nothing reachable anywhere uses the session", () => {
-    const slots = parseModelSlotsConfig(
+    const assignments = parseModelAssignmentsConfig(
         { reviewer: { model_route: "thinking" } },
         ROUTES,
     );
-    const bound = bindModelSlot(
+    const bound = bindModelAssignment(
         catalog(),
-        slots ?? {},
-        { slot: "reviewer", demand: "required" },
+        assignments ?? {},
+        { assignment: "reviewer", demand: "required" },
         () => false,
     );
     expect(bound.source).toBe("session");
 });
 
 test("an unasked reachability check leaves every declared entry standing", () => {
-    const slots = parseModelSlotsConfig(
+    const assignments = parseModelAssignmentsConfig(
         { reviewer: { model_route: "thinking" } },
         ROUTES,
     );
-    const bound = bindModelSlot(catalog(), slots ?? {}, {
-        slot: "reviewer",
+    const bound = bindModelAssignment(catalog(), assignments ?? {}, {
+        assignment: "reviewer",
         demand: "required",
     });
     expect(bound.models).toEqual(bound.declared);
