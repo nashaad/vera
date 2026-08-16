@@ -6,6 +6,7 @@ import {
     configuredReviewer,
     configuredSubagentModel,
     configuredCompaction,
+    configuredCompactionModels,
     configuredReviewers,
     eventLogEnabled,
     updateVeraConfigDefaults,
@@ -39,6 +40,7 @@ import {
     PoolFileWriteRefusedError,
 } from "../model/pool-file-store.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
+import { poolReachability } from "../model/slot-reachability.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitToPool } from "../model/pool-admission.ts";
 import { createFeedRowReader } from "../model/feed-cache.ts";
@@ -164,8 +166,16 @@ export async function startResidentHost(
     const modelFallback = configuredModelFallback(options.config);
     const reviewer = configuredReviewer(options.config);
     const subagentModel = configuredSubagentModel(options.config);
-    const reviewers = configuredReviewers(options.config);
+    // The pool is what says a model can be used, so slot bindings are judged
+    // against it rather than against the catalog alone. User scope only: these
+    // bindings are read once for the host, before any project is known.
+    const isReachable = poolReachability(loadPoolFile({}).merged);
+    const reviewers = configuredReviewers(options.config, isReachable);
     const compaction = configuredCompaction(options.config);
+    const compactionModels = configuredCompactionModels(
+        options.config,
+        isReachable,
+    );
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
     const eventLogDirectory = options.eventLogDirectory;
@@ -366,6 +376,7 @@ export async function startResidentHost(
             });
         },
         ...(compaction === undefined ? {} : { compaction }),
+        ...(compactionModels.length === 0 ? {} : { compactionModels }),
         ...(options.config.permission_modes === undefined
             ? {}
             : { permissionModes: options.config.permission_modes }),

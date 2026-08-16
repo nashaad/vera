@@ -1,5 +1,8 @@
 import type { ModelAdapter } from "../model/types.ts";
-import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
+import type {
+    ResolvedCompactionProfile,
+    VeraCatalogModel,
+} from "../config/model-catalog.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
 import type { CompactionTrigger } from "./compaction-scheduler.ts";
 import {
@@ -37,16 +40,21 @@ export interface SessionModel {
 /**
  * Binds a configured profile to the adapter the agent is running on.
  *
+ * A strategy may declare several model slots, and a profile need not name a
+ * route for each. `slotModels` is what an unnamed one takes, so tuning one
+ * strategy slot does not oblige the user to name the rest.
+ *
  * Returns undefined rather than a partly bound profile when the strategy is
- * unknown or a slot it declared has no route: a session that cannot compact
- * correctly should not compact at all, and the alternative is discovering the
- * missing model at the moment the window fills.
+ * unknown, or a slot it declared has neither a route nor a fallback: a session
+ * that cannot compact correctly should not compact at all, and the alternative
+ * is discovering the missing model at the moment the window fills.
  */
 export function bindCompaction(
     profile: ResolvedCompactionProfile | undefined,
     adapter: ModelAdapter,
     sessionModel: SessionModel | undefined,
     strategies: readonly CompactionStrategyDefinition[],
+    slotModels?: readonly VeraCatalogModel[],
 ): SessionCompactionOptions | undefined {
     if (profile === undefined) {
         return sessionModel === undefined
@@ -61,7 +69,10 @@ export function bindCompaction(
     }
     const models: Record<string, CompleteText> = {};
     for (const slot of strategy.models) {
-        const route = profile.slots[slot];
+        const named = profile.slots[slot];
+        const route = named === undefined || named.length === 0
+            ? slotModels
+            : named;
         if (route === undefined || route.length === 0) {
             return undefined;
         }

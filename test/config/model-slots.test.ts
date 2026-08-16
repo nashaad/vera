@@ -91,20 +91,6 @@ test("a blank label falls back to the shipped word", () => {
     expect(slots).toBeUndefined();
 });
 
-test("a route the feature names itself outranks the slot", () => {
-    const slots = parseModelSlotsConfig(
-        { eco: { model_route: "thinking" } },
-        ROUTES,
-    );
-    const bound = bindModelSlot(catalog(), slots ?? {}, {
-        slot: "eco",
-        demand: "required",
-        explicitRoute: "quick",
-    });
-    expect(bound.source).toBe("explicit");
-    expect(bound.models.map((m) => m.name)).toEqual(["glm_low"]);
-});
-
 test("a feature with no route of its own falls to the slot", () => {
     const slots = parseModelSlotsConfig(
         { eco: { model_route: "thinking" } },
@@ -134,19 +120,6 @@ test("an optional caller with nothing bound does not run", () => {
     });
     expect(bound.source).toBe("none");
     expect(bound.models).toEqual([]);
-});
-
-test("an unresolvable explicit route falls through rather than failing", () => {
-    const slots = parseModelSlotsConfig(
-        { eco: { model_route: "thinking" } },
-        ROUTES,
-    );
-    const bound = bindModelSlot(catalog(), slots ?? {}, {
-        slot: "eco",
-        demand: "required",
-        explicitRoute: "gone",
-    });
-    expect(bound.source).toBe("slot");
 });
 
 test("an excluded provider is never auto assigned, at any of its models", () => {

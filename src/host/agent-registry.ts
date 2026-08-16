@@ -52,7 +52,10 @@ import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
 } from "../engine/compaction-binding.ts";
-import type { ResolvedCompactionProfile } from "../config/model-catalog.ts";
+import type {
+    ResolvedCompactionProfile,
+    VeraCatalogModel,
+} from "../config/model-catalog.ts";
 import { isVeraProviderId } from "../config.ts";
 import {
     createSubagentEffectApplier,
@@ -268,6 +271,8 @@ export interface AgentRegistryOptions {
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     /** Resolved once at startup, bound per agent to that agent's adapter. */
     readonly compaction?: ResolvedCompactionProfile;
+    /** What a strategy slot the profile did not name falls back to. */
+    readonly compactionModels?: readonly VeraCatalogModel[];
     /**
      * Durable preferences, deliberately one store shared by every agent:
      * the file is per-user, not per-session, so an allow the user persists
@@ -2372,6 +2377,7 @@ export class AgentRegistry {
             // The registry the host assembled. Extension-registered strategies
             // join this list when activation lands; binding stays agnostic.
             BUNDLED_COMPACTION_STRATEGIES,
+            this.options.compactionModels,
         );
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) => {
             if (effect.type === "spawn_async_subagent") {

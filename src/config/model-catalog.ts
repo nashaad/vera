@@ -11,7 +11,8 @@ export interface VeraCatalogModel {
 }
 
 export interface VeraReviewerProfileConfig {
-    readonly model_route: string;
+    /** Absent means the profile takes whatever the reviewer slot holds. */
+    readonly model_route?: string;
     readonly policy: string;
     readonly timeout_ms?: number;
 }
@@ -118,16 +119,26 @@ export function resolveModelRoute(
     return models.length === route.length ? models : undefined;
 }
 
+/**
+ * A profile's policy and timeout are its own. Only its routing may come from
+ * elsewhere, which is why `slotModels` is passed in rather than the profile
+ * being replaced by a slot: permission modes name profiles, and those names
+ * have to keep meaning what they meant.
+ */
 export function resolveReviewerProfile(
     config: VeraModelCatalogConfig,
     name: string,
+    slotModels?: readonly VeraCatalogModel[],
 ): ResolvedReviewerProfile | undefined {
     const profile = config.reviewer_profiles[name];
     if (profile === undefined) {
         return undefined;
     }
-    const models = resolveModelRoute(config, profile.model_route);
-    if (models === undefined) {
+    const routed = profile.model_route === undefined
+        ? undefined
+        : resolveModelRoute(config, profile.model_route);
+    const models = routed ?? slotModels;
+    if (models === undefined || models.length === 0) {
         return undefined;
     }
     return {
@@ -325,8 +336,8 @@ function parseReviewerProfile(
     const policy = value.policy;
     const timeout = value.timeout_ms;
     if (
-        typeof route !== "string"
-        || routes[route] === undefined
+        (route !== undefined
+            && (typeof route !== "string" || routes[route] === undefined))
         || typeof policy !== "string"
         || policy.trim().length === 0
         || (timeout !== undefined
@@ -338,7 +349,7 @@ function parseReviewerProfile(
         return undefined;
     }
     return {
-        model_route: route,
+        ...(route === undefined ? {} : { model_route: route as string }),
         policy: policy.trim(),
         ...(timeout === undefined ? {} : { timeout_ms: timeout }),
     };
