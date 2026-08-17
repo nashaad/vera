@@ -113,14 +113,14 @@ test("TUI status line prefixes the model with a compact provider label", () => {
     );
 });
 
-test("TUI status line omits the provider prefix for an unrecognized provider id", () => {
+test("TUI status line prefixes a declared provider with the name it was given", () => {
     expect(renderTuiStatusDetailsLine(
-        { model: "gpt-5.6-sol", provider: "unknown-provider", reasoningEffort: "high" },
+        { model: "gemini-2.5-flash", provider: "gemini", reasoningEffort: "high" },
         "auto",
         undefined,
         "/workspace",
     )).toBe(
-        "gpt-5.6-sol · HIGH · auto\n/workspace",
+        "gemini/gemini-2.5-flash · HIGH · auto\n/workspace",
     );
 });
 

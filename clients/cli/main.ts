@@ -652,19 +652,24 @@ async function addPoolRef(
             reason: "expected provider/model",
         };
     }
-    if (!isVeraProviderId(parsed.provider)) {
+    // Config and stored credentials are what verification builds its adapter
+    // from, and the config is also where a declared provider's name lives, so
+    // both paths read it before deciding the name is unknown.
+    const config = loadOptionalVeraConfig() ?? startingVeraConfig();
+    const declared = Object.keys(config.providers ?? {});
+    if (
+        !isVeraProviderId(parsed.provider)
+        && !declared.includes(parsed.provider)
+    ) {
         return {
             verdict: "unavailable",
             reason: `unknown provider "${parsed.provider}", expected one of `
-                + VERA_PROVIDER_IDS.join(", "),
+                + [...VERA_PROVIDER_IDS, ...declared].join(", "),
         };
     }
     if (options.verify !== true) {
         return admitToPool(parsed);
     }
-    // Verification talks to the provider, so it needs the same config and
-    // stored credentials the host builds its adapters from.
-    const config = loadOptionalVeraConfig() ?? startingVeraConfig();
     const authStorage = createAuthStorage();
     return admitToPool(parsed, options.onStep, {
         verify: true,

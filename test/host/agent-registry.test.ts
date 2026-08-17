@@ -3765,7 +3765,7 @@ test("every configured provider id is selectable", async () => {
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         provider: "openrouter",
-        customProviderIds: ["vera-strata"],
+        customProviderIds: () => ["vera-strata"],
         model: "first-model",
         approvalMode: "auto",
     });

@@ -254,8 +254,12 @@ export interface AgentRegistryOptions {
      */
     readonly credentialFingerprint?: (provider: string) => string | undefined;
     readonly provider?: string;
-    /** Config-declared provider ids accepted alongside Vera's built-ins. */
-    readonly customProviderIds?: readonly string[];
+    /**
+     * Config-declared provider ids accepted alongside Vera's built-ins. Read
+     * on each call, so a provider declared mid-session is usable without a
+     * restart.
+     */
+    readonly customProviderIds?: () => readonly string[];
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
@@ -929,7 +933,7 @@ export class AgentRegistry {
 
     private isKnownProvider(provider: string): boolean {
         return isVeraProviderId(provider)
-            || this.options.customProviderIds?.includes(provider) === true;
+            || this.options.customProviderIds?.().includes(provider) === true;
     }
 
     async create(
