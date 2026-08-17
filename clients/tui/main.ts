@@ -935,6 +935,8 @@ export async function startTui(
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
     let doctorInspectionGeneration = 0;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
+    let disposeHostExtensionCommands = (): void => {};
+    let extensionCommandsGeneration = 0;
     let confirmingFullAccess = false;
     let confirmingFullAccessAgent: TuiAgentClient | undefined;
     /**
@@ -5351,8 +5353,14 @@ export async function startTui(
         if (client.listExtensionCommands === undefined) {
             return;
         }
+        const generation = ++extensionCommandsGeneration;
         try {
             const commands = await client.listExtensionCommands();
+            if (generation !== extensionCommandsGeneration) {
+                return;
+            }
+            disposeHostExtensionCommands();
+            const disposers: (() => void)[] = [];
             hostExtensionCommands = commands;
             const commandsBySource = Map.groupBy(
                 commands,
@@ -5360,10 +5368,10 @@ export async function startTui(
             );
             for (const [source, sourceCommands] of commandsBySource) {
                 try {
-                    registerExtensionTuiCommands(
+                    disposers.push(registerExtensionTuiCommands(
                         commandRegistry,
                         sourceCommands,
-                    );
+                    ));
                 } catch (error) {
                     const message = error instanceof Error
                         ? error.message
@@ -5374,6 +5382,11 @@ export async function startTui(
                     );
                 }
             }
+            disposeHostExtensionCommands = () => {
+                for (const dispose of disposers) {
+                    dispose();
+                }
+            };
             if (commandPalette !== undefined) {
                 commandPalette = updateTuiCommandPaletteCommands(
                     commandPalette,
@@ -5402,7 +5415,9 @@ export async function startTui(
             );
             renderState();
         } finally {
-            extensionCommandsLoading = false;
+            if (generation === extensionCommandsGeneration) {
+                extensionCommandsLoading = false;
+            }
         }
     }
 
@@ -7303,6 +7318,9 @@ export async function startTui(
         confirmingFullAccess = false;
         admissionDialog = undefined;
         admissionReturnPicker = undefined;
+        extensionCommandsGeneration += 1;
+        disposeHostExtensionCommands();
+        disposeHostExtensionCommands = () => {};
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
         watchBackgroundAgents(next);
