@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
     createReminderHook,
     loadReminderRules,
-} from "../../src/host/reminder-rules.ts";
+} from "../../examples/extensions/reminders/extension.ts";
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";

@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import type { PostToolUseHook } from "../sdk/hooks.ts";
-import { veraProfileDirectory } from "../profile-paths.ts";
+import type { PostToolUseHook } from "../../../src/sdk/hooks.ts";
+import type { VeraExtensionApi } from "../../../src/sdk/extensions.ts";
 
 /**
  * A reminder rule: when a file-writing tool call's path matches `match`, the
@@ -26,8 +26,10 @@ export interface ReminderRulesFile {
 const DEFAULT_COOLDOWN_MINUTES = 10;
 const FILE_WRITING_TOOLS = new Set(["write", "edit"]);
 
-export function defaultReminderRulesPath(): string {
-    return join(veraProfileDirectory(), "extensions", "reminders", "rules.toml");
+export function activate(vera: VeraExtensionApi): void {
+    vera.hooks.registerPostToolUse(
+        createReminderHook(join(vera.storage.profile, "rules.toml")),
+    );
 }
 
 /**
@@ -36,7 +38,7 @@ export function defaultReminderRulesPath(): string {
  * affordance, not a dependency. Entries missing a field are skipped.
  */
 export async function loadReminderRules(
-    path: string = defaultReminderRulesPath(),
+    path: string,
 ): Promise<ReminderRulesFile> {
     const none: ReminderRulesFile = {
         cooldownMinutes: DEFAULT_COOLDOWN_MINUTES,
@@ -86,7 +88,7 @@ export async function loadReminderRules(
  * without a restart; each rule is silenced for the file's cooldown after it
  * fires. Create one instance per session so cooldowns stay session-local.
  */
-export function createReminderHook(rulesPath?: string): PostToolUseHook {
+export function createReminderHook(rulesPath: string): PostToolUseHook {
     const lastFired = new Map<string, number>();
     return async (payload) => {
         if (payload.result.isError) {
