@@ -16,6 +16,7 @@ import {
     configuredSubagentModel,
     eventLogEnabled,
     loadOptionalVeraConfig,
+    loadOrCreateVeraConfig,
     loadVeraConfig,
     updateVeraConfigDefaults,
     VeraConfigError,
@@ -1276,4 +1277,47 @@ test("writing config defaults keeps hook commands as the user wrote them", () =>
 
     expect(JSON.parse(readFileSync(path, "utf8")).hooks)
         .toEqual([{ phase: "pre_tool_use", argv: ["guard.ts"] }]);
+});
+
+test("a machine with no config gets one made rather than an error", () => {
+    const path = temporaryConfigPath();
+
+    const created = loadOrCreateVeraConfig({ path });
+
+    // Read back through the real reader: the file a start writes has to be one
+    // the next start accepts.
+    expect(loadVeraConfig({ path })).toEqual(created);
+    expect(created.schema_version).toBe(1);
+    expect(created.model.length).toBeGreaterThan(0);
+    expect(created.approval_mode).toBe("auto");
+
+    // The mode is the parser's default, not a decision the file records. A
+    // created config settles a model and leaves the permissions posture to
+    // whoever chooses one.
+    expect(JSON.parse(readFileSync(path, "utf8")))
+        .not.toHaveProperty("approval_mode");
+});
+
+test("a config that is already there is read, not replaced", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        approval_mode: "ask",
+    }));
+
+    const config = loadOrCreateVeraConfig({ path });
+
+    expect(config.model).toBe("anthropic/example-model");
+    expect(config.approval_mode).toBe("ask");
+});
+
+test("a config that exists but cannot be parsed is still refused", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, "{ not json");
+
+    // An edit to fix, not an absence to fill: overwriting it would throw the
+    // user's own file away.
+    expect(() => loadOrCreateVeraConfig({ path })).toThrow(VeraConfigError);
+    expect(readFileSync(path, "utf8")).toBe("{ not json");
 });

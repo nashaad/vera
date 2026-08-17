@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +15,7 @@ import {
     VeraConfigError,
     type VeraCustomProviderConfig,
 } from "../../src/config.ts";
+import { loadRecommendedModels } from "../../src/model/recommended-models.ts";
 
 const LOCAL: VeraCustomProviderConfig = {
     protocol: "openai-chat",
@@ -164,4 +171,66 @@ test("a base URL the loader would refuse is refused here too", () => {
             )
         ).toThrow(VeraConfigError);
     });
+});
+
+test("declaring a provider on a machine with no config creates one", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-provider-fresh-"));
+    try {
+        const path = join(directory, "config.json");
+        updateVeraConfigDefaults(
+            { custom_provider: { id: "gateway", declaration: LOCAL } },
+            { path },
+        );
+        const config = loadVeraConfig({ path });
+        expect(config.providers?.gateway).toEqual(LOCAL);
+        expect(config.schema_version).toBe(1);
+        expect(config.model.length).toBeGreaterThan(0);
+        expect(config.approval_mode).toBe("auto");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("the created config matches the shipped recommendation", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-provider-fresh-"));
+    try {
+        const path = join(directory, "config.json");
+        updateVeraConfigDefaults(
+            { custom_provider: { id: "gateway", declaration: LOCAL } },
+            { path },
+        );
+        const first = loadRecommendedModels()[0]!;
+        const config = loadVeraConfig({ path });
+        expect(config.provider).toBe(first.provider);
+        expect(config.model).toBe(first.model);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("an existing config is never replaced by the starting one", () => {
+    withConfigFile((path) => {
+        updateVeraConfigDefaults(
+            { custom_provider: { id: "gateway", declaration: LOCAL } },
+            { path },
+        );
+        const config = loadVeraConfig({ path });
+        expect(config.model).toBe("seed");
+    });
+});
+
+test("a refused declaration on a fresh machine writes no file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-provider-fresh-"));
+    try {
+        const path = join(directory, "config.json");
+        expect(() =>
+            updateVeraConfigDefaults(
+                { custom_provider: { id: "openrouter", declaration: LOCAL } },
+                { path },
+            )
+        ).toThrow(VeraConfigError);
+        expect(existsSync(path)).toBe(false);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 });

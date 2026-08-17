@@ -3,7 +3,7 @@ import { stdin, stdout } from "node:process";
 import {
     configuredModelFallback,
     configuredReviewer,
-    loadVeraConfig,
+    loadOrCreateVeraConfig,
     VeraConfigError,
     type VeraConfig,
 } from "../../src/config.ts";
@@ -15,7 +15,7 @@ import { runNdjsonBridge } from "./ndjson-bridge.ts";
 export async function runNdjsonProcess(): Promise<void> {
     let config: VeraConfig;
     try {
-        config = loadVeraConfig();
+        config = loadOrCreateVeraConfig();
     } catch (error) {
         if (error instanceof VeraConfigError) {
             process.stderr.write(`${renderCliFailure(error)}\n`);

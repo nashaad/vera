@@ -582,7 +582,7 @@ test("quickslot is supplied by the bundled extension, not the core catalog", () 
 
     expect(registry.dispatch("/quickslot")).toBeUndefined();
     expect(registry.suggestions("/p").map((command) => command.name))
-        .toEqual(["permissions", "parent", "pool", "palette"]);
+        .toEqual(["permissions", "parent", "pool", "providers", "palette"]);
     expect(registry.dispatch("/p")).toBeUndefined();
     expect(registry.dispatch("/pa")).toBeUndefined();
     expect(registry.dispatch("/pal")).toEqual({ type: "open_command_palette" });

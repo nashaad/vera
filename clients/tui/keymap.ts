@@ -34,10 +34,30 @@ export type TuiKeyScope =
     | "model_picker"
     | "session_picker"
     | "secret_prompt"
+    | "provider_form"
     | "preferences_list"
     | "approval"
     | "question"
     | "help";
+
+/**
+ * The scopes that only exist while an overlay owns the screen.
+ *
+ * An extension's chord stands down for as long as one is open, so a binding an
+ * extension owns is not reachable here and cannot collide with what the
+ * overlay claims.
+ */
+const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
+    "picker",
+    "model_picker",
+    "session_picker",
+    "secret_prompt",
+    "provider_form",
+    "preferences_list",
+    "approval",
+    "question",
+    "help",
+];
 
 /** The panes that inherit every `picker` binding on top of their own. */
 const PICKER_SCOPES: readonly TuiKeyScope[] = [
@@ -316,6 +336,21 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^u clear",
     },
     {
+        id: "next_form_field",
+        keys: ["tab"],
+        scope: "provider_form",
+        description: "Move to the next field",
+        hint: "tab field",
+    },
+    {
+        // Terminals disagree on shift+tab: some report the shifted name, some
+        // send the dedicated backtab key.
+        id: "previous_form_field",
+        keys: ["shift+tab", "backtab"],
+        scope: "provider_form",
+        description: "Move to the previous field",
+    },
+    {
         id: "revoke_permission",
         keys: ["delete", "backspace"],
         scope: "preferences_list",
@@ -459,6 +494,9 @@ export function tuiKeymapConflicts(
             if (!overlaps(binding.scope, other.scope)) {
                 continue;
             }
+            if (standsDownFor(binding, other) || standsDownFor(other, binding)) {
+                continue;
+            }
             for (const chord of binding.keys) {
                 if (other.keys.includes(chord)) {
                     conflicts.push(`${chord}: ${binding.id} and ${other.id}`);
@@ -469,10 +507,19 @@ export function tuiKeymapConflicts(
     return conflicts;
 }
 
+/** Whether the first binding is one the second's scope silences outright. */
+function standsDownFor(binding: TuiBinding, other: TuiBinding): boolean {
+    return binding.extensionId !== undefined
+        && OVERLAY_SCOPES.includes(other.scope);
+}
+
 /** Whether a binding is reachable in a scope, by its own scope or by descent. */
 function appliesIn(binding: TuiBinding, scope: TuiKeyScope): boolean {
     if (binding.scope === scope) {
         return true;
+    }
+    if (binding.extensionId !== undefined && OVERLAY_SCOPES.includes(scope)) {
+        return false;
     }
     // Global is reachable everywhere because the global handler runs first.
     if (binding.scope === "global") {

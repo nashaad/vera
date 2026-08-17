@@ -3793,6 +3793,13 @@ export async function startTui(
             renderState();
             return;
         }
+        if (commandAction?.type === "open_providers") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            openProviderPicker();
+            return;
+        }
         if (commandAction?.type === "pool_current_model") {
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
@@ -6598,16 +6605,29 @@ export async function startTui(
         }
     }
 
-    function openProviderPicker(parent?: TuiSettingsPickerState): void {
+    function openProviderPicker(
+        parent?: TuiSettingsPickerState,
+        options: {
+            readonly selected?: string;
+            readonly subtitle?: string;
+        } = {},
+    ): void {
         const providers = configuredProviders(loadOptionalVeraConfig());
         settingsPicker = withTuiPickerParent(
-            startTuiProviderPicker(providers.map((provider) => ({
-                id: provider.id,
-                label: provider.label,
-                group: provider.group === "popular" ? "Popular" : "Providers",
-                ...(provider.hint === undefined ? {} : { hint: provider.hint }),
-                connected: providerConnected(provider),
-            }))),
+            startTuiProviderPicker(
+                providers.map((provider) => ({
+                    id: provider.id,
+                    label: provider.label,
+                    group: provider.group === "popular"
+                        ? "Popular"
+                        : "Providers",
+                    ...(provider.hint === undefined
+                        ? {}
+                        : { hint: provider.hint }),
+                    connected: providerConnected(provider),
+                })),
+                options,
+            ),
             parent,
         );
         composer.blur();
@@ -6723,14 +6743,14 @@ export async function startTui(
                 ? undefined
                 : process.env[provider.envVar],
         );
-        // A row that cannot be forgotten answers in the transcript, so the pane
-        // goes away first. The row that can leaves the pane open underneath:
-        // cancelling has to put the user back where the key was pressed.
+        // A row that cannot be forgotten answers on the pane itself, under the
+        // title, with the cursor still on the row the key was pressed on.
+        // Nothing is being confirmed, so nothing has to be stepped away from.
         if (decision.kind === "explain") {
-            settingsPicker = undefined;
-            closeSettingsPickerSurface();
-            state = appendTuiNotice(state, decision.message);
-            renderState();
+            openProviderPicker(pane, {
+                selected: provider.id,
+                subtitle: decision.message,
+            });
             return;
         }
         providerForgetCandidate = {
@@ -6777,7 +6797,7 @@ export async function startTui(
         requestAgentSettings(focusedAgentClient());
         // Reopened rather than patched: the mark on every row is read from the
         // store, and the store just changed.
-        openProviderPicker(candidate.pane);
+        openProviderPicker(candidate.pane, { selected: candidate.providerId });
     }
 
     async function defaultLoginProvider(
@@ -6831,27 +6851,32 @@ export async function startTui(
             return;
         }
         state = appendTuiNotice(state, `declared ${submitted.id}`);
+        // The key entered on the form goes to the credential store, which is a
+        // separate file from the declaration that just landed in config.json.
+        if (submitted.apiKey !== undefined) {
+            try {
+                authStorage.setCredential(submitted.id, {
+                    type: "api_key",
+                    key: submitted.apiKey,
+                });
+                state = appendTuiNotice(
+                    state,
+                    `stored ${submitted.id} API key`,
+                );
+            } catch (error) {
+                state = appendTuiError(
+                    state,
+                    `could not store the ${submitted.id} API key: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+            }
+        }
         requestAgentSettings(focusedAgentClient());
         // Rebuilt rather than patched: the connect list is read from the config
-        // file, and the file just changed.
-        openProviderPicker(form.parent?.parent);
-        if (submitted.declaration.credential !== "api_key") {
-            return;
-        }
-        const provider = findConfiguredProvider(
-            submitted.id,
-            loadOptionalVeraConfig(),
-        );
-        if (provider === undefined) {
-            return;
-        }
-        secretPrompt = startTuiSecretPrompt(
-            provider,
-            settingsPicker?.kind === "provider" ? settingsPicker : undefined,
-        );
-        settingsPicker = undefined;
-        renderState();
-        focusActiveSurface();
+        // file, and the file just changed. It opens on the row that was just
+        // declared, which is the one the user came here to act on.
+        openProviderPicker(form.parent?.parent, { selected: submitted.id });
     }
 
     function applySecretPromptTransition(

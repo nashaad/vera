@@ -151,6 +151,10 @@ export interface ShowAssignedTuiCommandAction {
     readonly type: "show_assigned";
 }
 
+export interface OpenProvidersTuiCommandAction {
+    readonly type: "open_providers";
+}
+
 /** `/pool add`: pools the running model, the same write ^s makes. */
 export interface AddCurrentModelToPoolTuiCommandAction {
     readonly type: "pool_current_model";
@@ -197,6 +201,7 @@ export type TuiCommandAction =
     | ReloadClientExtensionsTuiCommandAction
     | ShowPoolTuiCommandAction
     | ShowAssignedTuiCommandAction
+    | OpenProvidersTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
@@ -238,6 +243,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "reload_client_extensions":
         case "show_pool":
         case "show_assigned":
+        case "open_providers":
         case "pool_current_model":
         case "run_extension":
         case "command_error":
@@ -296,6 +302,7 @@ export interface TuiCommandDefinition {
         | ShowDiagnosticsTuiCommandAction
         | ShowDoctorTuiCommandAction
         | ShowAssignedTuiCommandAction
+        | OpenProvidersTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly arguments?: TuiCommandArgumentKind;
@@ -411,6 +418,12 @@ const POOL_COMMAND = {
     usage: "/pool [add]",
 } as const satisfies TuiCommandCatalogEntry;
 
+const PROVIDERS_COMMAND = {
+    name: "providers",
+    description: "Connect a provider, or add an endpoint of your own",
+    usage: "/providers",
+} as const satisfies TuiCommandCatalogEntry;
+
 const ASSIGNED_COMMAND = {
     name: "assigned",
     description: "Show which model runs each job",
@@ -457,6 +470,7 @@ export const BUILTIN_COMMANDS = [
     RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
     ASSIGNED_COMMAND,
+    PROVIDERS_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -1196,6 +1210,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Settings",
             slashName: "assigned",
             action: { type: "show_assigned" },
+        },
+    });
+    registry.registerCommand({
+        ...PROVIDERS_COMMAND,
+        action: { type: "open_providers" },
+        palette: {
+            name: "providers",
+            label: "Connect a provider",
+            description: "sign in, or add an endpoint of your own",
+            group: "Settings",
+            slashName: "providers",
+            action: { type: "open_providers" },
         },
     });
     // The palette does not list itself: you are already looking at it.

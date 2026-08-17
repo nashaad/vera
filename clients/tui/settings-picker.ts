@@ -2,6 +2,7 @@ import {
     bg,
     BoxRenderable,
     fg,
+    italic,
     StyledText,
     TextRenderable,
     type MouseEvent,
@@ -792,6 +793,12 @@ const PERMISSION_SETTINGS_OPTIONS: readonly TuiSettingsPickerOption[] = [
  */
 export function startTuiProviderPicker(
     providers: readonly TuiProviderRow[],
+    options: {
+        /** The row to open on, for a caller that just changed one. */
+        readonly selected?: string;
+        /** A line under the title, for something the pane has to say. */
+        readonly subtitle?: string;
+    } = {},
 ): TuiSettingsPickerState {
     const rows: TuiSettingsPickerOption[] = providers.map((provider) => ({
         value: provider.id,
@@ -804,13 +811,22 @@ export function startTuiProviderPicker(
     const firstUnconnected = rows.findIndex(
         (option) => option.connected !== true,
     );
-    const options = [...rows, TUI_DECLARE_PROVIDER_OPTION];
+    const allOptions = [...rows, TUI_DECLARE_PROVIDER_OPTION];
+    // A named row wins over the first unconnected one: a caller that just
+    // declared or forgot something is pointing at the row the user will act on
+    // next, and the default only applies when nobody said.
+    const named = options.selected === undefined
+        ? -1
+        : allOptions.findIndex((option) => option.value === options.selected);
     return {
         kind: "provider",
-        allOptions: options,
-        options,
-        selectedIndex: Math.max(0, firstUnconnected),
+        allOptions,
+        options: allOptions,
+        selectedIndex: named >= 0 ? named : Math.max(0, firstUnconnected),
         query: "",
+        ...(options.subtitle === undefined
+            ? {}
+            : { subtitle: options.subtitle }),
     };
 }
 
@@ -2913,7 +2929,11 @@ function pickerFooterText(
             ...(selected?.connected === true
                 ? [tuiKeyHint("forget_provider")]
                 : []),
-            tuiKeyHint("declare_provider"),
+            // The chord and ⏎ are the same action, so the row that already
+            // offers it on ⏎ does not advertise it twice.
+            ...(selected?.action === true
+                ? []
+                : [tuiKeyHint("declare_provider")]),
             ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
@@ -4026,28 +4046,47 @@ function unchanged(
  * The declaration form for a provider Vera does not ship: an OpenAI- or
  * Anthropic-compatible endpoint the user runs or pays for themselves.
  *
- * Four fields, and nothing else. The quirk flags a declaration can carry
- * (`images`, `max_tokens`, `thinking`) stay hand-edited in `config.json`,
- * which remains the file this form writes and never a second source of truth.
+ * The quirk flags a declaration can carry (`images`, `max_tokens`,
+ * `thinking`) stay hand-edited in `config.json`, which remains the file this
+ * form writes and never a second source of truth.
+ *
+ * The key field is on this screen rather than in a prompt that follows it, so
+ * declaring an endpoint and giving it a key is one action in any order. It is
+ * present only while the credential choice is `api_key`; the key itself goes
+ * to the credential store, never to `config.json`.
  */
 export type TuiProviderFormFieldId =
     | "id"
     | "base_url"
     | "protocol"
-    | "credential";
+    | "credential"
+    | "api_key";
 
+/** Every field the form can show, in screen order. */
 export const TUI_PROVIDER_FORM_FIELDS: readonly TuiProviderFormFieldId[] = [
     "id",
     "base_url",
     "protocol",
     "credential",
+    "api_key",
 ];
+
+/** The fields this form actually shows, which the credential choice decides. */
+export function tuiProviderFormFields(
+    state: TuiProviderFormState,
+): readonly TuiProviderFormFieldId[] {
+    return state.credential === "api_key"
+        ? TUI_PROVIDER_FORM_FIELDS
+        : TUI_PROVIDER_FORM_FIELDS.filter((field) => field !== "api_key");
+}
 
 export interface TuiProviderFormState {
     readonly id: string;
     readonly baseUrl: string;
     readonly protocol: VeraProviderProtocol;
     readonly credential: VeraProviderCredential;
+    /** Held only while the form is open, and never rendered in the clear. */
+    readonly apiKey: string;
     readonly field: TuiProviderFormFieldId;
     /** Set by a refused submit, cleared by the next edit. */
     readonly error?: string;
@@ -4059,6 +4098,11 @@ export interface TuiProviderFormState {
 export interface TuiProviderFormDeclaration {
     readonly id: string;
     readonly declaration: VeraCustomProviderConfig;
+    /**
+     * The key to store alongside the declaration, when one was entered. Absent
+     * on a declaration that carries no key, so the caller stores nothing.
+     */
+    readonly apiKey?: string;
 }
 
 export interface TuiProviderFormKey {
@@ -4094,6 +4138,7 @@ export function startTuiProviderForm(
         baseUrl: "",
         protocol: "openai-chat",
         credential: "api_key",
+        apiKey: "",
         field: "id",
         ...(parent === undefined ? {} : { parent }),
     };
@@ -4125,6 +4170,13 @@ export function handleTuiProviderFormKey(
     if (key.name === "escape") {
         return { handled: true };
     }
+    const binding = tuiBindingId("provider_form", key);
+    if (binding === "next_form_field") {
+        return { state: movedProviderFormField(state, 1), handled: true };
+    }
+    if (binding === "previous_form_field") {
+        return { state: movedProviderFormField(state, -1), handled: true };
+    }
     // Swallowed rather than passed down, for the same reason the name prompt
     // swallows them: the pane behind this card is a list with its own
     // bindings, and a key falling through would move a row nobody can see.
@@ -4133,13 +4185,8 @@ export function handleTuiProviderFormKey(
         return { state, handled: true };
     }
     if (key.name === "up" || key.name === "down") {
-        const at = TUI_PROVIDER_FORM_FIELDS.indexOf(state.field);
-        const next = key.name === "up"
-            ? (at + TUI_PROVIDER_FORM_FIELDS.length - 1)
-                % TUI_PROVIDER_FORM_FIELDS.length
-            : (at + 1) % TUI_PROVIDER_FORM_FIELDS.length;
         return {
-            state: { ...state, field: TUI_PROVIDER_FORM_FIELDS[next]! },
+            state: movedProviderFormField(state, key.name === "up" ? -1 : 1),
             handled: true,
         };
     }
@@ -4181,10 +4228,24 @@ export function handleTuiProviderFormKey(
     };
 }
 
+/** One step through the shown fields, wrapping at either end. */
+function movedProviderFormField(
+    state: TuiProviderFormState,
+    step: 1 | -1,
+): TuiProviderFormState {
+    const fields = tuiProviderFormFields(state);
+    const at = fields.indexOf(state.field);
+    const next = (at + step + fields.length) % fields.length;
+    return { ...state, field: fields[next]! };
+}
+
 /**
  * What the form can decide on its own: a name that is usable as a key and a
  * URL that is there at all. Whether the URL is one Vera will accept is the
  * config writer's call, and its refusal comes back on the same error line.
+ *
+ * Checks run here rather than on every edit, so a half-typed field never
+ * blocks moving to another one.
  */
 function submittedProviderForm(
     state: TuiProviderFormState,
@@ -4203,6 +4264,7 @@ function submittedProviderForm(
     if (baseUrl.length === 0) {
         return providerFormError(state, "base_url", "a base URL is required");
     }
+    const apiKey = state.credential === "api_key" ? state.apiKey.trim() : "";
     return {
         handled: true,
         submitted: {
@@ -4212,6 +4274,9 @@ function submittedProviderForm(
                 base_url: baseUrl,
                 credential: state.credential,
             },
+            // An empty key field is a declaration without a key yet, not an
+            // empty key, so it is left off rather than stored as "".
+            ...(apiKey.length === 0 ? {} : { apiKey }),
         },
     };
 }
@@ -4225,14 +4290,18 @@ function providerFormError(
 }
 
 function providerFormTextField(field: TuiProviderFormFieldId): boolean {
-    return field === "id" || field === "base_url";
+    return field === "id" || field === "base_url" || field === "api_key";
 }
 
 function providerFormFieldValue(
     state: TuiProviderFormState,
     field: TuiProviderFormFieldId,
 ): string {
-    return field === "id" ? state.id : state.baseUrl;
+    return field === "id"
+        ? state.id
+        : field === "api_key"
+        ? state.apiKey
+        : state.baseUrl;
 }
 
 function editedProviderFormField(
@@ -4242,6 +4311,8 @@ function editedProviderFormField(
     const { error: _error, ...rest } = state;
     return state.field === "id"
         ? { ...rest, id: value }
+        : state.field === "api_key"
+        ? { ...rest, apiKey: value }
         : { ...rest, baseUrl: value };
 }
 
@@ -4249,24 +4320,36 @@ function toggledProviderFormChoice(
     state: TuiProviderFormState,
 ): TuiProviderFormState {
     const { error: _error, ...rest } = state;
-    return state.field === "protocol"
-        ? {
+    if (state.field === "protocol") {
+        return {
             ...rest,
             protocol: state.protocol === "openai-chat"
                 ? "anthropic-messages"
                 : "openai-chat",
-        }
-        : {
-            ...rest,
-            credential: state.credential === "api_key" ? "none" : "api_key",
         };
+    }
+    // Turning the key off drops what was typed rather than keeping it out of
+    // sight, so a declaration saved as keyless carries no key anywhere.
+    return state.credential === "api_key"
+        ? { ...rest, credential: "none", apiKey: "" }
+        : { ...rest, credential: "api_key" };
 }
 
-/** The four rows as they read on screen, cursor and all. */
+/**
+ * The shown rows as they read on screen, cursor and all.
+ *
+ * The key is drawn in the clear. A field being filled in shows its literal
+ * value, so a paste that arrived truncated is visible while it can still be
+ * fixed. Masking would belong to a stored key shown back to a passer-by, and
+ * no surface does that.
+ *
+ * A field standing empty shows its placeholder softened, so nothing on this
+ * card reads as a value already there.
+ */
 export function tuiProviderFormRows(
     state: TuiProviderFormState,
 ): readonly StyledText[] {
-    return TUI_PROVIDER_FORM_FIELDS.map((field) => {
+    return tuiProviderFormFields(state).map((field) => {
         const focused = state.field === field;
         const value = providerFormTextField(field)
             ? providerFormFieldValue(state, field)
@@ -4279,9 +4362,9 @@ export function tuiProviderFormRows(
         return new StyledText([
             fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "› " : "  "),
             fg(TUI_MUTED)(`${PROVIDER_FORM_LABELS[field].padEnd(10)} `),
-            fg(empty ? TUI_MUTED : TUI_TEXT)(
-                empty ? PROVIDER_FORM_PLACEHOLDERS[field] : value,
-            ),
+            empty
+                ? italic(fg(TUI_MUTED)(PROVIDER_FORM_PLACEHOLDERS[field]))
+                : fg(TUI_TEXT)(value),
             ...(focused && providerFormTextField(field)
                 ? [fg(TUI_ACCENT)("▏")]
                 : []),
@@ -4298,6 +4381,7 @@ const PROVIDER_FORM_LABELS: Readonly<Record<TuiProviderFormFieldId, string>> = {
     base_url: "Base URL",
     protocol: "Protocol",
     credential: "Credential",
+    api_key: "Key",
 };
 
 const PROVIDER_FORM_PLACEHOLDERS: Readonly<
@@ -4307,6 +4391,7 @@ const PROVIDER_FORM_PLACEHOLDERS: Readonly<
     base_url: "https://…/v1",
     protocol: "openai-chat",
     credential: "API key",
+    api_key: "paste or type it, or leave it for later",
 };
 
 export function createTuiProviderFormView(
@@ -4345,8 +4430,9 @@ export function createTuiProviderFormView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content:
-            "↑↓ field · ←→ change · ⏎ save · esc cancel",
+        content: `↑↓ ${
+            tuiKeyHint("next_form_field")
+        } · ←→ change · ⏎ save · esc cancel`,
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
@@ -4378,11 +4464,12 @@ export function createTuiProviderFormView(
         surface,
         update(state): void {
             const lines = tuiProviderFormRows(state);
-            lines.forEach((line, index) => {
-                const row = rows[index];
-                if (row !== undefined) {
-                    row.content = line;
-                }
+            rows.forEach((row, index) => {
+                const line = lines[index];
+                // A field the credential choice hides leaves the card
+                // entirely rather than sitting there greyed out.
+                row.visible = line !== undefined;
+                row.content = line ?? new StyledText([]);
             });
             error.content = state.error ?? "";
         },
