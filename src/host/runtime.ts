@@ -96,7 +96,11 @@ import {
     type RegisteredAgentSummary,
 } from "./agent-registry.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
-import { createReminderHook } from "./reminder-rules.ts";
+import { createCommandHook } from "../extensions/command-hook.ts";
+import type {
+    PostToolUseHook,
+    PreToolUseHook,
+} from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
 import {
@@ -421,7 +425,7 @@ export async function startResidentHost(
         loadContextualContributions: loadSkillContribution,
         createToolHooks: () => {
             const hooks = new ToolHooks();
-            hooks.registerPostToolUse(createReminderHook());
+            registerConfiguredHooks(hooks, currentConfig());
             for (const hook of extensions.preToolUseHooks()) {
                 hooks.registerPreToolUse(hook);
             }
@@ -1323,6 +1327,29 @@ async function closeServerAndRest(
             } finally {
                 await closeInbox();
             }
+        }
+    }
+}
+
+/**
+ * Wires the config's `hooks` entries into a session's hook chain. The paths
+ * were bound to the profile's `hooks/` directory when the config was read, so
+ * nothing here decides what a hook is allowed to run.
+ */
+function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
+    for (const spec of config.hooks ?? []) {
+        const hook = createCommandHook({
+            phase: spec.phase,
+            argv: spec.argv,
+            ...(spec.protocol === undefined ? {} : { protocol: spec.protocol }),
+            ...(spec.timeout_ms === undefined
+                ? {}
+                : { timeoutMs: spec.timeout_ms }),
+        });
+        if (spec.phase === "pre_tool_use") {
+            hooks.registerPreToolUse(hook as PreToolUseHook);
+        } else {
+            hooks.registerPostToolUse(hook as PostToolUseHook);
         }
     }
 }

@@ -7,7 +7,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
     configuredModelFallback,
@@ -1076,4 +1076,79 @@ test("a plain reviewer block is the default profile beside a catalog", () => {
         { model: "haiku", provider: "openrouter" },
         { model: "sonnet", provider: "openrouter" },
     ]);
+});
+
+test("a configured hook is bound to the profile's hooks directory", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        hooks: [
+            { phase: "pre_tool_use", argv: ["guard.ts", "--strict"] },
+            {
+                phase: "post_tool_use",
+                argv: ["./nested/note.ts"],
+                protocol: "vera",
+                timeout_ms: 2000,
+            },
+        ],
+    }));
+
+    expect(loadVeraConfig({ path }).hooks).toEqual([
+        {
+            phase: "pre_tool_use",
+            argv: [join(dirname(path), "hooks", "guard.ts"), "--strict"],
+        },
+        {
+            phase: "post_tool_use",
+            argv: [join(dirname(path), "hooks", "nested", "note.ts")],
+            protocol: "vera",
+            timeout_ms: 2000,
+        },
+    ]);
+});
+
+test("a hook command outside the hooks directory is refused at load", () => {
+    // The door is the profile's own hooks directory. A config that travels
+    // between machines cannot name an arbitrary binary on this one.
+    for (const argv of [["/bin/sh"], ["../escape.ts"], ["."]]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            hooks: [{ phase: "pre_tool_use", argv }],
+        }));
+        expect(() => loadVeraConfig({ path })).toThrow(VeraConfigError);
+    }
+});
+
+test("a malformed hook entry rejects the config", () => {
+    for (const hook of [
+        { phase: "on_start", argv: ["guard.ts"] },
+        { phase: "pre_tool_use", argv: [] },
+        { phase: "pre_tool_use", argv: ["guard.ts"], protocol: "shell" },
+        { phase: "pre_tool_use", argv: ["guard.ts"], timeout_ms: 0 },
+    ]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            hooks: [hook],
+        }));
+        expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");
+    }
+});
+
+test("writing config defaults keeps hook commands as the user wrote them", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        hooks: [{ phase: "pre_tool_use", argv: ["guard.ts"] }],
+    }));
+
+    updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
+
+    expect(JSON.parse(readFileSync(path, "utf8")).hooks)
+        .toEqual([{ phase: "pre_tool_use", argv: ["guard.ts"] }]);
 });

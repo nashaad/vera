@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -140,6 +140,19 @@ export interface VeraTuiConfig {
     readonly composer?: VeraTuiComposerConfig;
 }
 
+/**
+ * An executable hook the user wires up without writing an extension. `argv[0]`
+ * names a file inside the profile's `hooks/` directory and is stored resolved
+ * to an absolute path; nothing outside that directory can be reached, so a
+ * config that travels between machines cannot point at an arbitrary binary.
+ */
+export interface VeraHookConfig {
+    readonly phase: "pre_tool_use" | "post_tool_use";
+    readonly argv: readonly string[];
+    readonly protocol?: "vera" | "claude";
+    readonly timeout_ms?: number;
+}
+
 export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
     readonly provider: VeraProviderId;
@@ -164,6 +177,7 @@ export interface VeraConfig {
         Record<string, PermissionMode>
     >;
     readonly extensions?: readonly VeraExtensionConfig[];
+    readonly hooks?: readonly VeraHookConfig[];
     readonly disabled_builtin_extensions?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
@@ -322,6 +336,14 @@ export function loadVeraConfig(
                 + " different model and after_failures from 1 to 3.",
         );
     }
+    const hooks = config.hooks === undefined ? undefined : resolveHookCommands(
+        config.hooks,
+        options.path === undefined
+            ? join(veraProfileDirectory(), "hooks")
+            : join(dirname(path), "hooks"),
+        path,
+    );
+    const resolved = hooks === undefined ? config : { ...config, hooks };
     const extensionDirectory = options.extensionDirectory
         ?? (options.path === undefined
             ? defaultVeraExtensionDirectory()
@@ -329,7 +351,7 @@ export function loadVeraConfig(
     const override = extensionOverrideFromEnvironment();
     if (override !== undefined) {
         return {
-            ...config,
+            ...resolved,
             extensions: override,
         };
     }
@@ -338,10 +360,10 @@ export function loadVeraConfig(
         config.extensions ?? [],
     );
     if (extensions.length === 0 && config.extensions === undefined) {
-        return config;
+        return resolved;
     }
     return {
-        ...config,
+        ...resolved,
         extensions,
     };
 }
@@ -408,7 +430,11 @@ export function updateVeraConfigDefaults(
     writeFileSync(
         temporaryPath,
         `${JSON.stringify(
-            { ...foreignConfigEntries(path), ...configForDisk(updated) },
+            {
+                ...foreignConfigEntries(path),
+                ...configForDisk(updated),
+                ...writtenHooks(path),
+            },
             null,
             2,
         )}\n`,
@@ -466,6 +492,24 @@ function foreignConfigEntries(path: string): Record<string, unknown> {
             .filter((key) => raw[key] !== undefined)
             .map((key) => [key, raw[key]]),
     );
+}
+
+/**
+ * The `hooks` entries exactly as the user wrote them. Loading resolves each
+ * command against the profile's `hooks/` directory, so writing the loaded
+ * config back would replace the user's short names with absolute paths.
+ */
+function writtenHooks(path: string): Record<string, unknown> {
+    try {
+        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return {};
+        }
+        const hooks = (value as Record<string, unknown>).hooks;
+        return hooks === undefined ? {} : { hooks };
+    } catch {
+        return {};
+    }
 }
 
 function configForDisk(config: VeraConfig): Record<string, unknown> {
@@ -541,6 +585,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         modelCatalog?.model_routes ?? {},
     );
     const extensions = parseExtensionConfigs(config.extensions);
+    const hooks = parseHookConfigs(config.hooks);
     const disabledBuiltinExtensions = parseStringList(
         config.disabled_builtin_extensions,
     );
@@ -568,6 +613,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || modelCatalog === undefined
         || permissionModes === undefined
         || extensions === undefined
+        || hooks === undefined
         || disabledBuiltinExtensions === undefined
         || disabledPromptContributions === undefined
         || experimental === undefined
@@ -621,6 +667,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? {}
             : { permission_modes: permissionModes }),
         ...(config.extensions === undefined ? {} : { extensions }),
+        ...(config.hooks === undefined ? {} : { hooks }),
         ...(config.disabled_builtin_extensions === undefined
             ? {}
             : {
@@ -858,6 +905,83 @@ function parseStringList(value: unknown): readonly string[] | undefined {
     return new Set(normalized).size === normalized.length
         ? normalized
         : undefined;
+}
+
+const HOOK_PROTOCOLS = new Set(["vera", "claude"]);
+
+function parseHookConfigs(
+    value: unknown,
+): readonly VeraHookConfig[] | undefined {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+    const hooks: VeraHookConfig[] = [];
+    for (const item of value) {
+        if (
+            typeof item !== "object"
+            || item === null
+            || Array.isArray(item)
+        ) {
+            return undefined;
+        }
+        const hook = item as Record<string, unknown>;
+        const { phase, argv, protocol, timeout_ms } = hook;
+        if (
+            (phase !== "pre_tool_use" && phase !== "post_tool_use")
+            || !Array.isArray(argv)
+            || argv.length === 0
+            || argv.some((argument) =>
+                typeof argument !== "string" || argument.length === 0
+            )
+            || (protocol !== undefined
+                && (typeof protocol !== "string"
+                    || !HOOK_PROTOCOLS.has(protocol)))
+            || (timeout_ms !== undefined
+                && (typeof timeout_ms !== "number"
+                    || !Number.isSafeInteger(timeout_ms)
+                    || timeout_ms <= 0))
+        ) {
+            return undefined;
+        }
+        hooks.push({
+            phase,
+            argv: [...argv as string[]],
+            ...(protocol === undefined
+                ? {}
+                : { protocol: protocol as "vera" | "claude" }),
+            ...(timeout_ms === undefined ? {} : { timeout_ms }),
+        });
+    }
+    return hooks;
+}
+
+/**
+ * Binds each configured hook to the profile's `hooks/` directory. A command
+ * that resolves outside it is refused here rather than at the first tool call,
+ * so the config names what the host will actually run.
+ */
+function resolveHookCommands(
+    hooks: readonly VeraHookConfig[],
+    hooksDirectory: string,
+    configPath: string,
+): readonly VeraHookConfig[] {
+    return hooks.map((hook) => {
+        const command = resolve(hooksDirectory, hook.argv[0]!);
+        const inside = command === hooksDirectory
+            ? false
+            : command.startsWith(`${hooksDirectory}${sep}`);
+        if (!inside) {
+            throw new VeraConfigError(
+                configPath,
+                `hook command ${hook.argv[0]} is outside ${hooksDirectory}.`
+                    + " A configured hook may only run a script kept there.",
+            );
+        }
+        return { ...hook, argv: [command, ...hook.argv.slice(1)] };
+    });
 }
 
 function parseExtensionConfigs(
