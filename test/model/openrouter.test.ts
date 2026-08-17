@@ -88,6 +88,26 @@ describe("OpenRouter adapter", () => {
         expect(adapter.supportsImageInput).toBe(true);
     });
 
+    test("rejects request-body contributions it cannot carry", async () => {
+        let sent = false;
+        const adapter = new OpenRouterAdapter(async () => {
+            sent = true;
+            return chunks([]);
+        });
+
+        const result = await adapter.stream({
+            model: "test/model",
+            messages: [],
+            bodyExtensions: { strata: { corpus_id: "corpus-1" } },
+        }).result();
+
+        expect(sent).toBe(false);
+        expect(result.stopReason).toBe("error");
+        expect(result.errorMessage).toContain(
+            "does not support model request contributions",
+        );
+    });
+
     test("uses supplied verification mappings instead of the installed catalog", async () => {
         const sendChat: SendOpenRouterChat = async (request) => {
             expect(request.reasoning).toEqual({ effort: "candidate-effort" });

@@ -314,9 +314,10 @@ import {
     type AuthStorage,
 } from "../../src/providers/auth-storage.ts";
 import {
+    configuredProviders,
+    findConfiguredProvider,
     findProvider,
     isProviderConnected,
-    PROVIDERS,
 } from "../../src/providers/registry.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 import { renderPermissionInspection } from "./permission-inspection.ts";
@@ -6437,8 +6438,9 @@ export async function startTui(
     }
 
     function openProviderPicker(parent?: TuiSettingsPickerState): void {
+        const providers = configuredProviders(loadOptionalVeraConfig());
         settingsPicker = withTuiPickerParent(
-            startTuiProviderPicker(PROVIDERS.map((provider) => ({
+            startTuiProviderPicker(providers.map((provider) => ({
                 id: provider.id,
                 label: provider.label,
                 group: provider.group === "popular" ? "Popular" : "Providers",
@@ -6463,7 +6465,10 @@ export async function startTui(
         providerId: string,
         pane: TuiSettingsPickerState | undefined,
     ): void {
-        const provider = findProvider(providerId);
+        const provider = findConfiguredProvider(
+            providerId,
+            loadOptionalVeraConfig(),
+        );
         if (provider === undefined) {
             return;
         }

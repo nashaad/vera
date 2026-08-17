@@ -95,3 +95,25 @@ export type PreToolUseHook = (
 export type PostToolUseHook = (
     payload: PostToolUseHookPayload,
 ) => PostToolUseHookResult | Promise<PostToolUseHookResult>;
+
+export interface ModelRequestHookPayload {
+    readonly type: "model_request";
+    readonly provider: string;
+    readonly model: string;
+    readonly sessionId: string;
+    readonly workspace: string;
+    readonly signal?: AbortSignal;
+}
+
+/**
+ * A contribution is placed under the namespace chosen at registration. The
+ * hook never receives or rewrites Vera's messages, tools, or system prompt.
+ */
+export type ModelRequestHook = (
+    payload: ModelRequestHookPayload,
+) => JsonValue | undefined | Promise<JsonValue | undefined>;
+
+export interface RegisteredModelRequestHook {
+    readonly namespace: string;
+    readonly run: ModelRequestHook;
+}
