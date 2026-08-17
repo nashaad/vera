@@ -58,6 +58,13 @@ test("Vera config loads named provider instances", () => {
                 thinking: "adaptive",
             },
         },
+        models: [{
+            name: "strata",
+            provider: "vera-strata",
+            model: "strata",
+        }],
+        model_routes: {},
+        reviewer_profiles: {},
     }));
 
     expect(loadVeraConfig({ path })).toMatchObject({
@@ -78,6 +85,11 @@ test("Vera config loads named provider instances", () => {
                 thinking: "adaptive",
             },
         },
+        models: [{
+            name: "strata",
+            provider: "vera-strata",
+            model: "strata",
+        }],
     });
 });
 
@@ -125,6 +137,17 @@ test("Vera config rejects undeclared and malformed provider instances", () => {
                     thinking: "adaptive",
                 },
             },
+        },
+        {
+            provider: "openrouter",
+            providers: {},
+            models: [{
+                name: "strata",
+                provider: "vera-strata",
+                model: "strata",
+            }],
+            model_routes: {},
+            reviewer_profiles: {},
         },
     ];
     for (const entry of invalid) {

@@ -36,6 +36,7 @@ export function parseModelCatalogConfig(
     modelsValue: unknown,
     routesValue: unknown,
     reviewersValue: unknown,
+    customProviderIds: ReadonlySet<string> = new Set(),
 ): VeraModelCatalogConfig | undefined {
     if (
         modelsValue === undefined
@@ -59,7 +60,7 @@ export function parseModelCatalogConfig(
     const models: VeraCatalogModel[] = [];
     const modelNames = new Set<string>();
     for (const value of modelsValue) {
-        const model = parseCatalogModel(value);
+        const model = parseCatalogModel(value, customProviderIds);
         if (model === undefined || modelNames.has(model.name)) {
             return undefined;
         }
@@ -294,7 +295,10 @@ export function derivedModelName(
         .replace(/^_+|_+$/g, "");
 }
 
-export function parseCatalogModel(value: unknown): VeraCatalogModel | undefined {
+export function parseCatalogModel(
+    value: unknown,
+    customProviderIds: ReadonlySet<string> = new Set(),
+): VeraCatalogModel | undefined {
     if (!isRecord(value)) {
         return undefined;
     }
@@ -302,7 +306,7 @@ export function parseCatalogModel(value: unknown): VeraCatalogModel | undefined 
     const model = value.model;
     const effort = value.reasoning_effort;
     if (
-        !isProvider(provider)
+        !isProvider(provider, customProviderIds)
         || typeof model !== "string"
         || model.trim().length === 0
         || (effort !== undefined && !isReasoningEffort(effort))
@@ -359,8 +363,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isProvider(value: unknown): value is CatalogProviderId {
-    return typeof value === "string" && isVeraProviderId(value);
+function isProvider(
+    value: unknown,
+    customProviderIds: ReadonlySet<string>,
+): value is CatalogProviderId {
+    return typeof value === "string"
+        && (isVeraProviderId(value) || customProviderIds.has(value));
 }
 
 function isReasoningEffort(value: unknown): value is ModelReasoningEffort {
