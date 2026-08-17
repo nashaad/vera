@@ -435,6 +435,7 @@ registerTuiParsers();
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
+const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
 const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
@@ -952,6 +953,8 @@ export async function startTui(
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
     let doctorInspectionGeneration = 0;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
+    let disposeHostExtensionCommands = (): void => {};
+    let extensionCommandsGeneration = 0;
     let confirmingFullAccess = false;
     let confirmingFullAccessAgent: TuiAgentClient | undefined;
     /**
@@ -5482,8 +5485,14 @@ export async function startTui(
         if (client.listExtensionCommands === undefined) {
             return;
         }
+        const generation = ++extensionCommandsGeneration;
         try {
             const commands = await client.listExtensionCommands();
+            if (generation !== extensionCommandsGeneration) {
+                return;
+            }
+            disposeHostExtensionCommands();
+            const disposers: (() => void)[] = [];
             hostExtensionCommands = commands;
             const commandsBySource = Map.groupBy(
                 commands,
@@ -5491,10 +5500,10 @@ export async function startTui(
             );
             for (const [source, sourceCommands] of commandsBySource) {
                 try {
-                    registerExtensionTuiCommands(
+                    disposers.push(registerExtensionTuiCommands(
                         commandRegistry,
                         sourceCommands,
-                    );
+                    ));
                 } catch (error) {
                     const message = error instanceof Error
                         ? error.message
@@ -5505,6 +5514,11 @@ export async function startTui(
                     );
                 }
             }
+            disposeHostExtensionCommands = () => {
+                for (const dispose of disposers) {
+                    dispose();
+                }
+            };
             if (commandPalette !== undefined) {
                 commandPalette = updateTuiCommandPaletteCommands(
                     commandPalette,
@@ -5533,7 +5547,9 @@ export async function startTui(
             );
             renderState();
         } finally {
-            extensionCommandsLoading = false;
+            if (generation === extensionCommandsGeneration) {
+                extensionCommandsLoading = false;
+            }
         }
     }
 
@@ -7842,6 +7858,9 @@ export async function startTui(
         confirmingFullAccess = false;
         admissionDialog = undefined;
         admissionReturnPicker = undefined;
+        extensionCommandsGeneration += 1;
+        disposeHostExtensionCommands();
+        disposeHostExtensionCommands = () => {};
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
         watchBackgroundAgents(next);
@@ -8107,6 +8126,12 @@ export async function startTui(
             attempt.verify,
             true,
         );
+        if (poolVerifySweep?.requestId === requestId) {
+            // A retry is the same step of the sweep under a new id. Without
+            // this the sweep waits on a verdict that will never carry the id
+            // it is watching for, and stops on the first unreachable model.
+            poolVerifySweep = { ...poolVerifySweep, requestId: retryId };
+        }
         const poolChange = pendingPoolChanges.get(requestId);
         pendingPoolChanges.delete(requestId);
         if (poolChange !== undefined) {
@@ -8932,7 +8957,7 @@ export async function startTui(
             cardRows + 1,
         );
         statusText.content = quietActivity
-            ? ""
+            ? MODEL_PICKER_HINT
             : statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined
