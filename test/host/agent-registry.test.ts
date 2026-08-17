@@ -3765,6 +3765,7 @@ test("every configured provider id is selectable", async () => {
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         provider: "openrouter",
+        customProviderIds: ["vera-strata"],
         model: "first-model",
         approvalMode: "auto",
     });
@@ -3780,6 +3781,10 @@ test("every configured provider id is selectable", async () => {
                 model: "some-model",
             })).toMatchObject({ provider, model: "some-model" });
         }
+        expect(await registry.updateModelSettings(agent.id, {
+            provider: "vera-strata",
+            model: "strata",
+        })).toMatchObject({ provider: "vera-strata", model: "strata" });
         expect(await registry.updateModelSettings(agent.id, {
             provider: "not-a-provider",
             model: "some-model",
