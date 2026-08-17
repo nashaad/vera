@@ -25,7 +25,6 @@ import {
 } from "./flight-recorder.ts";
 
 import {
-    DIALOG_BACKGROUND_OPACITY,
     DIALOG_BACKGROUND_Z_INDEX,
     DIALOG_SCRIM_Z_INDEX,
     type DialogRowPointer,
@@ -2241,7 +2240,11 @@ export async function startTui(
         position: "absolute",
         width: "100%",
         height: "100%",
-        backgroundColor: RGBA.fromInts(0, 0, 0, 210),
+        // Enough to push the transcript behind the card, not enough to erase
+        // it. A heavier wash reads fine on paper and fails on the dark themes,
+        // where the ground is already near black and the text lands on top of
+        // it: what is behind a dialog still has to be legible as context.
+        backgroundColor: RGBA.fromInts(0, 0, 0, 140),
         zIndex: DIALOG_SCRIM_Z_INDEX,
         visible: false,
     });
@@ -6062,22 +6065,11 @@ export async function startTui(
             || providerFormView.surface.visible
             || secretPromptView.box.visible
             || experimentalTuiHost.hasModal();
+        // The scrim carries the whole fade: its translucent fill composites
+        // the glyphs behind it as well as the cell backgrounds, so the chrome
+        // needs no attenuation of its own. Fading it a second time left the
+        // composer and status band darker than the transcript beside them.
         overlayScrim.visible = overlayVisible;
-        // OpenTUI's translucent fill darkens cell backgrounds but leaves the
-        // glyphs beneath it untouched. Fade the background renderables too so
-        // transcript, composer, and status remain context rather than becoming
-        // the highest-contrast text on screen.
-        const backgroundOpacity = overlayVisible
-            ? DIALOG_BACKGROUND_OPACITY
-            : 1;
-        sidebar.body.opacity = backgroundOpacity;
-        jumpToBottom.opacity = backgroundOpacity;
-        sidebarJump.opacity = backgroundOpacity;
-        composerTipText.opacity = backgroundOpacity;
-        quoteText.opacity = backgroundOpacity;
-        heldAddressText.opacity = backgroundOpacity;
-        composerBox.opacity = backgroundOpacity;
-        statusBand.opacity = backgroundOpacity;
         // Ordinary modals leave the conversation and composer in place as
         // dimmed context. The scrim sits above them and below the active card.
         // Approval and question cards are different: they replace the composer
