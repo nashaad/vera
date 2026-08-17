@@ -17,6 +17,7 @@ import type {
     VeraClientTranscriptBlock,
     VeraClientConsultResult,
     VeraClientMessageInterceptor,
+    VeraClientExtensionComposeSuggesterSpec,
     VeraClientExtensionTipSpec,
     VeraClientTipContext,
     VeraClientStatusLineRenderer,
@@ -79,6 +80,7 @@ const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
 const CLIENT_ADDRESSING_CAPABILITY = "client.ui.addressing";
 const CLIENT_THREAD_CAPABILITY = "client.thread.read";
 const CLIENT_TIPS_CAPABILITY = "client.tips.register";
+const CLIENT_COMPOSE_SUGGESTER_CAPABILITY = "client.compose.suggester";
 const CLIENT_AGENTS_CAPABILITY = "client.agents";
 const CLIENT_EXPERIMENTAL_TUI_CAPABILITY = "client.experimental_tui";
 
@@ -131,6 +133,14 @@ export interface ClientExtensionTipDescriptor {
      * non-boolean is read as "not now".
      */
     isRelevant(context: VeraClientTipContext): boolean;
+}
+
+export interface ClientExtensionComposeSuggesterDescriptor {
+    readonly agent: string;
+    readonly hint: string;
+    readonly source: string;
+    /** Safe to call on a keystroke: a predicate that throws reads as "no". */
+    matches(text: string): boolean;
 }
 
 export interface ClientExtensionKeybindingDescriptor {
@@ -309,6 +319,11 @@ export interface ClientExtensionRegistry {
     commands(): readonly ClientExtensionCommandDescriptor[];
     keybindings(): readonly ClientExtensionKeybindingDescriptor[];
     tips(): readonly ClientExtensionTipDescriptor[];
+    /**
+     * In registration order. The client shows at most one at a time, and the
+     * first registered wins, so a second extension cannot talk over the first.
+     */
+    composeSuggesters(): readonly ClientExtensionComposeSuggesterDescriptor[];
     invokeCommand(
         name: string,
         argumentsText: string,
@@ -396,6 +411,8 @@ interface LoadedClientExtension {
     readonly commands: readonly RegisteredCommand[];
     readonly keybindings: readonly RegisteredKeybinding[];
     readonly tips: readonly RegisteredTip[];
+    readonly composeSuggesters:
+        readonly ClientExtensionComposeSuggesterDescriptor[];
     readonly statusLine: VeraClientStatusLineRenderer | undefined;
     readonly messageInterceptor: VeraClientMessageInterceptor | undefined;
     readonly hostedAgentAddressing: () =>
@@ -554,6 +571,9 @@ export async function startClientExtensionRegistry(
             return [...commands.values()].map(
                 ({ command }) => command.descriptor,
             );
+        },
+        composeSuggesters(): readonly ClientExtensionComposeSuggesterDescriptor[] {
+            return loaded.flatMap((extension) => extension.composeSuggesters);
         },
         tips(): readonly ClientExtensionTipDescriptor[] {
             return [...tips.values()].map(({ descriptor }) => descriptor);
@@ -841,6 +861,7 @@ async function activateClientExtension(
     const commands: RegisteredCommand[] = [];
     const keybindings: RegisteredKeybinding[] = [];
     const tips: RegisteredTip[] = [];
+    const composeSuggesters: ClientExtensionComposeSuggesterDescriptor[] = [];
     const commandNames = new Set<string>();
     const keybindingIds = new Set<string>();
     const tipIds = new Set<string>();
@@ -1311,6 +1332,40 @@ async function activateClientExtension(
                 });
             },
         }),
+        compose: Object.freeze({
+            registerSuggester(
+                spec: VeraClientExtensionComposeSuggesterSpec,
+            ): void {
+                requireRegistrationPhase(phase, "compose");
+                requireCapability(CLIENT_COMPOSE_SUGGESTER_CAPABILITY);
+                if (
+                    typeof spec !== "object" || spec === null
+                    || typeof spec.agent !== "string"
+                    || spec.agent.trim().length === 0
+                    || typeof spec.hint !== "string"
+                    || spec.hint.trim().length === 0
+                    || typeof spec.match !== "function"
+                ) {
+                    throw new Error(
+                        "Invalid client extension compose suggester registration",
+                    );
+                }
+                const match = spec.match;
+                composeSuggesters.push({
+                    agent: spec.agent.trim(),
+                    hint: spec.hint.trim(),
+                    source: options.id,
+                    matches(text) {
+                        if (text.trim().length === 0) return false;
+                        try {
+                            return match(text) === true;
+                        } catch {
+                            return false;
+                        }
+                    },
+                });
+            },
+        }),
         tips: Object.freeze({
             register(spec: VeraClientExtensionTipSpec): void {
                 requireRegistrationPhase(phase, "tips");
@@ -1466,6 +1521,7 @@ async function activateClientExtension(
         commands,
         keybindings,
         tips,
+        composeSuggesters,
         statusLine,
         messageInterceptor,
         hostedAgentAddressing: () => hostedAgentAddressing,

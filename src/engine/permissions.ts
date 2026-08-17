@@ -549,6 +549,14 @@ export function decideToolPermission(
     };
 }
 
+/** The modes every host has, whatever else it was configured with. */
+export const BUILT_IN_PERMISSION_MODE_NAMES: readonly string[] = [
+    "readonly",
+    "ask",
+    "auto",
+    "full_access",
+];
+
 export function builtInPermissionMode(
     name: string,
 ): PermissionMode | undefined {

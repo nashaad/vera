@@ -227,6 +227,61 @@ export interface PermissionsChangedEvent {
     readonly inspection?: PermissionInspection;
 }
 
+/**
+ * A tool call the harness refused, and which rule refused it.
+ *
+ * The class is the point: an agent's nudge fires on the refusals the agent
+ * could plausibly explain, and stays quiet on the ones somebody else already
+ * explained. Without a class every denial would look the same from here.
+ */
+export interface ToolDeniedEvent {
+    readonly type: "tool_denied";
+    readonly toolCall: HookToolCall;
+    readonly denialClass: "agent-scope" | "permission-mode" | "reviewer";
+    readonly reason: string;
+}
+
+/** The agent now in force, in the shape the wire update carries. */
+export interface AgentWornEvent {
+    readonly type: "agent_worn";
+    readonly update: {
+        readonly requestId: string;
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly notice?: string;
+    };
+}
+
+export interface AgentCatalogEvent {
+    readonly type: "agent_catalog";
+    readonly update: {
+        readonly requestId: string;
+        readonly worn: string;
+        readonly agents: readonly {
+            readonly name: string;
+            readonly description?: string;
+            readonly scope: "project" | "user" | "extension";
+            readonly writable: boolean;
+            readonly tools?: readonly string[];
+            readonly skills?: readonly string[];
+            readonly posture?: string;
+            readonly defaultPair?: {
+                readonly name: string;
+                readonly effort?: string;
+            };
+        }[];
+        readonly notices: readonly string[];
+    };
+}
+
+export interface AgentRejectedEvent {
+    readonly type: "agent_rejected";
+    readonly requestId: string;
+    readonly reason: string;
+}
+
 export interface PermissionsRejectedEvent {
     readonly type: "permissions_rejected";
     readonly requestId: string;
@@ -458,6 +513,10 @@ export type EngineEvent =
     | UiRequestClosedEvent
     | ModelSettingsChangedEvent
     | SessionModelSettingsHistoryEvent
+    | ToolDeniedEvent
+    | AgentWornEvent
+    | AgentCatalogEvent
+    | AgentRejectedEvent
     | ModelSettingsRejectedEvent
     | PoolAdmissionProgressEvent
     | PoolAdmissionResultEvent

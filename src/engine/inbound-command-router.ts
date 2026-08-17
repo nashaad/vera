@@ -153,14 +153,29 @@ interface QueuedTurnContext {
 interface QueuedPrompt extends QueuedTurnContext {
     readonly prompt: PromptCommand;
     readonly triggeredByDelivery?: never;
+    readonly wear?: never;
 }
 
 interface QueuedDeliveryTurn extends QueuedTurnContext {
     readonly prompt?: never;
     readonly triggeredByDelivery: true;
+    readonly wear?: never;
 }
 
-type QueuedTurn = QueuedPrompt | QueuedDeliveryTurn;
+/**
+ * A wear waiting its turn in the same queue as the prompts.
+ *
+ * It is not a turn: `startTurn` applies it and keeps waiting. That is what
+ * makes "applies after the current work" true without hybridising a prompt
+ * that was queued before it.
+ */
+interface QueuedWear extends Partial<QueuedTurnContext> {
+    readonly wear: { readonly requestId: string; readonly name: string };
+    readonly prompt?: never;
+    readonly triggeredByDelivery?: never;
+}
+
+type QueuedTurn = QueuedPrompt | QueuedDeliveryTurn | QueuedWear;
 
 export interface InboundCommandRouterOptions {
     readonly appendHarnessMessage?: (
@@ -194,6 +209,36 @@ export interface InboundCommandRouterOptions {
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    /** Applies the wear and answers with what is now in force. */
+    readonly wearAgent?: (name: string) => Promise<{
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly notice?: string;
+    } | undefined>;
+    readonly listAgents?: () => Promise<{
+        readonly worn: string;
+        readonly agents: readonly {
+            readonly name: string;
+            readonly description?: string;
+            readonly scope: "project" | "user" | "extension";
+            readonly writable: boolean;
+            readonly tools?: readonly string[];
+            readonly skills?: readonly string[];
+            readonly posture?: string;
+            readonly defaultPair?: {
+                readonly name: string;
+                readonly effort?: string;
+            };
+        }[];
+        readonly notices: readonly string[];
+    }>;
+    /** Answers with why the write was refused, or nothing when it happened. */
+    readonly updateAgentDefaultPair?: (
+        name: string,
+        pair: { readonly name: string; readonly effort?: string } | null,
+    ) => Promise<string | undefined>;
     /**
      * Admits one model and returns the verdict, with the settings snapshot as
      * it stands afterwards so the reply carries the new pool. `verify` asks
@@ -318,6 +363,10 @@ export class InboundCommandRouter {
             while (true) {
                 queued = await this.prompts.receive();
                 this.pendingPromptCount -= 1;
+                if (queued.wear !== undefined) {
+                    await this.applyWear(queued.wear);
+                    continue;
+                }
                 if (
                     queued.triggeredByDelivery !== true
                     || this.options.hasPendingDeliveryTurn?.() !== false
@@ -637,6 +686,33 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "wear_agent") {
+                    // Queued, never applied here: FIFO with the prompts is
+                    // the whole point.
+                    this.pendingPromptCount += 1;
+                    this.prompts.push({
+                        wear: {
+                            requestId: command.requestId,
+                            name: command.name,
+                        },
+                    });
+                    continue;
+                }
+
+                if (command.type === "list_agents") {
+                    await this.listAgents(command.requestId);
+                    continue;
+                }
+
+                if (command.type === "update_agent_default_pair") {
+                    await this.updateAgentDefaultPair(
+                        command.requestId,
+                        command.name,
+                        command.pair,
+                    );
+                    continue;
+                }
+
                 if (command.type === "update_session_permission_mode") {
                     await this.updateSessionPermissionMode(
                         command.requestId,
@@ -853,6 +929,72 @@ export class InboundCommandRouter {
             updatedSession: true,
             origin: result.origin,
         });
+    }
+
+    private async applyWear(
+        wear: { readonly requestId: string; readonly name: string },
+    ): Promise<void> {
+        if (this.options.wearAgent === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId: wear.requestId,
+                reason: "This host does not support agents.",
+            });
+            return;
+        }
+        const worn = await this.options.wearAgent(wear.name);
+        if (worn === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId: wear.requestId,
+                reason: `No agent named ${wear.name}`,
+            });
+            return;
+        }
+        this.events.emit({
+            type: "agent_worn",
+            update: { requestId: wear.requestId, ...worn },
+        });
+    }
+
+    private async listAgents(requestId: string): Promise<void> {
+        if (this.options.listAgents === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId,
+                reason: "This host does not support agents.",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "agent_catalog",
+            update: { requestId, ...(await this.options.listAgents()) },
+        });
+    }
+
+    private async updateAgentDefaultPair(
+        requestId: string,
+        name: string,
+        pair: { readonly name: string; readonly effort?: string } | null,
+    ): Promise<void> {
+        if (this.options.updateAgentDefaultPair === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId,
+                reason: "This host does not support agents.",
+            });
+            return;
+        }
+        const failure = await this.options.updateAgentDefaultPair(name, pair);
+        if (failure !== undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId,
+                reason: failure,
+            });
+            return;
+        }
+        await this.listAgents(requestId);
     }
 
     private sendSessionModelSettingsHistory(requestId: string): void {

@@ -426,6 +426,7 @@ export async function startResidentHost(
         },
         permissionPreferences,
         extensionTools: [...extensions.tools(), skillScriptTool],
+        registeredAgents: extensions.agents(),
         loadContextualContributions: loadSkillContribution,
         createToolHooks: () => {
             const hooks = new ToolHooks();

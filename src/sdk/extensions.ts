@@ -18,6 +18,7 @@ export interface VeraExtensionApi {
     readonly config: JsonValue;
     readonly commands: VeraExtensionCommands;
     readonly tools: VeraExtensionTools;
+    readonly agents: VeraExtensionAgents;
     readonly hooks: VeraExtensionHooks;
     readonly storage: VeraExtensionStorage;
     onDispose(dispose: VeraExtensionDisposer): void;
@@ -46,6 +47,35 @@ export interface VeraExtensionCommands {
 
 export interface VeraExtensionTools {
     register(spec: VeraExtensionToolSpec): void;
+}
+
+/**
+ * Agents an extension ships.
+ *
+ * The lowest-precedence source: a file of the same name in the project or the
+ * user's profile shadows it, and the `[d]` writer refuses it, because there is
+ * no file of the extension's to write into.
+ */
+export interface VeraExtensionAgents {
+    register(spec: VeraExtensionAgentSpec): void;
+}
+
+export interface VeraExtensionAgentSpec {
+    readonly name: string;
+    readonly description?: string;
+    readonly instructions: string;
+    /** Omitted means every tool. Present is a restriction to exactly these. */
+    readonly tools?: readonly string[];
+    readonly skills?: readonly string[];
+    readonly posture?: string;
+    readonly defaultPair?: {
+        readonly name: string;
+        readonly effort?: string;
+    };
+    readonly nudges?: readonly {
+        readonly on: string;
+        readonly text: string;
+    }[];
 }
 
 export interface VeraExtensionHooks {
@@ -117,6 +147,7 @@ export type VeraExtensionCommandHandler = (
 export interface VeraClientExtensionApi {
     readonly config: JsonValue;
     readonly commands: VeraClientExtensionCommands;
+    readonly compose: VeraClientExtensionCompose;
     readonly preferences: VeraClientExtensionPreferences;
     readonly modelSettings: VeraClientExtensionModelSettings;
     readonly ui: VeraClientExtensionUi;
@@ -519,6 +550,30 @@ export interface VeraClientExtensionSidebar {
     append(block: VeraClientTranscriptBlock): void;
     clear(): void;
     close(): void;
+}
+
+/**
+ * A compose-time offer to wear an agent this extension ships.
+ *
+ * Core never guesses intent from what you are typing. A suggester does, and it
+ * exists only inside an extension you installed — installing it is the
+ * consent. Accepting goes through the ordinary, loud wear path.
+ */
+export interface VeraClientExtensionCompose {
+    registerSuggester(spec: VeraClientExtensionComposeSuggesterSpec): void;
+}
+
+export interface VeraClientExtensionComposeSuggesterSpec {
+    /** The agent to offer. Usually one this extension also registered. */
+    readonly agent: string;
+    /** One line, shown under the composer while `match` holds. */
+    readonly hint: string;
+    /**
+     * A pure predicate over the composer's text. No network, no model calls,
+     * no side effects: the client debounces it and calls it on every keystroke
+     * that survives the debounce, and never on empty input.
+     */
+    match(text: string): boolean;
 }
 
 export interface VeraClientExtensionKeybindings {

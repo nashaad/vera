@@ -16,6 +16,10 @@ import {
     type UserMessage,
 } from "../model/types.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
+import {
+    agentAllowsTool,
+    type AgentWearSnapshot,
+} from "../agents/wear.ts";
 import type { SessionModelSettingsResult } from "./inbound-command-router.ts";
 import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
@@ -205,6 +209,16 @@ export interface RunTurnState {
     readonly effortPool?: EffortPool;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
+    /**
+     * The worn agent as it resolved when it went on. Absent is the `default`
+     * agent: every tool, every skill, the host's own posture.
+     */
+    readonly readAgentWear?: () => AgentWearSnapshot | undefined;
+    /**
+     * Nudges already shown this user turn, so one does not repeat itself
+     * inside a single stretch of work. Cleared when the user speaks again.
+     */
+    readonly firedNudges?: Set<string>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionGrants?: () => readonly PermissionGrant[];
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
@@ -224,6 +238,8 @@ export interface RunTurnState {
     readonly disabledPromptContributions?: readonly string[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
+        /** The skills the worn agent may see. Absent means all of them. */
+        allowedSkills?: readonly string[],
     ) => Promise<readonly PromptContribution[]>;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
@@ -290,6 +306,11 @@ export interface RunHeadlessLoopOptions {
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
+    readonly wearAgent?: InboundCommandRouterOptions["wearAgent"];
+    readonly listAgents?: InboundCommandRouterOptions["listAgents"];
+    readonly updateAgentDefaultPair?:
+        InboundCommandRouterOptions["updateAgentDefaultPair"];
+    readonly readAgentWear?: () => AgentWearSnapshot | undefined;
     readonly poolAdd?: (
         entry: { readonly provider: string; readonly model: string },
         onStep: (step: {
@@ -343,6 +364,8 @@ export interface RunHeadlessLoopOptions {
     readonly disabledPromptContributions?: readonly string[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
+        /** The skills the worn agent may see. Absent means all of them. */
+        allowedSkills?: readonly string[],
     ) => Promise<readonly PromptContribution[]>;
     /** Hooks for the session's turns; absent means none registered. */
     readonly hooks?: ToolHooks;
@@ -521,6 +544,15 @@ export async function runHeadlessLoop(
                 updateSessionPermissionMode:
                     options.updateSessionPermissionMode,
             }),
+        ...(options.wearAgent === undefined
+            ? {}
+            : { wearAgent: options.wearAgent }),
+        ...(options.listAgents === undefined
+            ? {}
+            : { listAgents: options.listAgents }),
+        ...(options.updateAgentDefaultPair === undefined
+            ? {}
+            : { updateAgentDefaultPair: options.updateAgentDefaultPair }),
         ...(options.poolAdd === undefined
             ? {}
             : { poolAdd: options.poolAdd }),
@@ -783,6 +815,12 @@ export async function runHeadlessLoop(
         ...(options.readModelSettings === undefined
             ? {}
             : { readModelSettings: options.readModelSettings }),
+        // Read rather than captured: a wear applied between turns has to
+        // reach the next turn without rebuilding the loop.
+        ...(options.readAgentWear === undefined
+            ? {}
+            : { readAgentWear: options.readAgentWear }),
+        firedNudges: new Set<string>(),
         readApprovalMode,
         readPermissionGrants,
         readPermissionPreferences,
@@ -918,7 +956,14 @@ export async function runTurn(
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
         const reviewBreaker = createReviewCircuitBreaker();
-        const tools = state.offerTools === false
+        // Fixed here, with the rest of the agent's snapshot, so the turn runs
+        // under exactly one agent from the tools it is offered to the skills
+        // its scripts can reach.
+        const wear = state.readAgentWear?.();
+        state.firedNudges?.clear();
+        state.toolRuntime.allowedTools = wear?.tools;
+        state.toolRuntime.allowedSkills = wear?.skills;
+        const offered = state.offerTools === false
             ? []
             : toolDefinitionsForCapabilities(
                 state.applyToolEffect === undefined
@@ -927,6 +972,12 @@ export async function runTurn(
                 state.enableUserInteraction === true,
                 state.extensionTools,
             );
+        // A tool the agent does not offer is not described to the model, so
+        // the ordinary case is that it is never called. Gate A is what makes
+        // the extraordinary case safe.
+        const tools = wear?.tools === undefined
+            ? offered
+            : offered.filter((tool) => wear.tools!.includes(tool.name));
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
             ? undefined
             : {
@@ -1078,6 +1129,7 @@ export async function runTurn(
                                 path: state.toolRuntime.workspace,
                                 source: "workspace",
                             },
+                        state.readAgentWear?.()?.skills,
                     );
             const projection = projectModelRequest({
                 ...(modelSettings.provider === undefined
@@ -1105,6 +1157,12 @@ export async function runTurn(
                 ...(additionalContextualContributions === undefined ? {} : {
                     additionalContextualContributions,
                 }),
+                // Fixed at turn start with the rest of the agent's snapshot,
+                // so a turn always runs under one complete agent.
+                ...(state.readAgentWear?.()?.instructions === undefined
+                        || state.readAgentWear()!.instructions.length === 0
+                    ? {}
+                    : { agentInstructions: state.readAgentWear()!.instructions }),
                 signal: turn.signal,
             });
             const request = projection.request;
@@ -1588,6 +1646,14 @@ interface CompletedToolCall {
 interface PreparedToolCall {
     readonly toolCall: ToolCallContent;
     readonly hookResult: PreToolUseHookResult;
+    /**
+     * Why the worn agent does not offer this tool.
+     *
+     * Set before the hooks run, and the hooks do not run when it is set: a
+     * tool the agent does not have is not a tool call to be rewritten, it is
+     * one that never happens.
+     */
+    readonly scopeDenial?: string;
 }
 
 interface PreparedAssistantToolCalls {
@@ -1605,6 +1671,18 @@ async function prepareAssistantToolCalls(
             continue;
         }
         const original = hookToolCall(block);
+        // Gate A, on the name, before anything else touches the call. A
+        // pre-tool hook cannot rename a call, so the name checked here is the
+        // name that would execute.
+        if (!agentAllowsTool(state.readAgentWear?.(), block.name)) {
+            preparedById.set(block.id, {
+                toolCall: block,
+                hookResult: { power: "observe" },
+                scopeDenial:
+                    `The agent you are wearing does not offer the ${block.name} tool.`,
+            });
+            continue;
+        }
         let outcome: PreToolUseOutcome;
         try {
             outcome = await state.hooks.runPreToolUse({
@@ -1683,6 +1761,17 @@ async function executePreparedTool(
 ): Promise<CompletedToolCall> {
     const toolCall = prepared.toolCall;
     const hookCall = hookToolCall(toolCall);
+    if (prepared.scopeDenial !== undefined) {
+        return {
+            result: deniedByPolicy(
+                state,
+                toolCall,
+                prepared.scopeDenial,
+                undefined,
+                "agent-scope",
+            ),
+        };
+    }
     if (prepared.hookResult.power === "block") {
         return {
             result: deniedToolResult(toolCall, prepared.hookResult.reason),
@@ -1723,7 +1812,13 @@ async function executePreparedTool(
     const scratchNote = scratchAlternativeNote(permission, state.scratchDir);
     if (permission.behavior === "deny") {
         return {
-            result: deniedToolResult(toolCall, permission.reason, scratchNote),
+            result: deniedByPolicy(
+                state,
+                toolCall,
+                permission.reason,
+                scratchNote,
+                "permission-mode",
+            ),
         };
     }
     const grantProposals = permissionGrantProposals(permission);
@@ -1778,9 +1873,12 @@ async function executePreparedTool(
             if (review.decision === "deny") {
                 const interrupt = breaker.record("deny");
                 return {
-                    result: deniedToolResult(
+                    result: deniedByPolicy(
+                        state,
                         toolCall,
                         `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
+                        undefined,
+                        "reviewer",
                     ),
                     ...(interrupt === undefined ? {} : { interrupt }),
                 };
@@ -2176,6 +2274,61 @@ async function commitMessage(
     // rather than the caller's object. A resumed session already holds the
     // stored copies, and transcript IDs are keyed off them.
     state.messages.push(entry.message);
+}
+
+/**
+ * A denial the harness decided, with the worn agent's nudge on the end.
+ *
+ * Three classes fire a nudge: the agent's own scope, the permission mode, and
+ * the reviewer. A denial the user typed does not, because the user knows why;
+ * a pre-tool hook's block does not, because the hook wrote its own message and
+ * a second voice under it would be Vera talking over an extension.
+ *
+ * The nudge is appended, never substituted: the original denial is what the
+ * model has to act on, and the nudge is the sentence that says what to do
+ * about it.
+ */
+function deniedByPolicy(
+    state: RunTurnState,
+    toolCall: ToolCallContent,
+    reason: string,
+    note: string | undefined,
+    denialClass: "agent-scope" | "permission-mode" | "reviewer",
+): ToolResultMessage {
+    state.events.emit({
+        type: "tool_denied",
+        toolCall: hookToolCall(toolCall),
+        denialClass,
+        reason,
+    });
+    const nudge = nudgeFor(state, toolCall.name);
+    return deniedToolResult(
+        toolCall,
+        nudge === undefined ? reason : `${reason}\n\n${nudge}`,
+        note,
+    );
+}
+
+/**
+ * The agent's nudge for this tool, once per user turn.
+ *
+ * Matching is by exact tool name or `*`. The cooldown is the user's next
+ * message: a model that keeps trying the same denied tool inside one stretch
+ * of work hears the sentence once, not once per attempt.
+ */
+function nudgeFor(
+    state: RunTurnState,
+    toolName: string,
+): string | undefined {
+    const nudges = state.readAgentWear?.()?.nudges ?? [];
+    const nudge = nudges.find((candidate) =>
+        candidate.on === toolName || candidate.on === "*"
+    );
+    if (nudge === undefined) return undefined;
+    const key = `${nudge.on}\u0000${nudge.text}\u0000${toolName}`;
+    if (state.firedNudges?.has(key) === true) return undefined;
+    state.firedNudges?.add(key);
+    return nudge.text;
 }
 
 function deniedToolResult(

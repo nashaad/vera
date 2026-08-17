@@ -228,6 +228,39 @@ export interface UpdateSessionModelSettingsCommand {
     readonly patch: ModelSettingsPatch;
 }
 
+/**
+ * Wear an agent, in FIFO order with the prompts already queued.
+ *
+ * Not applied on arrival: a prompt enqueued before this one snapshotted the
+ * old agent's settings and would pick up the new agent's tools at turn start,
+ * which is a turn running as neither agent.
+ */
+export interface WearAgentCommand {
+    readonly type: "wear_agent";
+    readonly requestId: string;
+    readonly name: string;
+}
+
+export interface ListAgentsCommand {
+    readonly type: "list_agents";
+    readonly requestId: string;
+}
+
+/**
+ * The one writer into an agent file, and it writes one key.
+ *
+ * There is deliberately no general agent-writing command: an agent is a file
+ * you edit with your editor, and a wire command that could rewrite it would
+ * make the file the second copy of the truth.
+ */
+export interface UpdateAgentDefaultPairCommand {
+    readonly type: "update_agent_default_pair";
+    readonly requestId: string;
+    readonly name: string;
+    /** Null clears the key. */
+    readonly pair: { readonly name: string; readonly effort?: string } | null;
+}
+
 export interface GetSessionModelSettingsHistoryCommand {
     readonly type: "get_session_model_settings_history";
     readonly requestId: string;
@@ -385,6 +418,9 @@ export type ClientCommand =
     | UpdateSessionModelSettingsCommand
     | GetSessionModelSettingsHistoryCommand
     | UpdateSessionPermissionModeCommand
+    | WearAgentCommand
+    | ListAgentsCommand
+    | UpdateAgentDefaultPairCommand
     | ConsultCommand
     | PoolAddCommand
     | PoolRemoveCommand
@@ -627,6 +663,52 @@ export interface ModelSettingsUpdate {
 }
 
 /**
+ * The agent in force, after a wear applied or a resume resolved one.
+ *
+ * `notice` carries what the user has to be told: that the definition moved
+ * since it was worn, that the agent is gone, or that its default pair no
+ * longer resolves. Silence is the normal case.
+ */
+export interface AgentWornUpdate {
+    readonly type: "agent_worn";
+    readonly requestId: string;
+    readonly name: string;
+    readonly tools?: readonly string[];
+    readonly skills?: readonly string[];
+    readonly posture?: string;
+    readonly notice?: string;
+    readonly seq: number;
+}
+
+export interface AgentCatalogUpdate {
+    readonly type: "agent_catalog";
+    readonly requestId: string;
+    readonly worn: string;
+    readonly agents: readonly {
+        readonly name: string;
+        readonly description?: string;
+        readonly scope: "project" | "user" | "extension";
+        readonly writable: boolean;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly defaultPair?: {
+            readonly name: string;
+            readonly effort?: string;
+        };
+    }[];
+    readonly notices: readonly string[];
+    readonly seq: number;
+}
+
+export interface AgentRejectedUpdate {
+    readonly type: "agent_rejected";
+    readonly requestId: string;
+    readonly reason: string;
+    readonly seq: number;
+}
+
+/**
  * Every model setting the session has held, oldest first.
  *
  * The dial strip derives its recents from this rather than keeping a list of
@@ -830,6 +912,9 @@ export type AgentUpdate =
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
     | SessionModelSettingsHistoryUpdate
+    | AgentWornUpdate
+    | AgentCatalogUpdate
+    | AgentRejectedUpdate
     | ModelSettingsRejectedUpdate
     | PoolAdmissionProgressUpdate
     | PoolAdmissionResultUpdate
@@ -995,6 +1080,43 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                 patch,
             };
         }
+    }
+    if (
+        command.type === "wear_agent"
+        && isRequestId(command.requestId)
+        && isNonEmptyString(command.name)
+    ) {
+        return {
+            type: "wear_agent",
+            requestId: command.requestId,
+            name: command.name,
+        };
+    }
+    if (command.type === "list_agents" && isRequestId(command.requestId)) {
+        return { type: "list_agents", requestId: command.requestId };
+    }
+    if (
+        command.type === "update_agent_default_pair"
+        && isRequestId(command.requestId)
+        && isNonEmptyString(command.name)
+        && (command.pair === null
+            || (typeof command.pair === "object"
+                && command.pair !== null
+                && isNonEmptyString(Reflect.get(command.pair, "name"))
+                && (Reflect.get(command.pair, "effort") === undefined
+                    || isNonEmptyString(Reflect.get(command.pair, "effort")))))
+    ) {
+        return {
+            type: "update_agent_default_pair",
+            requestId: command.requestId,
+            name: command.name,
+            pair: command.pair === null ? null : {
+                name: Reflect.get(command.pair, "name") as string,
+                ...(Reflect.get(command.pair, "effort") === undefined ? {} : {
+                    effort: Reflect.get(command.pair, "effort") as string,
+                }),
+            },
+        };
     }
     if (
         command.type === "get_session_model_settings_history"
@@ -1421,6 +1543,29 @@ export function createProtocolEncoder(
                     ? { updatedSession: true as const }
                     : {}),
                 ...(event.origin === undefined ? {} : { origin: event.origin }),
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "agent_worn") {
+            seq += 1;
+            sender.send({ type: "agent_worn", ...event.update, seq });
+            return;
+        }
+
+        if (event.type === "agent_catalog") {
+            seq += 1;
+            sender.send({ type: "agent_catalog", ...event.update, seq });
+            return;
+        }
+
+        if (event.type === "agent_rejected") {
+            seq += 1;
+            sender.send({
+                type: "agent_rejected",
+                requestId: event.requestId,
+                reason: event.reason,
                 seq,
             });
             return;
