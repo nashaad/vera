@@ -1741,7 +1741,7 @@ test("the model picker footer names the action the highlighted row would take", 
     );
     expect(onPoolRow.options[onPoolRow.selectedIndex]?.model)
         .toBe("gpt-5.6-sol");
-    expect(await pickerFrame(onPoolRow)).toContain("^s remove");
+    expect(await pickerFrame(onPoolRow)).toContain("^s unpin");
 
     // On a row nobody pooled the same key says the opposite thing.
     const onAll = handleTuiSettingsPickerKey(
@@ -1756,7 +1756,7 @@ test("the model picker footer names the action the highlighted row would take", 
     };
     expect(onUnpooledRow.options[onUnpooledRow.selectedIndex]?.model)
         .toBe("moonshotai/kimi-k3");
-    expect(await pickerFrame(onUnpooledRow)).toContain("^s add");
+    expect(await pickerFrame(onUnpooledRow)).toContain("^s pin");
 });
 
 test("a settings snapshot rebuilds the open pane without moving the cursor", () => {
@@ -2219,7 +2219,7 @@ test("pooling a row refreshes the open pane from the snapshot that comes back", 
         model: "z-ai/glm-5.2",
         pooledRank: 0,
     });
-    expect(pickerFooter(synced)).toContain("remove");
+    expect(pickerFooter(synced)).toContain("unpin");
 });
 
 test("the footer sheds whole hints rather than splitting a chord from its label", () => {

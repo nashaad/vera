@@ -3825,7 +3825,7 @@ export async function startTui(
             if (provider === undefined || model === undefined) {
                 state = appendTuiError(
                     state,
-                    "No model is running yet, so there is nothing to pool",
+                    "No model is running yet, so there is nothing to pin",
                 );
                 renderState();
                 return;
@@ -4989,7 +4989,7 @@ export async function startTui(
                         && update.type === "model_settings"
                     ) {
                         poolChangeUndo = undefined;
-                        showStatusNotice("pool change undone");
+                        showStatusNotice("shortlist change undone");
                     } else if (
                         pendingUndo !== undefined
                         && update.type === "model_settings_rejected"
@@ -5003,7 +5003,7 @@ export async function startTui(
                         }
                         state = appendTuiError(
                             state,
-                            rejectionNotice("undo that pool change", update.reason),
+                            rejectionNotice("undo that shortlist change", update.reason),
                         );
                     }
                     settleExtensionModelSettings(update, client);
@@ -6756,6 +6756,8 @@ export async function startTui(
                         ? ""
                         : `, point it elsewhere with ${provider.envVar}`
                 }`,
+                // A standing fact about the provider, not something to do.
+                "soft",
             );
             renderState();
             return;
@@ -6767,7 +6769,13 @@ export async function startTui(
             return;
         }
         connectingProviders.add(provider.id);
-        state = appendTuiNotice(state, `opening a browser to sign in to ${provider.label}…`);
+        state = appendTuiNotice(
+            state,
+            `opening a browser to sign in to ${provider.label}…`,
+            // Vera saying what it is doing. The line worth the eye is the URL
+            // that follows, which is the one the user has to act on.
+            "soft",
+        );
         renderState();
         void (dependencies.loginProvider ?? defaultLoginProvider)(
             provider.id,
@@ -6777,7 +6785,7 @@ export async function startTui(
             },
         ).then(() => {
             connectingProviders.delete(provider.id);
-            state = appendTuiNotice(state, `connected to ${provider.label}`);
+            state = appendTuiNotice(state, `connected to ${provider.label}`, "soft");
             renderState();
         }, (error: unknown) => {
             connectingProviders.delete(provider.id);

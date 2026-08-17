@@ -236,8 +236,8 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "toggle_pooled",
         keys: ["ctrl+s"],
         scope: "model_picker",
-        description: "Add or remove the selected model from the shortlist",
-        hint: "^s add",
+        description: "Pin the selected model to your shortlist, or unpin it",
+        hint: "^s pin",
     },
     {
         id: "undo_pool_change",
@@ -247,10 +247,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^z undo",
     },
     {
-        // Reported as ctrl+shift+r only under the kitty keyboard protocol, the
-        // same caveat the half-page chords above carry. Elsewhere it arrives
-        // as plain ctrl+r, which this scope binds to nothing, so the chord
-        // goes unmatched rather than firing a probe nobody asked for.
         id: "verify_pool",
         keys: ["ctrl+v"],
         scope: "model_picker",
@@ -258,6 +254,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^v verify all",
     },
     {
+        // Reported as ctrl+shift+r only under the kitty keyboard protocol, the
+        // same caveat the half-page chords above carry. Elsewhere the shift is
+        // dropped and it arrives as plain ctrl+r, which this scope binds to the
+        // endpoint form, so the probe is out of reach there.
         id: "verify_model",
         keys: ["ctrl+shift+r"],
         scope: "model_picker",

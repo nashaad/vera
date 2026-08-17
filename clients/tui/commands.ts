@@ -155,7 +155,7 @@ export interface OpenProvidersTuiCommandAction {
     readonly type: "open_providers";
 }
 
-/** `/pool add`: pools the running model, the same write ^s makes. */
+/** `/shortlist add`: pins the running model, the same write ^s makes. */
 export interface AddCurrentModelToPoolTuiCommandAction {
     readonly type: "pool_current_model";
 }
@@ -413,9 +413,9 @@ const COMPACT_COMMAND = {
 } as const satisfies TuiCommandCatalogEntry;
 
 const POOL_COMMAND = {
-    name: "pool",
-    description: "Show the model pool, or add the running model to it",
-    usage: "/pool [add]",
+    name: "shortlist",
+    description: "Show your shortlist, or pin the running model to it",
+    usage: "/shortlist [add]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PROVIDERS_COMMAND = {
@@ -1188,15 +1188,15 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             }
             return {
                 type: "command_error",
-                message: `/pool takes no argument or "add", not "${argument}"`,
+                message: `/shortlist takes no argument or "add", not "${argument}"`,
             };
         },
         palette: {
-            name: "pool",
-            label: "Show the model pool",
-            description: "the shortlist you curated",
+            name: "shortlist",
+            label: "Show your shortlist",
+            description: "the models you keep",
             group: "Settings",
-            slashName: "pool",
+            slashName: "shortlist",
             action: { type: "show_pool" },
         },
     });
