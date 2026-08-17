@@ -16,6 +16,7 @@ import {
     TuiCommandRegistry,
     tuiWithArgument,
     type TuiCommandAction,
+    type TuiCommandCatalogEntry,
 } from "../../clients/tui/commands.ts";
 
 test("every slash action has an explicit pane scope", () => {
@@ -91,10 +92,8 @@ test("every slash action has an explicit pane scope", () => {
 
 // The catalog says what a command is; where it came from is the registry's to
 // know, so the listed form carries a group the catalog entry does not.
-const LISTED_BUILTINS = BUILTIN_COMMANDS.map((command) => ({
-    ...command,
-    group: "built in",
-}));
+const LISTED_BUILTINS: readonly TuiCommandCatalogEntry[] = BUILTIN_COMMANDS
+    .map((command) => ({ ...command, group: "built in" as const }));
 
 test("built-in TUI commands match the public command catalog", () => {
     const registry = createBuiltinTuiCommandRegistry();
@@ -200,7 +199,9 @@ test("typing slash exposes the built-in rewind command", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
     expect(registry.suggestions("/")).toEqual(LISTED_BUILTINS);
-    expect(registry.suggestions("/rew")).toEqual([LISTED_BUILTINS[0]]);
+    expect(registry.suggestions("/rew")).toEqual(
+        LISTED_BUILTINS.filter((command) => command.name === "rewind"),
+    );
     expect(registry.suggestions("/unknown")).toEqual([]);
     expect(registry.suggestions("message /rew")).toEqual([]);
     expect(registry.suggestions("/rewind now")).toEqual([]);
