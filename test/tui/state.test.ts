@@ -639,33 +639,25 @@ test("TUI stops working when the resident agent fails", () => {
 });
 
 test("TUI connection failure stops work and clears unsendable prompts", () => {
-    const state = failTuiConnection(
-        applyAgentUpdate(
-            queueTuiPrompt(
-                beginTuiTurn(createTuiState(), "active prompt"),
-                "queued prompt",
-            ),
-            {
-                type: "tool_started",
-                tool: "bash",
-                args: { command: "sleep 1" },
-                seq: 1,
-            },
+    const connected = applyAgentUpdate(
+        queueTuiPrompt(
+            beginTuiTurn(createTuiState(), "active prompt"),
+            "queued prompt",
         ),
-        "Host sent a non-contiguous agent update sequence",
+        {
+            type: "tool_started",
+            tool: "bash",
+            args: { command: "sleep 1" },
+            seq: 1,
+        },
     );
+    const state = failTuiConnection(connected);
 
     expect(state.working).toBe(false);
     expect(state.queuedPrompts).toEqual([]);
     expect(entryLine(state.entries[1]!)).toBe("Ran");
-    expect(state.entries.at(-1)).toEqual({
-        kind: "notice",
-        text: "",
-        diagnostic: resolveTuiDiagnostic(
-            "connection_failed",
-            "Connection error: Host sent a non-contiguous agent update sequence",
-        ),
-    });
+    // Disconnection is status-line state, so the transcript gains no row.
+    expect(state.entries).toHaveLength(connected.entries.length);
 });
 
 test("TUI keeps model failures restored from canonical history", () => {

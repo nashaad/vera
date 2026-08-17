@@ -420,6 +420,15 @@ registerTuiParsers();
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
+/** How much of a connection failure the status line carries. */
+const CONNECTION_FAILURE_HINT_LIMIT = 44;
+
+function shortConnectionFailure(message: string): string {
+    const line = message.split("\n")[0]?.trim() ?? "";
+    return line.length > CONNECTION_FAILURE_HINT_LIMIT
+        ? `${line.slice(0, CONNECTION_FAILURE_HINT_LIMIT - 1)}…`
+        : line;
+}
 // The question overlay owns the choose/cancel hint now, so the status line only
 // carries the waiting phase and the global interrupt.
 const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
@@ -832,6 +841,7 @@ export async function startTui(
         },
     });
     let connectionFailed = false;
+    let connectionFailure: string | undefined;
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
     // What each in-flight change asked for, so a rejection can name it. The
@@ -5657,7 +5667,8 @@ export async function startTui(
         workingSince = undefined;
         phaseSince = undefined;
         activity = "disconnected";
-        state = failTuiConnection(state, message);
+        connectionFailure = message;
+        state = failTuiConnection(state);
         renderState();
         composer.focus();
     }
@@ -7220,6 +7231,7 @@ export async function startTui(
             }
         }
         connectionFailed = false;
+        connectionFailure = undefined;
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
@@ -8046,7 +8058,11 @@ export async function startTui(
             runningBackgroundAgents,
         );
         if (connectionFailed) {
-            lifecycleHint = "disconnected · /reconnect host · ctrl+c quit";
+            lifecycleHint = `disconnected${
+                connectionFailure === undefined
+                    ? ""
+                    : `: ${shortConnectionFailure(connectionFailure)}`
+            } · /reconnect host · ctrl+c quit`;
         } else if (focusedAbort) {
             lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
         } else if (
