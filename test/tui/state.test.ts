@@ -989,10 +989,10 @@ test("TUI entries render with kind-specific prefixes", () => {
         kind: "notice",
         text: "",
         diagnostic: resolveTuiDiagnostic(
-            "connection_failed",
-            "Connection error: attachment closed",
+            "model_request_failed",
+            "Model request failed",
         ),
-    }))).toBe("× Connection error: attachment closed");
+    }))).toBe("× Model request failed");
     expect(plainText(renderTuiEntry({
         kind: "notice",
         text: "",
@@ -1008,14 +1008,14 @@ test("identical diagnostics collapse in place with a count", () => {
     for (let attempt = 0; attempt < 10; attempt += 1) {
         state = appendTuiDiagnostic(
             state,
-            "connection_retry",
-            "Connection retry",
+            "file_skipped",
+            "Skipped a file",
         );
     }
 
     expect(state.entries).toHaveLength(1);
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Connection retry (×10)");
+        .toBe("Skipped a file (×10)");
 });
 
 test("TUI tool entries keep their whole argument", () => {
@@ -1446,16 +1446,16 @@ test("diagnostics stay compact while a fatal keeps a blank row above", () => {
             kind: "notice",
             text: "",
             diagnostic: resolveTuiDiagnostic(
-                "connection_retry",
-                "Connection retry",
+                "file_skipped",
+                "Skipped a file",
             ),
         },
         {
             kind: "notice",
             text: "",
             diagnostic: resolveTuiDiagnostic(
-                "connection_failed",
-                "Connection failed",
+                "model_request_failed",
+                "Model request failed",
             ),
         },
         {
