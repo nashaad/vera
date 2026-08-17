@@ -22,7 +22,7 @@ const KINDS: readonly TuiSettingsPickerKind[] = [
     "model_assignment",
 ];
 
-const TABS: readonly TuiModelPickerTab[] = ["pool", "all", "assigned", "help"];
+const TABS: readonly TuiModelPickerTab[] = ["pool", "all", "defaults", "help"];
 
 const OPTION: TuiSettingsPickerOption = {
     value: "openrouter/big-1",

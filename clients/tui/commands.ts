@@ -147,8 +147,8 @@ export interface ShowPoolTuiCommandAction {
     readonly type: "show_pool";
 }
 
-export interface ShowAssignedTuiCommandAction {
-    readonly type: "show_assigned";
+export interface ShowDefaultsTuiCommandAction {
+    readonly type: "show_defaults";
 }
 
 export interface OpenProvidersTuiCommandAction {
@@ -200,7 +200,7 @@ export type TuiCommandAction =
     | ShowDoctorTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
     | ShowPoolTuiCommandAction
-    | ShowAssignedTuiCommandAction
+    | ShowDefaultsTuiCommandAction
     | OpenProvidersTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
@@ -242,7 +242,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "show_doctor":
         case "reload_client_extensions":
         case "show_pool":
-        case "show_assigned":
+        case "show_defaults":
         case "open_providers":
         case "pool_current_model":
         case "run_extension":
@@ -301,7 +301,7 @@ export interface TuiCommandDefinition {
         | CompactSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction
         | ShowDoctorTuiCommandAction
-        | ShowAssignedTuiCommandAction
+        | ShowDefaultsTuiCommandAction
         | OpenProvidersTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
@@ -424,10 +424,10 @@ const PROVIDERS_COMMAND = {
     usage: "/providers",
 } as const satisfies TuiCommandCatalogEntry;
 
-const ASSIGNED_COMMAND = {
-    name: "assigned",
+const DEFAULTS_COMMAND = {
+    name: "defaults",
     description: "Show which model runs each job",
-    usage: "/assigned",
+    usage: "/defaults",
 } as const satisfies TuiCommandCatalogEntry;
 
 const DIAGNOSTICS_COMMAND = {
@@ -469,7 +469,7 @@ export const BUILTIN_COMMANDS = [
     DOCTOR_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
-    ASSIGNED_COMMAND,
+    DEFAULTS_COMMAND,
     PROVIDERS_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
@@ -1201,15 +1201,15 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
     });
     registry.registerCommand({
-        ...ASSIGNED_COMMAND,
-        action: { type: "show_assigned" },
+        ...DEFAULTS_COMMAND,
+        action: { type: "show_defaults" },
         palette: {
-            name: "assigned",
+            name: "defaults",
             label: "Show which model runs each job",
             description: "snappy, eco, extra, and the jobs that inherit them",
             group: "Settings",
-            slashName: "assigned",
-            action: { type: "show_assigned" },
+            slashName: "defaults",
+            action: { type: "show_defaults" },
         },
     });
     registry.registerCommand({

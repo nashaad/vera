@@ -3781,14 +3781,14 @@ export async function startTui(
             renderState();
             return;
         }
-        if (commandAction?.type === "show_assigned") {
+        if (commandAction?.type === "show_defaults") {
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
             openModelPicker();
             settingsPicker = switchedModelTab(
                 settingsPicker as TuiSettingsPickerState,
-                "assigned",
+                "defaults",
             );
             renderState();
             return;
@@ -7616,6 +7616,18 @@ export async function startTui(
                         settingsPickerAgent,
                     );
                 }
+            } else if (selection.kind === "model_assignment_browse") {
+                // Keeping a model is what makes it available as a default, so
+                // the row that says so lands on the collection it is kept in
+                // rather than leaving the user to find it.
+                openModelPicker();
+                settingsPicker = switchedModelTab(
+                    settingsPicker as TuiSettingsPickerState,
+                    "pool",
+                );
+                renderState();
+                focusActiveSurface();
+                return;
             } else if (selection.kind === "model_assignment_open") {
                 // The pane the row was chosen on, which Enter has already
                 // cleared from `settingsPicker`: without it Escape closes the

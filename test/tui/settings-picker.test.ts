@@ -35,6 +35,8 @@ import {
     tuiProviderFormFields,
     tuiProviderFormRows,
     type TuiProviderFormState,
+    MODEL_ASSIGNMENT_BROWSE_VALUE,
+    startTuiModelAssignmentPicker,
 } from "../../clients/tui/settings-picker.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
@@ -1248,7 +1250,7 @@ test("⇥ moves to All models, which lists what can run", async () => {
 
     // The cycle is Pool, All models, Slots, Help, and round again.
     const slots = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
-    expect(slots.tab).toBe("assigned");
+    expect(slots.tab).toBe("defaults");
     const help = handleTuiSettingsPickerKey(slots, { name: "tab" }).state!;
     expect(help.tab).toBe("help");
     expect(handleTuiSettingsPickerKey(help, { name: "tab" }).state?.tab)
@@ -2010,7 +2012,7 @@ test("the connect pane opened from the model pane draws in the same card", async
     // strip the user tabbed along is still there to tab back on.
     expect(frame).toContain("Select model");
     expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Assigned\s+Help\s+Providers \^e/);
+    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Defaults\s+Help\s+Providers \^e/);
     expect(frame).toContain("⇥ tabs");
     expect(frame).toContain("OpenRouter");
 });
@@ -2740,4 +2742,17 @@ test("the edit form opens filled in and a rename says what it replaces", () => {
     );
     expect(renamed.submitted?.id).toBe("gemini-eu");
     expect(renamed.submitted?.replaces).toBe("gemini");
+});
+
+test("the defaults pane offers a way to the collection it draws from", () => {
+    const pane = startTuiModelAssignmentPicker("extra", "Extra", "the heaviest job", []);
+    // Nothing kept yet is the case that used to dead-end: one row that unsets
+    // the default, and nothing saying where a model would come from.
+    const browse = pane.options.at(-1);
+    expect(browse?.value).toBe(MODEL_ASSIGNMENT_BROWSE_VALUE);
+    const selected = handleTuiSettingsPickerKey(
+        { ...pane, selectedIndex: pane.options.length - 1 },
+        { name: "enter" },
+    ).selection;
+    expect(selected).toEqual({ kind: "model_assignment_browse" });
 });
