@@ -306,10 +306,14 @@ import {
     type TuiNamePromptTransition,
 } from "./name-prompt.ts";
 import {
+    activeTuiKeymap,
+    installTuiKeymap,
+    isTuiKeyScope,
     tuiBindingId,
     tuiChord,
     tuiKeyHint,
 } from "./keymap.ts";
+import { resolveTuiKeymap } from "./keybindings.ts";
 import {
     recordTuiTipShown,
     selectTuiTip,
@@ -406,6 +410,7 @@ import {
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
     saveTuiSidebarWidth,
+    loadTuiKeybindingOverlay,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
     saveTuiRecentSessionId,
@@ -938,6 +943,8 @@ export async function startTui(
     >();
     const extensionAgentTarget = new AsyncLocalStorage<TuiAgentClient>();
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
+    const keybindingOverlay = loadTuiKeybindingOverlay();
+    const announcedKeymapNotices = new Set<string>();
     let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
@@ -1283,6 +1290,7 @@ export async function startTui(
         startConfiguredClientExtensionHost,
         (registry) => {
             clientExtensionRegistry = registry;
+            refreshKeymap();
             if (registry === undefined) {
                 extensionMentions = [];
                 extensionAddressee = undefined;
@@ -1312,6 +1320,7 @@ export async function startTui(
         },
     );
     await clientExtensionHost.reload();
+    refreshKeymap();
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
         if (
@@ -1329,6 +1338,44 @@ export async function startTui(
             "direct",
         );
     }
+    /**
+     * Rebuild the one table the TUI dispatches from.
+     *
+     * Static rows, whatever the extension generation registered, and the
+     * user's `keybindings` block go through one merge, so dispatch, footer
+     * hints and the help pane cannot disagree about where a key lives. Run
+     * again after an extension reload, since the chords on offer changed.
+     */
+    function refreshKeymap(): void {
+        const resolution = resolveTuiKeymap({
+            extensions: (clientExtensionRegistry?.keybindings() ?? []).map(
+                (descriptor) => ({
+                    id: descriptor.id,
+                    keys: descriptor.keys,
+                    description: descriptor.description,
+                    ...(isTuiKeyScope(descriptor.scope)
+                        ? { scope: descriptor.scope }
+                        : {}),
+                    ...(descriptor.remappable === undefined
+                        ? {}
+                        : { remappable: descriptor.remappable }),
+                    ...(descriptor.hint === undefined
+                        ? {}
+                        : { hint: descriptor.hint }),
+                }),
+            ),
+            overlay: keybindingOverlay,
+        });
+        installTuiKeymap(resolution.bindings);
+        // Said once per distinct set. A reload that changes nothing about the
+        // keys must not repeat the banner it already showed.
+        for (const notice of resolution.notices) {
+            if (announcedKeymapNotices.has(notice)) continue;
+            announcedKeymapNotices.add(notice);
+            state = appendTuiNotice(state, notice);
+        }
+    }
+
     function coreHelpCommands(): readonly TuiCommandCatalogEntry[] {
         const hostCommandNames = new Set(
             hostExtensionCommands.map((command) => command.name),
@@ -3268,11 +3315,19 @@ export async function startTui(
             return;
         }
 
+        // Through the merged table rather than the registry's own chords, so a
+        // chord the user moved in tui.json reaches the extension that owns the
+        // id rather than the place the extension originally asked for.
         const extensionKey = tuiChord(key);
-        const extensionBinding = extensionKey === undefined
+        const boundId = extensionKey === undefined
+            ? undefined
+            : activeTuiKeymap().find((binding) =>
+                binding.keys.includes(extensionKey)
+            )?.id;
+        const extensionBinding = boundId === undefined
             ? undefined
             : clientExtensionRegistry?.keybindings().find((binding) =>
-                binding.keys.includes(extensionKey)
+                binding.id === boundId
             );
         if (extensionBinding !== undefined && !anyOverlayOpen()) {
             key.preventDefault();

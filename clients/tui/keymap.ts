@@ -40,6 +40,28 @@ export type TuiKeyScope =
     | "question"
     | "help";
 
+/** Every scope name, for validating one that arrived from an extension. */
+export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
+    "global",
+    "conversation",
+    "composer",
+    "unfocused",
+    "picker",
+    "model_picker",
+    "session_picker",
+    "secret_prompt",
+    "provider_form",
+    "preferences_list",
+    "approval",
+    "question",
+    "help",
+];
+
+export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
+    return typeof value === "string"
+        && (TUI_KEY_SCOPES as readonly string[]).includes(value);
+}
+
 /**
  * The scopes that only exist while an overlay owns the screen.
  *
@@ -96,6 +118,22 @@ export interface TuiBinding {
      * themselves.
      */
     readonly extensionId?: string;
+    /**
+     * Whether a user may move this chord in `tui.json`.
+     *
+     * True on picker-opening ids and on movement inside a picker, and nowhere
+     * else. Interrupt, enter, escape, cursor movement, text entry and every
+     * binding that changes state without showing a picker stay where they are:
+     * a remappable silent-state key is how blind cycling gets rebuilt.
+     */
+    readonly remappable?: boolean;
+}
+
+/** A chord collision between two bindings that can both be reached at once. */
+export interface TuiKeymapConflict {
+    readonly chord: string;
+    readonly left: string;
+    readonly right: string;
 }
 
 export const TUI_KEYMAP: readonly TuiBinding[] = [
@@ -106,6 +144,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Open the command palette",
         hint: "ctrl+p commands",
         anyModifiers: true,
+        remappable: true,
     },
     {
         id: "interrupt",
@@ -191,6 +230,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "global",
         description: "Open the model picker",
         hint: "ctrl+shift+m model",
+        remappable: true,
     },
     {
         id: "cycle-reasoning",
@@ -404,6 +444,26 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
 ];
 
+/**
+ * The table as it stands after the merge in `keybindings.ts`.
+ *
+ * `TUI_KEYMAP` is the defaults; this is what the running TUI actually
+ * dispatches, hints and documents. Holding it in one place is what keeps the
+ * help pane from describing a chord the user moved: every reader below goes
+ * through here rather than through the constant.
+ */
+let ACTIVE_KEYMAP: readonly TuiBinding[] = TUI_KEYMAP;
+
+/** Put the merged, overlaid table in force. Called once at TUI startup. */
+export function installTuiKeymap(bindings: readonly TuiBinding[]): void {
+    ACTIVE_KEYMAP = bindings;
+}
+
+/** The table in force, defaults included. */
+export function activeTuiKeymap(): readonly TuiBinding[] {
+    return ACTIVE_KEYMAP;
+}
+
 /** The shape every key handler in the TUI already receives, in some form. */
 export interface TuiChordKey {
     readonly name: string;
@@ -451,7 +511,7 @@ export function tuiBindingId(
 ): string | undefined {
     const exact = tuiChord(key);
     const loose = coreChord(key);
-    const matches = TUI_KEYMAP.filter((binding) => {
+    const matches = ACTIVE_KEYMAP.filter((binding) => {
         if (!appliesIn(binding, scope)) {
             return false;
         }
@@ -464,7 +524,7 @@ export function tuiBindingId(
 
 /** How a binding is written on screen, empty when it is not shown anywhere. */
 export function tuiKeyHint(id: string): string {
-    return TUI_KEYMAP.find((binding) => binding.id === id)?.hint ?? "";
+    return ACTIVE_KEYMAP.find((binding) => binding.id === id)?.hint ?? "";
 }
 
 /**
@@ -475,12 +535,12 @@ export function tuiKeyHint(id: string): string {
  * table spells it.
  */
 export function tuiKeyChord(id: string): string {
-    return TUI_KEYMAP.find((binding) => binding.id === id)?.keys[0] ?? "";
+    return ACTIVE_KEYMAP.find((binding) => binding.id === id)?.keys[0] ?? "";
 }
 
 /** The chords a scope has already claimed, including the ones it inherits. */
 export function tuiClaimedChords(scope: TuiKeyScope): readonly string[] {
-    return TUI_KEYMAP.filter((binding) => appliesIn(binding, scope))
+    return ACTIVE_KEYMAP.filter((binding) => appliesIn(binding, scope))
         .flatMap((binding) => binding.keys);
 }
 
@@ -496,7 +556,7 @@ export function tuiChordOwner(
     chord: string,
     scope: TuiKeyScope = "global",
 ): TuiBinding | undefined {
-    return TUI_KEYMAP.find((binding) =>
+    return ACTIVE_KEYMAP.find((binding) =>
         appliesIn(binding, scope) && binding.keys.includes(chord)
     );
 }
@@ -511,7 +571,20 @@ export function tuiChordOwner(
 export function tuiKeymapConflicts(
     bindings: readonly TuiBinding[] = TUI_KEYMAP,
 ): readonly string[] {
-    const conflicts: string[] = [];
+    return tuiKeymapConflictPairs(bindings)
+        .map(({ chord, left, right }) => `${chord}: ${left} and ${right}`);
+}
+
+/**
+ * The same comparison, kept in the form the overlay validator needs.
+ *
+ * Startup has to name both sides of a collision and then drop the user entries
+ * involved, which it cannot do from a formatted string.
+ */
+export function tuiKeymapConflictPairs(
+    bindings: readonly TuiBinding[] = TUI_KEYMAP,
+): readonly TuiKeymapConflict[] {
+    const conflicts: TuiKeymapConflict[] = [];
     for (const [index, binding] of bindings.entries()) {
         for (const other of bindings.slice(index + 1)) {
             if (!overlaps(binding.scope, other.scope)) {
@@ -528,7 +601,11 @@ export function tuiKeymapConflicts(
                     ) {
                         continue;
                     }
-                    conflicts.push(`${chord}: ${binding.id} and ${other.id}`);
+                    conflicts.push({
+                        chord,
+                        left: binding.id,
+                        right: other.id,
+                    });
                 }
             }
         }

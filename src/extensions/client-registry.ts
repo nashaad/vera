@@ -138,6 +138,12 @@ export interface ClientExtensionKeybindingDescriptor {
     readonly description: string;
     readonly keys: readonly string[];
     readonly source: string;
+    /** Declared scope, when the extension named one. */
+    readonly scope?: string;
+    /** Whether the user may move the chord. Absent reads as no. */
+    readonly remappable?: boolean;
+    /** Footer text for the chord, when the extension wrote one. */
+    readonly hint?: string;
 }
 
 export interface ClientExtensionRegistryFailure {
@@ -1295,6 +1301,11 @@ async function activateClientExtension(
                         description: spec.description.trim(),
                         keys: [...spec.keys],
                         source: options.id,
+                        ...(spec.scope === undefined ? {} : { scope: spec.scope }),
+                        ...(spec.remappable === undefined
+                            ? {}
+                            : { remappable: spec.remappable }),
+                        ...(spec.hint === undefined ? {} : { hint: spec.hint }),
                     },
                     run: spec.run,
                 });
@@ -1661,6 +1672,11 @@ function validateKeybindingSpec(
         || spec.keys.some((key) =>
             typeof key !== "string" || key.trim().length === 0
         )
+        || (spec.scope !== undefined
+            && (typeof spec.scope !== "string" || spec.scope.length === 0))
+        || (spec.remappable !== undefined
+            && typeof spec.remappable !== "boolean")
+        || (spec.hint !== undefined && typeof spec.hint !== "string")
         || typeof spec.run !== "function"
     ) {
         throw new Error("Invalid client extension keybinding registration");
