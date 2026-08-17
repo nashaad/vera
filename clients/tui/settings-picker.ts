@@ -304,6 +304,12 @@ export interface TuiPendingModelChoice {
     readonly provider: string;
     readonly model: string;
     readonly modelPaneState: TuiSettingsPickerState;
+    /**
+     * Set when the chain started on an assignment pane rather than the model
+     * pane, so the folded result binds the assignment instead of changing the
+     * session's own model.
+     */
+    readonly assignment?: ModelAssignmentId;
 }
 
 export interface TuiExtensionPickerState {
@@ -364,6 +370,8 @@ export type TuiSettingsPickerSelection =
         /** Absent unbinds the assignment. */
         readonly provider?: string;
         readonly model?: string;
+        /** Present only when this selection folded in a chained level pane. */
+        readonly reasoningEffort?: ModelReasoningEffort;
     };
 
 export interface TuiPoolToggle {
@@ -877,6 +885,7 @@ function modelAssignmentOfValue(value: string): ModelAssignmentId | undefined {
 export function tuiModelAssignmentOptions(
     rows: readonly ModelAssignmentRow[],
     sessionModel?: string,
+    sessionReasoningEffort?: ModelReasoningEffort,
 ): readonly TuiSettingsPickerOption[] {
     return [
         {
@@ -885,7 +894,10 @@ export function tuiModelAssignmentOptions(
             description: "",
             note: "The model this session runs on. Press \u23ce to change it.",
             detailTitle: "this session",
-            detailFacts: [["Runs", sessionModel ?? "not known"] as const],
+            detailFacts: [[
+                "Runs",
+                sessionRunsFact(sessionModel, sessionReasoningEffort),
+            ] as const],
             searchText: "session current model main",
         },
         ...rows.map((row) => ({
@@ -898,6 +910,17 @@ export function tuiModelAssignmentOptions(
             searchText: `${row.assignment} ${row.label} ${row.intent}`,
         })),
     ];
+}
+
+/** The session's model named the same way an assignment's model is. */
+function sessionRunsFact(
+    model: string | undefined,
+    reasoningEffort: ModelReasoningEffort | undefined,
+): string {
+    if (model === undefined) return "not known";
+    return reasoningEffort === undefined
+        ? model
+        : `${model} (${reasoningEffort})`;
 }
 
 /**
@@ -3794,10 +3817,20 @@ function pickerSelection(
         // A chained level pane folds its result into the model choice that
         // opened it, so the two panes resolve to one patch rather than two.
         if (state.pendingModel !== undefined) {
+            const pending = state.pendingModel;
+            if (pending.assignment !== undefined) {
+                return {
+                    kind: "model_assignment",
+                    assignment: pending.assignment,
+                    provider: pending.provider,
+                    model: pending.model,
+                    reasoningEffort: value as ModelReasoningEffort,
+                };
+            }
             return {
                 kind: "model",
-                provider: state.pendingModel.provider,
-                model: state.pendingModel.model,
+                provider: pending.provider,
+                model: pending.model,
                 reasoningEffort: value as ModelReasoningEffort,
             };
         }

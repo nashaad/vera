@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import type { TerminalColors } from "@opentui/core";
 
+import themeCatalog from "../../config/tui-themes.json" with { type: "json" };
+import type { TuiThemeName } from "../../clients/tui/theme.ts";
 import {
     VERA_TUI_THEME,
     resolveTuiTheme,
@@ -137,4 +139,15 @@ test("muted blue uses Codex transcript, inline code, and detail colors", async (
         panel: "#171B23",
         element: "#2C2D31",
     });
+});
+
+test("no theme paints a notice in a color it also uses to alarm", async () => {
+    const renderer = { async getPalette() { return terminalColors(); } };
+    for (const name of Object.keys(themeCatalog.themes)) {
+        const theme = await resolveTuiTheme(renderer, name as TuiThemeName);
+        // A notice that shares the danger or accent color reads as an error
+        // or as a heading, and a confirmation is neither.
+        expect([name, theme.notice === theme.danger]).toEqual([name, false]);
+        expect([name, theme.notice === theme.accent]).toEqual([name, false]);
+    }
 });
