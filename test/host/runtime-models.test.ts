@@ -53,6 +53,7 @@ function stubAuth(token: string | undefined): AuthStorage {
             ? undefined
             : { type: "oauth" as const, token },
         setCredential: () => {},
+        deleteCredential: () => {},
     } as unknown as AuthStorage;
 }
 

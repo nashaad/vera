@@ -149,7 +149,21 @@ const SECRET_KEY = new RegExp(
     "i",
 );
 
-const BEARER = /\bBearer\s+[\w\-._~+/]+=*/gi;
+// Header lines carrying a credential, whatever scheme or shape the value has.
+// The value runs to the end of the line, stopping at a quote or separator so a
+// header inside a serialized object does not swallow its neighbours.
+const AUTH_HEADER = new RegExp(
+    "\\b("
+    + "authorization|proxy-authorization|www-authenticate"
+    + "|cookie|set-cookie"
+    + ")(\\s*:\\s*)[^\\n\"',;]+",
+    "gi",
+);
+// Bearer credentials wherever they appear, header or not. The colon is inside
+// the value class because a token can carry one and the tail is as secret as
+// the head. Other schemes are left to the header pass: their names are common
+// enough as prose that matching them loose would redact message content.
+const BEARER = /\bBearer\s+[\w\-._~+/:]+=*/gi;
 // Well-known token shapes. Captured requests carry prior tool output, so a
 // key can arrive as a bare literal (an `env` dump, a read .env file) with no
 // header name or Bearer prefix around it.
@@ -169,7 +183,7 @@ const KEY_LITERAL = new RegExp(
 // has no recognizable shape (AWS secret keys, arbitrary passwords). The name
 // is the signal there, same as the object-key pass below.
 const SECRET_ASSIGNMENT = new RegExp(
-    "\\b([A-Za-z_][A-Za-z0-9_-]*"
+    "\\b([A-Za-z0-9_-]*"
     + "(?:key|token|secret|password|passwd|credential)s?"
     + "[A-Za-z0-9_-]*)"
     + "(\\s*[=:]\\s*)"
@@ -184,11 +198,13 @@ const SECRET_ASSIGNMENT = new RegExp(
  * the file is worth reading, so only the fields and literals that carry a
  * provider credential are replaced. The literal pass matters because a key
  * reaches a capture inside an error string as often as it does under a header
- * name.
+ * name, and a bare `key=` in a query string is a credential as often as a
+ * named one is.
  */
 export function redactSecrets(value: unknown): unknown {
     if (typeof value === "string") {
-        return value.replace(BEARER, `Bearer ${REDACTED}`)
+        return value.replace(AUTH_HEADER, `$1$2${REDACTED}`)
+            .replace(BEARER, `Bearer ${REDACTED}`)
             .replace(KEY_LITERAL, REDACTED)
             .replace(SECRET_ASSIGNMENT, `$1$2${REDACTED}`);
     }

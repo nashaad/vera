@@ -43,6 +43,47 @@ test("auth storage atomically persists and reloads a provider credential", () =>
     expect(reloaded.getCredential("constructor")).toBeUndefined();
 });
 
+test("forgetting a provider removes only that credential", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-forget-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+    const storage = createAuthStorage({ path });
+    storage.setCredential("openrouter", { type: "api_key", key: "wrong-key" });
+    storage.setCredential("cerebras", { type: "api_key", key: "kept-key" });
+
+    storage.deleteCredential("openrouter");
+
+    const reloaded = createAuthStorage({ path });
+    expect(reloaded.getCredential("openrouter")).toBeUndefined();
+    expect(reloaded.getCredential("cerebras")).toEqual({
+        type: "api_key",
+        key: "kept-key",
+    });
+    // Omitted rather than written as null or undefined: the read side asks
+    // `Object.hasOwn`, which a present key answers yes to whatever its value.
+    const written: unknown = JSON.parse(readFileSync(path, "utf8"));
+    expect(
+        Object.hasOwn(
+            (written as { credentials: Record<string, unknown> }).credentials,
+            "openrouter",
+        ),
+    ).toBe(false);
+});
+
+test("forgetting a provider that was never stored is a no-op", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-auth-forget-missing-"));
+    temporaryDirectories.push(root);
+    const path = join(root, "auth.json");
+    const storage = createAuthStorage({ path });
+    storage.setCredential("openrouter", { type: "api_key", key: "kept-key" });
+
+    expect(() => storage.deleteCredential("cerebras")).not.toThrow();
+    expect(createAuthStorage({ path }).getCredential("openrouter")).toEqual({
+        type: "api_key",
+        key: "kept-key",
+    });
+});
+
 test("how a provider is connected survives the round trip", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-auth-kinds-"));
     temporaryDirectories.push(root);

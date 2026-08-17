@@ -38,6 +38,8 @@ interface StoredAuth {
 export interface AuthStorage {
     getCredential(provider: string): StoredCredential | undefined;
     setCredential(provider: string, credential: StoredCredential): void;
+    /** Forgets a provider's credential. A provider with none stored is a no-op. */
+    deleteCredential(provider: string): void;
 }
 
 /** The OAuth token for a provider, absent when it is connected another way. */
@@ -126,6 +128,23 @@ export function createAuthStorage(
                     ...auth.credentials,
                     [provider]: credential,
                 },
+            });
+        },
+
+        deleteCredential(provider: string): void {
+            const auth = readForWrite(path, options.onQuarantine);
+            // Rebuilt without the key rather than set to undefined: the read
+            // side asks `Object.hasOwn`, which a present-but-undefined key
+            // still answers yes to.
+            const credentials: Record<string, StoredCredential> = {};
+            for (const [id, credential] of Object.entries(auth.credentials)) {
+                if (id !== provider) {
+                    credentials[id] = credential;
+                }
+            }
+            writeStoredAuth(path, {
+                schema_version: AUTH_STORAGE_SCHEMA_VERSION,
+                credentials,
             });
         },
     };

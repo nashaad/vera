@@ -288,6 +288,17 @@ export interface VeraConfigDefaultsPatch {
         readonly assignment: ModelAssignmentId;
         readonly binding: VeraModelAssignmentConfig | null;
     };
+    /**
+     * One declared provider, written whole. `null` removes it. Only the named
+     * one is touched: the others are endpoints the user declared separately.
+     * The declaration is validated by the same parsing the loader applies to
+     * the `providers` block, so a written entry and a hand-written entry
+     * cannot diverge.
+     */
+    readonly custom_provider?: {
+        readonly id: string;
+        readonly declaration: VeraCustomProviderConfig | null;
+    };
 }
 
 export function defaultVeraConfigPath(): string {
@@ -442,6 +453,9 @@ export function updateVeraConfigDefaults(
         ...(patch.model_assignment === undefined
             ? {}
             : { model_assignments: patchedModelAssignments(current.model_assignments, patch.model_assignment) }),
+        ...(patch.custom_provider === undefined
+            ? {}
+            : { providers: patchedCustomProviders(path, current.providers, patch.custom_provider) }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
             : {}),
@@ -498,6 +512,34 @@ function patchedModelAssignments(
     return patch.binding === null
         ? rest
         : { ...rest, [patch.assignment]: patch.binding };
+}
+
+/**
+ * One declared provider replaced or removed, the rest carried across
+ * untouched. The declaration is round-tripped through `parseCustomProviders`
+ * so it is normalised and rejected on exactly the terms the loader uses,
+ * including the built-in id collision the parser already refuses.
+ */
+function patchedCustomProviders(
+    path: string,
+    current: Readonly<Record<string, VeraCustomProviderConfig>> | undefined,
+    patch: { readonly id: string; readonly declaration: VeraCustomProviderConfig | null },
+): Readonly<Record<string, VeraCustomProviderConfig>> | undefined {
+    const id = patch.id.trim();
+    const rest = Object.fromEntries(
+        Object.entries(current ?? {}).filter(([name]) => name !== id),
+    );
+    if (patch.declaration === null) {
+        return Object.keys(rest).length === 0 ? undefined : rest;
+    }
+    const parsed = parseCustomProviders({ [id]: patch.declaration });
+    if (parsed === undefined || parsed[id] === undefined) {
+        throw new VeraConfigError(
+            path,
+            `provider "${patch.id}" is not a valid declaration`,
+        );
+    }
+    return { ...rest, [id]: parsed[id] };
 }
 
 function foreignConfigEntries(path: string): Record<string, unknown> {

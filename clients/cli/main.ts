@@ -68,6 +68,27 @@ import {
     renderVeraDoctor,
     type VeraDoctorReport,
 } from "../process-doctor.ts";
+import {
+    diagnoseProviders,
+    renderProviderDoctor,
+    type ProviderDoctorOptions,
+    type ProviderDoctorReport,
+} from "../provider-doctor.ts";
+
+const PROVIDER_CHECK_FLAG = "--check-providers";
+
+/**
+ * Provider diagnosis over the real config and the real credential store.
+ * Offline unless `--check-providers` asked for a request.
+ */
+async function defaultProviderDoctor(
+    options: ProviderDoctorOptions,
+): Promise<ProviderDoctorReport> {
+    return diagnoseProviders(loadVeraConfig(), {
+        ...options,
+        authStorage: createAuthStorage(),
+    });
+}
 
 interface CliOutput {
     write(text: string): unknown;
@@ -103,6 +124,9 @@ export interface CliDependencies {
     readonly confirmHostStop?: () => boolean | Promise<boolean>;
     readonly stopHost?: () => Promise<number | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
+    readonly providerDoctor?: (
+        options: ProviderDoctorOptions,
+    ) => Promise<ProviderDoctorReport>;
     readonly listPool?: (workspace: string) => Promise<string>;
     readonly addPoolModel?: (
         workspace: string,
@@ -274,11 +298,19 @@ export async function runCli(
         return 0;
     }
 
-    if (args.length === 1 && args[0] === "doctor") {
+    if (
+        args[0] === "doctor"
+        && args.slice(1).every((arg) => arg === PROVIDER_CHECK_FLAG)
+    ) {
+        const checkNetwork = args.includes(PROVIDER_CHECK_FLAG);
         const report = await (
             dependencies.doctor ?? diagnoseVeraProcesses
         )();
         output.write(renderVeraDoctor(report));
+        const providers = await (
+            dependencies.providerDoctor ?? defaultProviderDoctor
+        )({ checkNetwork });
+        output.write(`\n${renderProviderDoctor(providers)}`);
         return report.healthy ? 0 : 1;
     }
 

@@ -167,6 +167,10 @@ import {
     defaultStashRoot,
     summarizeStash,
 } from "../../src/store/preimage-stash.ts";
+import {
+    diagnoseProviders,
+    renderProviderDoctor,
+} from "../provider-doctor.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
@@ -225,6 +229,11 @@ import {
     handleTuiSessionTrashConfirmKey,
 } from "./session-trash-confirm.ts";
 import {
+    createTuiProviderForgetConfirmView,
+    handleTuiProviderForgetConfirmKey,
+    tuiProviderForgetDecision,
+} from "./provider-forget-confirm.ts";
+import {
     createTuiAdmissionDialogView,
     handleTuiAdmissionDialogKey,
     startTuiAdmissionDialog,
@@ -274,6 +283,12 @@ import {
     type TuiSettingsPickerTransition,
     type TuiExtensionPickerAction,
     type TuiExtensionPickerTransition,
+    createTuiProviderFormView,
+    handleTuiProviderFormKey,
+    handleTuiProviderFormPaste,
+    startTuiProviderForm,
+    type TuiProviderFormState,
+    type TuiProviderFormTransition,
 } from "./settings-picker.ts";
 import {
     createTuiSecretPromptView,
@@ -925,6 +940,7 @@ export async function startTui(
     let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
+    let providerForm: TuiProviderFormState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
     /** The picker pane the preferences list was opened over, restored on close. */
     let preferencesListParent: TuiSettingsPickerState | undefined;
@@ -972,6 +988,17 @@ export async function startTui(
         readonly label: string;
     } | undefined;
     let sessionTrashPending = false;
+    /**
+     * The credential `delete` asked to forget, waiting on the confirmation.
+     *
+     * It carries the pane to reopen because the connect list is read off disk:
+     * forgetting changes the disk, so the pane is rebuilt rather than patched.
+     */
+    let providerForgetCandidate: {
+        readonly providerId: string;
+        readonly label: string;
+        readonly pane: TuiSettingsPickerState | undefined;
+    } | undefined;
     let commandSuggestionIndex = 0;
     /** Whether the highlighted row was chosen rather than merely first. */
     let commandSuggestionMoved = false;
@@ -1615,6 +1642,7 @@ export async function startTui(
     const settingsPickerView = createTuiSettingsPickerView(renderer);
     const secretPromptView = createTuiSecretPromptView(renderer);
     const namePromptView = createTuiNamePromptView(renderer);
+    const providerFormView = createTuiProviderFormView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const helpView = createTuiHelpView(renderer);
@@ -1634,6 +1662,8 @@ export async function startTui(
     const admissionDialogView = createTuiAdmissionDialogView(renderer);
     const sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(renderer);
+    const providerForgetConfirmView =
+        createTuiProviderForgetConfirmView(renderer);
     const approvalView = createTuiApprovalView(renderer);
     const questionView = createTuiQuestionView(renderer);
 
@@ -2273,6 +2303,7 @@ export async function startTui(
     app.add(settingsPickerView.box);
     app.add(secretPromptView.box);
     app.add(namePromptView.surface);
+    app.add(providerFormView.surface);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
@@ -2317,6 +2348,7 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.surface);
     app.add(sessionTrashConfirmView.surface);
+    app.add(providerForgetConfirmView.surface);
     app.add(composerTipText);
     app.add(experimentalTuiHost.footer);
     app.add(experimentalTuiHost.composerAdornment);
@@ -2454,6 +2486,19 @@ export async function startTui(
     // paste has to be routed here. Ahead of the composer, which would otherwise
     // end up with the key as visible text in the transcript.
     renderer.keyInput.on("paste", (event) => {
+        if (
+            providerForm !== undefined
+            && providerFormView.surface.visible
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            providerForm = handleTuiProviderFormPaste(
+                providerForm,
+                stripAnsiSequences(decodePasteBytes(event.bytes)),
+            );
+            renderState();
+            return;
+        }
         if (
             namePrompt !== undefined
             && namePromptView.surface.visible
@@ -2662,6 +2707,25 @@ export async function startTui(
             return;
         }
 
+        if (providerForgetCandidate !== undefined) {
+            const result = handleTuiProviderForgetConfirmKey(key);
+            key.preventDefault();
+            key.stopPropagation();
+            if (result === "confirm") {
+                forgetProviderCredential(providerForgetCandidate);
+            } else if (result === "cancel") {
+                const kept = providerForgetCandidate;
+                providerForgetCandidate = undefined;
+                state = appendTuiNotice(
+                    state,
+                    `kept the stored ${kept.label} credential`,
+                );
+                focusActiveSurface();
+                renderState();
+            }
+            return;
+        }
+
         if (timelinePicker !== undefined) {
             const transition = handleTuiTimelineKey(
                 timelinePicker,
@@ -2734,6 +2798,16 @@ export async function startTui(
 
         // Ahead of the picker: the prompt is drawn over the pane that opened
         // it, so it takes the keys while it is up.
+        if (providerForm !== undefined) {
+            const transition = handleTuiProviderFormKey(providerForm, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                applyProviderFormTransition(providerForm, transition);
+                return;
+            }
+        }
+
         if (namePrompt !== undefined) {
             const transition = handleTuiNamePromptKey(
                 namePrompt,
@@ -3639,9 +3713,39 @@ export async function startTui(
                     || doctorDialog === undefined
                     || doctorInspectionGeneration !== inspectionGeneration
                 ) return;
-                doctorDialog = { text: renderVeraDoctor(report) };
+                const processText = renderVeraDoctor(report);
+                doctorDialog = { text: processText, copyReady: false };
                 renderState();
                 focusActiveSurface();
+                // Offline only. The dialog has no way to ask for a network
+                // probe, so it never makes one: `vera doctor
+                // --check-providers` owns that.
+                void diagnoseProviders(loadOptionalVeraConfig(), {
+                    authStorage,
+                }).then(
+                    (providers) => {
+                        if (
+                            shuttingDown
+                            || doctorDialog === undefined
+                            || doctorInspectionGeneration
+                                !== inspectionGeneration
+                        ) return;
+                        doctorDialog = {
+                            text: `${processText}\n${renderProviderDoctor(providers)}`,
+                        };
+                        renderState();
+                        focusActiveSurface();
+                    },
+                ).catch(() => {
+                    if (
+                        shuttingDown
+                        || doctorDialog === undefined
+                        || doctorInspectionGeneration !== inspectionGeneration
+                    ) return;
+                    doctorDialog = { text: processText };
+                    renderState();
+                    focusActiveSurface();
+                });
             }).catch((error) => {
                 if (
                     shuttingDown
@@ -5454,6 +5558,12 @@ export async function startTui(
         if (sessionTrashCandidate !== undefined) {
             return () => sessionTrashConfirmView.box.focus();
         }
+        if (providerForgetCandidate !== undefined) {
+            return () => providerForgetConfirmView.box.focus();
+        }
+        if (providerForm !== undefined) {
+            return () => providerFormView.box.focus();
+        }
         if (namePrompt !== undefined) {
             return () => namePromptView.box.focus();
         }
@@ -5662,6 +5772,7 @@ export async function startTui(
         timelinePicker = undefined;
         settingsPicker = undefined;
         namePrompt = undefined;
+        providerForm = undefined;
         commandPalette = undefined;
         help = undefined;
         confirmingFullAccess = false;
@@ -5799,34 +5910,48 @@ export async function startTui(
             && timelinePicker !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
+        providerFormView.surface.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
+            && providerForm !== undefined;
         namePromptView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
+            && providerForm === undefined
             && namePrompt !== undefined;
         secretPromptView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && namePrompt === undefined
+            && providerForm === undefined
             && secretPrompt !== undefined;
         settingsPickerView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && secretPrompt === undefined
             && namePrompt === undefined
+            && providerForm === undefined
             && settingsPicker !== undefined;
         preferencesListView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && preferencesList !== undefined;
         commandPaletteView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && secretPrompt === undefined
             && preferencesList === undefined
@@ -5835,6 +5960,7 @@ export async function startTui(
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && help !== undefined;
@@ -5842,6 +5968,7 @@ export async function startTui(
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && help === undefined
@@ -5851,6 +5978,7 @@ export async function startTui(
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && help === undefined
@@ -5859,15 +5987,21 @@ export async function startTui(
         permissionsConfirmView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && confirmingFullAccess;
         admissionDialogView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
             && !confirmingFullAccess
             && admissionDialog !== undefined;
         sessionTrashConfirmView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate !== undefined;
+        providerForgetConfirmView.surface.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && sessionTrashCandidate === undefined
+            && providerForgetCandidate !== undefined;
         const overlayVisible = approvalView.box.visible
             || questionView.box.visible
             || timelinePickerView.box.visible
@@ -5880,7 +6014,9 @@ export async function startTui(
             || permissionsConfirmView.box.visible
             || admissionDialogView.surface.visible
             || sessionTrashConfirmView.surface.visible
+            || providerForgetConfirmView.surface.visible
             || namePromptView.surface.visible
+            || providerFormView.surface.visible
             || secretPromptView.box.visible
             || experimentalTuiHost.hasModal();
         overlayScrim.visible = overlayVisible;
@@ -5939,6 +6075,9 @@ export async function startTui(
         if (namePrompt !== undefined) {
             namePromptView.update(namePrompt);
         }
+        if (providerForm !== undefined) {
+            providerFormView.update(providerForm);
+        }
         if (preferencesList !== undefined) {
             preferencesListView.update(preferencesList);
         }
@@ -5956,6 +6095,9 @@ export async function startTui(
         }
         if (sessionTrashCandidate !== undefined) {
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
+        }
+        if (providerForgetCandidate !== undefined) {
+            providerForgetConfirmView.update(providerForgetCandidate.label);
         }
         if (admissionDialog !== undefined) {
             admissionDialogView.update(admissionDialog, dialogAdmission());
@@ -6042,6 +6184,7 @@ export async function startTui(
             || timelinePicker !== undefined
             || secretPrompt !== undefined
             || namePrompt !== undefined
+            || providerForm !== undefined
             || settingsPicker !== undefined
             || preferencesList !== undefined
             || commandPalette !== undefined
@@ -6050,7 +6193,8 @@ export async function startTui(
             || diagnosticsDialog !== undefined
             || confirmingFullAccess
             || admissionDialog !== undefined
-            || sessionTrashCandidate !== undefined;
+            || sessionTrashCandidate !== undefined
+            || providerForgetCandidate !== undefined;
     }
 
     function clearTranscriptNodes(): void {
@@ -6546,6 +6690,96 @@ export async function startTui(
         });
     }
 
+    /**
+     * Ask before forgetting the credential Vera itself stored for a provider.
+     *
+     * Only a stored secret can be forgotten. `isProviderConnected` counts an
+     * environment variable as connected too, and removing nothing while saying
+     * "forgotten" would leave the row still marked and the key still in use, so
+     * that case names the variable instead. Those cases never reach the
+     * confirmation: there is nothing to confirm.
+     */
+    function forgetProvider(
+        providerId: string,
+        pane: TuiSettingsPickerState | undefined,
+    ): void {
+        const provider = findConfiguredProvider(
+            providerId,
+            loadOptionalVeraConfig(),
+        );
+        if (provider === undefined) {
+            return;
+        }
+        let stored;
+        try {
+            stored = authStorage.getCredential(provider.id);
+        } catch {
+            stored = undefined;
+        }
+        const decision = tuiProviderForgetDecision(
+            provider,
+            stored !== undefined,
+            provider.envVar === undefined
+                ? undefined
+                : process.env[provider.envVar],
+        );
+        // A row that cannot be forgotten answers in the transcript, so the pane
+        // goes away first. The row that can leaves the pane open underneath:
+        // cancelling has to put the user back where the key was pressed.
+        if (decision.kind === "explain") {
+            settingsPicker = undefined;
+            closeSettingsPickerSurface();
+            state = appendTuiNotice(state, decision.message);
+            renderState();
+            return;
+        }
+        providerForgetCandidate = {
+            providerId: provider.id,
+            label: provider.label,
+            pane,
+        };
+        composer.blur();
+        providerForgetConfirmView.update(provider.label);
+        renderState();
+        focusActiveSurface();
+    }
+
+    /**
+     * Delete the credential the confirmation named.
+     *
+     * Nothing checks the store again: `forgetProvider` read it one keypress
+     * ago, and a second read would only disagree with what the card promised.
+     */
+    function forgetProviderCredential(candidate: {
+        readonly providerId: string;
+        readonly label: string;
+        readonly pane: TuiSettingsPickerState | undefined;
+    }): void {
+        providerForgetCandidate = undefined;
+        settingsPicker = undefined;
+        closeSettingsPickerSurface();
+        try {
+            authStorage.deleteCredential(candidate.providerId);
+        } catch (error) {
+            state = appendTuiError(
+                state,
+                `could not forget the ${candidate.label} credential: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+            return;
+        }
+        state = appendTuiNotice(
+            state,
+            `forgot the stored ${candidate.label} credential`,
+        );
+        requestAgentSettings(focusedAgentClient());
+        // Reopened rather than patched: the mark on every row is read from the
+        // store, and the store just changed.
+        openProviderPicker(candidate.pane);
+    }
+
     async function defaultLoginProvider(
         providerId: string,
         onAuthorizationUrl: (url: string) => void,
@@ -6554,6 +6788,70 @@ export async function startTui(
             throw new Error(`No sign-in flow for provider ${providerId}`);
         }
         await loginOpenAICodex({ authStorage, onAuthorizationUrl });
+    }
+
+    /**
+     * The declaration form, finished or abandoned.
+     *
+     * The declaration goes to `config.json` and nowhere else. The pane writes
+     * the same file a user can still edit by hand, so a refusal from the config
+     * writer comes straight back to the form rather than being softened here.
+     */
+    function applyProviderFormTransition(
+        form: TuiProviderFormState,
+        transition: TuiProviderFormTransition,
+    ): void {
+        providerForm = transition.state;
+        if (providerForm !== undefined) {
+            renderState();
+            return;
+        }
+        const submitted = transition.submitted;
+        if (submitted === undefined) {
+            settingsPicker = form.parent;
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        try {
+            updateVeraConfigDefaults({
+                custom_provider: {
+                    id: submitted.id,
+                    declaration: submitted.declaration,
+                },
+            });
+        } catch (error) {
+            providerForm = {
+                ...form,
+                field: "base_url",
+                error: error instanceof Error ? error.message : String(error),
+            };
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        state = appendTuiNotice(state, `declared ${submitted.id}`);
+        requestAgentSettings(focusedAgentClient());
+        // Rebuilt rather than patched: the connect list is read from the config
+        // file, and the file just changed.
+        openProviderPicker(form.parent?.parent);
+        if (submitted.declaration.credential !== "api_key") {
+            return;
+        }
+        const provider = findConfiguredProvider(
+            submitted.id,
+            loadOptionalVeraConfig(),
+        );
+        if (provider === undefined) {
+            return;
+        }
+        secretPrompt = startTuiSecretPrompt(
+            provider,
+            settingsPicker?.kind === "provider" ? settingsPicker : undefined,
+        );
+        settingsPicker = undefined;
+        renderState();
+        focusActiveSurface();
     }
 
     function applySecretPromptTransition(
@@ -6909,6 +7207,31 @@ export async function startTui(
             );
             return;
         }
+        if (
+            "forgetProvider" in transition
+            && transition.forgetProvider !== undefined
+        ) {
+            forgetProvider(
+                transition.forgetProvider,
+                previousPicker?.kind === "provider"
+                    ? previousPicker.parent
+                    : undefined,
+            );
+            return;
+        }
+        if (
+            "declareProvider" in transition
+            && transition.declareProvider === true
+        ) {
+            providerForm = startTuiProviderForm(
+                previousPicker?.kind === "provider" ? previousPicker : undefined,
+            );
+            settingsPicker = undefined;
+            composer.blur();
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         if ("poolVerify" in transition && transition.poolVerify !== undefined) {
             openVerifyDialog(
                 transition.poolVerify.provider,
@@ -7181,6 +7504,10 @@ export async function startTui(
             composer.blur();
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
             sessionTrashConfirmView.box.focus();
+        } else if (providerForgetCandidate !== undefined) {
+            composer.blur();
+            providerForgetConfirmView.update(providerForgetCandidate.label);
+            providerForgetConfirmView.box.focus();
         } else if (settingsPicker === undefined) {
             closeSettingsPickerSurface();
         } else {
@@ -7294,10 +7621,12 @@ export async function startTui(
         sessionSwitchPending = false;
         sessionTrashCandidate = undefined;
         sessionTrashPending = false;
+        providerForgetCandidate = undefined;
         timelinePicker = undefined;
         settingsPicker = undefined;
         secretPrompt = undefined;
         namePrompt = undefined;
+        providerForm = undefined;
         preferencesList = undefined;
         preferencesListParent = undefined;
         confirmingFullAccess = false;
