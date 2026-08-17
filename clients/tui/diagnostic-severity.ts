@@ -8,9 +8,6 @@ export type TuiDiagnosticCode =
     | "attachment_failed"
     | "permission_denied"
     | "file_skipped"
-    | "connection_retry"
-    | "attachment_closed"
-    | "connection_failed"
     | "hook_failed"
     | "resident_agent_stopped"
     | "session_corrupt";
@@ -39,9 +36,6 @@ export const TUI_DIAGNOSTICS = {
     attachment_failed: { severity: "error" },
     permission_denied: { severity: "error" },
     file_skipped: { severity: "notice" },
-    connection_retry: { severity: "notice" },
-    attachment_closed: { severity: "error" },
-    connection_failed: { severity: "error" },
     hook_failed: { severity: "error" },
     resident_agent_stopped: { severity: "fatal", state: "stopped" },
     session_corrupt: { severity: "fatal", state: "ended" },

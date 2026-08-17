@@ -9,7 +9,7 @@ import {
 test("diagnostic codes carry fixed severities and fatal state words", () => {
     expect(TUI_DIAGNOSTICS.permission_denied).toEqual({ severity: "error" });
     expect(TUI_DIAGNOSTICS.hook_failed).toEqual({ severity: "error" });
-    expect(TUI_DIAGNOSTICS.connection_retry).toEqual({ severity: "notice" });
+    expect(TUI_DIAGNOSTICS.file_skipped).toEqual({ severity: "notice" });
     expect(TUI_DIAGNOSTICS.resident_agent_stopped).toEqual({
         severity: "fatal",
         state: "stopped",
