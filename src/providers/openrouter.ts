@@ -56,6 +56,7 @@ export interface ChatProviderProfile {
     readonly provider: string;
     readonly api: string;
     readonly supportsImageInput?: boolean;
+    readonly supportsBodyExtensions?: boolean;
     readonly reasoningEffort?: (
         effort: ModelReasoningEffort,
         model: string,
@@ -125,6 +126,14 @@ export class OpenRouterAdapter implements ModelAdapter {
 
         try {
             throwIfAborted(request.signal);
+            if (
+                request.bodyExtensions !== undefined
+                && !this.profile.supportsBodyExtensions
+            ) {
+                throw new Error(
+                    `Provider ${this.profile.provider} does not support model request contributions`,
+                );
+            }
             const messages = transformMessages(request.messages, {
                 target: source,
                 normalizeToolCallId: normalizeOpenRouterToolCallId,
@@ -174,9 +183,20 @@ export class OpenRouterAdapter implements ModelAdapter {
                 ...(request.tools === undefined || request.tools.length === 0
                     ? {}
                     : { tools: encodeOpenRouterTools(request.tools) }),
+                ...(request.bodyExtensions === undefined
+                    ? {}
+                    : { bodyExtensions: request.bodyExtensions }),
             };
 
-            sentRequest = providerRequest;
+            sentRequest = request.bodyExtensions === undefined
+                ? providerRequest
+                : {
+                    ...providerRequest,
+                    bodyExtensions: Object.fromEntries(
+                        Object.keys(request.bodyExtensions)
+                            .map((namespace) => [namespace, "[redacted]"]),
+                    ),
+                };
 
             const chunks = await this.sendChat(providerRequest, request.signal);
             for await (const chunk of chunks) {

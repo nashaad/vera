@@ -79,7 +79,7 @@ function renderTuiStatusSegment(segment: StatusLineSegment): string {
         case "model": {
             const label = segment.provider === undefined
                 ? undefined
-                : findProvider(segment.provider)?.shortLabel;
+                : findProvider(segment.provider)?.shortLabel ?? segment.provider;
             const model = label === undefined
                 ? segment.model
                 : `${label}/${segment.model}`;
@@ -172,7 +172,7 @@ export function renderTuiStatusDetailsRows(
 ): TuiStatusChunk[][] {
     const providerLabel = settings?.provider === undefined
         ? undefined
-        : findProvider(settings.provider)?.shortLabel;
+        : findProvider(settings.provider)?.shortLabel ?? settings.provider;
     const model = settings?.model === undefined
         ? "loading"
         : providerLabel === undefined

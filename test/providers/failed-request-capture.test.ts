@@ -262,6 +262,41 @@ describe("failed request capture", () => {
         expect(source).toContain(REDACTED);
     });
 
+    test("captures contribution namespaces without their values", async () => {
+        const capture = createFailedRequestCapture({
+            sessionId: "session-contribution",
+            directory,
+        });
+        const adapter = new OpenRouterAdapter(
+            async () => {
+                throw new Error("Provider returned error");
+            },
+            undefined,
+            {
+                provider: "vera-strata",
+                api: "openai-chat-completions",
+                supportsBodyExtensions: true,
+            },
+            undefined,
+            capture,
+        );
+
+        await adapter.stream({
+            model: "strata",
+            messages: [],
+            bodyExtensions: {
+                strata: { customer_id: "customer-private-123" },
+            },
+        }).result();
+
+        const source = readFileSync(
+            join(directory, "session-contribution-1.json"),
+            "utf8",
+        );
+        expect(source).toContain('"strata": "[redacted]"');
+        expect(source).not.toContain("customer-private-123");
+    });
+
     test("writes nothing when no capture sink is wired in", async () => {
         const adapter = new OpenRouterAdapter(async () => {
             throw new Error("Provider returned error");

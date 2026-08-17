@@ -36,6 +36,108 @@ test("Vera config loads the shared model choice", () => {
     });
 });
 
+test("Vera config loads named provider instances", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "vera-strata",
+        model: "strata",
+        providers: {
+            "vera-strata": {
+                protocol: "openai-chat",
+                base_url: "https://strata.example.com/v1/",
+                credential: "api_key",
+                api_key_env: "VERA_STRATA_API_KEY",
+            },
+            "lab-anthropic": {
+                protocol: "anthropic-messages",
+                base_url: "https://models.example.com/v1",
+                credential: "none",
+                images: true,
+                max_tokens: 16_000,
+                thinking: "adaptive",
+            },
+        },
+    }));
+
+    expect(loadVeraConfig({ path })).toMatchObject({
+        provider: "vera-strata",
+        providers: {
+            "vera-strata": {
+                protocol: "openai-chat",
+                base_url: "https://strata.example.com/v1",
+                credential: "api_key",
+                api_key_env: "VERA_STRATA_API_KEY",
+            },
+            "lab-anthropic": {
+                protocol: "anthropic-messages",
+                base_url: "https://models.example.com/v1",
+                credential: "none",
+                images: true,
+                max_tokens: 16_000,
+                thinking: "adaptive",
+            },
+        },
+    });
+});
+
+test("Vera config rejects undeclared and malformed provider instances", () => {
+    const invalid = [
+        { provider: "missing", providers: {} },
+        {
+            provider: "vera-strata",
+            providers: {
+                "vera-strata": {
+                    protocol: "openai-chat",
+                    base_url: "http://remote.example.com/v1",
+                    credential: "none",
+                },
+            },
+        },
+        {
+            provider: "openrouter",
+            providers: {
+                openrouter: {
+                    protocol: "openai-chat",
+                    base_url: "https://example.com/v1",
+                    credential: "none",
+                },
+            },
+        },
+        {
+            provider: "lab-anthropic",
+            providers: {
+                "lab-anthropic": {
+                    protocol: "anthropic-messages",
+                    base_url: "https://example.com/v1",
+                    credential: "none",
+                    max_tokens: 0,
+                },
+            },
+        },
+        {
+            provider: "lab-openai",
+            providers: {
+                "lab-openai": {
+                    protocol: "openai-chat",
+                    base_url: "https://example.com/v1",
+                    credential: "none",
+                    thinking: "adaptive",
+                },
+            },
+        },
+    ];
+    for (const entry of invalid) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "strata",
+            ...entry,
+        }));
+        expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");
+    }
+});
+
 test("the optional load tolerates absence but not damage", () => {
     const missing = join(mkdtempSync(join(tmpdir(), "vera-config-")), "none.json");
     expect(loadOptionalVeraConfig({ path: missing })).toBeUndefined();
@@ -824,7 +926,7 @@ test("Vera config rejects a missing model", () => {
     writeFileSync(path, JSON.stringify({ schema_version: 1 }));
 
     expect(() => loadVeraConfig({ path })).toThrow(
-        "expected schema_version 1, provider openrouter, openai-codex, ollama, cerebras, or deepseek, a non-empty model string",
+        "expected schema_version 1, provider openrouter, openai-codex, ollama, cerebras, deepseek, or a name declared in providers, a non-empty model string",
     );
 });
 

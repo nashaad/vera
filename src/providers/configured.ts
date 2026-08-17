@@ -18,11 +18,16 @@ import { apiKey, type AuthStorage } from "./auth-storage.ts";
 import { findProvider } from "./registry.ts";
 import { UserFacingError } from "../user-facing-error.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
+import { createCustomOpenAIAdapter } from "./custom-openai.ts";
+import { createCustomAnthropicAdapter } from "./custom-anthropic.ts";
 
 export interface ConfiguredProviderOptions {
     readonly authStorage?: AuthStorage;
     readonly env?: Readonly<Record<string, string | undefined>>;
-    readonly fetch?: typeof globalThis.fetch;
+    readonly fetch?: (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => Promise<Response>;
     readonly log?: (
         entry: { readonly type: string } & Record<string, unknown>,
     ) => void;
@@ -68,7 +73,9 @@ const ADAPTERS: Readonly<Record<
         ...(options.authStorage === undefined
             ? {}
             : { authStorage: options.authStorage }),
-        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...(options.fetch === undefined
+            ? {}
+            : { fetch: options.fetch as typeof globalThis.fetch }),
     }),
     ollama: (options) => createOllamaAdapter({
         host: (options.env ?? process.env).OLLAMA_HOST,
@@ -106,10 +113,60 @@ export function createConfiguredModelAdapter(
     options: ConfiguredProviderOptions = {},
 ): ModelAdapter {
     const build = ADAPTERS[config.provider];
-    if (build === undefined) {
+    if (build !== undefined) {
+        return build(options);
+    }
+    const custom = config.providers?.[config.provider];
+    if (custom === undefined) {
         throw new Error(`Unknown provider ${config.provider}`);
     }
-    return build(options);
+    const apiKey = custom.credential === "none"
+        ? undefined
+        : customProviderApiKey(config.provider, custom.api_key_env, options);
+    if (custom.protocol === "openai-chat") {
+        return createCustomOpenAIAdapter({
+            provider: config.provider,
+            baseUrl: custom.base_url,
+            supportsImageInput: custom.images,
+            ...(apiKey === undefined ? {} : { apiKey }),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+            ...capture(options),
+        });
+    }
+    return createCustomAnthropicAdapter({
+        provider: config.provider,
+        baseUrl: custom.base_url,
+        supportsImageInput: custom.images,
+        defaultMaxTokens: custom.max_tokens,
+        adaptiveThinking: custom.thinking === "adaptive",
+        ...(apiKey === undefined ? {} : { apiKey }),
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...capture(options),
+    });
+}
+
+function customProviderApiKey(
+    providerId: string,
+    envVar: string | undefined,
+    options: ConfiguredProviderOptions,
+): string {
+    const stored = options.authStorage === undefined
+        ? undefined
+        : apiKey(options.authStorage, providerId);
+    if (stored !== undefined && stored.length > 0) {
+        return stored;
+    }
+    const fromEnv = envVar === undefined
+        ? undefined
+        : (options.env ?? process.env)[envVar];
+    if (fromEnv !== undefined && fromEnv.length > 0) {
+        return fromEnv;
+    }
+    throw new UserFacingError(
+        `No credentials for provider ${providerId}. Connect it from the model pane (ctrl+e)${
+            envVar === undefined ? "" : ` or set ${envVar}`
+        }.`,
+    );
 }
 
 /**

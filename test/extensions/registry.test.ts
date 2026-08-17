@@ -225,6 +225,68 @@ test("public hook capabilities register in order, carry plain identity, and isol
     await registry.close();
 });
 
+test("a model request hook contributes one namespaced plain value", async () => {
+    const extension = createExtension("strata.extension", `
+        export function activate(vera) {
+            vera.hooks.registerModelRequest("strata", (payload) => ({
+                corpus: {
+                    path: payload.workspace,
+                    session: payload.sessionId,
+                },
+            }));
+        }
+    `, ["hooks.model_request"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+
+    const [hook] = registry.modelRequestHooks();
+    expect(hook?.namespace).toBe("strata");
+    expect(await hook?.run({
+        type: "model_request",
+        provider: "vera-strata",
+        model: "strata",
+        sessionId: "session-1",
+        workspace: "/work",
+        signal: new AbortController().signal,
+    })).toEqual({
+        corpus: { path: "/work", session: "session-1" },
+    });
+    await registry.close();
+});
+
+test("duplicate model request namespaces disable the later extension at activation", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const first = createExtension("first-strata.extension", `
+        export function activate(vera) {
+            vera.hooks.registerModelRequest("strata", () => ({ source: "first" }));
+        }
+    `, ["hooks.model_request"]);
+    const second = createExtension("second-strata.extension", `
+        export function activate(vera) {
+            vera.hooks.registerModelRequest("strata", () => ({ source: "second" }));
+        }
+    `, ["hooks.model_request"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(first), configured(second)],
+        onFailure: (failure) => failures.push(failure),
+    });
+
+    expect(registry.modelRequestHooks()).toHaveLength(1);
+    expect(await registry.modelRequestHooks()[0]?.run({
+        type: "model_request",
+        provider: "vera-strata",
+        model: "strata",
+        sessionId: "session-1",
+        workspace: "/work",
+    })).toEqual({ source: "first" });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.message).toContain(
+        "Duplicate model request namespace: strata",
+    );
+    await registry.close();
+});
+
 test("hook registration is capability-gated and unregisterable", async () => {
     const failures: ExtensionRegistryFailure[] = [];
     const denied = createExtension("denied-hooks.extension", `
