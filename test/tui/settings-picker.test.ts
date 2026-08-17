@@ -1172,7 +1172,9 @@ test("the model pane opens on Pool, in the order the user's own use produced", a
     expect(frame).not.toContain("Z-AI: GLM-5.2");
     expect(frame).toContain("All models");
     expect(frame).toContain("Pool");
-    expect(frame).toContain("Your curated shortlist.");
+    expect(frame).toMatch(
+        /Pool \(2\).*All models \(2\).*\n.*Your curated shortlist\..*\n.*GPT-5\.6-Sol/,
+    );
 });
 
 test("the pane opens on Pool even when the running model is not in it", () => {

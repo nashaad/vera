@@ -2177,12 +2177,6 @@ function modelDetailNode(
         }
         line();
     }
-    // What this collection is, said in the column that has room for it rather
-    // than on a line under the tabs. A sentence there would sit between the
-    // tabs and the rows it describes and push the list down for nothing.
-    for (const text of wrappedTo(modelPaneNote(state), width)) {
-        line([fg(TUI_MUTED)(text)]);
-    }
     while (drawn < height) {
         line();
     }
@@ -2303,7 +2297,7 @@ function modelDetailHeight(
     const facts = described
         ? 3 + modelDetailFacts(state, option).length * 2 + 1
         : 0;
-    return facts + wrappedTo(modelPaneNote(state), width).length;
+    return facts;
 }
 
 /** How wide the block's own label column is, so its values line up. */
@@ -2409,7 +2403,8 @@ function renderListPickerRows(
         const strip = modelTabStripNode(renderer, stop, {
             pool: modelTabRows(stripPane.allOptions, "pool").length,
             all: modelTabRows(stripPane.allOptions, "all").length,
-        }, onTab, onConfigure);
+        }, tab === undefined || tab === "help" ? undefined : modelPaneNote(state),
+        onTab, onConfigure);
         box.add(strip);
         nodes.push(strip);
     }
@@ -2607,8 +2602,7 @@ function renderListPickerRows(
     box.height = "auto";
 }
 
-// The strip and the blank line under it. What each collection is now sits in
-// the detail column, which has the room for it without pushing the list down.
+// The strip and its one-line collection explanation.
 const MODEL_TAB_STRIP_HEIGHT = 2;
 const MODEL_ALL_MAX_ROWS = 28;
 
@@ -2658,7 +2652,7 @@ const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     help: "What the marks and the keys in this pane mean.",
 };
 
-/** What the detail column says about the collection under the cursor. */
+/** What the line below the tabs says about the active collection. */
 function modelPaneNote(state: TuiAnySettingsPickerState): string {
     const tab = state.kind === "model" ? state.tab ?? "all" : "all";
     return MODEL_TAB_DESCRIPTIONS[tab];
@@ -2669,6 +2663,7 @@ function modelTabStripNode(
     renderer: RenderContext,
     tab: ModelStripStop,
     counts: Readonly<Partial<Record<TuiModelPickerTab, number>>>,
+    note?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
 ): BoxRenderable {
@@ -2742,7 +2737,8 @@ function modelTabStripNode(
     chips.add(configure);
     strip.add(chips);
     strip.add(new TextRenderable(renderer, {
-        content: "",
+        content: note ?? "",
+        fg: TUI_MUTED,
         width: "100%",
         height: MODEL_TAB_STRIP_HEIGHT - 1,
     }));
