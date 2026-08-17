@@ -6,6 +6,11 @@ import {
     type ModelStream,
     type ModelStreamEvent,
 } from "../model/types.ts";
+import { ModelEventStream } from "../model/stream.ts";
+
+export type PrepareModelRequest = (
+    request: ModelRequest,
+) => ModelRequest | Promise<ModelRequest>;
 
 /**
  * How this adapter's cached client can be told apart from one built against
@@ -34,6 +39,7 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         private readonly createAdapter: (provider: string) => ModelAdapter,
         private readonly defaultProvider: string,
         private readonly fingerprint?: CredentialFingerprint,
+        private readonly prepareRequest?: PrepareModelRequest,
     ) {}
 
     /**
@@ -47,12 +53,55 @@ export class ProviderRoutingAdapter implements ModelAdapter {
      */
     stream(request: ModelRequest): ModelStream {
         const provider = request.provider ?? this.defaultProvider;
+        if (this.prepareRequest !== undefined) {
+            const output = new ModelEventStream();
+            void this.producePrepared(provider, request, output);
+            return output;
+        }
         try {
             return this.adapter(provider).stream(request);
         } catch (error) {
             return failedStream(
                 error instanceof Error ? error : new Error(String(error)),
             );
+        }
+    }
+
+    private async producePrepared(
+        provider: string,
+        request: ModelRequest,
+        output: ModelEventStream,
+    ): Promise<void> {
+        let terminal = false;
+        try {
+            const prepared = await this.prepareRequest!(request);
+            for await (const event of this.adapter(provider).stream(prepared)) {
+                if (event.type === "done" || event.type === "error") {
+                    terminal = true;
+                }
+                output.push(event);
+            }
+            if (!terminal) {
+                throw new Error(
+                    `Provider ${provider} ended its stream without a terminal event`,
+                );
+            }
+        } catch (error) {
+            if (terminal) return;
+            const failure = error instanceof Error ? error : new Error(String(error));
+            const aborted = request.signal?.aborted === true;
+            output.push({
+                type: "error",
+                error: failure,
+                message: {
+                    role: "assistant",
+                    content: [],
+                    source: { provider, api: "none", model: request.model },
+                    usage: emptyUsage(),
+                    stopReason: aborted ? "aborted" : "error",
+                    errorMessage: failure.message,
+                },
+            });
         }
     }
 

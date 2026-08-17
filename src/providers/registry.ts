@@ -1,4 +1,4 @@
-import type { VeraProviderId } from "../config.ts";
+import type { VeraConfig, VeraProviderId } from "../config.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 
 /**
@@ -94,6 +94,36 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
 
 export function findProvider(id: string): ProviderDescriptor | undefined {
     return PROVIDERS.find((provider) => provider.id === id);
+}
+
+export function configuredProviders(
+    config: Pick<VeraConfig, "providers"> | undefined,
+): readonly ProviderDescriptor[] {
+    const custom = Object.entries(config?.providers ?? {}).map(
+        ([id, provider]): ProviderDescriptor => ({
+            id,
+            label: id,
+            shortLabel: id,
+            group: "other",
+            credential: provider.credential,
+            hint: provider.credential === "none"
+                ? "configured endpoint, no account"
+                : provider.api_key_env === undefined
+                    ? "API key"
+                    : `API key or ${provider.api_key_env}`,
+            ...(provider.api_key_env === undefined
+                ? {}
+                : { envVar: provider.api_key_env }),
+        }),
+    );
+    return [...PROVIDERS, ...custom];
+}
+
+export function findConfiguredProvider(
+    id: string,
+    config: Pick<VeraConfig, "providers"> | undefined,
+): ProviderDescriptor | undefined {
+    return configuredProviders(config).find((provider) => provider.id === id);
 }
 
 export interface ProviderConnectionOptions {

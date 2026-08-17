@@ -222,6 +222,7 @@ export async function startResidentHost(
             ? {}
             : { onFailure: options.onExtensionFailure }),
     });
+    const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
     const createAdapter = options.createAdapter
         ?? ((
             provider?: string,
@@ -434,6 +435,38 @@ export async function startResidentHost(
             }
             return hooks;
         },
+        ...(!hasModelRequestHooks ? {} : {
+            prepareModelRequest: ({ sessionId, workspace }) => async (request) => {
+                const body: Record<string, import("../sdk/hooks.ts").JsonValue> = {};
+                for (const hook of extensions.modelRequestHooks()) {
+                    const value = await hook.run({
+                        type: "model_request",
+                        provider: request.provider ?? currentConfig().provider,
+                        model: request.model,
+                        sessionId,
+                        workspace,
+                        ...(request.signal === undefined
+                            ? {}
+                            : { signal: request.signal }),
+                    });
+                    if (value === undefined) continue;
+                    const cloned = structuredClone(value);
+                    const serialized = JSON.stringify(cloned);
+                    if (Buffer.byteLength(serialized, "utf8") > 64 * 1024) {
+                        throw new Error(
+                            `Model request contribution ${hook.namespace} exceeded 65536 bytes`,
+                        );
+                    }
+                    body[hook.namespace] = cloned;
+                }
+                return Object.keys(body).length === 0
+                    ? request
+                    : {
+                        ...request,
+                        bodyExtensions: { ...request.bodyExtensions, ...body },
+                    };
+            },
+        }),
         get disabledPromptContributions() {
             return currentConfig().disabled_prompt_contributions;
         },

@@ -1,5 +1,6 @@
 import type { JsonValue } from "./hooks.ts";
 import type {
+    ModelRequestHook,
     PostToolUseHook,
     PreToolUseHook,
 } from "./hooks.ts";
@@ -50,6 +51,10 @@ export interface VeraExtensionTools {
 export interface VeraExtensionHooks {
     registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
     registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
+    registerModelRequest(
+        namespace: string,
+        hook: ModelRequestHook,
+    ): VeraExtensionDisposer;
     registerCommand(spec: VeraExtensionCommandHookSpec): VeraExtensionDisposer;
 }
 

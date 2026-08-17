@@ -200,6 +200,8 @@ export interface ModelRequest {
     readonly systemPrompt?: string;
     readonly messages: readonly ModelInputMessage[];
     readonly tools?: readonly ModelTool[];
+    /** Namespaced provider-body fields contributed outside the engine. */
+    readonly bodyExtensions?: Readonly<Record<string, import("../sdk/hooks.ts").JsonValue>>;
     readonly signal?: AbortSignal;
 }
 

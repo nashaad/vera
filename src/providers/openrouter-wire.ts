@@ -15,6 +15,7 @@ import type {
     ModelUsage,
 } from "../model/types.ts";
 import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
+import type { JsonValue } from "../sdk/hooks.ts";
 
 export interface OpenRouterChatRequest {
     readonly model: string;
@@ -24,6 +25,7 @@ export interface OpenRouterChatRequest {
         readonly effort: ProviderReasoningEffort;
     };
     readonly tools?: ChatFunctionTool[];
+    readonly bodyExtensions?: Readonly<Record<string, JsonValue>>;
 }
 
 export type SendOpenRouterChat = (
