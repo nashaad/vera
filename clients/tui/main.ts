@@ -2242,14 +2242,14 @@ export async function startTui(
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
-        // Sized against the terminal and lifted back over the app's top
-        // padding. An absolute child is placed inside its parent's content
-        // box, so a scrim at 100%/100% left the padding row at full theme
-        // brightness: a lit bar across the top of an otherwise dimmed screen.
+        // Stretched from above the app's top padding to the bottom of the
+        // screen. An absolute child is laid out inside its parent's content
+        // box and its height is clamped to it, so top and bottom rather than a
+        // height: either alone leaves an undimmed bar at one end.
         left: 0,
         top: -APP_PADDING_TOP,
+        bottom: 0,
         width: renderer.width,
-        height: renderer.height,
         // Enough to push the transcript behind the card, not enough to erase
         // it. A heavier wash reads fine on paper and fails on the dark themes,
         // where the ground is already near black and the text lands on top of
@@ -2449,7 +2449,6 @@ export async function startTui(
 
     renderer.on(CliRenderEvents.RESIZE, () => {
         overlayScrim.width = renderer.width;
-        overlayScrim.height = renderer.height;
         appearance = fitTuiAppearance(configuredAppearance, renderer.width);
         composerContentIndent = tuiComposerContentIndent(appearance);
         composerHorizontalInset = composerContentIndent * 2;
