@@ -278,6 +278,7 @@ import {
     type TuiAnySettingsPickerState,
     type TuiReviewerSlot,
     startTuiModelAssignmentPicker,
+    startTuiPoolVerifyScopePicker,
     tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
@@ -976,6 +977,18 @@ export async function startTui(
     }>();
     let poolChangeUndo: PoolChangeUndo | undefined;
     let admissionDialog: TuiAdmissionDialogState | undefined;
+    /**
+     * A probe of every model the user keeps, one at a time. Sequential because
+     * each entry is a live call to a provider, and a burst of them is the
+     * shape rate limits are written against.
+     */
+    let poolVerifySweep: {
+        readonly queue: readonly { readonly provider: string; readonly model: string }[];
+        readonly total: number;
+        index: number;
+        answered: number;
+        requestId?: string;
+    } | undefined;
     /** The model pane the dialog covered, put back when the dialog leaves. */
     let admissionReturnPicker: TuiSettingsPickerState | undefined;
     /**
@@ -5029,6 +5042,13 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (
+                    update.type === "pool_admission_result"
+                    && poolVerifySweepResult(update.requestId, update.verdict)
+                ) {
+                    renderState();
+                    continue;
+                }
                 if (update.type === "pool_admission_result") {
                     const pendingUndo = pendingPoolUndos.get(update.requestId);
                     if (
@@ -7403,6 +7423,10 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
+        if ("poolVerifySweep" in transition && transition.poolVerifySweep === true) {
+            openPoolVerifyScopePicker();
+            return;
+        }
         if ("poolVerify" in transition && transition.poolVerify !== undefined) {
             openVerifyDialog(
                 transition.poolVerify.provider,
@@ -7616,6 +7640,9 @@ export async function startTui(
                         settingsPickerAgent,
                     );
                 }
+            } else if (selection.kind === "pool_verify_scope") {
+                startPoolVerifySweep(selection.onlyUnverified);
+                return;
             } else if (selection.kind === "model_assignment_browse") {
                 // Keeping a model is what makes it available as a default, so
                 // the row that says so lands on the collection it is kept in
@@ -8144,6 +8171,88 @@ export async function startTui(
      * set aside rather than closed so leaving the dialog can put the user back
      * where they were.
      */
+    /** Every model the user keeps, in the order the pane lists them. */
+    function keptModels(): readonly {
+        readonly provider: string;
+        readonly model: string;
+        readonly verified: boolean;
+    }[] {
+        return (focusedAgentState().modelSettings?.pooled ?? []).map((entry) => ({
+            provider: entry.provider,
+            model: entry.model,
+            verified: entry.verified === true,
+        }));
+    }
+
+    function openPoolVerifyScopePicker(): void {
+        const kept = keptModels();
+        if (kept.length === 0) {
+            showStatusNotice("nothing kept to probe yet");
+            return;
+        }
+        settingsPicker = withTuiPickerParent(
+            startTuiPoolVerifyScopePicker(
+                kept.filter((entry) => !entry.verified).length,
+                kept.length,
+            ),
+            settingsPicker?.kind === "model" ? settingsPicker : undefined,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    /**
+     * Runs the sweep without a dialog per model. A dialog would ask to be
+     * dismissed between every probe, which turns a batch back into the
+     * one-at-a-time key it was meant to replace. Progress goes to the status
+     * line instead, and the rows update as each verdict lands.
+     */
+    function startPoolVerifySweep(onlyUnverified: boolean): void {
+        const queue = keptModels()
+            .filter((entry) => !onlyUnverified || !entry.verified)
+            .map((entry) => ({ provider: entry.provider, model: entry.model }));
+        settingsPicker = undefined;
+        composer.blur();
+        if (queue.length === 0) {
+            showStatusNotice("everything you keep has been probed");
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        poolVerifySweep = { queue, total: queue.length, index: 0, answered: 0 };
+        renderState();
+        focusActiveSurface();
+        advancePoolVerifySweep();
+    }
+
+    function advancePoolVerifySweep(): void {
+        const sweep = poolVerifySweep;
+        if (sweep === undefined) return;
+        const next = sweep.queue[sweep.index];
+        if (next === undefined) {
+            poolVerifySweep = undefined;
+            showStatusNotice(
+                `probed ${sweep.total}, ${sweep.answered} answered`,
+            );
+            renderState();
+            return;
+        }
+        showStatusNotice(
+            `probing ${next.provider}/${next.model} (${sweep.index + 1}/${sweep.total})`,
+        );
+        sweep.requestId = requestPoolAdmission(next.provider, next.model, true);
+    }
+
+    /** True when the verdict belonged to the sweep, which then steps on. */
+    function poolVerifySweepResult(requestId: string, verdict: string): boolean {
+        const sweep = poolVerifySweep;
+        if (sweep === undefined || sweep.requestId !== requestId) return false;
+        if (verdict === "added") sweep.answered += 1;
+        sweep.index += 1;
+        advancePoolVerifySweep();
+        return true;
+    }
+
     function openVerifyDialog(provider: string, model: string): void {
         admissionReturnPicker = settingsPicker?.kind === "model"
             ? settingsPicker

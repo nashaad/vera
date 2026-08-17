@@ -88,7 +88,8 @@ export type TuiSettingsPickerKind =
     | "permission_settings"
     | "reviewer_settings"
     | "reviewer"
-    | "model_assignment";
+    | "model_assignment"
+    | "pool_verify_scope";
 
 /**
  * Where a menu row leads. The menu kinds carry no value of their own: choosing
@@ -387,6 +388,8 @@ export type TuiSettingsPickerSelection =
         readonly provider?: string;
         readonly model?: string;
     }
+    /** How much of the kept collection the probe sweep should cover. */
+    | { readonly kind: "pool_verify_scope"; readonly onlyUnverified: boolean }
     /** The Defaults pane was left for the collection defaults are chosen from. */
     | { readonly kind: "model_assignment_browse" }
     /** A Defaults-tab row was chosen: open the model list for it. */
@@ -435,6 +438,8 @@ export interface TuiSettingsPickerTransition {
     readonly undoPoolChange?: boolean;
     /** Same contract as `poolToggle`: reported, not applied here. */
     readonly poolVerify?: TuiPoolVerify;
+    /** The sweep key was pressed: ask how much of the collection it covers. */
+    readonly poolVerifySweep?: boolean;
     /** Same contract again: the pane asks for the prompt, it does not name. */
     readonly poolName?: TuiPoolNameCandidate;
     /**
@@ -1195,6 +1200,42 @@ export function startTuiReviewerPicker(
  * unreachable the moment it is written. Widening the choice means adding to
  * the pool first.
  */
+/** The two answers to "how much of it", which is the only question a sweep has. */
+export const POOL_VERIFY_UNVERIFIED_VALUE = "unverified";
+export const POOL_VERIFY_ALL_VALUE = "all";
+
+/**
+ * Asked before a sweep because the two answers cost differently. Re-probing a
+ * model that already answered spends a call to learn what is already recorded,
+ * so the cheaper one leads and the list says how many each covers.
+ */
+export function startTuiPoolVerifyScopePicker(
+    unverified: number,
+    total: number,
+): TuiSettingsPickerState {
+    const options: readonly TuiSettingsPickerOption[] = [
+        {
+            value: POOL_VERIFY_UNVERIFIED_VALUE,
+            label: `Only the ones never probed (${unverified})`,
+            description: "leaves what already answered alone",
+        },
+        {
+            value: POOL_VERIFY_ALL_VALUE,
+            label: `Everything you keep (${total})`,
+            description: "re-probes models that already answered",
+        },
+    ];
+    return {
+        kind: "pool_verify_scope",
+        title: "Probe the models you keep",
+        subtitle: "each one is a live call to its provider",
+        allOptions: options,
+        options,
+        selectedIndex: unverified === 0 ? 1 : 0,
+        query: "",
+    };
+}
+
 export function startTuiModelAssignmentPicker(
     assignment: ModelAssignmentId,
     label: string,
@@ -1672,6 +1713,14 @@ export function handleTuiSettingsPickerKey(
                 label: selected.label,
             },
         };
+    }
+    // The sweep asks how much of the collection it covers before it spends
+    // anything, so the key is safe to press to find out what it would do.
+    if (
+        state.kind === "model"
+        && tuiBindingId("model_picker", key) === "verify_pool"
+    ) {
+        return { state, handled: true, poolVerifySweep: true };
     }
     // Verification is on demand and never on the way in: adding a model is
     // instant, and this is the key that spends probe calls deliberately.
@@ -2414,6 +2463,7 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["^s", "add the highlighted model to the pool, or remove it."],
     ["^n", "give a pooled model a short name of your own."],
     ["^⇧r", "probe a model and record what it can do."],
+    ["^v", "probe everything you keep, or only what was never probed."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
@@ -3044,6 +3094,11 @@ function pickerFooterText(
             ...(selected?.provider === undefined
                 ? []
                 : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
+            // Behind the single-model key, since the sweep is the rarer of the
+            // two and the one that costs a call per row.
+            ...(state.tab === "pool"
+                ? [{ text: tuiKeyHint("verify_pool"), drop: 3 }]
+                : []),
             // Naming belongs to a pool entry, so the hint appears on the same
             // rows the key works on and nowhere else.
             ...(pool === undefined || selected === undefined
@@ -4035,6 +4090,12 @@ function pickerSelection(
         || kind === "reviewer_settings"
     ) {
         return { kind: "menu", target: value as TuiSettingsMenuTarget };
+    }
+    if (kind === "pool_verify_scope") {
+        return {
+            kind,
+            onlyUnverified: value === POOL_VERIFY_UNVERIFIED_VALUE,
+        };
     }
     if (kind === "model_assignment") {
         if (value === MODEL_ASSIGNMENT_BROWSE_VALUE) {

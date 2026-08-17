@@ -248,6 +248,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         // same caveat the half-page chords above carry. Elsewhere it arrives
         // as plain ctrl+r, which this scope binds to nothing, so the chord
         // goes unmatched rather than firing a probe nobody asked for.
+        id: "verify_pool",
+        keys: ["ctrl+v"],
+        scope: "model_picker",
+        description: "Probe the models you keep, and record what they can do",
+        hint: "^v verify all",
+    },
+    {
         id: "verify_model",
         keys: ["ctrl+shift+r"],
         scope: "model_picker",
