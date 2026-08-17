@@ -2602,10 +2602,10 @@ function renderListPickerRows(
     box.height = "auto";
 }
 
-// The strip, its one-line collection explanation, and breathing room before
-// the rows. Filling the old blank line with prose must not leave the list
-// pressed directly against that prose.
-const MODEL_TAB_STRIP_HEIGHT = 3;
+// The strip, breathing room, its one-line collection explanation, and another
+// blank before the rows. The explanation is content of its own, not a label
+// attached to either the tabs above or the list below.
+const MODEL_TAB_STRIP_HEIGHT = 4;
 const MODEL_ALL_MAX_ROWS = 28;
 
 /**
@@ -2738,6 +2738,11 @@ function modelTabStripNode(
     }
     chips.add(configure);
     strip.add(chips);
+    strip.add(new TextRenderable(renderer, {
+        content: "",
+        width: "100%",
+        height: 1,
+    }));
     strip.add(new TextRenderable(renderer, {
         content: note ?? "",
         fg: TUI_MUTED,
