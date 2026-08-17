@@ -9,9 +9,9 @@ export const agentSendTool: RegisteredTool = {
         name: "agent_send",
         description: [
             "Send a durable note to another Vera participant from agent_roster.",
-            "The recipient is not woken; the result reports whether a UI notice",
-            "was possible. Use reply_to to reply to a message you previously",
-            "read with agent_inbox.",
+            "The message is stored in the recipient's inbox; the result reports",
+            "whether the recipient was woken to read it. Use reply_to to reply",
+            "to a message you previously read with agent_inbox.",
         ].join(" "),
         inputSchema: {
             type: "object",
