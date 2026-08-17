@@ -30,6 +30,9 @@ interface TuiClientPreferences {
     // Spelled as it was when quickslots were called presets. Respelling the key
     // would leave every already-saved slot unreadable.
     readonly model_presets?: DiskQuickslots;
+    // Binding id to chords. Ids only: a block that could name actions would be
+    // a macro language, and a macro language is where blind cycling comes back.
+    readonly keybindings?: Readonly<Record<string, readonly string[]>>;
     readonly extensions?: Readonly<
         Record<string, Readonly<Record<string, JsonValue>>>
     >;
@@ -214,6 +217,19 @@ export function saveTuiQuickslots(
     }, path);
 }
 
+/**
+ * The user's key overrides, unvalidated.
+ *
+ * Validation belongs to the merge in `keybindings.ts`, which is the only place
+ * that knows which ids exist and which chords are already claimed. Reading the
+ * block here only asserts its shape: an object of string lists.
+ */
+export function loadTuiKeybindingOverlay(
+    path = tuiThemePreferencePath(),
+): Readonly<Record<string, readonly string[]>> {
+    return loadTuiClientPreferences(path).keybindings ?? {};
+}
+
 export function loadTuiExtensionPreference(
     extensionId: string,
     key: string,
@@ -299,6 +315,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 400,
             );
             const quickslots = Reflect.get(value, "model_presets");
+            const keybindings = parseKeybindingOverlay(
+                Reflect.get(value, "keybindings"),
+            );
             const extensions = parseExtensionPreferences(
                 Reflect.get(value, "extensions"),
             );
@@ -331,6 +350,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                         ),
                     }
                     : {}),
+                ...(keybindings === undefined ? {} : { keybindings }),
                 ...(extensions === undefined ? {} : { extensions }),
                 ...(sharedSessionGroups.length === 0
                     ? {}
@@ -402,6 +422,33 @@ function parseSharedSessionGroups(
         used.add(second);
         return [[first, second] as const];
     });
+}
+
+/**
+ * The keybindings block as written, minus anything that is not a list of
+ * strings. A malformed value is dropped here and named by the merge, which is
+ * what turns a typo into a banner line rather than a crash.
+ */
+function parseKeybindingOverlay(
+    value: unknown,
+): Readonly<Record<string, readonly string[]>> | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const overlay: Record<string, readonly string[]> = {};
+    for (const [id, chords] of Object.entries(value)) {
+        if (
+            Array.isArray(chords)
+            && chords.every((chord) => typeof chord === "string")
+        ) {
+            overlay[id] = chords as readonly string[];
+        } else {
+            // Kept, so the merge can say which id was wrong rather than
+            // silently behaving as though it had never been written.
+            overlay[id] = [String(chords)];
+        }
+    }
+    return Object.keys(overlay).length === 0 ? undefined : overlay;
 }
 
 function parseExtensionPreferences(

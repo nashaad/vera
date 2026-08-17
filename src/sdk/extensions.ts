@@ -529,6 +529,21 @@ export interface VeraClientExtensionKeybindingSpec {
     readonly id: string;
     readonly description: string;
     readonly keys: readonly string[];
+    /**
+     * Where the chord applies. Absent means everywhere an extension chord can
+     * be reached, which is every surface with no overlay open.
+     */
+    readonly scope?: string;
+    /**
+     * Whether the user may move this chord in `tui.json`.
+     *
+     * Absent means no. Only a binding that opens a visible picker should say
+     * yes: a remappable key that changes state without showing anything is how
+     * blind cycling gets rebuilt from the outside.
+     */
+    readonly remappable?: boolean;
+    /** How the chord is written in a footer, when a surface shows it. */
+    readonly hint?: string;
     readonly run: VeraClientExtensionKeybindingHandler;
 }
 

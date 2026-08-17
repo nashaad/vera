@@ -30,7 +30,7 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { TUI_KEYMAP, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
+import { activeTuiKeymap, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
 
 export type TuiHelpTab =
     | "general"
@@ -131,7 +131,7 @@ function keyRows(): readonly {
     readonly meta: string;
 }[] {
     return HELP_KEY_SCOPES.flatMap(({ scope, title }) =>
-        TUI_KEYMAP.filter((binding) => binding.scope === scope).map((
+        activeTuiKeymap().filter((binding) => binding.scope === scope).map((
             binding,
         ) => ({
             label: binding.keys.map(chordLabel).join(" / "),
